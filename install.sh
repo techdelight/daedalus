@@ -134,6 +134,10 @@ done
 
 echo "  Copied binary and ${#RUNTIME_FILES[@]} runtime files."
 
+# Set the default data-dir to the resolved absolute path
+DATA_DIR="$PREFIX/.cache"
+sed -i "s|\"data-dir\": \"\"|\"data-dir\": \"$DATA_DIR\"|" "$PREFIX/config.json"
+
 # ── Symlink ──────────────────────────────────────────────────────────────────
 if [[ "$CREATE_LINK" == true ]]; then
     LINK_DIR="$HOME/.local/bin"
