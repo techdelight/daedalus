@@ -3,7 +3,7 @@
 set -euo pipefail
 
 # ── Defaults ──────────────────────────────────────────────────────────────────
-PREFIX="/opt/daedalus"
+PREFIX="$HOME/.local/share/daedalus"
 CREATE_LINK=true
 REPO_URL="https://github.com/techdelight/daedalus/archive/master.tar.gz"
 
@@ -23,7 +23,7 @@ usage() {
 Usage: $0 [--prefix <dir>] [--no-link]
 
 Options:
-  --prefix <dir>  Installation directory (default: /opt/daedalus)
+  --prefix <dir>  Installation directory (default: ~/.local/share/daedalus)
   --no-link       Skip creating a symlink in PATH
 
 Downloads the Daedalus source, builds the binary via Docker, installs
@@ -52,6 +52,12 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+# ── Reject root ───────────────────────────────────────────────────────────────
+if [[ $EUID -eq 0 ]]; then
+    echo "Error: do not run this script as root. Install under your own user account." >&2
+    exit 1
+fi
 
 # ── Prerequisite checks ─────────────────────────────────────────────────────
 echo "Checking prerequisites..."
@@ -129,12 +135,8 @@ echo "  Copied binary and ${#RUNTIME_FILES[@]} runtime files."
 
 # ── Symlink ──────────────────────────────────────────────────────────────────
 if [[ "$CREATE_LINK" == true ]]; then
-    if [[ $EUID -eq 0 ]]; then
-        LINK_DIR="/usr/local/bin"
-    else
-        LINK_DIR="$HOME/.local/bin"
-        mkdir -p "$LINK_DIR"
-    fi
+    LINK_DIR="$HOME/.local/bin"
+    mkdir -p "$LINK_DIR"
 
     ln -sf "$PREFIX/daedalus" "$LINK_DIR/daedalus"
     echo "  Symlinked $LINK_DIR/daedalus -> $PREFIX/daedalus"

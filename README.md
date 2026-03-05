@@ -14,7 +14,7 @@ Claude Code is powerful but constantly asks for permission to run commands, edit
 
 ```bash
 # Install Daedalus
-curl -fsSL https://raw.githubusercontent.com/techdelight/daedalus/master/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/techdelight/daedalus/master/install.sh | bash
 
 # Start a project
 daedalus my-awesome-app /path/to/project
@@ -22,15 +22,15 @@ daedalus my-awesome-app /path/to/project
 
 ## Installation
 
-The install script downloads the Daedalus source from GitHub, builds the binary via Docker, copies runtime files to a prefix directory, and symlinks `daedalus` onto your PATH.
+The install script downloads the Daedalus source from GitHub, builds the binary via Docker, copies runtime files to a prefix directory, and symlinks `daedalus` into `~/.local/bin`.
 
 **Prerequisites:** curl, Docker (running), and Claude Code credentials (`~/.claude/.credentials.json`).
 
 ```bash
-# Install to /opt/daedalus (default) — requires root
-curl -fsSL https://raw.githubusercontent.com/techdelight/daedalus/master/install.sh | sudo bash
+# Install to ~/.local/share/daedalus (default)
+curl -fsSL https://raw.githubusercontent.com/techdelight/daedalus/master/install.sh | bash
 
-# Install to a custom directory without root
+# Install to a custom directory
 curl -fsSL https://raw.githubusercontent.com/techdelight/daedalus/master/install.sh | bash -s -- --prefix ~/daedalus
 ```
 
@@ -38,10 +38,10 @@ curl -fsSL https://raw.githubusercontent.com/techdelight/daedalus/master/install
 
 | Flag | Description |
 |---|---|
-| `--prefix <dir>` | Installation directory (default: `/opt/daedalus`) |
+| `--prefix <dir>` | Installation directory (default: `~/.local/share/daedalus`) |
 | `--no-link` | Skip creating a symlink in PATH |
 
-When running as root the symlink goes to `/usr/local/bin`; otherwise to `~/.local/bin`.
+The symlink is created in `~/.local/bin`. If this directory is not on your PATH, the script prints a hint.
 
 ## Usage
 
