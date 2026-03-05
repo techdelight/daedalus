@@ -8,7 +8,7 @@ All notable changes to this project will be documented in this file.
 - **Rebrand**: Renamed project from `agentenv` to `Daedalus` across all source files, Go module path, binary name, shell completions, documentation, and build scripts.
 - Copyright holder changed from "David Stibbe" to "Techdelight BV" in all source file headers.
 - Apache-2.0 license added (`LICENSE` file).
-- Documentation restructured: `README.md` is now end-user focused, `CONTRIBUTION.md` expanded with coding standards and Definition of Done, `ARCHITECTURE.md` created with module breakdown, component diagram, and data flow.
+- Documentation restructured: `README.md` is now end-user focused, `CONTRIBUTING.md` expanded with coding standards and Definition of Done, `ARCHITECTURE.md` created with module breakdown, component diagram, and data flow.
 
 ## [0.6.0] - 2026-03-02
 

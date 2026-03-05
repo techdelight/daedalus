@@ -229,7 +229,7 @@ daedalus --resume <session-id> my-app
 
 ## Contributing
 
-See [CONTRIBUTION.md](CONTRIBUTION.md) for build instructions, development workflow, and technical details. See [ARCHITECTURE.md](ARCHITECTURE.md) for system design.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for build instructions, development workflow, and technical details. See [ARCHITECTURE.md](ARCHITECTURE.md) for system design.
 
 ## License
 

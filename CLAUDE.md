@@ -18,9 +18,9 @@ Maintain the following documents at the repo root (Markdown unless specified):
 | `ROADMAP.md` | The plan — current sprint (detailed goals, scope, acceptance criteria, demo plan), future sprints (feature themes, sequencing), version milestones |
 | `CHANGELOG.md` | Changes per version (Added/Changed/Fixed/Removed). Include an `[Unreleased]` section |
 | `VERSION` | Single-line semantic version (e.g., `0.6.0`). Any release increments VERSION and adds a CHANGELOG entry |
-| `README.md` | End-user usage only — quick start, run info. No build instructions. Refer to `CONTRIBUTION.md` for technical details |
+| `README.md` | End-user usage only — quick start, run info. No build instructions. Refer to `CONTRIBUTING.md` for technical details |
 | `ARCHITECTURE.md` | Architecture — modules, components, protocols/ports, connections |
-| `CONTRIBUTION.md` | Development guide — branching, TDD, code quality, Definition of Done, build instructions |
+| `CONTRIBUTING.md` | Development guide — branching, TDD, code quality, Definition of Done, build instructions |
 
 ## Commands
 
