@@ -251,7 +251,7 @@ All fields are optional. The file itself is optional — Daedalus works without 
 
 | Key | Type | Description |
 |---|---|---|
-| `data-dir` | string | Base directory for registry and per-project caches |
+| `data-dir` | string | Base directory for registry and per-project caches. Must be an absolute path. Set during installation to `<install-dir>/.cache`. |
 | `debug` | bool | Enable Claude Code debug mode |
 | `no-tmux` | bool | Run without tmux session wrapping |
 | `image-prefix` | string | Docker image prefix (default: `techdelight/claude-runner`) |
