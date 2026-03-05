@@ -113,6 +113,12 @@ Three UI surfaces sharing one core. Clean architecture extraction.
 - Configurable `.cache` directory location (currently hardcoded relative to binary)
 - Deployment/installation script
 - Code structure cleanup — move `.go` files out of the root into packages
+- Usage instructions in README:
+  - Creating a new project
+  - Starting/attaching a project in the TUI
+  - Scrolling in tmux
+  - Disconnecting from a session
+  - `.cache` directory purpose and location
 
 ### Sprint 9: 1.0 Preparation
 
