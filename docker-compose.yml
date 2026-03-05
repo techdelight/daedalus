@@ -1,0 +1,17 @@
+services:
+  claude:
+    image: techdelight/claude-runner:${TARGET:-dev}
+    user: "claude"
+    volumes:
+      - "${PROJECT_DIR}:/workspace"
+      - "${CACHE_DIR}:/home/claude"
+      - "${CRED_PATH}:/opt/claude/credentials/.credentials.json:ro"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    stdin_open: true
+    tty: true
+    mem_limit: 4g
+    cpus: "2.0"
+    pids_limit: 512

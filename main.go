@@ -1,0 +1,601 @@
+// Copyright (C) 2026 Techdelight BV
+
+package main
+
+import (
+	"bufio"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
+
+	"github.com/techdelight/daedalus/core"
+)
+
+func main() {
+	initColor()
+	if err := run(os.Args[1:]); err != nil {
+		fmt.Fprintf(os.Stderr, "%s %v\n", colorRed("Error:"), err)
+		os.Exit(1)
+	}
+}
+
+func run(args []string) error {
+	cfg, err := parseArgs(args)
+	if err != nil {
+		return err
+	}
+
+	if cfg.NoColor {
+		noColor = true
+	}
+
+	switch cfg.Subcommand {
+	case "help":
+		printUsage()
+		return nil
+	case "list":
+		return listProjects(cfg)
+	case "tui":
+		return runTUI(cfg)
+	case "web":
+		return runWeb(cfg)
+	case "prune":
+		return pruneProjects(cfg)
+	case "remove":
+		return removeProjects(cfg)
+	case "config":
+		return showOrEditConfig(cfg)
+	case "completion":
+		return generateCompletion(cfg)
+	}
+
+	// --- Normal project flow ---
+	exec := &RealExecutor{}
+
+	reg := NewRegistry(filepath.Join(cfg.ScriptDir, ".cache", "projects.json"))
+	if err := reg.Init(); err != nil {
+		return fmt.Errorf("initializing registry: %w", err)
+	}
+
+	if err := resolveProject(cfg, reg); err != nil {
+		return err
+	}
+
+	// Validate project directory exists
+	info, err := os.Stat(cfg.ProjectDir)
+	if err != nil || !info.IsDir() {
+		return fmt.Errorf("project directory '%s' does not exist\n%s check the path or re-register with: daedalus <name> <correct-path>", cfg.ProjectDir, colorCyan("Hint:"))
+	}
+
+	// --- Credential check ---
+	credPath := cfg.CredSourcePath()
+	if _, err := os.Stat(credPath); err != nil {
+		return fmt.Errorf("credentials file not found: %s\n%s run 'claude' on the host to log in", credPath, colorCyan("Hint:"))
+	}
+
+	// --- Cache directory ---
+	if err := SetupCacheDir(cfg); err != nil {
+		return err
+	}
+
+	// --- tmux session management ---
+	useTmux := cfg.UseTmux()
+
+	if useTmux && !TmuxAvailable(exec) {
+		fmt.Fprintln(os.Stderr, colorYellow("Warning:")+" tmux not found. Running without session management.")
+		fmt.Fprintln(os.Stderr, colorCyan("Hint:")+" install tmux for detach/reattach support: apt install tmux")
+		useTmux = false
+	}
+
+	session := NewSession(exec, cfg.TmuxSession())
+
+	// Reattach to existing tmux session
+	if useTmux && session.Exists() {
+		fmt.Printf("Attaching to existing session '%s'...\n", cfg.TmuxSession())
+		fmt.Println("  " + colorDim("(Detach with Ctrl-B d)"))
+		return session.Attach()
+	}
+
+	// --- Session tracking ---
+	sessionID, sessionErr := reg.StartSession(cfg.ProjectName, cfg.Resume)
+	if sessionErr != nil {
+		fmt.Fprintf(os.Stderr, colorYellow("Warning:")+" failed to start session tracking: %v\n", sessionErr)
+	}
+
+	// --- Container duplicate detection ---
+	docker := NewDocker(exec, filepath.Join(cfg.ScriptDir, "docker-compose.yml"))
+
+	running, err := docker.IsContainerRunning(cfg.ContainerName())
+	if err != nil {
+		return err
+	}
+	if running {
+		return fmt.Errorf("project '%s' is already running (container: %s)\n%s attach with 'daedalus %s' or stop with 'docker stop %s'",
+			cfg.ProjectName, cfg.ContainerName(), colorCyan("Hint:"), cfg.ProjectName, cfg.ContainerName())
+	}
+
+	// --- Image build ---
+	image := cfg.Image()
+	if cfg.Build {
+		uid := strconv.Itoa(os.Getuid())
+		if err := docker.Build(cfg.Target, image, uid, cfg.ScriptDir); err != nil {
+			return fmt.Errorf("building image: %w\n%s check Docker is running and try: daedalus --build %s", err, colorCyan("Hint:"), cfg.ProjectName)
+		}
+	} else if !docker.ImageExists(image) {
+		fmt.Printf(colorYellow("Warning:")+" image %s missing, building...\n", image)
+		uid := strconv.Itoa(os.Getuid())
+		if err := docker.Build(cfg.Target, image, uid, cfg.ScriptDir); err != nil {
+			return fmt.Errorf("building image: %w\n%s check Docker is running and try: daedalus --build %s", err, colorCyan("Hint:"), cfg.ProjectName)
+		}
+	}
+
+	// --- Build docker command ---
+	claudeArgs := core.BuildClaudeArgs(cfg)
+	composeEnv := map[string]string{
+		"PROJECT_DIR": cfg.ProjectDir,
+		"CACHE_DIR":   cfg.CacheDir(),
+		"CRED_PATH":   credPath,
+		"TARGET":      cfg.Target,
+	}
+
+	var extraArgs []string
+	if cfg.DinD {
+		extraArgs = []string{"-v", "/var/run/docker.sock:/var/run/docker.sock"}
+		fmt.Fprintln(os.Stderr, colorYellow("WARNING:")+" --dind mounts the host Docker socket. This grants the container full access to host Docker.")
+	}
+
+	// --- Launch ---
+	if useTmux {
+		dockerCmd := docker.ComposeRunCommand(cfg.ContainerName(), claudeArgs, extraArgs)
+		tmuxCmd := core.BuildTmuxCommand(cfg, dockerCmd)
+
+		session.PrintAttachHint(os.Args[0])
+		if err := session.Create(); err != nil {
+			return fmt.Errorf("creating tmux session: %w", err)
+		}
+		if err := session.SendKeys(tmuxCmd); err != nil {
+			return fmt.Errorf("sending command to tmux: %w", err)
+		}
+		return session.Attach()
+	}
+
+	// Direct execution (no tmux)
+	runErr := docker.ComposeRun(cfg.ContainerName(), composeEnv, claudeArgs, extraArgs)
+	if sessionErr == nil {
+		if err := reg.EndSession(cfg.ProjectName, sessionID); err != nil {
+			fmt.Fprintf(os.Stderr, colorYellow("Warning:")+" failed to end session tracking: %v\n", err)
+		}
+	}
+	return runErr
+}
+
+// resolveProject determines the project name, directory, and target from the
+// registry and CLI arguments. It modifies cfg in place.
+func resolveProject(cfg *core.Config, reg *Registry) error {
+	if cfg.ProjectDir != "" {
+		return resolveTwoArgs(cfg, reg)
+	}
+	return resolveOneArg(cfg, reg)
+}
+
+// resolveTwoArgs handles the case where both project name and directory are provided.
+func resolveTwoArgs(cfg *core.Config, reg *Registry) error {
+	entry, nameFound, err := reg.GetProject(cfg.ProjectName)
+	if err != nil {
+		return fmt.Errorf("checking project: %w", err)
+	}
+
+	dirName, _, dirFound, err := reg.FindProjectByDir(cfg.ProjectDir)
+	if err != nil {
+		return fmt.Errorf("checking directory: %w", err)
+	}
+
+	switch {
+	case nameFound && dirFound && dirName == cfg.ProjectName:
+		// Both match the same project — open it
+		core.ApplyRegistryEntry(cfg, entry)
+		if err := reg.TouchProject(cfg.ProjectName); err != nil {
+			return fmt.Errorf("updating project timestamp: %w", err)
+		}
+	case nameFound && entry.Directory != cfg.ProjectDir:
+		return fmt.Errorf("project '%s' is already registered with directory '%s' (given: '%s')",
+			cfg.ProjectName, entry.Directory, cfg.ProjectDir)
+	case dirFound && dirName != cfg.ProjectName:
+		return fmt.Errorf("directory '%s' is already used by project '%s' (given name: '%s')",
+			cfg.ProjectDir, dirName, cfg.ProjectName)
+	default:
+		// Neither name nor dir registered — new project
+		if err := handleNewProject(cfg, reg); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// resolveOneArg handles the case where only the project name is provided.
+func resolveOneArg(cfg *core.Config, reg *Registry) error {
+	entry, found, err := reg.GetProject(cfg.ProjectName)
+	if err != nil {
+		return fmt.Errorf("checking project: %w", err)
+	}
+
+	if found {
+		core.ApplyRegistryEntry(cfg, entry)
+		if err := reg.TouchProject(cfg.ProjectName); err != nil {
+			return fmt.Errorf("updating project timestamp: %w", err)
+		}
+		return nil
+	}
+
+	// Name not in registry — use cwd as project directory
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("cannot determine working directory: %w", err)
+	}
+	cfg.ProjectDir = cwd
+
+	// Check if cwd is used by another project
+	dirName, _, dirFound, err := reg.FindProjectByDir(cwd)
+	if err != nil {
+		return fmt.Errorf("checking directory: %w", err)
+	}
+
+	if dirFound {
+		return handleDirConflict(cfg, reg, dirName)
+	}
+
+	return handleNewProject(cfg, reg)
+}
+
+// handleNewProject prompts the user or auto-registers a new project.
+func handleNewProject(cfg *core.Config, reg *Registry) error {
+	register := func() error {
+		if err := reg.AddProject(cfg.ProjectName, cfg.ProjectDir, cfg.Target); err != nil {
+			return err
+		}
+		// Capture non-default flags as per-project defaults
+		if flags := collectDefaultFlags(cfg); len(flags) > 0 {
+			if err := reg.SetDefaultFlags(cfg.ProjectName, flags); err != nil {
+				fmt.Fprintf(os.Stderr, colorYellow("Warning:")+" failed to save default flags: %v\n", err)
+			}
+		}
+		return nil
+	}
+
+	if isHeadless(cfg) {
+		fmt.Printf("%s new project '%s'.\n", colorGreen("Auto-registering"), cfg.ProjectName)
+		return register()
+	}
+
+	scanner := bufio.NewScanner(os.Stdin)
+	fmt.Printf("\nProject '%s' is not registered.\n", cfg.ProjectName)
+	fmt.Printf("  Directory: %s\n", cfg.ProjectDir)
+	fmt.Printf("  Target:    %s\n\n", cfg.Target)
+	fmt.Printf("Create new project '%s'? [Y/n]: ", cfg.ProjectName)
+	if !scanner.Scan() {
+		return fmt.Errorf("aborted")
+	}
+	reply := strings.TrimSpace(strings.ToLower(scanner.Text()))
+
+	switch reply {
+	case "n", "no":
+		return fmt.Errorf("aborted")
+	default:
+		fmt.Printf("%s new project '%s'.\n", colorGreen("Registering"), cfg.ProjectName)
+		return register()
+	}
+}
+
+// collectDefaultFlags returns a map of non-default flag values from the config.
+func collectDefaultFlags(cfg *core.Config) map[string]string {
+	flags := make(map[string]string)
+	if cfg.DinD {
+		flags["dind"] = "true"
+	}
+	if cfg.Debug {
+		flags["debug"] = "true"
+	}
+	if cfg.NoTmux {
+		flags["no-tmux"] = "true"
+	}
+	if len(flags) == 0 {
+		return nil
+	}
+	return flags
+}
+
+// handleDirConflict handles the case where the current directory is already
+// used by a different project. In interactive mode it offers to open the
+// existing project; in headless mode it returns an error.
+func handleDirConflict(cfg *core.Config, reg *Registry, existingName string) error {
+	if isHeadless(cfg) {
+		return fmt.Errorf("directory '%s' is already used by project '%s' (given name: '%s')",
+			cfg.ProjectDir, existingName, cfg.ProjectName)
+	}
+
+	scanner := bufio.NewScanner(os.Stdin)
+	fmt.Printf("\nDirectory '%s' is already used by project '%s'.\n", cfg.ProjectDir, existingName)
+	fmt.Printf("Open project '%s' instead? [Y/n]: ", existingName)
+	if !scanner.Scan() {
+		return fmt.Errorf("aborted")
+	}
+	reply := strings.TrimSpace(strings.ToLower(scanner.Text()))
+
+	switch reply {
+	case "n", "no":
+		return fmt.Errorf("aborted")
+	default:
+		cfg.ProjectName = existingName
+		entry, _, err := reg.GetProject(existingName)
+		if err != nil {
+			return fmt.Errorf("reading project: %w", err)
+		}
+		core.ApplyRegistryEntry(cfg, entry)
+		if err := reg.TouchProject(existingName); err != nil {
+			return fmt.Errorf("updating project timestamp: %w", err)
+		}
+		fmt.Printf("Using project '%s'.\n", existingName)
+		return nil
+	}
+}
+
+// showOrEditConfig displays or modifies per-project default flags.
+func showOrEditConfig(cfg *core.Config) error {
+	if cfg.ConfigTarget == "" {
+		return fmt.Errorf("usage: daedalus config <project-name> [--set key=value] [--unset key]")
+	}
+
+	reg := NewRegistry(filepath.Join(cfg.ScriptDir, ".cache", "projects.json"))
+	if err := reg.Init(); err != nil {
+		return fmt.Errorf("initializing registry: %w", err)
+	}
+
+	entry, found, err := reg.GetProject(cfg.ConfigTarget)
+	if err != nil {
+		return fmt.Errorf("reading project: %w", err)
+	}
+	if !found {
+		return fmt.Errorf("project '%s' not found in registry\n%s run 'daedalus list' to see registered projects", cfg.ConfigTarget, colorCyan("Hint:"))
+	}
+
+	// Apply --set and --unset if provided
+	if len(cfg.ConfigSet) > 0 || len(cfg.ConfigUnset) > 0 {
+		setMap := make(map[string]string)
+		for _, kv := range cfg.ConfigSet {
+			parts := strings.SplitN(kv, "=", 2)
+			setMap[parts[0]] = parts[1]
+		}
+		if err := reg.UpdateDefaultFlags(cfg.ConfigTarget, setMap, cfg.ConfigUnset); err != nil {
+			return fmt.Errorf("updating config: %w", err)
+		}
+		// Re-read to show updated state
+		entry, _, err = reg.GetProject(cfg.ConfigTarget)
+		if err != nil {
+			return fmt.Errorf("reading project: %w", err)
+		}
+		fmt.Printf("%s updated config for '%s'.\n", colorGreen("OK:"), cfg.ConfigTarget)
+	}
+
+	// Display project config
+	fmt.Printf("%s %s\n", colorBold("Project:"), cfg.ConfigTarget)
+	fmt.Printf("%s %s\n", colorBold("Directory:"), entry.Directory)
+	fmt.Printf("%s %s\n", colorBold("Target:"), entry.Target)
+	fmt.Printf("%s %d\n", colorBold("Sessions:"), len(entry.Sessions))
+
+	if len(entry.DefaultFlags) > 0 {
+		fmt.Printf("\n%s\n", colorBold("Default Flags:"))
+		// Sort keys for deterministic output
+		keys := make([]string, 0, len(entry.DefaultFlags))
+		for k := range entry.DefaultFlags {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			fmt.Printf("  %s = %s\n", k, entry.DefaultFlags[k])
+		}
+	} else {
+		fmt.Printf("\n%s\n", colorDim("No default flags configured."))
+	}
+
+	return nil
+}
+
+// printUsage prints the CLI usage message.
+func printUsage() {
+	fmt.Printf("%s daedalus [flags] <project-name> [project-dir]\n", colorBold("Usage:"))
+	fmt.Println("       daedalus list")
+	fmt.Println("       daedalus prune")
+	fmt.Println("       daedalus remove <name> [name...]")
+	fmt.Println("       daedalus config <project-name> [--set key=value] [--unset key]")
+	fmt.Println("       daedalus tui")
+	fmt.Println("       daedalus web [--port PORT] [--host HOST]")
+	fmt.Println("       daedalus completion <bash|zsh|fish>")
+	fmt.Println("       daedalus --help")
+	fmt.Println()
+	fmt.Println(colorBold("Commands:"))
+	fmt.Println("  <project-name>                Open a registered project (uses stored directory)")
+	fmt.Println("  <project-name> <project-dir>  Register and open a new project")
+	fmt.Println("  list                          List all registered projects")
+	fmt.Println("  prune                         Remove registry entries with missing directories")
+	fmt.Println("  remove <name> [name...]       Remove named projects from the registry")
+	fmt.Println("  config <name>                 View or edit per-project default flags")
+	fmt.Println("  tui                           Interactive dashboard for managing projects")
+	fmt.Println("  web                           Web UI dashboard (default: localhost:3000)")
+	fmt.Println("  completion <shell>            Print shell completion script (bash, zsh, fish)")
+	fmt.Println()
+	fmt.Println(colorBold("Flags:"))
+	fmt.Println("  --build            Force rebuild the Docker image")
+	fmt.Println("  --target <stage>   Build target: dev (default), godot, base, utils")
+	fmt.Println("  --resume <id>      Resume a previous Claude session")
+	fmt.Println("  -p <prompt>        Run a headless single-prompt task")
+	fmt.Println("  --no-tmux          Run without tmux session wrapping")
+	fmt.Println("  --debug            Enable Claude Code debug mode")
+	fmt.Println("  --dind             Mount Docker socket (WARNING: grants host Docker access)")
+	fmt.Println("  --force            Force deletion in non-interactive mode (e.g. prune)")
+	fmt.Println("  --no-color         Disable colored output (also honors NO_COLOR env var)")
+	fmt.Println("  --port <port>      Port for web UI (default: 3000)")
+	fmt.Println("  --host <host>      Host for web UI (default: 127.0.0.1)")
+	fmt.Println("  --help, -h         Show this help message")
+	fmt.Println()
+	fmt.Println(colorBold("Examples:"))
+	fmt.Println("  daedalus my-app                         Open existing project from registry")
+	fmt.Println("  daedalus my-app /path/to/project        Register and open a new project")
+	fmt.Println("  daedalus my-app -p \"Fix linting errors\" Run a headless task")
+	fmt.Println("  daedalus --build --target godot my-game /path/to/game")
+	fmt.Println("  daedalus list                           Show all registered projects")
+	fmt.Println("  daedalus web --port 8080                Start web UI on port 8080")
+	fmt.Println("  daedalus config my-app --set dind=true  Set per-project default")
+	fmt.Println("  daedalus completion bash                Print bash completion script")
+}
+
+// listProjects prints a formatted table of all registered projects.
+func listProjects(cfg *core.Config) error {
+	reg := NewRegistry(filepath.Join(cfg.ScriptDir, ".cache", "projects.json"))
+	if err := reg.Init(); err != nil {
+		return fmt.Errorf("initializing registry: %w", err)
+	}
+
+	entries, err := reg.GetProjectEntries()
+	if err != nil {
+		return fmt.Errorf("reading projects: %w", err)
+	}
+
+	if len(entries) == 0 {
+		fmt.Println("No registered projects.")
+		return nil
+	}
+
+	// Calculate column widths
+	nameW, dirW, targetW := 7, 9, 6 // minimum header widths
+	for _, e := range entries {
+		if len(e.Name) > nameW {
+			nameW = len(e.Name)
+		}
+		if len(e.Entry.Directory) > dirW {
+			dirW = len(e.Entry.Directory)
+		}
+		if len(e.Entry.Target) > targetW {
+			targetW = len(e.Entry.Target)
+		}
+	}
+
+	// Print header
+	fmt.Printf("%-*s  %-*s  %-*s  %-8s  %s\n", nameW, colorBold("PROJECT"), dirW, colorBold("DIRECTORY"), targetW, colorBold("TARGET"), colorBold("SESSIONS"), colorBold("LAST USED"))
+	fmt.Printf("%-*s  %-*s  %-*s  %-8s  %s\n", nameW, strings.Repeat("-", nameW), dirW, strings.Repeat("-", dirW), targetW, strings.Repeat("-", targetW), "--------", "---------")
+
+	// Print rows
+	for _, e := range entries {
+		fmt.Printf("%-*s  %-*s  %-*s  %-8d  %s\n", nameW, e.Name, dirW, e.Entry.Directory, targetW, e.Entry.Target, len(e.Entry.Sessions), e.Entry.LastUsed)
+	}
+	return nil
+}
+
+// pruneProjects removes registry entries whose project directories no longer exist.
+func pruneProjects(cfg *core.Config) error {
+	reg := NewRegistry(filepath.Join(cfg.ScriptDir, ".cache", "projects.json"))
+	if err := reg.Init(); err != nil {
+		return fmt.Errorf("initializing registry: %w", err)
+	}
+
+	entries, err := reg.GetProjectEntries()
+	if err != nil {
+		return fmt.Errorf("reading projects: %w", err)
+	}
+
+	var stale []string
+	for _, e := range entries {
+		info, err := os.Stat(e.Entry.Directory)
+		if err != nil || !info.IsDir() {
+			stale = append(stale, e.Name)
+		}
+	}
+
+	if len(stale) == 0 {
+		fmt.Println("No stale projects found.")
+		return nil
+	}
+
+	fmt.Printf("Found %d stale project(s):\n", len(stale))
+	for _, name := range stale {
+		fmt.Printf("  - %s\n", name)
+	}
+
+	if !isHeadless(cfg) {
+		scanner := bufio.NewScanner(os.Stdin)
+		fmt.Print("\nRemove these entries? [Y/n]: ")
+		if !scanner.Scan() {
+			return fmt.Errorf("aborted")
+		}
+		reply := strings.TrimSpace(strings.ToLower(scanner.Text()))
+		if reply == "n" || reply == "no" {
+			return fmt.Errorf("aborted")
+		}
+	} else if !cfg.Force {
+		fmt.Println("Run with --force to remove in non-interactive mode.")
+		return nil
+	}
+
+	removed, err := reg.RemoveProjects(stale)
+	if err != nil {
+		return fmt.Errorf("removing stale projects: %w", err)
+	}
+	for _, name := range removed {
+		fmt.Printf("%s '%s'.\n", colorGreen("Removed"), name)
+	}
+	return nil
+}
+
+// removeProjects removes named projects from the registry.
+func removeProjects(cfg *core.Config) error {
+	if len(cfg.RemoveTargets) == 0 {
+		return fmt.Errorf("usage: daedalus remove <name> [name...]")
+	}
+
+	reg := NewRegistry(filepath.Join(cfg.ScriptDir, ".cache", "projects.json"))
+	if err := reg.Init(); err != nil {
+		return fmt.Errorf("initializing registry: %w", err)
+	}
+
+	// Validate all targets exist before prompting
+	for _, name := range cfg.RemoveTargets {
+		has, err := reg.HasProject(name)
+		if err != nil {
+			return fmt.Errorf("checking project '%s': %w", name, err)
+		}
+		if !has {
+			return fmt.Errorf("project '%s' not found in registry\n%s run 'daedalus list' to see registered projects", name, colorCyan("Hint:"))
+		}
+	}
+
+	// Confirm removal
+	if !isHeadless(cfg) {
+		scanner := bufio.NewScanner(os.Stdin)
+		if len(cfg.RemoveTargets) == 1 {
+			fmt.Printf("Remove project '%s'? [Y/n]: ", cfg.RemoveTargets[0])
+		} else {
+			fmt.Printf("Remove %d projects? [Y/n]: ", len(cfg.RemoveTargets))
+		}
+		if !scanner.Scan() {
+			return fmt.Errorf("aborted")
+		}
+		reply := strings.TrimSpace(strings.ToLower(scanner.Text()))
+		if reply == "n" || reply == "no" {
+			return fmt.Errorf("aborted")
+		}
+	} else if !cfg.Force {
+		fmt.Println("Run with --force to remove in non-interactive mode.")
+		return nil
+	}
+
+	removed, err := reg.RemoveProjects(cfg.RemoveTargets)
+	if err != nil {
+		return fmt.Errorf("removing projects: %w", err)
+	}
+	for _, name := range removed {
+		fmt.Printf("%s '%s'.\n", colorGreen("Removed"), name)
+	}
+	return nil
+}

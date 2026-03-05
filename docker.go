@@ -1,0 +1,87 @@
+// Copyright (C) 2026 Techdelight BV
+
+package main
+
+import (
+	"fmt"
+	"os"
+	"strings"
+
+	"github.com/techdelight/daedalus/core"
+)
+
+// Docker manages Docker operations.
+type Docker struct {
+	Executor    Executor
+	ComposeFile string
+}
+
+// NewDocker creates a Docker with the given executor and compose file path.
+func NewDocker(exec Executor, composeFile string) *Docker {
+	return &Docker{Executor: exec, ComposeFile: composeFile}
+}
+
+// IsContainerRunning checks if a container with the given name is running.
+func (d *Docker) IsContainerRunning(name string) (bool, error) {
+	out, err := d.Executor.Output("docker", "ps", "--format", "{{.Names}}")
+	if err != nil {
+		return false, fmt.Errorf("checking running containers: %w", err)
+	}
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		if strings.TrimSpace(line) == name {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// ImageExists checks if a Docker image exists locally.
+func (d *Docker) ImageExists(image string) bool {
+	err := d.Executor.Run("docker", "image", "inspect", image)
+	return err == nil
+}
+
+// Build builds a Docker image with the given target stage.
+func (d *Docker) Build(target, image, uid, contextDir string) error {
+	fmt.Printf("Building %s (target: %s)...\n", image, target)
+	return d.Executor.Run("docker", "build",
+		"--target", target,
+		"--build-arg", "CLAUDE_UID="+uid,
+		"-t", image,
+		contextDir,
+	)
+}
+
+// ComposeRun executes a docker compose run command with environment variables
+// scoped to the child process (no os.Setenv pollution).
+// Delegates to ComposeRunCommand for arg construction (#20).
+func (d *Docker) ComposeRun(containerName string, env map[string]string, claudeArgs []string, extraArgs []string) error {
+	envSlice := make([]string, 0, len(env))
+	for k, v := range env {
+		envSlice = append(envSlice, k+"="+v)
+	}
+	cmd := d.ComposeRunCommand(containerName, claudeArgs, extraArgs)
+	return d.Executor.RunWithEnv(envSlice, cmd[0], cmd[1:]...)
+}
+
+// ComposeRunCommand returns the full docker compose command as a slice
+// (for embedding in tmux send-keys). Env vars are exported separately
+// by BuildTmuxCommand for compose interpolation.
+func (d *Docker) ComposeRunCommand(containerName string, claudeArgs []string, extraArgs []string) []string {
+	args := []string{"docker", "compose", "-f", d.ComposeFile, "run", "--rm", "--name", containerName}
+	args = append(args, extraArgs...)
+	args = append(args, "claude")
+	args = append(args, claudeArgs...)
+	return args
+}
+
+// SetupCacheDir ensures the per-project cache directory exists.
+func SetupCacheDir(cfg *core.Config) error {
+	cacheDir := cfg.CacheDir()
+	if _, err := os.Stat(cacheDir); os.IsNotExist(err) {
+		if err := os.MkdirAll(cacheDir, 0755); err != nil {
+			return fmt.Errorf("creating cache directory: %w", err)
+		}
+	}
+	return nil
+}

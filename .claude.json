@@ -1,0 +1,27 @@
+{
+  		"hasCompletedOnboarding":true,
+  		"bypassPermissionsModeAccepted":true,
+      "mcpServers": {
+        "idea-mcp": {
+          "type": "stdio",
+          "command": "docker",
+          "args": [
+            "run",
+            "-i",
+            "--rm",
+            "-v", "/mnt/c/agent-workspace/ideas:/data",
+            "dstibbe/idea-mcp:latest"
+          ],
+          "env": {}
+        },
+        "context7": {
+          "type": "http",
+          "url": "https://mcp.context7.com/mcp"
+        },
+
+  	    "notes-mcp": {
+    	    "type": "http",
+      	  "url": "http://host.docker.internal:3000/mcp"
+	      }
+      }
+}
