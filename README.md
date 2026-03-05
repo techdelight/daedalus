@@ -85,7 +85,6 @@ daedalus --help
 | `--dind` | Mount Docker socket (WARNING: grants host Docker access) |
 | `--force` | Force deletion in non-interactive mode (e.g. prune, remove) |
 | `--no-color` | Disable colored output (also honors `NO_COLOR` env var) |
-| `--data-dir <dir>` | Data directory for registry and caches (default: `.cache` next to binary) |
 | `--port <port>` | Port for web UI (default: `3000`) |
 | `--host <host>` | Host for web UI (default: `127.0.0.1`) |
 

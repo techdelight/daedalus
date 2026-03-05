@@ -15,11 +15,11 @@ func TestApplyAppConfig_DataDir_Applied(t *testing.T) {
 	}
 }
 
-func TestApplyAppConfig_DataDir_CLIWins(t *testing.T) {
-	cfg := &Config{DataDir: "/from-cli", ImagePrefix: "techdelight/claude-runner"}
+func TestApplyAppConfig_DataDir_AlreadySet(t *testing.T) {
+	cfg := &Config{DataDir: "/from-env", ImagePrefix: "techdelight/claude-runner"}
 	ApplyAppConfig(cfg, AppConfig{DataDir: strPtr("/from-config")})
-	if cfg.DataDir != "/from-cli" {
-		t.Errorf("DataDir = %q, want %q (CLI should win)", cfg.DataDir, "/from-cli")
+	if cfg.DataDir != "/from-env" {
+		t.Errorf("DataDir = %q, want %q (already-set value should win)", cfg.DataDir, "/from-env")
 	}
 }
 

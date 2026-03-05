@@ -78,12 +78,6 @@ func parseArgs(args []string) (*core.Config, error) {
 			cfg.Force = true
 		case "--no-color":
 			cfg.NoColor = true
-		case "--data-dir":
-			if i+1 >= len(args) {
-				return nil, fmt.Errorf("--data-dir requires a directory path")
-			}
-			i++
-			cfg.DataDir = args[i]
 		case "--set":
 			if i+1 >= len(args) {
 				return nil, fmt.Errorf("--set requires a key=value pair")
@@ -133,7 +127,7 @@ func parseArgs(args []string) (*core.Config, error) {
 		return nil, fmt.Errorf("cannot resolve script directory: %w", err)
 	}
 
-	// Resolve data directory: CLI flag > env var > config file > default
+	// Resolve data directory: env var > config file > default
 	if cfg.DataDir == "" {
 		cfg.DataDir = os.Getenv("DAEDALUS_DATA_DIR")
 	}

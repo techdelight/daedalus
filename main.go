@@ -436,7 +436,6 @@ func printUsage() {
 	fmt.Println("  --dind             Mount Docker socket (WARNING: grants host Docker access)")
 	fmt.Println("  --force            Force deletion in non-interactive mode (e.g. prune)")
 	fmt.Println("  --no-color         Disable colored output (also honors NO_COLOR env var)")
-	fmt.Println("  --data-dir <dir>   Data directory for registry and caches (default: .cache next to binary)")
 	fmt.Println("  --port <port>      Port for web UI (default: 3000)")
 	fmt.Println("  --host <host>      Host for web UI (default: 127.0.0.1)")
 	fmt.Println("  --help, -h         Show this help message")
