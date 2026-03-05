@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/banner.png" alt="Daedalus — A TechDelight Project" width="600">
+  <img src="assets/banner.png" alt="Daedalus — A TechDelight Project" >
 </p>
 
 # Daedalus
