@@ -111,7 +111,7 @@ Three UI surfaces sharing one core. Clean architecture extraction.
 ### Sprint 8: Structure & Distribution
 
 - Configurable `.cache` directory location (currently hardcoded relative to binary)
-- Deployment/installation script
+- ~~Deployment/installation script~~ Done
 - Code structure cleanup — move `.go` files out of the root into packages
 - Usage instructions in README:
   - Creating a new project

@@ -21,6 +21,31 @@ Claude Code is powerful but constantly asks for permission to run commands, edit
 
 `start.sh` is a thin wrapper that builds the Go binary if missing, then passes all arguments to `daedalus`.
 
+## Installation
+
+```bash
+# Clone the repository
+git clone https://github.com/techdelight/daedalus.git
+cd daedalus
+
+# Install to /opt/daedalus (default) with PATH symlink
+sudo ./install.sh
+
+# Or install to a custom directory without root
+./install.sh --prefix ~/daedalus
+```
+
+**Options:**
+
+| Flag | Description |
+|---|---|
+| `--prefix <dir>` | Installation directory (default: `/opt/daedalus`) |
+| `--no-link` | Skip creating a symlink in PATH |
+
+The script builds the binary via Docker, copies it along with runtime files to the prefix directory, and creates a symlink so `daedalus` is available on PATH. When running as root the symlink goes to `/usr/local/bin`; otherwise to `~/.local/bin`.
+
+**Prerequisites:** Docker (running) and Claude Code credentials (`~/.claude/.credentials.json`).
+
 ## Usage
 
 ```
