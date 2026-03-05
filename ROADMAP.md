@@ -108,7 +108,13 @@ Three UI surfaces sharing one core. Clean architecture extraction.
 
 ## Future Sprints
 
-### Sprint 7: 1.0 Preparation
+### Sprint 8: Structure & Distribution
+
+- Configurable `.cache` directory location (currently hardcoded relative to binary)
+- Deployment/installation script
+- Code structure cleanup — move `.go` files out of the root into packages
+
+### Sprint 9: 1.0 Preparation
 
 - Stability audit — no breaking changes after 1.0
 - End-to-end integration test suite
