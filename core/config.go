@@ -9,6 +9,7 @@ type Config struct {
 	ProjectName     string
 	ProjectDir      string
 	ScriptDir       string
+	DataDir         string   // base directory for registry + per-project caches
 	Target          string
 	Build           bool
 	Resume          string
@@ -47,7 +48,12 @@ func (c *Config) TmuxSession() string {
 
 // CacheDir returns the per-project cache directory.
 func (c *Config) CacheDir() string {
-	return filepath.Join(c.ScriptDir, ".cache", c.ProjectName)
+	return filepath.Join(c.DataDir, c.ProjectName)
+}
+
+// RegistryPath returns the path to the project registry file.
+func (c *Config) RegistryPath() string {
+	return filepath.Join(c.DataDir, "projects.json")
 }
 
 // CredSourcePath returns the source credentials path.

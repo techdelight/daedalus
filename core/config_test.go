@@ -35,11 +35,20 @@ func TestConfig_TmuxSession(t *testing.T) {
 }
 
 func TestConfig_CacheDir(t *testing.T) {
-	cfg := &Config{ScriptDir: "/home/user", ProjectName: "my-app"}
+	cfg := &Config{DataDir: "/data/daedalus", ProjectName: "my-app"}
 	got := cfg.CacheDir()
-	want := filepath.Join("/home/user", ".cache", "my-app")
+	want := filepath.Join("/data/daedalus", "my-app")
 	if got != want {
 		t.Errorf("CacheDir() = %q, want %q", got, want)
+	}
+}
+
+func TestConfig_RegistryPath(t *testing.T) {
+	cfg := &Config{DataDir: "/data/daedalus"}
+	got := cfg.RegistryPath()
+	want := filepath.Join("/data/daedalus", "projects.json")
+	if got != want {
+		t.Errorf("RegistryPath() = %q, want %q", got, want)
 	}
 }
 

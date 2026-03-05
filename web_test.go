@@ -32,6 +32,7 @@ func setupWebTest(t *testing.T) (*WebServer, *MockExecutor) {
 	docker := NewDocker(mock, filepath.Join(tmp, "docker-compose.yml"))
 	cfg := &core.Config{
 		ScriptDir:       tmp,
+		DataDir:         tmp,
 		ImagePrefix:     "test-image",
 		Target:          "dev",
 		ClaudeConfigDir: tmp,

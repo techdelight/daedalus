@@ -63,6 +63,7 @@ daedalus --help
 | `--dind` | Mount Docker socket (WARNING: grants host Docker access) |
 | `--force` | Force deletion in non-interactive mode (e.g. prune, remove) |
 | `--no-color` | Disable colored output (also honors `NO_COLOR` env var) |
+| `--data-dir <dir>` | Data directory for registry and caches (default: `.cache` next to binary) |
 | `--port <port>` | Port for web UI (default: `3000`) |
 | `--host <host>` | Host for web UI (default: `127.0.0.1`) |
 
@@ -212,6 +213,7 @@ daedalus --resume <session-id> my-app
 | Variable | Default | Description |
 |---|---|---|
 | `CLAUDE_CONFIG_DIR` | `~/.claude` | Host path to Claude credentials |
+| `DAEDALUS_DATA_DIR` | `.cache` next to binary | Base directory for registry and per-project caches |
 | `NO_COLOR` | (unset) | Disable colored output when set |
 
 ## Security Model

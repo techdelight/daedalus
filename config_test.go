@@ -515,3 +515,62 @@ func TestParseArgs_ClaudeConfigDirEnvOverride(t *testing.T) {
 		t.Errorf("ClaudeConfigDir = %q, want %q", cfg.ClaudeConfigDir, tmp)
 	}
 }
+
+func TestParseArgs_DataDirFlag(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	cfg, err := parseArgs([]string{"--data-dir", tmp, "my-project"})
+	if err != nil {
+		t.Fatalf("parseArgs failed: %v", err)
+	}
+	if cfg.DataDir != tmp {
+		t.Errorf("DataDir = %q, want %q", cfg.DataDir, tmp)
+	}
+}
+
+func TestParseArgs_DataDirEnvVar(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("DAEDALUS_DATA_DIR", tmp)
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	cfg, err := parseArgs([]string{"my-project"})
+	if err != nil {
+		t.Fatalf("parseArgs failed: %v", err)
+	}
+	if cfg.DataDir != tmp {
+		t.Errorf("DataDir = %q, want %q", cfg.DataDir, tmp)
+	}
+}
+
+func TestParseArgs_DataDirFlagOverridesEnv(t *testing.T) {
+	flagDir := t.TempDir()
+	envDir := t.TempDir()
+	t.Setenv("DAEDALUS_DATA_DIR", envDir)
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	cfg, err := parseArgs([]string{"--data-dir", flagDir, "my-project"})
+	if err != nil {
+		t.Fatalf("parseArgs failed: %v", err)
+	}
+	if cfg.DataDir != flagDir {
+		t.Errorf("DataDir = %q, want flag value %q (flag should override env)", cfg.DataDir, flagDir)
+	}
+}
+
+func TestParseArgs_DataDirDefaultFallback(t *testing.T) {
+	t.Setenv("DAEDALUS_DATA_DIR", "")
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	cfg, err := parseArgs([]string{"my-project"})
+	if err != nil {
+		t.Fatalf("parseArgs failed: %v", err)
+	}
+	want := filepath.Join(cfg.ScriptDir, ".cache")
+	if cfg.DataDir != want {
+		t.Errorf("DataDir = %q, want default %q", cfg.DataDir, want)
+	}
+}
+
+func TestParseArgs_DataDirRequiresValue(t *testing.T) {
+	_, err := parseArgs([]string{"--data-dir"})
+	if err == nil {
+		t.Fatal("expected error for --data-dir without value")
+	}
+}

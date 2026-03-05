@@ -4,7 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- Configurable data directory via `--data-dir` flag or `DAEDALUS_DATA_DIR` environment variable. Allows storing registry and per-project caches on a different drive or following XDG conventions. Default remains `.cache` next to the binary (backward compatible).
+- `RegistryPath()` method on `Config` to eliminate duplicated registry path construction.
+
 ### Changed
+- `CacheDir()` now derives from `DataDir` instead of `ScriptDir`.
 - **Rebrand**: Renamed project from `agentenv` to `Daedalus` across all source files, Go module path, binary name, shell completions, documentation, and build scripts.
 - Copyright holder changed from "David Stibbe" to "Techdelight BV" in all source file headers.
 - Apache-2.0 license added (`LICENSE` file).

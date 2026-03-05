@@ -232,6 +232,7 @@ func TestPruneProjects_NoStale(t *testing.T) {
 
 	cfg := &core.Config{
 		ScriptDir: dir,
+		DataDir:   cacheDir,
 		Prompt:    "test", // headless
 		Force:     true,
 	}
@@ -271,6 +272,7 @@ func TestPruneProjects_WithStale(t *testing.T) {
 
 	cfg := &core.Config{
 		ScriptDir: dir,
+		DataDir:   cacheDir,
 		Prompt:    "test", // headless
 		Force:     true,
 	}
@@ -316,6 +318,7 @@ func TestPruneProjects_HeadlessWithoutForce(t *testing.T) {
 
 	cfg := &core.Config{
 		ScriptDir: dir,
+		DataDir:   cacheDir,
 		Prompt:    "test", // headless
 		Force:     false,  // no --force
 	}
@@ -359,6 +362,7 @@ func TestRemoveProjects_Success(t *testing.T) {
 
 	cfg := &core.Config{
 		ScriptDir: dir,
+		DataDir:   cacheDir,
 		Prompt:    "test", // headless
 		Force:     true,
 		RemoveTargets: []string{"to-remove"},
@@ -401,6 +405,7 @@ func TestRemoveProjects_NotFound(t *testing.T) {
 
 	cfg := &core.Config{
 		ScriptDir: dir,
+		DataDir:   cacheDir,
 		Prompt:    "test",
 		Force:     true,
 		RemoveTargets: []string{"nonexistent"},
@@ -426,6 +431,7 @@ func TestRemoveProjects_HeadlessNoForce(t *testing.T) {
 
 	cfg := &core.Config{
 		ScriptDir: dir,
+		DataDir:   cacheDir,
 		Prompt:    "test", // headless
 		Force:     false,  // no --force
 		RemoveTargets: []string{"my-app"},
@@ -462,6 +468,7 @@ func TestRemoveProjects_HeadlessNoForce(t *testing.T) {
 func TestRemoveProjects_NoTargets(t *testing.T) {
 	cfg := &core.Config{
 		ScriptDir:     "/tmp",
+		DataDir:       "/tmp/.cache",
 		RemoveTargets: []string{},
 	}
 	err := removeProjects(cfg)
@@ -485,6 +492,7 @@ func TestShowConfig_Display(t *testing.T) {
 
 	cfg := &core.Config{
 		ScriptDir:    dir,
+		DataDir:      cacheDir,
 		ConfigTarget: "my-app",
 	}
 
@@ -523,6 +531,7 @@ func TestShowConfig_Set(t *testing.T) {
 
 	cfg := &core.Config{
 		ScriptDir:    dir,
+		DataDir:      cacheDir,
 		ConfigTarget: "my-app",
 		ConfigSet:    []string{"dind=true"},
 	}
@@ -558,6 +567,7 @@ func TestShowConfig_Unset(t *testing.T) {
 
 	cfg := &core.Config{
 		ScriptDir:    dir,
+		DataDir:      cacheDir,
 		ConfigTarget: "my-app",
 		ConfigUnset:  []string{"debug"},
 	}
@@ -594,6 +604,7 @@ func TestShowConfig_ProjectNotFound(t *testing.T) {
 
 	cfg := &core.Config{
 		ScriptDir:    dir,
+		DataDir:      cacheDir,
 		ConfigTarget: "nonexistent",
 	}
 
@@ -609,6 +620,7 @@ func TestShowConfig_ProjectNotFound(t *testing.T) {
 func TestShowConfig_NoProjectName(t *testing.T) {
 	cfg := &core.Config{
 		ScriptDir:    "/tmp",
+		DataDir:      "/tmp/.cache",
 		ConfigTarget: "",
 	}
 

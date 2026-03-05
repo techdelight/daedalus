@@ -310,6 +310,7 @@ func startProject(cfg *core.Config, exec Executor, reg *Registry, docker *Docker
 			ProjectName:     p.name,
 			ProjectDir:      p.directory,
 			ScriptDir:       cfg.ScriptDir,
+			DataDir:         cfg.DataDir,
 			Target:          p.target,
 			ImagePrefix:     cfg.ImagePrefix,
 			ClaudeConfigDir: cfg.ClaudeConfigDir,
@@ -389,7 +390,7 @@ func attachToSession(exec Executor, name string) tea.Cmd {
 
 func runTUI(cfg *core.Config) error {
 	exec := &RealExecutor{}
-	reg := NewRegistry(filepath.Join(cfg.ScriptDir, ".cache", "projects.json"))
+	reg := NewRegistry(cfg.RegistryPath())
 	if err := reg.Init(); err != nil {
 		return fmt.Errorf("initializing registry: %w", err)
 	}

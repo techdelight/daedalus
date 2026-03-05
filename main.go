@@ -55,7 +55,7 @@ func run(args []string) error {
 	// --- Normal project flow ---
 	exec := &RealExecutor{}
 
-	reg := NewRegistry(filepath.Join(cfg.ScriptDir, ".cache", "projects.json"))
+	reg := NewRegistry(cfg.RegistryPath())
 	if err := reg.Init(); err != nil {
 		return fmt.Errorf("initializing registry: %w", err)
 	}
@@ -348,7 +348,7 @@ func showOrEditConfig(cfg *core.Config) error {
 		return fmt.Errorf("usage: daedalus config <project-name> [--set key=value] [--unset key]")
 	}
 
-	reg := NewRegistry(filepath.Join(cfg.ScriptDir, ".cache", "projects.json"))
+	reg := NewRegistry(cfg.RegistryPath())
 	if err := reg.Init(); err != nil {
 		return fmt.Errorf("initializing registry: %w", err)
 	}
@@ -436,6 +436,7 @@ func printUsage() {
 	fmt.Println("  --dind             Mount Docker socket (WARNING: grants host Docker access)")
 	fmt.Println("  --force            Force deletion in non-interactive mode (e.g. prune)")
 	fmt.Println("  --no-color         Disable colored output (also honors NO_COLOR env var)")
+	fmt.Println("  --data-dir <dir>   Data directory for registry and caches (default: .cache next to binary)")
 	fmt.Println("  --port <port>      Port for web UI (default: 3000)")
 	fmt.Println("  --host <host>      Host for web UI (default: 127.0.0.1)")
 	fmt.Println("  --help, -h         Show this help message")
@@ -453,7 +454,7 @@ func printUsage() {
 
 // listProjects prints a formatted table of all registered projects.
 func listProjects(cfg *core.Config) error {
-	reg := NewRegistry(filepath.Join(cfg.ScriptDir, ".cache", "projects.json"))
+	reg := NewRegistry(cfg.RegistryPath())
 	if err := reg.Init(); err != nil {
 		return fmt.Errorf("initializing registry: %w", err)
 	}
@@ -495,7 +496,7 @@ func listProjects(cfg *core.Config) error {
 
 // pruneProjects removes registry entries whose project directories no longer exist.
 func pruneProjects(cfg *core.Config) error {
-	reg := NewRegistry(filepath.Join(cfg.ScriptDir, ".cache", "projects.json"))
+	reg := NewRegistry(cfg.RegistryPath())
 	if err := reg.Init(); err != nil {
 		return fmt.Errorf("initializing registry: %w", err)
 	}
@@ -554,7 +555,7 @@ func removeProjects(cfg *core.Config) error {
 		return fmt.Errorf("usage: daedalus remove <name> [name...]")
 	}
 
-	reg := NewRegistry(filepath.Join(cfg.ScriptDir, ".cache", "projects.json"))
+	reg := NewRegistry(cfg.RegistryPath())
 	if err := reg.Init(); err != nil {
 		return fmt.Errorf("initializing registry: %w", err)
 	}

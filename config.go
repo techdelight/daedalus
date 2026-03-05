@@ -78,6 +78,12 @@ func parseArgs(args []string) (*core.Config, error) {
 			cfg.Force = true
 		case "--no-color":
 			cfg.NoColor = true
+		case "--data-dir":
+			if i+1 >= len(args) {
+				return nil, fmt.Errorf("--data-dir requires a directory path")
+			}
+			i++
+			cfg.DataDir = args[i]
 		case "--set":
 			if i+1 >= len(args) {
 				return nil, fmt.Errorf("--set requires a key=value pair")
@@ -125,6 +131,14 @@ func parseArgs(args []string) (*core.Config, error) {
 	cfg.ScriptDir, err = filepath.Abs(filepath.Dir(exe))
 	if err != nil {
 		return nil, fmt.Errorf("cannot resolve script directory: %w", err)
+	}
+
+	// Resolve data directory: --data-dir flag > DAEDALUS_DATA_DIR env > ScriptDir/.cache
+	if cfg.DataDir == "" {
+		cfg.DataDir = os.Getenv("DAEDALUS_DATA_DIR")
+	}
+	if cfg.DataDir == "" {
+		cfg.DataDir = filepath.Join(cfg.ScriptDir, ".cache")
 	}
 
 	// Resolve claude config dir (needed by all modes including tui)

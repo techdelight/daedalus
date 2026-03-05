@@ -31,7 +31,7 @@ _daedalus() {
     _init_completion || return
 
     local subcommands="list prune remove config tui web completion"
-    local flags="--build --target --resume -p --no-tmux --debug --dind --force --port --host --no-color --help -h"
+    local flags="--build --target --resume -p --no-tmux --debug --dind --force --port --host --no-color --data-dir --help -h"
 
     # Complete subcommands and flags for the first argument
     if [[ ${cword} -eq 1 ]]; then
@@ -89,6 +89,7 @@ _daedalus() {
         '--dind[Mount Docker socket]'
         '--force[Force deletion in non-interactive mode]'
         '--no-color[Disable colored output]'
+        '--data-dir[Data directory for registry and caches]:directory:_directories'
         '--port[Port for web UI]:port:'
         '--host[Host for web UI]:host:'
         '--help[Show help message]'
@@ -150,6 +151,7 @@ complete -c daedalus -l debug -d 'Enable Claude Code debug mode'
 complete -c daedalus -l dind -d 'Mount Docker socket'
 complete -c daedalus -l force -d 'Force deletion in non-interactive mode'
 complete -c daedalus -l no-color -d 'Disable colored output'
+complete -c daedalus -l data-dir -d 'Data directory for registry and caches' -r -F
 complete -c daedalus -l port -d 'Port for web UI' -r
 complete -c daedalus -l host -d 'Host for web UI' -r
 complete -c daedalus -l help -d 'Show help message'

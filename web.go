@@ -42,7 +42,7 @@ type projectJSON struct {
 // runWeb starts the web UI HTTP server.
 func runWeb(cfg *core.Config) error {
 	exec := &RealExecutor{}
-	reg := NewRegistry(filepath.Join(cfg.ScriptDir, ".cache", "projects.json"))
+	reg := NewRegistry(cfg.RegistryPath())
 	if err := reg.Init(); err != nil {
 		return fmt.Errorf("initializing registry: %w", err)
 	}
@@ -130,6 +130,7 @@ func (ws *WebServer) handleStartProject(w http.ResponseWriter, r *http.Request) 
 		ProjectName:     name,
 		ProjectDir:      entry.Directory,
 		ScriptDir:       ws.cfg.ScriptDir,
+		DataDir:         ws.cfg.DataDir,
 		Target:          entry.Target,
 		ImagePrefix:     ws.cfg.ImagePrefix,
 		ClaudeConfigDir: ws.cfg.ClaudeConfigDir,
