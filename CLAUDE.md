@@ -26,10 +26,10 @@ Maintain the following documents at the repo root (Markdown unless specified):
 
 ```bash
 # Build the binary (requires Docker)
-make build
+./build.sh
 
 # Run tests
-make test
+./test.sh
 
 # Interactive session (default target: dev)
 ./daedalus my-app /path/to/project
@@ -101,5 +101,5 @@ At the end of each session, write a summary in `{this project name}.md` in `/mnt
 ## Setup
 
 1. Log in to Claude Code on the host (`claude` CLI)
-2. Build: `make build`
+2. Build: `./build.sh`
 3. Run `./daedalus <project-name> <project-dir>`

@@ -106,7 +106,7 @@ echo "  Source downloaded to temporary directory."
 # ── Build ────────────────────────────────────────────────────────────────────
 echo ""
 echo "Building Daedalus binary..."
-make -C "$WORK_DIR" build
+bash "$WORK_DIR/build.sh"
 
 if [[ ! -f "$WORK_DIR/daedalus" ]]; then
     echo "Error: build did not produce the 'daedalus' binary." >&2

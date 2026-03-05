@@ -23,10 +23,10 @@ Implements GET/POST endpoints for listing, starting, and stopping projects.
 
 ```bash
 # Build the Go binary (requires Docker)
-make build
+./build.sh
 
 # Run all tests
-make test
+./test.sh
 
 # Run tests locally (requires Go 1.24+)
 go test -v ./...
