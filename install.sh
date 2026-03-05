@@ -15,6 +15,7 @@ RUNTIME_FILES=(
     .claude.json
     settings.json
     logo.txt
+    config.json
 )
 
 # ── Argument parsing ─────────────────────────────────────────────────────────
@@ -157,5 +158,7 @@ echo "  Location: $PREFIX/daedalus"
 if [[ "$CREATE_LINK" == true ]]; then
     echo "  Symlink:  $LINK_DIR/daedalus"
 fi
+echo "  Config:   $PREFIX/config.json"
 echo ""
+echo "  Edit config.json to customize settings (data-dir, debug, etc.)."
 echo "  Get started: daedalus my-app /path/to/project"

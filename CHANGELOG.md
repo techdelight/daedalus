@@ -12,7 +12,7 @@ All notable changes to this project will be documented in this file.
 ### Added
 - Configurable data directory via `--data-dir` flag or `DAEDALUS_DATA_DIR` environment variable. Allows storing registry and per-project caches on a different drive or following XDG conventions. Default remains `.cache` next to the binary (backward compatible).
 - `RegistryPath()` method on `Config` to eliminate duplicated registry path construction.
-- `install.sh` deployment script — builds the binary, copies runtime files to a configurable `--prefix` directory (default: `/opt/daedalus`), and creates a PATH symlink. Validates Docker and Claude credentials as prerequisites.
+- `install.sh` deployment script — builds the binary, copies runtime files to a configurable `--prefix` directory (default: `~/.local/share/daedalus`), and creates a PATH symlink. Validates Docker and Claude credentials as prerequisites.
 
 ### Changed
 - `CacheDir()` now derives from `DataDir` instead of `ScriptDir`.

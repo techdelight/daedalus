@@ -232,9 +232,9 @@ daedalus --resume <session-id> my-app
 
 ## Configuration File
 
-Daedalus supports an optional `config.json` file placed next to the binary (in the installation directory). This file provides default values for settings that would otherwise require CLI flags or environment variables.
+A default `config.json` is installed next to the binary. Edit it to customize settings that would otherwise require CLI flags or environment variables.
 
-**Location:** `<install-dir>/config.json` (e.g. `/opt/daedalus/config.json`)
+**Location:** `<install-dir>/config.json` (default: `~/.local/share/daedalus/config.json`)
 
 **Precedence:** CLI flags > environment variables > config file > built-in defaults
 
