@@ -133,10 +133,15 @@ func parseArgs(args []string) (*core.Config, error) {
 		return nil, fmt.Errorf("cannot resolve script directory: %w", err)
 	}
 
-	// Resolve data directory: --data-dir flag > DAEDALUS_DATA_DIR env > ScriptDir/.cache
+	// Resolve data directory: CLI flag > env var > config file > default
 	if cfg.DataDir == "" {
 		cfg.DataDir = os.Getenv("DAEDALUS_DATA_DIR")
 	}
+	appCfg, err := loadAppConfig(cfg.ScriptDir)
+	if err != nil {
+		return nil, err
+	}
+	core.ApplyAppConfig(cfg, appCfg)
 	if cfg.DataDir == "" {
 		cfg.DataDir = filepath.Join(cfg.ScriptDir, ".cache")
 	}

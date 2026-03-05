@@ -230,6 +230,32 @@ daedalus my-app /path/to/project
 daedalus --resume <session-id> my-app
 ```
 
+## Configuration File
+
+Daedalus supports an optional `config.json` file placed next to the binary (in the installation directory). This file provides default values for settings that would otherwise require CLI flags or environment variables.
+
+**Location:** `<install-dir>/config.json` (e.g. `/opt/daedalus/config.json`)
+
+**Precedence:** CLI flags > environment variables > config file > built-in defaults
+
+```json
+{
+  "data-dir": "/mnt/data/daedalus",
+  "debug": true,
+  "no-tmux": false,
+  "image-prefix": "custom/claude-runner"
+}
+```
+
+All fields are optional. The file itself is optional — Daedalus works without it. An empty `{}` is valid.
+
+| Key | Type | Description |
+|---|---|---|
+| `data-dir` | string | Base directory for registry and per-project caches |
+| `debug` | bool | Enable Claude Code debug mode |
+| `no-tmux` | bool | Run without tmux session wrapping |
+| `image-prefix` | string | Docker image prefix (default: `techdelight/claude-runner`) |
+
 ## Environment Variables
 
 | Variable | Default | Description |

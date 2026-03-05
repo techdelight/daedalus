@@ -1,5 +1,9 @@
 # Roadmap
 
+## Backlog
+
+(empty)
+
 ## Current Sprint
 
 ### Sprint 7: Rebrand & Open Source (v0.7.0)
@@ -13,6 +17,7 @@ Started 2026-03-05. Rename to Daedalus, add license, restructure documentation.
 | 3 | Add Apache-2.0 license | Done |
 | 4 | Create `ARCHITECTURE.md` | Done |
 | 5 | Restructure all documentation per project standards | Done |
+| 6 | Application configuration file (`config.json`) | Done |
 
 ---
 
