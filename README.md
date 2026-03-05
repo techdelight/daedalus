@@ -9,42 +9,32 @@ Claude Code is powerful but constantly asks for permission to run commands, edit
 ## Quick Start
 
 ```bash
-# Build the Go binary (requires Docker)
-./start.sh build
-
-# Register and open a new project
-./start.sh my-awesome-app /path/to/project
-
-# Open an existing project (uses stored directory from registry)
-./start.sh my-awesome-app
-```
-
-`start.sh` is a thin wrapper that builds the Go binary if missing, then passes all arguments to `daedalus`.
-
-## Installation
-
-```bash
-# Clone the repository
+# Clone and install
 git clone https://github.com/techdelight/daedalus.git
 cd daedalus
-
-# Install to /opt/daedalus (default) with PATH symlink
 sudo ./install.sh
 
-# Or install to a custom directory without root
-./install.sh --prefix ~/daedalus
+# Start a project
+daedalus my-awesome-app /path/to/project
 ```
 
-**Options:**
+The install script builds the binary via Docker, copies it along with runtime files to `/opt/daedalus`, and symlinks `daedalus` onto your PATH.
+
+**Prerequisites:** Docker (running) and Claude Code credentials (`~/.claude/.credentials.json`).
+
+**Install options:**
 
 | Flag | Description |
 |---|---|
 | `--prefix <dir>` | Installation directory (default: `/opt/daedalus`) |
 | `--no-link` | Skip creating a symlink in PATH |
 
-The script builds the binary via Docker, copies it along with runtime files to the prefix directory, and creates a symlink so `daedalus` is available on PATH. When running as root the symlink goes to `/usr/local/bin`; otherwise to `~/.local/bin`.
+```bash
+# Install to a custom directory without root
+./install.sh --prefix ~/daedalus
+```
 
-**Prerequisites:** Docker (running) and Claude Code credentials (`~/.claude/.credentials.json`).
+When running as root the symlink goes to `/usr/local/bin`; otherwise to `~/.local/bin`.
 
 ## Usage
 
