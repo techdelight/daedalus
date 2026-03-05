@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/banner.png" alt="Daedalus — A TechDelight Project" width="600">
+</p>
+
 # Daedalus
 
 A Docker environment for running [Claude Code](https://claude.ai/code) autonomously without permission prompts. The container isolates Claude Code with write access only to the mounted project directory.
@@ -9,30 +13,33 @@ Claude Code is powerful but constantly asks for permission to run commands, edit
 ## Quick Start
 
 ```bash
-# Clone and install
-git clone https://github.com/techdelight/daedalus.git
-cd daedalus
-sudo ./install.sh
+# Install Daedalus
+curl -fsSL https://raw.githubusercontent.com/techdelight/daedalus/master/install.sh | sudo bash
 
 # Start a project
 daedalus my-awesome-app /path/to/project
 ```
 
-The install script builds the binary via Docker, copies it along with runtime files to `/opt/daedalus`, and symlinks `daedalus` onto your PATH.
+## Installation
 
-**Prerequisites:** Docker (running) and Claude Code credentials (`~/.claude/.credentials.json`).
+The install script downloads the Daedalus source from GitHub, builds the binary via Docker, copies runtime files to a prefix directory, and symlinks `daedalus` onto your PATH.
 
-**Install options:**
+**Prerequisites:** curl, Docker (running), and Claude Code credentials (`~/.claude/.credentials.json`).
+
+```bash
+# Install to /opt/daedalus (default) — requires root
+curl -fsSL https://raw.githubusercontent.com/techdelight/daedalus/master/install.sh | sudo bash
+
+# Install to a custom directory without root
+curl -fsSL https://raw.githubusercontent.com/techdelight/daedalus/master/install.sh | bash -s -- --prefix ~/daedalus
+```
+
+**Options:**
 
 | Flag | Description |
 |---|---|
 | `--prefix <dir>` | Installation directory (default: `/opt/daedalus`) |
 | `--no-link` | Skip creating a symlink in PATH |
-
-```bash
-# Install to a custom directory without root
-./install.sh --prefix ~/daedalus
-```
 
 When running as root the symlink goes to `/usr/local/bin`; otherwise to `~/.local/bin`.
 

@@ -5,7 +5,7 @@ set -euo pipefail
 # ── Defaults ──────────────────────────────────────────────────────────────────
 PREFIX="/opt/daedalus"
 CREATE_LINK=true
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_URL="https://github.com/techdelight/daedalus/archive/master.tar.gz"
 
 # ── Runtime files to install alongside the binary ────────────────────────────
 RUNTIME_FILES=(
@@ -26,8 +26,8 @@ Options:
   --prefix <dir>  Installation directory (default: /opt/daedalus)
   --no-link       Skip creating a symlink in PATH
 
-Installs the Daedalus binary and runtime files to the prefix directory,
-then creates a symlink so 'daedalus' is available on PATH.
+Downloads the Daedalus source, builds the binary via Docker, installs
+runtime files to the prefix directory, and creates a PATH symlink.
 EOF
     exit 0
 }
@@ -56,6 +56,11 @@ done
 # ── Prerequisite checks ─────────────────────────────────────────────────────
 echo "Checking prerequisites..."
 
+if ! command -v curl &>/dev/null; then
+    echo "Error: curl is not installed or not in PATH." >&2
+    exit 1
+fi
+
 if ! command -v docker &>/dev/null; then
     echo "Error: Docker is not installed or not in PATH." >&2
     echo "  Install Docker: https://docs.docker.com/get-docker/" >&2
@@ -75,23 +80,35 @@ if [[ ! -f "$CLAUDE_CREDS" ]]; then
     exit 1
 fi
 
+echo "  curl: OK"
 echo "  Docker: OK"
 echo "  Claude credentials: OK"
 
-# ── Verify runtime files exist in source directory ───────────────────────────
+# ── Download source ──────────────────────────────────────────────────────────
+WORK_DIR="$(mktemp -d)"
+cleanup() { rm -rf "$WORK_DIR"; }
+trap cleanup EXIT
+
+echo ""
+echo "Downloading Daedalus source..."
+curl -fsSL "$REPO_URL" | tar xz -C "$WORK_DIR" --strip-components=1
+
+# Verify runtime files exist in the download
 for f in "${RUNTIME_FILES[@]}"; do
-    if [[ ! -f "$SCRIPT_DIR/$f" ]]; then
-        echo "Error: required file '$f' not found in $SCRIPT_DIR" >&2
+    if [[ ! -f "$WORK_DIR/$f" ]]; then
+        echo "Error: required file '$f' not found in downloaded source." >&2
         exit 1
     fi
 done
 
+echo "  Source downloaded to temporary directory."
+
 # ── Build ────────────────────────────────────────────────────────────────────
 echo ""
 echo "Building Daedalus binary..."
-make -C "$SCRIPT_DIR" build
+make -C "$WORK_DIR" build
 
-if [[ ! -f "$SCRIPT_DIR/daedalus" ]]; then
+if [[ ! -f "$WORK_DIR/daedalus" ]]; then
     echo "Error: build did not produce the 'daedalus' binary." >&2
     exit 1
 fi
@@ -101,11 +118,11 @@ echo ""
 echo "Installing to $PREFIX..."
 mkdir -p "$PREFIX"
 
-cp "$SCRIPT_DIR/daedalus" "$PREFIX/daedalus"
+cp "$WORK_DIR/daedalus" "$PREFIX/daedalus"
 chmod 755 "$PREFIX/daedalus"
 
 for f in "${RUNTIME_FILES[@]}"; do
-    cp "$SCRIPT_DIR/$f" "$PREFIX/$f"
+    cp "$WORK_DIR/$f" "$PREFIX/$f"
 done
 
 echo "  Copied binary and ${#RUNTIME_FILES[@]} runtime files."
