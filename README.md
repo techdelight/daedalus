@@ -141,6 +141,14 @@ The web UI provides:
 
 **Security:** Binds to `127.0.0.1` by default (localhost only). Use `--host 0.0.0.0` for remote access (add your own authentication layer).
 
+## tmux Controls
+
+Daedalus wraps each container session in tmux. A few essentials:
+
+- **Detach** (leave session running in background): `Ctrl-b` then `d`
+- **Scroll up**: `Ctrl-b` then `[` to enter copy mode, then arrow keys or `Page Up`/`Page Down` to scroll. Press `q` to exit copy mode.
+- **Reattach**: run `daedalus <project-name>` again — it auto-attaches to the existing tmux session.
+
 ## Build Targets
 
 The single `Dockerfile` uses a multi-stage build with four stages:
