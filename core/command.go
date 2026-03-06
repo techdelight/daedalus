@@ -46,7 +46,6 @@ func BuildTmuxCommand(cfg *Config, dockerCmd []string) string {
 		"PROJECT_NAME": cfg.ProjectName,
 		"PROJECT_DIR":  cfg.ProjectDir,
 		"CACHE_DIR":    cfg.CacheDir(),
-		"CRED_PATH":    cfg.CredSourcePath(),
 		"TARGET":       cfg.Target,
 	})
 

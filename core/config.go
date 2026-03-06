@@ -20,7 +20,6 @@ type Config struct {
 	Force           bool
 	NoColor         bool
 	ImagePrefix     string
-	ClaudeConfigDir string
 	Subcommand      string   // "list", "help", "web", "remove", "config", "completion", or "" for normal mode
 	RemoveTargets   []string // project names for "remove" subcommand
 	ConfigTarget    string   // project name for "config" subcommand
@@ -54,11 +53,6 @@ func (c *Config) CacheDir() string {
 // RegistryPath returns the path to the project registry file.
 func (c *Config) RegistryPath() string {
 	return filepath.Join(c.DataDir, "projects.json")
-}
-
-// CredSourcePath returns the source credentials path.
-func (c *Config) CredSourcePath() string {
-	return filepath.Join(c.ClaudeConfigDir, ".credentials.json")
 }
 
 // UseTmux returns true if tmux should be used for this session.

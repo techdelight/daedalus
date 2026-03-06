@@ -13,9 +13,9 @@ Started 2026-03-06. Code restructuring, installation improvements, and documenta
 | # | Item | Status |
 |---|------|--------|
 | 1 | Configurable `.cache` directory location | Done |
-| 2 | Code structure cleanup — move `.go` files out of the root into packages | — |
-| 3 | Usage instructions in README | — |
-| 4 | Remove credential linking into the project container | — |
+| 2 | Code structure cleanup — move `.go` files out of the root into packages | Done |
+| 3 | Usage instructions in README | Done |
+| 4 | Remove credential linking into the project container | Done |
 | 5 | Improve installation script (`--uninstall`, `data-dir` docs, macOS support) | — |
 | 6 | Documentation for MCP servers (configuration, restrictions) | — |
 | 7 | Documentation for sharing skills across projects | — |
@@ -142,5 +142,5 @@ Three UI surfaces sharing one core. Clean architecture extraction.
 
 | # | Issue | Severity | Sprint |
 |---|-------|----------|--------|
-| 26 | `claude /login` replaces `.credentials.json` (new inode), breaking bind-mount into running containers | Major | — |
+| ~~26~~ | ~~`claude /login` replaces `.credentials.json` (new inode), breaking bind-mount into running containers~~ | ~~Major~~ | Closed (credentials no longer bind-mounted) |
 | 27 | TUI kill (`K`) does not stop the container | Major | — |

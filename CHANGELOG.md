@@ -9,13 +9,16 @@ All notable changes to this project will be documented in this file.
 
 ### Removed
 - `--data-dir` CLI flag — data directory is now configured via `config.json` or the `DAEDALUS_DATA_DIR` environment variable.
+- Host credential linking — `ClaudeConfigDir`, `CredSourcePath()`, and `CRED_PATH` env var removed from config, command builder, and compose environment. Users now run `claude /login` inside the container; credentials persist in the per-project cache directory.
+- Credential prerequisite check from `install.sh` — Claude credentials are no longer required on the host.
+- `/opt/claude/credentials/` directory from Dockerfile and credential symlink logic from `entrypoint.sh`.
 
 ## [0.8.0] - 2026-03-05
 
 ### Added
 - Configurable data directory via `--data-dir` flag or `DAEDALUS_DATA_DIR` environment variable. Allows storing registry and per-project caches on a different drive or following XDG conventions. Default remains `.cache` next to the binary (backward compatible).
 - `RegistryPath()` method on `Config` to eliminate duplicated registry path construction.
-- `install.sh` deployment script — builds the binary, copies runtime files to a configurable `--prefix` directory (default: `~/.local/share/daedalus`), and creates a PATH symlink. Validates Docker and Claude credentials as prerequisites.
+- `install.sh` deployment script — builds the binary, copies runtime files to a configurable `--prefix` directory (default: `~/.local/share/daedalus`), and creates a PATH symlink. Validates Docker as a prerequisite.
 
 ### Changed
 - `CacheDir()` now derives from `DataDir` instead of `ScriptDir`.

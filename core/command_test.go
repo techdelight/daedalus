@@ -53,11 +53,10 @@ func TestBuildClaudeArgs_WithPrompt(t *testing.T) {
 
 func TestBuildTmuxCommand_QuotesDockerArgs(t *testing.T) {
 	cfg := &Config{
-		ProjectName:     "my-app",
-		ProjectDir:      "/path/with spaces/project",
-		ScriptDir:       "/home/user",
-		Target:          "dev",
-		ClaudeConfigDir: "/home/user/.claude",
+		ProjectName: "my-app",
+		ProjectDir:  "/path/with spaces/project",
+		ScriptDir:   "/home/user",
+		Target:      "dev",
 	}
 	dockerCmd := []string{"docker", "compose", "-f", "/path/with spaces/compose.yml", "run", "--rm", "claude"}
 	result := BuildTmuxCommand(cfg, dockerCmd)

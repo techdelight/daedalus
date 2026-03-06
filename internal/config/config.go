@@ -141,16 +141,6 @@ func ParseArgs(args []string) (*core.Config, error) {
 		cfg.DataDir = filepath.Join(cfg.ScriptDir, ".cache")
 	}
 
-	// Resolve claude config dir (needed by all modes including tui)
-	cfg.ClaudeConfigDir = os.Getenv("CLAUDE_CONFIG_DIR")
-	if cfg.ClaudeConfigDir == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return nil, fmt.Errorf("cannot determine home directory: %w", err)
-		}
-		cfg.ClaudeConfigDir = filepath.Join(home, ".claude")
-	}
-
 	// Handle "remove" subcommand — before the positional switch to allow
 	// arbitrary number of target names (e.g., daedalus remove a b c).
 	if len(positional) > 0 && positional[0] == "remove" {
@@ -200,10 +190,6 @@ func ParseArgs(args []string) (*core.Config, error) {
 		}
 	default:
 		return nil, fmt.Errorf("too many arguments (expected at most 2, got %d)\n%s run 'daedalus --help' for usage", len(positional), color.Cyan("Hint:"))
-	}
-
-	if err := os.MkdirAll(cfg.ClaudeConfigDir, 0755); err != nil {
-		return nil, fmt.Errorf("creating claude config directory: %w", err)
 	}
 
 	return cfg, nil

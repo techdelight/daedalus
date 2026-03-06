@@ -79,12 +79,6 @@ func run(args []string) error {
 		return fmt.Errorf("project directory '%s' does not exist\n%s check the path or re-register with: daedalus <name> <correct-path>", cfg.ProjectDir, color.Cyan("Hint:"))
 	}
 
-	// --- Credential check ---
-	credPath := cfg.CredSourcePath()
-	if _, err := os.Stat(credPath); err != nil {
-		return fmt.Errorf("credentials file not found: %s\n%s run 'claude' on the host to log in", credPath, color.Cyan("Hint:"))
-	}
-
 	// --- Cache directory ---
 	if err := docker.SetupCacheDir(cfg); err != nil {
 		return err
@@ -146,7 +140,6 @@ func run(args []string) error {
 	composeEnv := map[string]string{
 		"PROJECT_DIR": cfg.ProjectDir,
 		"CACHE_DIR":   cfg.CacheDir(),
-		"CRED_PATH":   credPath,
 		"TARGET":      cfg.Target,
 	}
 

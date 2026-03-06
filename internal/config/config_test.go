@@ -169,31 +169,6 @@ func TestParseArgs_TuiSubcommand(t *testing.T) {
 	if cfg.Subcommand != "tui" {
 		t.Errorf("Subcommand = %q, want %q", cfg.Subcommand, "tui")
 	}
-	if cfg.ClaudeConfigDir == "" {
-		t.Error("ClaudeConfigDir is empty for tui subcommand, want non-empty")
-	}
-}
-
-func TestParseArgs_ListSubcommand_HasClaudeConfigDir(t *testing.T) {
-	cfg, err := ParseArgs([]string{"list"})
-	if err != nil {
-		t.Fatalf("ParseArgs failed: %v", err)
-	}
-	if cfg.ClaudeConfigDir == "" {
-		t.Error("ClaudeConfigDir is empty for list subcommand, want non-empty")
-	}
-}
-
-func TestParseArgs_MkdirAllError(t *testing.T) {
-	// Point CLAUDE_CONFIG_DIR to an unwritable path
-	t.Setenv("CLAUDE_CONFIG_DIR", "/dev/null/impossible")
-	_, err := ParseArgs([]string{"my-project"})
-	if err == nil {
-		t.Fatal("expected error for unwritable config dir")
-	}
-	if !strings.Contains(err.Error(), "creating claude config directory") {
-		t.Errorf("error = %q, want mention of 'creating claude config directory'", err)
-	}
 }
 
 func TestParseArgs_ThreePositionalWithFlags(t *testing.T) {
@@ -505,22 +480,9 @@ func TestParseArgs_CompletionNoShell(t *testing.T) {
 	}
 }
 
-func TestParseArgs_ClaudeConfigDirEnvOverride(t *testing.T) {
-	tmp := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", tmp)
-	cfg, err := ParseArgs([]string{"my-project"})
-	if err != nil {
-		t.Fatalf("ParseArgs failed: %v", err)
-	}
-	if cfg.ClaudeConfigDir != tmp {
-		t.Errorf("ClaudeConfigDir = %q, want %q", cfg.ClaudeConfigDir, tmp)
-	}
-}
-
 func TestParseArgs_DataDirEnvVar(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("DAEDALUS_DATA_DIR", tmp)
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	cfg, err := ParseArgs([]string{"my-project"})
 	if err != nil {
 		t.Fatalf("ParseArgs failed: %v", err)
@@ -532,7 +494,6 @@ func TestParseArgs_DataDirEnvVar(t *testing.T) {
 
 func TestParseArgs_DataDirDefaultFallback(t *testing.T) {
 	t.Setenv("DAEDALUS_DATA_DIR", "")
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	cfg, err := ParseArgs([]string{"my-project"})
 	if err != nil {
 		t.Fatalf("ParseArgs failed: %v", err)

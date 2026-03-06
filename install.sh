@@ -80,16 +80,8 @@ if ! docker info &>/dev/null 2>&1; then
     exit 1
 fi
 
-CLAUDE_CREDS="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/.credentials.json"
-if [[ ! -f "$CLAUDE_CREDS" ]]; then
-    echo "Error: Claude credentials not found at $CLAUDE_CREDS" >&2
-    echo "  Run 'claude /login' to authenticate first." >&2
-    exit 1
-fi
-
 echo "  curl: OK"
 echo "  Docker: OK"
-echo "  Claude credentials: OK"
 
 # ── Download source ──────────────────────────────────────────────────────────
 WORK_DIR="$(mktemp -d)"

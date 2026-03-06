@@ -131,13 +131,12 @@ func (ws *WebServer) handleStartProject(w http.ResponseWriter, r *http.Request) 
 	}
 
 	projCfg := &core.Config{
-		ProjectName:     name,
-		ProjectDir:      entry.Directory,
-		ScriptDir:       ws.cfg.ScriptDir,
-		DataDir:         ws.cfg.DataDir,
-		Target:          entry.Target,
-		ImagePrefix:     ws.cfg.ImagePrefix,
-		ClaudeConfigDir: ws.cfg.ClaudeConfigDir,
+		ProjectName: name,
+		ProjectDir:  entry.Directory,
+		ScriptDir:   ws.cfg.ScriptDir,
+		DataDir:     ws.cfg.DataDir,
+		Target:      entry.Target,
+		ImagePrefix: ws.cfg.ImagePrefix,
 	}
 
 	if err := docker.SetupCacheDir(projCfg); err != nil {

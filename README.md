@@ -24,7 +24,7 @@ daedalus my-awesome-app /path/to/project
 
 The install script downloads the Daedalus source from GitHub, builds the binary via Docker, copies runtime files to a prefix directory, and symlinks `daedalus` into `~/.local/bin`.
 
-**Prerequisites:** curl, Docker (running), and Claude Code credentials (`~/.claude/.credentials.json`).
+**Prerequisites:** curl and Docker (running).
 
 ```bash
 # Install to ~/.local/share/daedalus (default)
@@ -190,18 +190,13 @@ daedalus --build --target godot my-game /path/to/game-project
 
 ## Authentication
 
-Credentials are bind-mounted read-only from the host at runtime. No credentials are copied into the build context or baked into the image.
-
-### Refreshing Expired Credentials
-
-Claude tokens expire periodically. When a running agent starts failing with authentication errors, re-authenticate from a separate terminal on the host:
+On first use, run `claude /login` inside the container to authenticate. Credentials are stored in the per-project cache directory (`.cache/<project>/`) and persist across container restarts — no host-side credential setup required.
 
 ```bash
-# In a separate shell on the host (not inside the container)
+# Start a project, then log in inside the container
+daedalus my-app /path/to/project
 claude /login
 ```
-
-The credentials file (`~/.claude/.credentials.json`) is updated on the host. Since the container bind-mounts this file read-only, the running agent picks up the new token automatically — no restart or rebuild required.
 
 ## Project Registry
 
@@ -259,7 +254,6 @@ All fields are optional. The file itself is optional — Daedalus works without 
 
 | Variable | Default | Description |
 |---|---|---|
-| `CLAUDE_CONFIG_DIR` | `~/.claude` | Host path to Claude credentials |
 | `DAEDALUS_DATA_DIR` | `.cache` next to binary | Base directory for registry and per-project caches |
 | `NO_COLOR` | (unset) | Disable colored output when set |
 
@@ -268,12 +262,10 @@ All fields are optional. The file itself is optional — Daedalus works without 
 - Runs as non-root `claude` user (UID matched to caller)
 - All Linux capabilities dropped
 - `no-new-privileges` prevents privilege escalation
-- Credentials bind-mounted read-only at runtime
 
 ## Requirements
 
 - Docker and Docker Compose
-- Claude Code CLI logged in on the host (`~/.claude/.credentials.json` must exist)
 - (Optional) `tmux` for detach/reattach support
 
 ## Contributing

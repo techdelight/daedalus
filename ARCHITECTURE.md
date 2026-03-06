@@ -119,7 +119,6 @@ Browser ──► Web UI (HTTP/WS) ──► tmux attach (PTY relay) ──► C
 Host                          Container (claude-run-<name>)
 ─────                         ────────────────────────────
 /path/to/project ──(rw)──►   /workspace
-~/.claude/.credentials ─(ro)► /opt/claude/credentials/
 .cache/<name>/ ──(rw)──►     /home/claude (persistent)
 ```
 

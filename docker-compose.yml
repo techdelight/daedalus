@@ -5,7 +5,6 @@ services:
     volumes:
       - "${PROJECT_DIR}:/workspace"
       - "${CACHE_DIR}:/home/claude"
-      - "${CRED_PATH}:/opt/claude/credentials/.credentials.json:ro"
     security_opt:
       - no-new-privileges:true
     cap_drop:

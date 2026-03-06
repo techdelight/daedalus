@@ -305,13 +305,12 @@ func loadProjects(reg *registry.Registry, docker *docker.Docker) tea.Cmd {
 func startProject(cfg *core.Config, exec executor.Executor, reg *registry.Registry, docker *docker.Docker, p projectRow) tea.Cmd {
 	return func() tea.Msg {
 		projCfg := &core.Config{
-			ProjectName:     p.name,
-			ProjectDir:      p.directory,
-			ScriptDir:       cfg.ScriptDir,
-			DataDir:         cfg.DataDir,
-			Target:          p.target,
-			ImagePrefix:     cfg.ImagePrefix,
-			ClaudeConfigDir: cfg.ClaudeConfigDir,
+			ProjectName: p.name,
+			ProjectDir:  p.directory,
+			ScriptDir:   cfg.ScriptDir,
+			DataDir:     cfg.DataDir,
+			Target:      p.target,
+			ImagePrefix: cfg.ImagePrefix,
 		}
 
 		if err := setupCacheDir(projCfg); err != nil {
