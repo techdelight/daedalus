@@ -145,4 +145,4 @@ Three UI surfaces sharing one core. Clean architecture extraction.
 | # | Issue | Severity | Sprint |
 |---|-------|----------|--------|
 | ~~26~~ | ~~`claude /login` replaces `.credentials.json` (new inode), breaking bind-mount into running containers~~ | ~~Major~~ | Closed (credentials no longer bind-mounted) |
-| 27 | TUI kill (`K`) does not stop the container | Major | — |
+| ~~27~~ | ~~TUI kill (`K`) does not stop the container~~ | ~~Major~~ | Fixed (v0.8.1 — `executor.Output` instead of `executor.Run`) |

@@ -199,7 +199,7 @@ func (ws *WebServer) handleStopProject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	containerName := "claude-run-" + name
-	if err := ws.executor.Run("docker", "stop", containerName); err != nil {
+	if _, err := ws.executor.Output("docker", "stop", containerName); err != nil {
 		http.Error(w, fmt.Sprintf("stopping container: %v", err), http.StatusInternalServerError)
 		return
 	}

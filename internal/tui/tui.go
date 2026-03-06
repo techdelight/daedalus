@@ -358,7 +358,7 @@ func startProject(cfg *core.Config, exec executor.Executor, reg *registry.Regist
 func killContainer(exec executor.Executor, name string) tea.Cmd {
 	return func() tea.Msg {
 		containerName := "claude-run-" + name
-		err := exec.Run("docker", "stop", containerName)
+		_, err := exec.Output("docker", "stop", containerName)
 		if err != nil {
 			return actionResultMsg{err: fmt.Errorf("stopping %s: %w", containerName, err)}
 		}
