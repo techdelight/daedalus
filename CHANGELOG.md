@@ -7,6 +7,8 @@ All notable changes to this project will be documented in this file.
 ### Added
 - Application configuration file (`config.json`) — optional JSON config file next to the binary for persistent settings. Supports `data-dir`, `debug`, `no-tmux`, and `image-prefix`. Precedence: env vars > config file > defaults.
 - `--uninstall` flag for `install.sh` — removes binary, runtime files, and symlink. Prompts before deleting project data in `.cache/`.
+- Documentation for MCP server configuration and container restrictions.
+- Documentation for sharing skills and instructions across projects.
 
 ### Fixed
 - `install.sh` `sed -i` command now portable across Linux and macOS (replaced with `sed` + temp file).

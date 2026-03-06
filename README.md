@@ -261,6 +261,55 @@ All fields are optional. The file itself is optional — Daedalus works without 
 | `no-tmux` | bool | Run without tmux session wrapping |
 | `image-prefix` | string | Docker image prefix (default: `techdelight/claude-runner`) |
 
+## MCP Servers
+
+Daedalus supports [MCP servers](https://modelcontextprotocol.io/) configured in `.claude.json` at the repo root. The file is baked into the Docker image at build time, so **rebuild after any changes** (`daedalus --build`).
+
+**Transport types:**
+
+| Type | Example |
+|---|---|
+| `stdio` | Spawns a subprocess inside the container |
+| `http` | Connects to a remote URL |
+
+```json
+{
+  "mcpServers": {
+    "my-stdio-server": {
+      "type": "stdio",
+      "command": "docker",
+      "args": ["run", "-i", "--rm", "my-mcp-image:latest"]
+    },
+    "my-http-server": {
+      "type": "http",
+      "url": "https://mcp.example.com/mcp"
+    }
+  }
+}
+```
+
+**Container restrictions:**
+
+- **All Linux capabilities are dropped** — servers cannot escalate privileges.
+- **stdio servers that spawn Docker** require the `--dind` flag (mounts the host Docker socket).
+- **HTTP servers running on the host** must use `host.docker.internal` instead of `localhost` (e.g. `http://host.docker.internal:3000/mcp`).
+- The container filesystem is limited to `/workspace` (project mount) and `/home/claude` (persistent home).
+
+**Per-project override:** edit `.cache/<project>/.claude-config/.claude.json` directly — this file is persisted in the project's home directory and is not overwritten after the first run.
+
+## Sharing Skills Across Projects
+
+Claude Code reads instructions from several locations inside the container. Use these to share skills, conventions, and workflows across projects.
+
+| Source | Scope | How it works |
+|---|---|---|
+| Project `CLAUDE.md` | Per-project | Mounted automatically at `/workspace/CLAUDE.md` from the project directory |
+| Project `.claude/` dir | Per-project | Mounted at `/workspace/.claude/` — place commands, settings, or memory files here |
+| `.claude.json` | All projects (same image) | Baked into the image; seeds `/home/claude/.claude-config/.claude.json` on first run |
+| `settings.json` | All projects (same image) | Baked into the image; seeds `/home/claude/.claude-config/settings.json` on first run |
+
+**Per-project override:** the persistent home directory at `.cache/<project>/.claude-config/` stores the runtime copies of `.claude.json` and `settings.json`. Edit them directly to override image-level defaults for a single project without rebuilding.
+
 ## Environment Variables
 
 | Variable | Default | Description |
