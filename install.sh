@@ -5,6 +5,7 @@ set -euo pipefail
 # ── Defaults ──────────────────────────────────────────────────────────────────
 PREFIX="$HOME/.local/share/daedalus"
 CREATE_LINK=true
+UNINSTALL=false
 REPO_URL="https://github.com/techdelight/daedalus/archive/master.tar.gz"
 
 # ── Runtime files to install alongside the binary ────────────────────────────
@@ -21,11 +22,12 @@ RUNTIME_FILES=(
 # ── Argument parsing ─────────────────────────────────────────────────────────
 usage() {
     cat <<EOF
-Usage: $0 [--prefix <dir>] [--no-link]
+Usage: $0 [--prefix <dir>] [--no-link] [--uninstall]
 
 Options:
   --prefix <dir>  Installation directory (default: ~/.local/share/daedalus)
   --no-link       Skip creating a symlink in PATH
+  --uninstall     Remove Daedalus installation (prompts before deleting project data)
 
 Downloads the Daedalus source, builds the binary via Docker, installs
 runtime files to the prefix directory, and creates a PATH symlink.
@@ -44,6 +46,10 @@ while [[ $# -gt 0 ]]; do
             CREATE_LINK=false
             shift
             ;;
+        --uninstall)
+            UNINSTALL=true
+            shift
+            ;;
         --help|-h)
             usage
             ;;
@@ -53,6 +59,49 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+# ── Uninstall ─────────────────────────────────────────────────────────────────
+if [[ "$UNINSTALL" == true ]]; then
+    if [[ ! -d "$PREFIX" ]]; then
+        echo "Nothing to uninstall: $PREFIX does not exist."
+        exit 0
+    fi
+
+    echo "Uninstalling Daedalus from $PREFIX..."
+
+    # Remove symlink
+    LINK="$HOME/.local/bin/daedalus"
+    if [[ -L "$LINK" ]]; then
+        rm -f "$LINK"
+        echo "  Removed symlink $LINK"
+    fi
+
+    # Prompt before removing project data
+    if [[ -d "$PREFIX/.cache" ]]; then
+        printf "Remove project data in %s/.cache/? (y/N) " "$PREFIX"
+        read -r answer
+        if [[ "$answer" =~ ^[Yy]$ ]]; then
+            rm -rf "$PREFIX/.cache"
+            echo "  Removed project data."
+        else
+            echo "  Kept project data."
+        fi
+    fi
+
+    # Remove runtime files and binary
+    for f in "${RUNTIME_FILES[@]}"; do
+        rm -f "$PREFIX/$f"
+    done
+    rm -f "$PREFIX/daedalus"
+    echo "  Removed binary and runtime files."
+
+    # Remove prefix directory if empty
+    rmdir "$PREFIX" 2>/dev/null && echo "  Removed empty directory $PREFIX" || true
+
+    echo ""
+    echo "Daedalus uninstalled."
+    exit 0
+fi
 
 # ── Reject root ───────────────────────────────────────────────────────────────
 if [[ $EUID -eq 0 ]]; then
@@ -128,7 +177,7 @@ echo "  Copied binary and ${#RUNTIME_FILES[@]} runtime files."
 
 # Set the default data-dir to the resolved absolute path
 DATA_DIR="$PREFIX/.cache"
-sed -i "s|\"data-dir\": \"\"|\"data-dir\": \"$DATA_DIR\"|" "$PREFIX/config.json"
+sed "s|\"data-dir\": \"\"|\"data-dir\": \"$DATA_DIR\"|" "$PREFIX/config.json" > "$PREFIX/config.json.tmp" && mv "$PREFIX/config.json.tmp" "$PREFIX/config.json"
 
 # ── Symlink ──────────────────────────────────────────────────────────────────
 if [[ "$CREATE_LINK" == true ]]; then

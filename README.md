@@ -34,12 +34,23 @@ curl -fsSL https://raw.githubusercontent.com/techdelight/daedalus/master/install
 curl -fsSL https://raw.githubusercontent.com/techdelight/daedalus/master/install.sh | bash -s -- --prefix ~/daedalus
 ```
 
+**Uninstall:**
+
+```bash
+# Uninstall (keeps project data by default)
+~/.local/share/daedalus/install.sh --uninstall
+
+# Uninstall from a custom prefix
+~/.local/share/daedalus/install.sh --uninstall --prefix ~/daedalus
+```
+
 **Options:**
 
 | Flag | Description |
 |---|---|
 | `--prefix <dir>` | Installation directory (default: `~/.local/share/daedalus`) |
 | `--no-link` | Skip creating a symlink in PATH |
+| `--uninstall` | Remove Daedalus installation (prompts before deleting project data) |
 
 The symlink is created in `~/.local/bin`. If this directory is not on your PATH, the script prints a hint.
 
@@ -226,11 +237,11 @@ daedalus --resume <session-id> my-app
 
 ## Configuration File
 
-A default `config.json` is installed next to the binary. Edit it to customize settings that would otherwise require CLI flags or environment variables.
+A default `config.json` is installed next to the binary. The installer automatically sets `data-dir` to `<install-dir>/.cache`. Edit the file to customize settings that would otherwise require CLI flags or environment variables.
 
 **Location:** `<install-dir>/config.json` (default: `~/.local/share/daedalus/config.json`)
 
-**Precedence:** CLI flags > environment variables > config file > built-in defaults
+**Precedence:** CLI flags > environment variables > `config.json` > built-in defaults
 
 ```json
 {

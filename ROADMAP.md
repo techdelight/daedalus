@@ -16,7 +16,7 @@ Started 2026-03-06. Code restructuring, installation improvements, and documenta
 | 2 | Code structure cleanup — move `.go` files out of the root into packages | Done |
 | 3 | Usage instructions in README | Done |
 | 4 | Remove credential linking into the project container | Done |
-| 5 | Improve installation script (`--uninstall`, `data-dir` docs, macOS support) | — |
+| 5 | Improve installation script (`--uninstall`, `data-dir` docs, macOS support) | Done |
 | 6 | Documentation for MCP servers (configuration, restrictions) | — |
 | 7 | Documentation for sharing skills across projects | — |
 
