@@ -4,11 +4,23 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-03-06
+
 ### Added
+- Configurable data directory via `DAEDALUS_DATA_DIR` environment variable. Allows storing registry and per-project caches on a different drive or following XDG conventions. Default remains `.cache` next to the binary (backward compatible).
+- `RegistryPath()` method on `Config` to eliminate duplicated registry path construction.
+- `install.sh` deployment script — builds the binary, copies runtime files to a configurable `--prefix` directory (default: `~/.local/share/daedalus`), and creates a PATH symlink. Validates Docker as a prerequisite.
 - Application configuration file (`config.json`) — optional JSON config file next to the binary for persistent settings. Supports `data-dir`, `debug`, `no-tmux`, and `image-prefix`. Precedence: env vars > config file > defaults.
 - `--uninstall` flag for `install.sh` — removes binary, runtime files, and symlink. Prompts before deleting project data in `.cache/`.
 - Documentation for MCP server configuration and container restrictions.
 - Documentation for sharing skills and instructions across projects.
+
+### Changed
+- `CacheDir()` now derives from `DataDir` instead of `ScriptDir`.
+- **Rebrand**: Renamed project from `agentenv` to `Daedalus` across all source files, Go module path, binary name, shell completions, documentation, and build scripts.
+- Copyright holder changed from "David Stibbe" to "Techdelight BV" in all source file headers.
+- Apache-2.0 license added (`LICENSE` file).
+- Documentation restructured: `README.md` is now end-user focused, `CONTRIBUTING.md` expanded with coding standards and Definition of Done, `ARCHITECTURE.md` created with module breakdown, component diagram, and data flow.
 
 ### Fixed
 - `install.sh` `sed -i` command now portable across Linux and macOS (replaced with `sed` + temp file).
@@ -18,20 +30,6 @@ All notable changes to this project will be documented in this file.
 - Host credential linking — `ClaudeConfigDir`, `CredSourcePath()`, and `CRED_PATH` env var removed from config, command builder, and compose environment. Users now run `claude /login` inside the container; credentials persist in the per-project cache directory.
 - Credential prerequisite check from `install.sh` — Claude credentials are no longer required on the host.
 - `/opt/claude/credentials/` directory from Dockerfile and credential symlink logic from `entrypoint.sh`.
-
-## [0.8.0] - 2026-03-05
-
-### Added
-- Configurable data directory via `--data-dir` flag or `DAEDALUS_DATA_DIR` environment variable. Allows storing registry and per-project caches on a different drive or following XDG conventions. Default remains `.cache` next to the binary (backward compatible).
-- `RegistryPath()` method on `Config` to eliminate duplicated registry path construction.
-- `install.sh` deployment script — builds the binary, copies runtime files to a configurable `--prefix` directory (default: `~/.local/share/daedalus`), and creates a PATH symlink. Validates Docker as a prerequisite.
-
-### Changed
-- `CacheDir()` now derives from `DataDir` instead of `ScriptDir`.
-- **Rebrand**: Renamed project from `agentenv` to `Daedalus` across all source files, Go module path, binary name, shell completions, documentation, and build scripts.
-- Copyright holder changed from "David Stibbe" to "Techdelight BV" in all source file headers.
-- Apache-2.0 license added (`LICENSE` file).
-- Documentation restructured: `README.md` is now end-user focused, `CONTRIBUTING.md` expanded with coding standards and Definition of Done, `ARCHITECTURE.md` created with module breakdown, component diagram, and data flow.
 
 ## [0.6.0] - 2026-03-02
 

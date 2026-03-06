@@ -6,9 +6,15 @@
 
 ## Current Sprint
 
+(none)
+
+---
+
+## Sprint History
+
 ### Sprint 8: Structure & Distribution (v0.8.0)
 
-Started 2026-03-06. Code restructuring, installation improvements, and documentation.
+Delivered 2026-03-06. Code restructuring, installation improvements, and documentation.
 
 | # | Item | Status |
 |---|------|--------|
@@ -19,10 +25,6 @@ Started 2026-03-06. Code restructuring, installation improvements, and documenta
 | 5 | Improve installation script (`--uninstall`, `data-dir` docs, macOS support) | Done |
 | 6 | Documentation for MCP servers (configuration, restrictions) | Done |
 | 7 | Documentation for sharing skills across projects | Done |
-
----
-
-## Sprint History
 
 ### Sprint 7: Rebrand & Open Source (v0.7.0)
 
