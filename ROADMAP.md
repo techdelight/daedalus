@@ -6,9 +6,27 @@
 
 ## Current Sprint
 
+### Sprint 8: Structure & Distribution (v0.8.0)
+
+Started 2026-03-06. Code restructuring, installation improvements, and documentation.
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | Configurable `.cache` directory location | Done |
+| 2 | Code structure cleanup — move `.go` files out of the root into packages | — |
+| 3 | Usage instructions in README | — |
+| 4 | Remove credential linking into the project container | — |
+| 5 | Improve installation script (`--uninstall`, `data-dir` docs, macOS support) | — |
+| 6 | Documentation for MCP servers (configuration, restrictions) | — |
+| 7 | Documentation for sharing skills across projects | — |
+
+---
+
+## Sprint History
+
 ### Sprint 7: Rebrand & Open Source (v0.7.0)
 
-Started 2026-03-05. Rename to Daedalus, add license, restructure documentation.
+Delivered 2026-03-05. Rename to Daedalus, add license, restructure documentation.
 
 | # | Item | Status |
 |---|------|--------|
@@ -18,10 +36,7 @@ Started 2026-03-05. Rename to Daedalus, add license, restructure documentation.
 | 4 | Create `ARCHITECTURE.md` | Done |
 | 5 | Restructure all documentation per project standards | Done |
 | 6 | Application configuration file (`config.json`) | Done |
-
----
-
-## Sprint History
+| 7 | Deployment/installation script | Done |
 
 ### Sprint 6: Developer Experience (v0.6.0)
 
@@ -112,18 +127,6 @@ Three UI surfaces sharing one core. Clean architecture extraction.
 ---
 
 ## Future Sprints
-
-### Sprint 8: Structure & Distribution
-
-- Configurable `.cache` directory location (currently hardcoded relative to binary)
-- ~~Deployment/installation script~~ Done
-- Code structure cleanup — move `.go` files out of the root into packages
-- Usage instructions in README:
-  - Creating a new project
-  - Starting/attaching a project in the TUI
-  - Scrolling in tmux
-  - Disconnecting from a session
-  - `.cache` directory purpose and location
 
 ### Sprint 9: 1.0 Preparation
 
