@@ -1,6 +1,6 @@
 // Copyright (C) 2026 Techdelight BV
 
-package main
+package completions
 
 import (
 	"os"
@@ -41,14 +41,14 @@ func TestFishCompletion_ContainsFlags(t *testing.T) {
 	}
 }
 
-func TestGenerateCompletion_Bash(t *testing.T) {
+func TestGenerate_Bash(t *testing.T) {
 	cfg := &core.Config{CompletionShell: "bash"}
 
 	old := os.Stdout
 	r, w, _ := os.Pipe()
 	os.Stdout = w
 
-	err := generateCompletion(cfg)
+	err := Generate(cfg)
 
 	w.Close()
 	var buf [8192]byte
@@ -56,7 +56,7 @@ func TestGenerateCompletion_Bash(t *testing.T) {
 	os.Stdout = old
 
 	if err != nil {
-		t.Fatalf("generateCompletion(bash) failed: %v", err)
+		t.Fatalf("Generate(bash) failed: %v", err)
 	}
 
 	output := string(buf[:n])
@@ -65,14 +65,14 @@ func TestGenerateCompletion_Bash(t *testing.T) {
 	}
 }
 
-func TestGenerateCompletion_Zsh(t *testing.T) {
+func TestGenerate_Zsh(t *testing.T) {
 	cfg := &core.Config{CompletionShell: "zsh"}
 
 	old := os.Stdout
 	r, w, _ := os.Pipe()
 	os.Stdout = w
 
-	err := generateCompletion(cfg)
+	err := Generate(cfg)
 
 	w.Close()
 	var buf [8192]byte
@@ -80,7 +80,7 @@ func TestGenerateCompletion_Zsh(t *testing.T) {
 	os.Stdout = old
 
 	if err != nil {
-		t.Fatalf("generateCompletion(zsh) failed: %v", err)
+		t.Fatalf("Generate(zsh) failed: %v", err)
 	}
 
 	output := string(buf[:n])
@@ -89,14 +89,14 @@ func TestGenerateCompletion_Zsh(t *testing.T) {
 	}
 }
 
-func TestGenerateCompletion_Fish(t *testing.T) {
+func TestGenerate_Fish(t *testing.T) {
 	cfg := &core.Config{CompletionShell: "fish"}
 
 	old := os.Stdout
 	r, w, _ := os.Pipe()
 	os.Stdout = w
 
-	err := generateCompletion(cfg)
+	err := Generate(cfg)
 
 	w.Close()
 	var buf [8192]byte
@@ -104,7 +104,7 @@ func TestGenerateCompletion_Fish(t *testing.T) {
 	os.Stdout = old
 
 	if err != nil {
-		t.Fatalf("generateCompletion(fish) failed: %v", err)
+		t.Fatalf("Generate(fish) failed: %v", err)
 	}
 
 	output := string(buf[:n])
@@ -113,9 +113,9 @@ func TestGenerateCompletion_Fish(t *testing.T) {
 	}
 }
 
-func TestGenerateCompletion_InvalidShell(t *testing.T) {
+func TestGenerate_InvalidShell(t *testing.T) {
 	cfg := &core.Config{CompletionShell: "powershell"}
-	err := generateCompletion(cfg)
+	err := Generate(cfg)
 	if err == nil {
 		t.Fatal("expected error for unsupported shell, got nil")
 	}
@@ -124,9 +124,9 @@ func TestGenerateCompletion_InvalidShell(t *testing.T) {
 	}
 }
 
-func TestGenerateCompletion_EmptyShell(t *testing.T) {
+func TestGenerate_EmptyShell(t *testing.T) {
 	cfg := &core.Config{CompletionShell: ""}
-	err := generateCompletion(cfg)
+	err := Generate(cfg)
 	if err == nil {
 		t.Fatal("expected error for empty shell, got nil")
 	}

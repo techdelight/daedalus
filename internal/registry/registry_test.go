@@ -1,6 +1,6 @@
 // Copyright (C) 2026 Techdelight BV
 
-package main
+package registry
 
 import (
 	"encoding/json"
@@ -39,7 +39,6 @@ func TestRegistryInit_CreatesFile(t *testing.T) {
 
 func TestRegistryInit_MigratesExisting(t *testing.T) {
 	dir := t.TempDir()
-	// Create a pre-existing project directory (as .cache/foo would be)
 	os.MkdirAll(filepath.Join(dir, "my-project"), 0755)
 
 	regFile := filepath.Join(dir, "projects.json")
@@ -116,7 +115,6 @@ func TestRegistryTouchProject(t *testing.T) {
 	reg.Init()
 	reg.AddProject("my-app", "/tmp", "dev")
 
-	// Read initial lastUsed
 	entry1, _, _ := reg.GetProject("my-app")
 	initial := entry1.LastUsed
 
@@ -225,14 +223,12 @@ func TestRegistryGetProjectEntries(t *testing.T) {
 	if len(entries) != 3 {
 		t.Fatalf("len = %d, want 3", len(entries))
 	}
-	// Should be sorted by name
 	expectedNames := []string{"alpha", "beta", "gamma"}
 	for i, e := range entries {
 		if e.Name != expectedNames[i] {
 			t.Errorf("entries[%d].Name = %q, want %q", i, e.Name, expectedNames[i])
 		}
 	}
-	// Check metadata preserved
 	if entries[1].Entry.Directory != "/tmp/beta" {
 		t.Errorf("beta directory = %q, want %q", entries[1].Entry.Directory, "/tmp/beta")
 	}
@@ -247,7 +243,6 @@ func TestRegistryFindProjectByDir_Symlink(t *testing.T) {
 	reg := NewRegistry(regFile)
 	reg.Init()
 
-	// Create a real directory and a symlink to it
 	realDir := filepath.Join(dir, "real-project")
 	os.MkdirAll(realDir, 0755)
 	symDir := filepath.Join(dir, "sym-project")
@@ -255,10 +250,8 @@ func TestRegistryFindProjectByDir_Symlink(t *testing.T) {
 		t.Skipf("cannot create symlink: %v", err)
 	}
 
-	// Register with the canonical (real) path
 	reg.AddProject("my-app", realDir, "dev")
 
-	// Look up by symlink path — should still find it
 	name, _, found, err := reg.FindProjectByDir(symDir)
 	if err != nil {
 		t.Fatalf("FindProjectByDir failed: %v", err)
@@ -277,7 +270,6 @@ func TestRegistryFindProjectByDir_SymlinkInRegistry(t *testing.T) {
 	reg := NewRegistry(regFile)
 	reg.Init()
 
-	// Create a real directory and a symlink to it
 	realDir := filepath.Join(dir, "real-project")
 	os.MkdirAll(realDir, 0755)
 	symDir := filepath.Join(dir, "sym-project")
@@ -285,10 +277,8 @@ func TestRegistryFindProjectByDir_SymlinkInRegistry(t *testing.T) {
 		t.Skipf("cannot create symlink: %v", err)
 	}
 
-	// Register with the symlink path
 	reg.AddProject("my-app", symDir, "dev")
 
-	// Look up by canonical (real) path — should still find it
 	name, _, found, err := reg.FindProjectByDir(realDir)
 	if err != nil {
 		t.Fatalf("FindProjectByDir failed: %v", err)
@@ -401,7 +391,6 @@ func TestRegistryRemoveProjects_CleansCache(t *testing.T) {
 	reg.AddProject("app1", "/tmp/app1", "dev")
 	reg.AddProject("app2", "/tmp/app2", "dev")
 
-	// Create cache directories
 	cache1 := filepath.Join(dir, "app1")
 	cache2 := filepath.Join(dir, "app2")
 	os.MkdirAll(cache1, 0755)
@@ -427,7 +416,6 @@ func TestRegistryRemoveProject_CleansUpCacheDir(t *testing.T) {
 	reg.Init()
 	reg.AddProject("my-app", "/tmp/my-app", "dev")
 
-	// Create a cache directory that simulates .cache/my-app/
 	cacheDir := filepath.Join(dir, "my-app")
 	os.MkdirAll(filepath.Join(cacheDir, "subdir"), 0755)
 	os.WriteFile(filepath.Join(cacheDir, "file.txt"), []byte("data"), 0644)
@@ -448,7 +436,6 @@ func TestRegistryAtomicWrite(t *testing.T) {
 	reg := NewRegistry(regFile)
 	reg.Init()
 
-	// After write, no .tmp file should remain
 	reg.AddProject("test", "/tmp", "dev")
 
 	tmp := regFile + ".tmp"
@@ -456,7 +443,6 @@ func TestRegistryAtomicWrite(t *testing.T) {
 		t.Error("temp file still exists after write")
 	}
 
-	// The main file should contain the project
 	has, _ := reg.HasProject("test")
 	if !has {
 		t.Error("project not found after atomic write")
@@ -537,7 +523,6 @@ func TestRegistryStartSession_Cap(t *testing.T) {
 	reg.Init()
 	reg.AddProject("my-app", "/tmp/my-app", "dev")
 
-	// Add 55 sessions — should be capped at 50
 	for i := 0; i < 55; i++ {
 		_, err := reg.StartSession("my-app", "")
 		if err != nil {
@@ -609,7 +594,6 @@ func TestRegistryUpdateDefaultFlags(t *testing.T) {
 	reg.AddProject("my-app", "/tmp/my-app", "dev")
 	reg.SetDefaultFlags("my-app", map[string]string{"debug": "true", "dind": "true"})
 
-	// Set new key, unset existing key
 	err := reg.UpdateDefaultFlags("my-app", map[string]string{"no-tmux": "true"}, []string{"debug"})
 	if err != nil {
 		t.Fatalf("UpdateDefaultFlags failed: %v", err)
@@ -674,7 +658,6 @@ func TestRegistryMigrate_V1toV2(t *testing.T) {
 	dir := t.TempDir()
 	regFile := filepath.Join(dir, "projects.json")
 
-	// Write a v1 registry file directly
 	v1Data := core.RegistryData{
 		Version:  1,
 		Projects: map[string]core.ProjectEntry{"app": {Directory: "/tmp", Target: "dev", Created: "2026-01-01T00:00:00Z", LastUsed: "2026-01-01T00:00:00Z"}},
@@ -683,13 +666,11 @@ func TestRegistryMigrate_V1toV2(t *testing.T) {
 	os.WriteFile(regFile, append(b, '\n'), 0644)
 
 	reg := NewRegistry(regFile)
-	// Reading should trigger migration
 	_, _, err := reg.GetProject("app")
 	if err != nil {
 		t.Fatalf("GetProject after migration failed: %v", err)
 	}
 
-	// Verify on-disk version bumped to current
 	raw, _ := os.ReadFile(regFile)
 	var ondisk core.RegistryData
 	json.Unmarshal(raw, &ondisk)
@@ -705,13 +686,9 @@ func TestRegistryMigrate_AlreadyCurrent(t *testing.T) {
 	reg.Init()
 	reg.AddProject("app", "/tmp", "dev")
 
-	// Record file mod time
 	info1, _ := os.Stat(regFile)
 	mod1 := info1.ModTime()
 
-	// Read again — should not rewrite since already at current version
-	// (We check that the data is valid, not that the file wasn't touched,
-	// since atomic writes always rewrite. The key test is no error.)
 	_, found, err := reg.GetProject("app")
 	if err != nil {
 		t.Fatalf("GetProject failed: %v", err)
@@ -720,21 +697,19 @@ func TestRegistryMigrate_AlreadyCurrent(t *testing.T) {
 		t.Error("project not found")
 	}
 
-	// Verify version unchanged
 	raw, _ := os.ReadFile(regFile)
 	var data core.RegistryData
 	json.Unmarshal(raw, &data)
 	if data.Version != core.CurrentRegistryVersion {
 		t.Errorf("version = %d, want %d", data.Version, core.CurrentRegistryVersion)
 	}
-	_ = mod1 // used to document intent
+	_ = mod1
 }
 
 func TestRegistryMigrate_UnknownVersion(t *testing.T) {
 	dir := t.TempDir()
 	regFile := filepath.Join(dir, "projects.json")
 
-	// Write a future version registry file
 	futureData := core.RegistryData{
 		Version:  999,
 		Projects: map[string]core.ProjectEntry{},

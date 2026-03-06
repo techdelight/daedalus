@@ -1,6 +1,6 @@
 // Copyright (C) 2026 Techdelight BV
 
-package main
+package web
 
 import (
 	"encoding/json"
@@ -16,6 +16,10 @@ import (
 	"syscall"
 
 	"github.com/techdelight/daedalus/core"
+	"github.com/techdelight/daedalus/internal/docker"
+	"github.com/techdelight/daedalus/internal/executor"
+	"github.com/techdelight/daedalus/internal/registry"
+	"github.com/techdelight/daedalus/internal/session"
 
 	"github.com/creack/pty"
 	"github.com/gorilla/websocket"
@@ -23,9 +27,9 @@ import (
 
 // WebServer holds dependencies for the web UI HTTP handlers.
 type WebServer struct {
-	registry *Registry
-	docker   *Docker
-	executor Executor
+	registry *registry.Registry
+	docker   *docker.Docker
+	executor executor.Executor
 	cfg      *core.Config
 }
 
@@ -39,14 +43,14 @@ type projectJSON struct {
 	SessionCount int    `json:"sessionCount"`
 }
 
-// runWeb starts the web UI HTTP server.
-func runWeb(cfg *core.Config) error {
-	exec := &RealExecutor{}
-	reg := NewRegistry(cfg.RegistryPath())
+// Run starts the web UI HTTP server.
+func Run(cfg *core.Config) error {
+	exec := &executor.RealExecutor{}
+	reg := registry.NewRegistry(cfg.RegistryPath())
 	if err := reg.Init(); err != nil {
 		return fmt.Errorf("initializing registry: %w", err)
 	}
-	docker := NewDocker(exec, filepath.Join(cfg.ScriptDir, "docker-compose.yml"))
+	docker := docker.NewDocker(exec, filepath.Join(cfg.ScriptDir, "docker-compose.yml"))
 
 	ws := &WebServer{
 		registry: reg,
@@ -136,7 +140,7 @@ func (ws *WebServer) handleStartProject(w http.ResponseWriter, r *http.Request) 
 		ClaudeConfigDir: ws.cfg.ClaudeConfigDir,
 	}
 
-	if err := SetupCacheDir(projCfg); err != nil {
+	if err := docker.SetupCacheDir(projCfg); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -156,9 +160,9 @@ func (ws *WebServer) handleStartProject(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	session := NewSession(ws.executor, projCfg.TmuxSession())
-	if !session.Exists() {
-		if err := session.Create(); err != nil {
+	sess := session.NewSession(ws.executor, projCfg.TmuxSession())
+	if !sess.Exists() {
+		if err := sess.Create(); err != nil {
 			http.Error(w, fmt.Sprintf("creating tmux session: %v", err), http.StatusInternalServerError)
 			return
 		}
@@ -168,7 +172,7 @@ func (ws *WebServer) handleStartProject(w http.ResponseWriter, r *http.Request) 
 	dockerCmd := ws.docker.ComposeRunCommand(projCfg.ContainerName(), claudeArgs, nil)
 	tmuxCmd := core.BuildTmuxCommand(projCfg, dockerCmd)
 
-	if err := session.SendKeys(tmuxCmd); err != nil {
+	if err := sess.SendKeys(tmuxCmd); err != nil {
 		http.Error(w, fmt.Sprintf("sending command to tmux: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -207,18 +211,16 @@ func (ws *WebServer) handleStopProject(w http.ResponseWriter, r *http.Request) {
 
 var wsUpgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
-		return true // localhost-only by default; user must opt-in for remote
+		return true
 	},
 }
 
-// resizeMsg is the JSON payload for terminal resize events from xterm.js.
 type resizeMsg struct {
 	Type string `json:"type"`
 	Cols uint16 `json:"cols"`
 	Rows uint16 `json:"rows"`
 }
 
-// handleTerminal upgrades to WebSocket and relays I/O to a tmux attach PTY.
 func (ws *WebServer) handleTerminal(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 
@@ -232,8 +234,8 @@ func (ws *WebServer) handleTerminal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	session := NewSession(ws.executor, "claude-"+name)
-	if !session.Exists() {
+	sess := session.NewSession(ws.executor, "claude-"+name)
+	if !sess.Exists() {
 		http.Error(w, fmt.Sprintf("no tmux session for project %q", name), http.StatusNotFound)
 		return
 	}
@@ -259,7 +261,6 @@ func (ws *WebServer) handleTerminal(w http.ResponseWriter, r *http.Request) {
 	wg.Wait()
 }
 
-// startPTY spawns tmux attach-session in a pseudo-terminal.
 func startPTY(sessionName string) (*os.File, *exec.Cmd, error) {
 	cmd := exec.Command("tmux", "attach-session", "-t", sessionName)
 	ptmx, err := pty.Start(cmd)
@@ -269,8 +270,6 @@ func startPTY(sessionName string) (*os.File, *exec.Cmd, error) {
 	return ptmx, cmd, nil
 }
 
-// cleanupPTY sends SIGHUP to detach tmux without killing the session, then
-// closes the PTY file descriptor and waits for the child process.
 func cleanupPTY(cmd *exec.Cmd, ptmx *os.File) {
 	if cmd.Process != nil {
 		cmd.Process.Signal(syscall.SIGHUP)
@@ -279,8 +278,6 @@ func cleanupPTY(cmd *exec.Cmd, ptmx *os.File) {
 	cmd.Wait()
 }
 
-// relayPTYToWebSocket reads from the PTY and forwards output to the WebSocket
-// as binary frames until the PTY is closed.
 func relayPTYToWebSocket(wg *sync.WaitGroup, ptmx *os.File, conn *websocket.Conn, name string) {
 	defer wg.Done()
 	buf := make([]byte, 4096)
@@ -300,8 +297,6 @@ func relayPTYToWebSocket(wg *sync.WaitGroup, ptmx *os.File, conn *websocket.Conn
 	}
 }
 
-// relayWebSocketToPTY reads from the WebSocket and forwards input to the PTY.
-// Text messages are checked for resize commands; binary messages are forwarded directly.
 func relayWebSocketToPTY(wg *sync.WaitGroup, conn *websocket.Conn, ptmx *os.File) {
 	defer wg.Done()
 	for {

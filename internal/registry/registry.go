@@ -1,6 +1,6 @@
 // Copyright (C) 2026 Techdelight BV
 
-package main
+package registry
 
 import (
 	"encoding/json"

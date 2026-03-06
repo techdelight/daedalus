@@ -1,17 +1,19 @@
 // Copyright (C) 2026 Techdelight BV
 
-package main
+package docker
 
 import (
 	"errors"
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/techdelight/daedalus/internal/executor"
 )
 
 func TestIsContainerRunning_Found(t *testing.T) {
-	mock := NewMockExecutor()
-	mock.Results["docker"] = MockResult{Output: "claude-run-myapp\nother-container\n"}
+	mock := executor.NewMockExecutor()
+	mock.Results["docker"] = executor.MockResult{Output: "claude-run-myapp\nother-container\n"}
 	docker := NewDocker(mock, "/path/to/compose.yml")
 
 	running, err := docker.IsContainerRunning("claude-run-myapp")
@@ -24,8 +26,8 @@ func TestIsContainerRunning_Found(t *testing.T) {
 }
 
 func TestIsContainerRunning_NotFound(t *testing.T) {
-	mock := NewMockExecutor()
-	mock.Results["docker"] = MockResult{Output: "other-container\n"}
+	mock := executor.NewMockExecutor()
+	mock.Results["docker"] = executor.MockResult{Output: "other-container\n"}
 	docker := NewDocker(mock, "/path/to/compose.yml")
 
 	running, err := docker.IsContainerRunning("claude-run-myapp")
@@ -38,8 +40,8 @@ func TestIsContainerRunning_NotFound(t *testing.T) {
 }
 
 func TestIsContainerRunning_Empty(t *testing.T) {
-	mock := NewMockExecutor()
-	mock.Results["docker"] = MockResult{Output: ""}
+	mock := executor.NewMockExecutor()
+	mock.Results["docker"] = executor.MockResult{Output: ""}
 	docker := NewDocker(mock, "/path/to/compose.yml")
 
 	running, err := docker.IsContainerRunning("claude-run-myapp")
@@ -52,7 +54,7 @@ func TestIsContainerRunning_Empty(t *testing.T) {
 }
 
 func TestImageExists_True(t *testing.T) {
-	mock := NewMockExecutor()
+	mock := executor.NewMockExecutor()
 	docker := NewDocker(mock, "/path/to/compose.yml")
 
 	if !docker.ImageExists("myimage:dev") {
@@ -69,8 +71,8 @@ func TestImageExists_True(t *testing.T) {
 }
 
 func TestImageExists_False(t *testing.T) {
-	mock := NewMockExecutor()
-	mock.Results["docker"] = MockResult{Err: errors.New("exit 1")}
+	mock := executor.NewMockExecutor()
+	mock.Results["docker"] = executor.MockResult{Err: errors.New("exit 1")}
 	docker := NewDocker(mock, "/path/to/compose.yml")
 
 	if docker.ImageExists("myimage:dev") {
@@ -79,7 +81,7 @@ func TestImageExists_False(t *testing.T) {
 }
 
 func TestBuild(t *testing.T) {
-	mock := NewMockExecutor()
+	mock := executor.NewMockExecutor()
 	docker := NewDocker(mock, "/path/to/compose.yml")
 
 	err := docker.Build("dev", "myimage:dev", "1000", "/src")
@@ -105,7 +107,7 @@ func TestBuild(t *testing.T) {
 }
 
 func TestComposeRun(t *testing.T) {
-	mock := NewMockExecutor()
+	mock := executor.NewMockExecutor()
 	docker := NewDocker(mock, "/path/to/compose.yml")
 
 	env := map[string]string{
@@ -133,7 +135,7 @@ func TestComposeRun(t *testing.T) {
 }
 
 func TestComposeRun_WithExtraArgs(t *testing.T) {
-	mock := NewMockExecutor()
+	mock := executor.NewMockExecutor()
 	docker := NewDocker(mock, "/path/to/compose.yml")
 
 	env := map[string]string{
@@ -156,8 +158,6 @@ func TestComposeRun_WithExtraArgs(t *testing.T) {
 		t.Errorf("missing docker socket volume in args: %s", args)
 	}
 
-	// extraArgs must appear before the service name "claude" (not in "claude-run-myapp")
-	// Find the standalone "claude" service name element in the args slice
 	sockIdx := -1
 	serviceIdx := -1
 	for i, a := range call.Args {
@@ -177,7 +177,7 @@ func TestComposeRun_WithExtraArgs(t *testing.T) {
 }
 
 func TestComposeRunCommand_WithExtraArgs(t *testing.T) {
-	mock := NewMockExecutor()
+	mock := executor.NewMockExecutor()
 	docker := NewDocker(mock, "/path/to/compose.yml")
 
 	claudeArgs := []string{"--resume", "abc123"}
@@ -190,7 +190,6 @@ func TestComposeRunCommand_WithExtraArgs(t *testing.T) {
 		t.Errorf("missing docker socket volume in args: %s", args)
 	}
 
-	// Find positions in slice
 	sockIdx := -1
 	serviceIdx := -1
 	for i, a := range cmd {
@@ -208,19 +207,17 @@ func TestComposeRunCommand_WithExtraArgs(t *testing.T) {
 		t.Errorf("extraArgs must appear before service name 'claude' in cmd: %v", cmd)
 	}
 
-	// claudeArgs must appear after "claude"
 	if !strings.Contains(args, "claude --resume abc123") {
 		t.Errorf("claudeArgs should follow service name: %s", args)
 	}
 
-	_ = mock // suppress unused
+	_ = mock
 }
 
 func TestComposeRun_DoesNotPolluteEnv(t *testing.T) {
-	mock := NewMockExecutor()
+	mock := executor.NewMockExecutor()
 	docker := NewDocker(mock, "/path/to/compose.yml")
 
-	// Set a sentinel value to detect pollution
 	const key = "DAEDALUS_TEST_SENTINEL"
 	env := map[string]string{
 		key: "should-not-leak",
@@ -231,7 +228,6 @@ func TestComposeRun_DoesNotPolluteEnv(t *testing.T) {
 		t.Fatalf("ComposeRun failed: %v", err)
 	}
 
-	// The mock doesn't actually set env, but verify os.Getenv doesn't have it
 	if got := os.Getenv(key); got != "" {
 		t.Errorf("env var %s leaked to parent process: %q", key, got)
 	}

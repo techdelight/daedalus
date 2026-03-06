@@ -1,15 +1,16 @@
 // Copyright (C) 2026 Techdelight BV
 
-package main
+package session
 
 import (
 	"errors"
 	"testing"
+
+	"github.com/techdelight/daedalus/internal/executor"
 )
 
 func TestSessionExists_True(t *testing.T) {
-	mock := NewMockExecutor()
-	// tmux has-session returns exit 0 → session exists
+	mock := executor.NewMockExecutor()
 	session := NewSession(mock, "claude-test")
 
 	if !session.Exists() {
@@ -29,8 +30,8 @@ func TestSessionExists_True(t *testing.T) {
 }
 
 func TestSessionExists_False(t *testing.T) {
-	mock := NewMockExecutor()
-	mock.Results["tmux"] = MockResult{Err: errors.New("exit 1")}
+	mock := executor.NewMockExecutor()
+	mock.Results["tmux"] = executor.MockResult{Err: errors.New("exit 1")}
 
 	session := NewSession(mock, "claude-test")
 
@@ -40,7 +41,7 @@ func TestSessionExists_False(t *testing.T) {
 }
 
 func TestSessionCreate(t *testing.T) {
-	mock := NewMockExecutor()
+	mock := executor.NewMockExecutor()
 	session := NewSession(mock, "claude-test")
 
 	err := session.Create()
@@ -61,7 +62,7 @@ func TestSessionCreate(t *testing.T) {
 }
 
 func TestSessionSendKeys(t *testing.T) {
-	mock := NewMockExecutor()
+	mock := executor.NewMockExecutor()
 	session := NewSession(mock, "claude-test")
 
 	err := session.SendKeys("echo hello")
@@ -86,7 +87,7 @@ func TestSessionSendKeys(t *testing.T) {
 }
 
 func TestSessionAttach(t *testing.T) {
-	mock := NewMockExecutor()
+	mock := executor.NewMockExecutor()
 	session := NewSession(mock, "claude-test")
 
 	err := session.Attach()
@@ -107,15 +108,15 @@ func TestSessionAttach(t *testing.T) {
 }
 
 func TestTmuxAvailable_True(t *testing.T) {
-	mock := NewMockExecutor()
+	mock := executor.NewMockExecutor()
 	if !TmuxAvailable(mock) {
 		t.Error("TmuxAvailable = false, want true")
 	}
 }
 
 func TestTmuxAvailable_False(t *testing.T) {
-	mock := NewMockExecutor()
-	mock.Results["lookpath:tmux"] = MockResult{Err: errors.New("not found")}
+	mock := executor.NewMockExecutor()
+	mock.Results["lookpath:tmux"] = executor.MockResult{Err: errors.New("not found")}
 
 	if TmuxAvailable(mock) {
 		t.Error("TmuxAvailable = true, want false")

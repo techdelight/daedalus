@@ -1,6 +1,6 @@
 // Copyright (C) 2026 Techdelight BV
 
-package main
+package tui
 
 import (
 	"encoding/json"
@@ -11,6 +11,9 @@ import (
 	"time"
 
 	"github.com/techdelight/daedalus/core"
+	"github.com/techdelight/daedalus/internal/docker"
+	"github.com/techdelight/daedalus/internal/executor"
+	"github.com/techdelight/daedalus/internal/registry"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -79,7 +82,6 @@ func TestRelativeTime_InvalidFormat(t *testing.T) {
 }
 
 func TestLoadProjects_ReturnsRows(t *testing.T) {
-	// Set up a temp registry with two projects
 	dir := t.TempDir()
 	regPath := filepath.Join(dir, "projects.json")
 
@@ -94,13 +96,12 @@ func TestLoadProjects_ReturnsRows(t *testing.T) {
 	b, _ := json.Marshal(data)
 	os.WriteFile(regPath, b, 0644)
 
-	reg := NewRegistry(regPath)
-	mock := NewMockExecutor()
-	// docker ps returns "claude-run-alpha" so alpha is running
-	mock.Results["docker"] = MockResult{Output: "claude-run-alpha\n"}
-	docker := NewDocker(mock, "/dev/null")
+	reg := registry.NewRegistry(regPath)
+	mock := executor.NewMockExecutor()
+	mock.Results["docker"] = executor.MockResult{Output: "claude-run-alpha\n"}
+	d := docker.NewDocker(mock, "/dev/null")
 
-	cmd := loadProjects(reg, docker)
+	cmd := loadProjects(reg, d)
 	msg := cmd()
 
 	loaded, ok := msg.(projectsLoadedMsg)
@@ -114,7 +115,6 @@ func TestLoadProjects_ReturnsRows(t *testing.T) {
 		t.Fatalf("expected 2 projects, got %d", len(loaded.projects))
 	}
 
-	// Projects are sorted by name (via GetProjectEntries)
 	if loaded.projects[0].name != "alpha" {
 		t.Errorf("first project = %q, want %q", loaded.projects[0].name, "alpha")
 	}
@@ -124,7 +124,6 @@ func TestLoadProjects_ReturnsRows(t *testing.T) {
 	if loaded.projects[1].name != "beta" {
 		t.Errorf("second project = %q, want %q", loaded.projects[1].name, "beta")
 	}
-	// beta: mock returns "claude-run-alpha" which doesn't match "claude-run-beta"
 	if loaded.projects[1].running {
 		t.Error("beta should not be running")
 	}
@@ -144,28 +143,24 @@ func TestLoadProjects_DockerError_SurfacesWarning(t *testing.T) {
 	b, _ := json.Marshal(data)
 	os.WriteFile(regPath, b, 0644)
 
-	reg := NewRegistry(regPath)
-	mock := NewMockExecutor()
-	// Docker fails
-	mock.Results["docker"] = MockResult{Err: fmt.Errorf("Cannot connect to Docker daemon")}
-	docker := NewDocker(mock, "/dev/null")
+	reg := registry.NewRegistry(regPath)
+	mock := executor.NewMockExecutor()
+	mock.Results["docker"] = executor.MockResult{Err: fmt.Errorf("Cannot connect to Docker daemon")}
+	d := docker.NewDocker(mock, "/dev/null")
 
-	cmd := loadProjects(reg, docker)
+	cmd := loadProjects(reg, d)
 	msg := cmd()
 
 	loaded, ok := msg.(projectsLoadedMsg)
 	if !ok {
 		t.Fatalf("expected projectsLoadedMsg, got %T", msg)
 	}
-	// Fatal error should be nil — projects are still returned
 	if loaded.err != nil {
 		t.Fatalf("unexpected fatal error: %v", loaded.err)
 	}
-	// Docker error should be surfaced
 	if loaded.dockerErr == nil {
 		t.Fatal("expected dockerErr to be set")
 	}
-	// Projects should still be listed (just with running=false)
 	if len(loaded.projects) != 1 {
 		t.Fatalf("expected 1 project, got %d", len(loaded.projects))
 	}
@@ -175,11 +170,11 @@ func TestLoadProjects_DockerError_SurfacesWarning(t *testing.T) {
 }
 
 func TestLoadProjects_RegistryError(t *testing.T) {
-	reg := NewRegistry("/nonexistent/path/projects.json")
-	mock := NewMockExecutor()
-	docker := NewDocker(mock, "/dev/null")
+	reg := registry.NewRegistry("/nonexistent/path/projects.json")
+	mock := executor.NewMockExecutor()
+	d := docker.NewDocker(mock, "/dev/null")
 
-	cmd := loadProjects(reg, docker)
+	cmd := loadProjects(reg, d)
 	msg := cmd()
 
 	loaded, ok := msg.(projectsLoadedMsg)
@@ -196,10 +191,9 @@ func TestCursorBounds_Down(t *testing.T) {
 		projects: []projectRow{
 			{name: "a"}, {name: "b"}, {name: "c"},
 		},
-		cursor: 2, // at last item
+		cursor: 2,
 	}
 
-	// Press down — cursor should not go past last item
 	newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
 	updated := newM.(tuiModel)
 	if updated.cursor != 2 {
@@ -212,10 +206,9 @@ func TestCursorBounds_Up(t *testing.T) {
 		projects: []projectRow{
 			{name: "a"}, {name: "b"}, {name: "c"},
 		},
-		cursor: 0, // at first item
+		cursor: 0,
 	}
 
-	// Press up — cursor should not go below 0
 	newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("k")})
 	updated := newM.(tuiModel)
 	if updated.cursor != 0 {
@@ -231,7 +224,6 @@ func TestCursorBounds_Navigate(t *testing.T) {
 		cursor: 0,
 	}
 
-	// Move down twice
 	newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
 	m = newM.(tuiModel)
 	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
@@ -241,7 +233,6 @@ func TestCursorBounds_Navigate(t *testing.T) {
 		t.Errorf("cursor = %d, want 2 after two downs", m.cursor)
 	}
 
-	// Move up once
 	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("k")})
 	m = newM.(tuiModel)
 	if m.cursor != 1 {
@@ -257,7 +248,6 @@ func TestCursorClamp_OnProjectsLoaded(t *testing.T) {
 		cursor: 2,
 	}
 
-	// Simulate projects shrinking to 1 item
 	msg := projectsLoadedMsg{
 		projects: []projectRow{{name: "a"}},
 	}
@@ -269,7 +259,7 @@ func TestCursorClamp_OnProjectsLoaded(t *testing.T) {
 }
 
 func TestKillContainer_CallsDockerStop(t *testing.T) {
-	mock := NewMockExecutor()
+	mock := executor.NewMockExecutor()
 
 	cmd := killContainer(mock, "my-app")
 	msg := cmd()
@@ -295,8 +285,8 @@ func TestKillContainer_CallsDockerStop(t *testing.T) {
 }
 
 func TestKillContainer_Error(t *testing.T) {
-	mock := NewMockExecutor()
-	mock.Results["docker"] = MockResult{Err: fmt.Errorf("no such container")}
+	mock := executor.NewMockExecutor()
+	mock.Results["docker"] = executor.MockResult{Err: fmt.Errorf("no such container")}
 
 	cmd := killContainer(mock, "ghost")
 	msg := cmd()
@@ -319,7 +309,6 @@ func TestQuitKey(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("expected quit command, got nil")
 	}
-	// Execute the command — tea.Quit returns a QuitMsg
 	msg := cmd()
 	if _, ok := msg.(tea.QuitMsg); !ok {
 		t.Errorf("expected tea.QuitMsg, got %T", msg)
@@ -327,9 +316,8 @@ func TestQuitKey(t *testing.T) {
 }
 
 func TestAttachSession_ReturnsRequestAttach(t *testing.T) {
-	mock := NewMockExecutor()
-	// tmux has-session succeeds — session exists
-	mock.Results["tmux"] = MockResult{}
+	mock := executor.NewMockExecutor()
+	mock.Results["tmux"] = executor.MockResult{}
 
 	cmd := attachToSession(mock, "my-app")
 	msg := cmd()
@@ -344,9 +332,8 @@ func TestAttachSession_ReturnsRequestAttach(t *testing.T) {
 }
 
 func TestAttachSession_NoSession(t *testing.T) {
-	mock := NewMockExecutor()
-	// tmux has-session fails — session doesn't exist
-	mock.Results["tmux"] = MockResult{Err: fmt.Errorf("no session")}
+	mock := executor.NewMockExecutor()
+	mock.Results["tmux"] = executor.MockResult{Err: fmt.Errorf("no session")}
 
 	cmd := attachToSession(mock, "ghost")
 	msg := cmd()

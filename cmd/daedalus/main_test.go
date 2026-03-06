@@ -9,12 +9,19 @@ import (
 	"testing"
 
 	"github.com/techdelight/daedalus/core"
+	"github.com/techdelight/daedalus/internal/color"
+	"github.com/techdelight/daedalus/internal/registry"
 )
+
+func init() {
+	// Disable colors in tests to avoid ANSI codes in output assertions.
+	color.Disable()
+}
 
 func TestResolveTwoArgs_TouchProjectError(t *testing.T) {
 	dir := t.TempDir()
 	regFile := filepath.Join(dir, "projects.json")
-	reg := NewRegistry(regFile)
+	reg := registry.NewRegistry(regFile)
 	reg.Init()
 	reg.AddProject("my-app", "/tmp/my-app", "dev")
 
@@ -37,7 +44,7 @@ func TestResolveTwoArgs_TouchProjectError(t *testing.T) {
 func TestResolveOneArg_TouchProjectError(t *testing.T) {
 	dir := t.TempDir()
 	regFile := filepath.Join(dir, "projects.json")
-	reg := NewRegistry(regFile)
+	reg := registry.NewRegistry(regFile)
 	reg.Init()
 
 	cwd, _ := os.Getwd()
@@ -61,7 +68,7 @@ func TestResolveOneArg_TouchProjectError(t *testing.T) {
 func TestResolveOneArg_RegistryLookup(t *testing.T) {
 	dir := t.TempDir()
 	regFile := filepath.Join(dir, "projects.json")
-	reg := NewRegistry(regFile)
+	reg := registry.NewRegistry(regFile)
 	reg.Init()
 
 	projectDir := t.TempDir()
@@ -87,7 +94,7 @@ func TestResolveOneArg_RegistryLookup(t *testing.T) {
 func TestResolveOneArg_TargetOverridePreserved(t *testing.T) {
 	dir := t.TempDir()
 	regFile := filepath.Join(dir, "projects.json")
-	reg := NewRegistry(regFile)
+	reg := registry.NewRegistry(regFile)
 	reg.Init()
 
 	projectDir := t.TempDir()
@@ -111,7 +118,7 @@ func TestResolveOneArg_TargetOverridePreserved(t *testing.T) {
 func TestResolveTwoArgs_NameDirConflict(t *testing.T) {
 	dir := t.TempDir()
 	regFile := filepath.Join(dir, "projects.json")
-	reg := NewRegistry(regFile)
+	reg := registry.NewRegistry(regFile)
 	reg.Init()
 	reg.AddProject("my-app", "/original/dir", "dev")
 
@@ -130,7 +137,7 @@ func TestResolveTwoArgs_NameDirConflict(t *testing.T) {
 func TestResolveTwoArgs_DirUsedByOtherProject(t *testing.T) {
 	dir := t.TempDir()
 	regFile := filepath.Join(dir, "projects.json")
-	reg := NewRegistry(regFile)
+	reg := registry.NewRegistry(regFile)
 	reg.Init()
 	reg.AddProject("existing-app", "/shared/dir", "dev")
 
@@ -149,7 +156,7 @@ func TestResolveTwoArgs_DirUsedByOtherProject(t *testing.T) {
 func TestResolveTwoArgs_NewProject_Headless(t *testing.T) {
 	dir := t.TempDir()
 	regFile := filepath.Join(dir, "projects.json")
-	reg := NewRegistry(regFile)
+	reg := registry.NewRegistry(regFile)
 	reg.Init()
 
 	projectDir := t.TempDir()
@@ -174,7 +181,7 @@ func TestResolveTwoArgs_NewProject_Headless(t *testing.T) {
 func TestResolveOneArg_NewProject_Headless(t *testing.T) {
 	dir := t.TempDir()
 	regFile := filepath.Join(dir, "projects.json")
-	reg := NewRegistry(regFile)
+	reg := registry.NewRegistry(regFile)
 	reg.Init()
 
 	cfg := &core.Config{
@@ -197,7 +204,7 @@ func TestResolveOneArg_NewProject_Headless(t *testing.T) {
 func TestResolveOneArg_DirConflict_Headless(t *testing.T) {
 	dir := t.TempDir()
 	regFile := filepath.Join(dir, "projects.json")
-	reg := NewRegistry(regFile)
+	reg := registry.NewRegistry(regFile)
 	reg.Init()
 
 	cwd, _ := os.Getwd()
@@ -214,17 +221,12 @@ func TestResolveOneArg_DirConflict_Headless(t *testing.T) {
 	}
 }
 
-func init() {
-	// Disable colors in tests to avoid ANSI codes in output assertions.
-	noColor = true
-}
-
 func TestPruneProjects_NoStale(t *testing.T) {
 	dir := t.TempDir()
 	cacheDir := filepath.Join(dir, ".cache")
 	os.MkdirAll(cacheDir, 0755)
 	regFile := filepath.Join(cacheDir, "projects.json")
-	reg := NewRegistry(regFile)
+	reg := registry.NewRegistry(regFile)
 	reg.Init()
 
 	projectDir := t.TempDir() // exists on disk
@@ -264,7 +266,7 @@ func TestPruneProjects_WithStale(t *testing.T) {
 	cacheDir := filepath.Join(dir, ".cache")
 	os.MkdirAll(cacheDir, 0755)
 	regFile := filepath.Join(cacheDir, "projects.json")
-	reg := NewRegistry(regFile)
+	reg := registry.NewRegistry(regFile)
 	reg.Init()
 
 	// Register project pointing to nonexistent directory
@@ -310,7 +312,7 @@ func TestPruneProjects_HeadlessWithoutForce(t *testing.T) {
 	cacheDir := filepath.Join(dir, ".cache")
 	os.MkdirAll(cacheDir, 0755)
 	regFile := filepath.Join(cacheDir, "projects.json")
-	reg := NewRegistry(regFile)
+	reg := registry.NewRegistry(regFile)
 	reg.Init()
 
 	// Register project pointing to nonexistent directory
@@ -356,15 +358,15 @@ func TestRemoveProjects_Success(t *testing.T) {
 	cacheDir := filepath.Join(dir, ".cache")
 	os.MkdirAll(cacheDir, 0755)
 	regFile := filepath.Join(cacheDir, "projects.json")
-	reg := NewRegistry(regFile)
+	reg := registry.NewRegistry(regFile)
 	reg.Init()
 	reg.AddProject("to-remove", "/tmp/remove", "dev")
 
 	cfg := &core.Config{
-		ScriptDir: dir,
-		DataDir:   cacheDir,
-		Prompt:    "test", // headless
-		Force:     true,
+		ScriptDir:     dir,
+		DataDir:       cacheDir,
+		Prompt:        "test", // headless
+		Force:         true,
 		RemoveTargets: []string{"to-remove"},
 	}
 
@@ -400,14 +402,14 @@ func TestRemoveProjects_NotFound(t *testing.T) {
 	cacheDir := filepath.Join(dir, ".cache")
 	os.MkdirAll(cacheDir, 0755)
 	regFile := filepath.Join(cacheDir, "projects.json")
-	reg := NewRegistry(regFile)
+	reg := registry.NewRegistry(regFile)
 	reg.Init()
 
 	cfg := &core.Config{
-		ScriptDir: dir,
-		DataDir:   cacheDir,
-		Prompt:    "test",
-		Force:     true,
+		ScriptDir:     dir,
+		DataDir:       cacheDir,
+		Prompt:        "test",
+		Force:         true,
 		RemoveTargets: []string{"nonexistent"},
 	}
 
@@ -425,15 +427,15 @@ func TestRemoveProjects_HeadlessNoForce(t *testing.T) {
 	cacheDir := filepath.Join(dir, ".cache")
 	os.MkdirAll(cacheDir, 0755)
 	regFile := filepath.Join(cacheDir, "projects.json")
-	reg := NewRegistry(regFile)
+	reg := registry.NewRegistry(regFile)
 	reg.Init()
 	reg.AddProject("my-app", "/tmp/my-app", "dev")
 
 	cfg := &core.Config{
-		ScriptDir: dir,
-		DataDir:   cacheDir,
-		Prompt:    "test", // headless
-		Force:     false,  // no --force
+		ScriptDir:     dir,
+		DataDir:       cacheDir,
+		Prompt:        "test", // headless
+		Force:         false,  // no --force
 		RemoveTargets: []string{"my-app"},
 	}
 
@@ -485,7 +487,7 @@ func TestShowConfig_Display(t *testing.T) {
 	cacheDir := filepath.Join(dir, ".cache")
 	os.MkdirAll(cacheDir, 0755)
 	regFile := filepath.Join(cacheDir, "projects.json")
-	reg := NewRegistry(regFile)
+	reg := registry.NewRegistry(regFile)
 	reg.Init()
 	reg.AddProject("my-app", "/tmp/my-app", "dev")
 	reg.SetDefaultFlags("my-app", map[string]string{"debug": "true"})
@@ -525,7 +527,7 @@ func TestShowConfig_Set(t *testing.T) {
 	cacheDir := filepath.Join(dir, ".cache")
 	os.MkdirAll(cacheDir, 0755)
 	regFile := filepath.Join(cacheDir, "projects.json")
-	reg := NewRegistry(regFile)
+	reg := registry.NewRegistry(regFile)
 	reg.Init()
 	reg.AddProject("my-app", "/tmp/my-app", "dev")
 
@@ -560,7 +562,7 @@ func TestShowConfig_Unset(t *testing.T) {
 	cacheDir := filepath.Join(dir, ".cache")
 	os.MkdirAll(cacheDir, 0755)
 	regFile := filepath.Join(cacheDir, "projects.json")
-	reg := NewRegistry(regFile)
+	reg := registry.NewRegistry(regFile)
 	reg.Init()
 	reg.AddProject("my-app", "/tmp/my-app", "dev")
 	reg.SetDefaultFlags("my-app", map[string]string{"debug": "true", "dind": "true"})
@@ -599,7 +601,7 @@ func TestShowConfig_ProjectNotFound(t *testing.T) {
 	cacheDir := filepath.Join(dir, ".cache")
 	os.MkdirAll(cacheDir, 0755)
 	regFile := filepath.Join(cacheDir, "projects.json")
-	reg := NewRegistry(regFile)
+	reg := registry.NewRegistry(regFile)
 	reg.Init()
 
 	cfg := &core.Config{
@@ -636,7 +638,7 @@ func TestShowConfig_NoProjectName(t *testing.T) {
 func TestHandleDirConflict_TouchProjectError(t *testing.T) {
 	dir := t.TempDir()
 	regFile := filepath.Join(dir, "projects.json")
-	reg := NewRegistry(regFile)
+	reg := registry.NewRegistry(regFile)
 	reg.Init()
 
 	projectDir := filepath.Join(dir, "proj")

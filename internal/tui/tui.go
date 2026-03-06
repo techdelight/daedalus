@@ -1,6 +1,6 @@
 // Copyright (C) 2026 Techdelight BV
 
-package main
+package tui
 
 import (
 	"fmt"
@@ -9,10 +9,18 @@ import (
 	"time"
 
 	"github.com/techdelight/daedalus/core"
+	"github.com/techdelight/daedalus/internal/docker"
+	"github.com/techdelight/daedalus/internal/executor"
+	"github.com/techdelight/daedalus/internal/registry"
+	"github.com/techdelight/daedalus/internal/session"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
+
+// setupCacheDir is a package-level reference to docker.SetupCacheDir,
+// needed because the startProject parameter 'docker' shadows the package name.
+var setupCacheDir = docker.SetupCacheDir
 
 // --- Styles ---
 
@@ -63,7 +71,7 @@ type tickMsg time.Time
 type projectsLoadedMsg struct {
 	projects  []projectRow
 	err       error
-	dockerErr error // non-fatal: Docker query failed but projects are still listed
+	dockerErr error
 }
 
 type actionResultMsg struct {
@@ -71,8 +79,6 @@ type actionResultMsg struct {
 	err error
 }
 
-// requestAttachMsg signals the TUI to quit cleanly and then attach to a tmux session.
-// This avoids calling syscall.Exec from within bubbletea, which would skip terminal cleanup.
 type requestAttachMsg struct {
 	sessionName string
 }
@@ -84,11 +90,11 @@ type tuiModel struct {
 	cursor        int
 	err           error
 	statusMsg     string
-	registry      *Registry
-	docker        *Docker
-	executor      Executor
+	registry      *registry.Registry
+	docker        *docker.Docker
+	executor      executor.Executor
 	cfg           *core.Config
-	pendingAttach string // tmux session to attach to after TUI exits
+	pendingAttach string
 }
 
 // --- tea.Model interface ---
@@ -115,8 +121,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.projects = msg.projects
-		m.err = msg.dockerErr // nil clears previous error; non-nil shows Docker warning
-		// Clamp cursor
+		m.err = msg.dockerErr
 		if m.cursor >= len(m.projects) {
 			m.cursor = len(m.projects) - 1
 		}
@@ -169,8 +174,6 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.statusMsg = fmt.Sprintf("%s is not running", p.name)
 				return m, nil
 			}
-			// Attach replaces the process via syscall.Exec.
-			// The TUI will end; the user re-runs `daedalus tui` to return.
 			return m, attachToSession(m.executor, p.name)
 
 		case "K":
@@ -210,14 +213,12 @@ func (m tuiModel) View() string {
 		b.WriteString(normalStyle.Render("  No registered projects."))
 		b.WriteString("\n\n")
 	} else {
-		// Header
 		header := fmt.Sprintf("  %-20s %-12s %-10s %-8s %s", "PROJECT", "STATUS", "TARGET", "SESSIONS", "LAST USED")
 		b.WriteString(headerStyle.Render(header))
 		b.WriteString("\n")
 		b.WriteString(headerStyle.Render("  " + strings.Repeat("\u2500", 70)))
 		b.WriteString("\n")
 
-		// Rows
 		for i, p := range m.projects {
 			cursor := "  "
 			if i == m.cursor {
@@ -253,14 +254,12 @@ func (m tuiModel) View() string {
 
 	b.WriteString("\n")
 
-	// Status message
 	if m.statusMsg != "" {
 		b.WriteString("  ")
 		b.WriteString(statusMsgStyle.Render(m.statusMsg))
 		b.WriteString("\n\n")
 	}
 
-	// Help bar
 	b.WriteString(helpStyle.Render("  [s]tart  [a]ttach  [K]ill  [r]efresh  [q]uit"))
 	b.WriteString("\n")
 
@@ -275,7 +274,7 @@ func doTick() tea.Cmd {
 	})
 }
 
-func loadProjects(reg *Registry, docker *Docker) tea.Cmd {
+func loadProjects(reg *registry.Registry, docker *docker.Docker) tea.Cmd {
 	return func() tea.Msg {
 		entries, err := reg.GetProjectEntries()
 		if err != nil {
@@ -303,9 +302,8 @@ func loadProjects(reg *Registry, docker *Docker) tea.Cmd {
 	}
 }
 
-func startProject(cfg *core.Config, exec Executor, reg *Registry, docker *Docker, p projectRow) tea.Cmd {
+func startProject(cfg *core.Config, exec executor.Executor, reg *registry.Registry, docker *docker.Docker, p projectRow) tea.Cmd {
 	return func() tea.Msg {
-		// Build a config for this project
 		projCfg := &core.Config{
 			ProjectName:     p.name,
 			ProjectDir:      p.directory,
@@ -316,18 +314,15 @@ func startProject(cfg *core.Config, exec Executor, reg *Registry, docker *Docker
 			ClaudeConfigDir: cfg.ClaudeConfigDir,
 		}
 
-		// Setup cache dir
-		if err := SetupCacheDir(projCfg); err != nil {
+		if err := setupCacheDir(projCfg); err != nil {
 			return actionResultMsg{err: err}
 		}
 
-		// Ensure image exists
 		image := projCfg.Image()
 		if !docker.ImageExists(image) {
 			return actionResultMsg{err: fmt.Errorf("image %s not found — run daedalus --build %s first", image, p.name)}
 		}
 
-		// Check if already running
 		running, err := docker.IsContainerRunning(projCfg.ContainerName())
 		if err != nil {
 			return actionResultMsg{err: err}
@@ -336,13 +331,12 @@ func startProject(cfg *core.Config, exec Executor, reg *Registry, docker *Docker
 			return actionResultMsg{msg: fmt.Sprintf("%s is already running", p.name)}
 		}
 
-		// Create detached tmux session and launch container inside it
-		session := NewSession(exec, projCfg.TmuxSession())
-		if session.Exists() {
+		sess := session.NewSession(exec, projCfg.TmuxSession())
+		if sess.Exists() {
 			return actionResultMsg{msg: fmt.Sprintf("Session %s already exists — use [a]ttach", projCfg.TmuxSession())}
 		}
 
-		if err := session.Create(); err != nil {
+		if err := sess.Create(); err != nil {
 			return actionResultMsg{err: fmt.Errorf("creating tmux session: %w", err)}
 		}
 
@@ -350,7 +344,7 @@ func startProject(cfg *core.Config, exec Executor, reg *Registry, docker *Docker
 		dockerCmd := docker.ComposeRunCommand(projCfg.ContainerName(), claudeArgs, nil)
 		tmuxCmd := core.BuildTmuxCommand(projCfg, dockerCmd)
 
-		if err := session.SendKeys(tmuxCmd); err != nil {
+		if err := sess.SendKeys(tmuxCmd); err != nil {
 			return actionResultMsg{err: fmt.Errorf("sending command to tmux: %w", err)}
 		}
 
@@ -358,12 +352,11 @@ func startProject(cfg *core.Config, exec Executor, reg *Registry, docker *Docker
 			return actionResultMsg{err: fmt.Errorf("updating project timestamp: %w", err)}
 		}
 
-		// Auto-attach after starting, just like the non-TUI flow.
 		return requestAttachMsg{sessionName: projCfg.TmuxSession()}
 	}
 }
 
-func killContainer(exec Executor, name string) tea.Cmd {
+func killContainer(exec executor.Executor, name string) tea.Cmd {
 	return func() tea.Msg {
 		containerName := "claude-run-" + name
 		err := exec.Run("docker", "stop", containerName)
@@ -374,31 +367,30 @@ func killContainer(exec Executor, name string) tea.Cmd {
 	}
 }
 
-func attachToSession(exec Executor, name string) tea.Cmd {
+func attachToSession(exec executor.Executor, name string) tea.Cmd {
 	return func() tea.Msg {
 		sessionName := "claude-" + name
-		session := NewSession(exec, sessionName)
-		if !session.Exists() {
+		sess := session.NewSession(exec, sessionName)
+		if !sess.Exists() {
 			return actionResultMsg{msg: fmt.Sprintf("No tmux session for %s", name)}
 		}
-		// Signal the TUI to quit cleanly, then attach after terminal cleanup.
 		return requestAttachMsg{sessionName: sessionName}
 	}
 }
 
 // --- Entry point ---
 
-func runTUI(cfg *core.Config) error {
-	exec := &RealExecutor{}
-	reg := NewRegistry(cfg.RegistryPath())
+func Run(cfg *core.Config) error {
+	exec := &executor.RealExecutor{}
+	reg := registry.NewRegistry(cfg.RegistryPath())
 	if err := reg.Init(); err != nil {
 		return fmt.Errorf("initializing registry: %w", err)
 	}
-	docker := NewDocker(exec, filepath.Join(cfg.ScriptDir, "docker-compose.yml"))
+	d := docker.NewDocker(exec, filepath.Join(cfg.ScriptDir, "docker-compose.yml"))
 
 	m := tuiModel{
 		registry: reg,
-		docker:   docker,
+		docker:   d,
 		executor: exec,
 		cfg:      cfg,
 	}
@@ -409,10 +401,9 @@ func runTUI(cfg *core.Config) error {
 		return err
 	}
 
-	// If the TUI requested a tmux attach, do it now that the terminal is restored.
 	if fm, ok := finalModel.(tuiModel); ok && fm.pendingAttach != "" {
-		session := NewSession(exec, fm.pendingAttach)
-		return session.Attach()
+		sess := session.NewSession(exec, fm.pendingAttach)
+		return sess.Attach()
 	}
 	return nil
 }

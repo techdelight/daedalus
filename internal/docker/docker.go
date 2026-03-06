@@ -1,6 +1,6 @@
 // Copyright (C) 2026 Techdelight BV
 
-package main
+package docker
 
 import (
 	"fmt"
@@ -8,16 +8,17 @@ import (
 	"strings"
 
 	"github.com/techdelight/daedalus/core"
+	"github.com/techdelight/daedalus/internal/executor"
 )
 
 // Docker manages Docker operations.
 type Docker struct {
-	Executor    Executor
+	Executor    executor.Executor
 	ComposeFile string
 }
 
 // NewDocker creates a Docker with the given executor and compose file path.
-func NewDocker(exec Executor, composeFile string) *Docker {
+func NewDocker(exec executor.Executor, composeFile string) *Docker {
 	return &Docker{Executor: exec, ComposeFile: composeFile}
 }
 

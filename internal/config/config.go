@@ -1,6 +1,6 @@
 // Copyright (C) 2026 Techdelight BV
 
-package main
+package config
 
 import (
 	"fmt"
@@ -10,10 +10,11 @@ import (
 	"strings"
 
 	"github.com/techdelight/daedalus/core"
+	"github.com/techdelight/daedalus/internal/color"
 )
 
-// isHeadless returns true if running without interactive input.
-func isHeadless(cfg *core.Config) bool {
+// IsHeadless returns true if running without interactive input.
+func IsHeadless(cfg *core.Config) bool {
 	if cfg.Prompt != "" {
 		return true
 	}
@@ -24,7 +25,7 @@ func isHeadless(cfg *core.Config) bool {
 	return fi.Mode()&os.ModeCharDevice == 0
 }
 
-// parseArgs parses CLI arguments into a Config.
+// ParseArgs parses CLI arguments into a Config.
 // Flags can appear in any position; 0/1/2 positional args are accepted.
 //
 // Subcommand detection:
@@ -32,7 +33,7 @@ func isHeadless(cfg *core.Config) bool {
 //   - "list" as first positional → Subcommand = "list"
 //   - 1 positional arg → ProjectName set, ProjectDir left empty (resolved later)
 //   - 2 positional args → ProjectName and ProjectDir set
-func parseArgs(args []string) (*core.Config, error) {
+func ParseArgs(args []string) (*core.Config, error) {
 	cfg := &core.Config{
 		ImagePrefix: "techdelight/claude-runner",
 		Target:      "dev",
@@ -131,7 +132,7 @@ func parseArgs(args []string) (*core.Config, error) {
 	if cfg.DataDir == "" {
 		cfg.DataDir = os.Getenv("DAEDALUS_DATA_DIR")
 	}
-	appCfg, err := loadAppConfig(cfg.ScriptDir)
+	appCfg, err := LoadAppConfig(cfg.ScriptDir)
 	if err != nil {
 		return nil, err
 	}
@@ -198,7 +199,7 @@ func parseArgs(args []string) (*core.Config, error) {
 			return nil, fmt.Errorf("cannot resolve project directory: %w", err)
 		}
 	default:
-		return nil, fmt.Errorf("too many arguments (expected at most 2, got %d)\n%s run 'daedalus --help' for usage", len(positional), colorCyan("Hint:"))
+		return nil, fmt.Errorf("too many arguments (expected at most 2, got %d)\n%s run 'daedalus --help' for usage", len(positional), color.Cyan("Hint:"))
 	}
 
 	if err := os.MkdirAll(cfg.ClaudeConfigDir, 0755); err != nil {

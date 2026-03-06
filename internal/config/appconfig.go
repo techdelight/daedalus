@@ -1,6 +1,6 @@
 // Copyright (C) 2026 Techdelight BV
 
-package main
+package config
 
 import (
 	"encoding/json"
@@ -12,10 +12,10 @@ import (
 	"github.com/techdelight/daedalus/core"
 )
 
-// loadAppConfig reads config.json from the given directory.
+// LoadAppConfig reads config.json from the given directory.
 // Returns a zero AppConfig if the file does not exist.
 // Returns an error only on read or parse failure.
-func loadAppConfig(dir string) (core.AppConfig, error) {
+func LoadAppConfig(dir string) (core.AppConfig, error) {
 	path := filepath.Join(dir, "config.json")
 	b, err := os.ReadFile(path)
 	if err != nil {

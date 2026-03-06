@@ -13,34 +13,56 @@ Contains types, command builders, and helpers with no side effects.
 | File | Contents |
 |---|---|
 | `config.go` | `Config` struct, `Image()`, `ContainerName()`, `TmuxSession()`, `CacheDir()`, `UseTmux()`, `ApplyRegistryEntry()` |
+| `appconfig.go` | `AppConfig` struct, `ApplyAppConfig()` |
 | `project.go` | `RegistryData`, `ProjectEntry`, `SessionRecord`, `ProjectInfo` types |
 | `command.go` | `BuildClaudeArgs()`, `BuildTmuxCommand()`, `BuildEnvExports()`, `ShellQuote()` |
 | `time.go` | `NowUTC()`, `ParseUTC()`, `RelativeTime()` |
 
-### Main Package — I/O Boundary
+### `cmd/daedalus/` — CLI Entry Point
+
+| File | Responsibility |
+|---|---|
+| `main.go` | `main()`, `run()` dispatcher, project resolution, subcommand handlers (`list`, `prune`, `remove`, `config`) |
+
+### `internal/` — I/O Boundary Packages
 
 All side effects (filesystem, shell, network) live here behind interfaces.
 
-| File | Component | Responsibility |
+| Package | Key Types/Functions | Responsibility |
 |---|---|---|
-| `main.go` | CLI entry point | Argument dispatch, project resolution, container launch |
-| `config.go` | `parseArgs()` | CLI argument parsing into `core.Config` |
-| `executor.go` | `Executor` interface | Abstracts `os/exec` calls; `RealExecutor` + `MockExecutor` |
-| `registry.go` | `Registry` | JSON file read/write for project metadata, migrations |
-| `docker.go` | `Docker` | Container lifecycle: build, run, compose, status checks |
-| `session.go` | `Session` | tmux session create/attach/send-keys |
-| `tui.go` | `tuiModel` | Interactive TUI dashboard (bubbletea + lipgloss) |
-| `web.go` | `WebServer` | REST API + WebSocket terminal relay |
-| `web_embed.go` | `staticFiles` | `go:embed` for static assets |
-| `completions.go` | Shell completions | bash/zsh/fish completion scripts |
-| `color.go` | Terminal colors | ANSI color helpers, `NO_COLOR` support |
+| `executor` | `Executor` interface, `RealExecutor`, `MockExecutor` | Abstracts `os/exec` and `syscall.Exec` calls |
+| `color` | `Init()`, `Disable()`, `Red()`, `Green()`, `Yellow()`, `Cyan()`, `Bold()`, `Dim()` | ANSI color helpers, `NO_COLOR` support |
+| `config` | `ParseArgs()`, `IsHeadless()`, `LoadAppConfig()` | CLI argument parsing into `core.Config` |
+| `registry` | `Registry` | JSON file read/write for project metadata, schema migrations |
+| `docker` | `Docker`, `SetupCacheDir()` | Container lifecycle: build, run, compose, status checks |
+| `session` | `Session`, `TmuxAvailable()` | tmux session create/attach/send-keys |
+| `tui` | `Run()` | Interactive TUI dashboard (bubbletea + lipgloss) |
+| `web` | `Run()`, `WebServer` | REST API + WebSocket terminal relay, embedded static assets |
+| `completions` | `Generate()` | bash/zsh/fish shell completion scripts |
+
+### Dependency Graph (no cycles)
+
+```
+executor  (leaf)
+color     (leaf)
+  ↑
+config    → core, color
+registry  → core
+docker    → core, executor
+session   → executor
+completions → core
+tui       → core, executor, registry, docker, session
+web       → core, executor, registry, docker, session
+  ↑
+cmd/daedalus → all of the above
+```
 
 ## Components
 
 ```
 ┌─────────────────────────────────────────────────┐
 │                   Daedalus CLI                   │
-│                                                  │
+│                cmd/daedalus/                     │
 │  ┌──────────┐  ┌──────────┐  ┌──────────────┐   │
 │  │   CLI    │  │   TUI    │  │   Web UI     │   │
 │  │ (main)   │  │(bubbletea│  │ (net/http +  │   │
@@ -48,8 +70,8 @@ All side effects (filesystem, shell, network) live here behind interfaces.
 │  └────┬─────┘  └────┬─────┘  └──────┬───────┘   │
 │       │              │               │           │
 │  ┌────┴──────────────┴───────────────┴────────┐  │
-│  │              Shared Services                │  │
-│  │  Registry · Docker · Session · Executor     │  │
+│  │          internal/ Shared Services         │  │
+│  │  Registry · Docker · Session · Executor    │  │
 │  └────────────────────┬───────────────────────┘  │
 │                       │                          │
 │  ┌────────────────────┴───────────────────────┐  │

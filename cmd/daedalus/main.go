@@ -12,24 +12,33 @@ import (
 	"strings"
 
 	"github.com/techdelight/daedalus/core"
+	"github.com/techdelight/daedalus/internal/color"
+	"github.com/techdelight/daedalus/internal/completions"
+	"github.com/techdelight/daedalus/internal/config"
+	"github.com/techdelight/daedalus/internal/docker"
+	"github.com/techdelight/daedalus/internal/executor"
+	"github.com/techdelight/daedalus/internal/registry"
+	"github.com/techdelight/daedalus/internal/session"
+	"github.com/techdelight/daedalus/internal/tui"
+	"github.com/techdelight/daedalus/internal/web"
 )
 
 func main() {
-	initColor()
+	color.Init()
 	if err := run(os.Args[1:]); err != nil {
-		fmt.Fprintf(os.Stderr, "%s %v\n", colorRed("Error:"), err)
+		fmt.Fprintf(os.Stderr, "%s %v\n", color.Red("Error:"), err)
 		os.Exit(1)
 	}
 }
 
 func run(args []string) error {
-	cfg, err := parseArgs(args)
+	cfg, err := config.ParseArgs(args)
 	if err != nil {
 		return err
 	}
 
 	if cfg.NoColor {
-		noColor = true
+		color.Disable()
 	}
 
 	switch cfg.Subcommand {
@@ -39,9 +48,9 @@ func run(args []string) error {
 	case "list":
 		return listProjects(cfg)
 	case "tui":
-		return runTUI(cfg)
+		return tui.Run(cfg)
 	case "web":
-		return runWeb(cfg)
+		return web.Run(cfg)
 	case "prune":
 		return pruneProjects(cfg)
 	case "remove":
@@ -49,13 +58,13 @@ func run(args []string) error {
 	case "config":
 		return showOrEditConfig(cfg)
 	case "completion":
-		return generateCompletion(cfg)
+		return completions.Generate(cfg)
 	}
 
 	// --- Normal project flow ---
-	exec := &RealExecutor{}
+	exec := &executor.RealExecutor{}
 
-	reg := NewRegistry(cfg.RegistryPath())
+	reg := registry.NewRegistry(cfg.RegistryPath())
 	if err := reg.Init(); err != nil {
 		return fmt.Errorf("initializing registry: %w", err)
 	}
@@ -67,68 +76,68 @@ func run(args []string) error {
 	// Validate project directory exists
 	info, err := os.Stat(cfg.ProjectDir)
 	if err != nil || !info.IsDir() {
-		return fmt.Errorf("project directory '%s' does not exist\n%s check the path or re-register with: daedalus <name> <correct-path>", cfg.ProjectDir, colorCyan("Hint:"))
+		return fmt.Errorf("project directory '%s' does not exist\n%s check the path or re-register with: daedalus <name> <correct-path>", cfg.ProjectDir, color.Cyan("Hint:"))
 	}
 
 	// --- Credential check ---
 	credPath := cfg.CredSourcePath()
 	if _, err := os.Stat(credPath); err != nil {
-		return fmt.Errorf("credentials file not found: %s\n%s run 'claude' on the host to log in", credPath, colorCyan("Hint:"))
+		return fmt.Errorf("credentials file not found: %s\n%s run 'claude' on the host to log in", credPath, color.Cyan("Hint:"))
 	}
 
 	// --- Cache directory ---
-	if err := SetupCacheDir(cfg); err != nil {
+	if err := docker.SetupCacheDir(cfg); err != nil {
 		return err
 	}
 
 	// --- tmux session management ---
 	useTmux := cfg.UseTmux()
 
-	if useTmux && !TmuxAvailable(exec) {
-		fmt.Fprintln(os.Stderr, colorYellow("Warning:")+" tmux not found. Running without session management.")
-		fmt.Fprintln(os.Stderr, colorCyan("Hint:")+" install tmux for detach/reattach support: apt install tmux")
+	if useTmux && !session.TmuxAvailable(exec) {
+		fmt.Fprintln(os.Stderr, color.Yellow("Warning:")+" tmux not found. Running without session management.")
+		fmt.Fprintln(os.Stderr, color.Cyan("Hint:")+" install tmux for detach/reattach support: apt install tmux")
 		useTmux = false
 	}
 
-	session := NewSession(exec, cfg.TmuxSession())
+	sess := session.NewSession(exec, cfg.TmuxSession())
 
 	// Reattach to existing tmux session
-	if useTmux && session.Exists() {
+	if useTmux && sess.Exists() {
 		fmt.Printf("Attaching to existing session '%s'...\n", cfg.TmuxSession())
-		fmt.Println("  " + colorDim("(Detach with Ctrl-B d)"))
-		return session.Attach()
+		fmt.Println("  " + color.Dim("(Detach with Ctrl-B d)"))
+		return sess.Attach()
 	}
 
 	// --- Session tracking ---
 	sessionID, sessionErr := reg.StartSession(cfg.ProjectName, cfg.Resume)
 	if sessionErr != nil {
-		fmt.Fprintf(os.Stderr, colorYellow("Warning:")+" failed to start session tracking: %v\n", sessionErr)
+		fmt.Fprintf(os.Stderr, color.Yellow("Warning:")+" failed to start session tracking: %v\n", sessionErr)
 	}
 
 	// --- Container duplicate detection ---
-	docker := NewDocker(exec, filepath.Join(cfg.ScriptDir, "docker-compose.yml"))
+	d := docker.NewDocker(exec, filepath.Join(cfg.ScriptDir, "docker-compose.yml"))
 
-	running, err := docker.IsContainerRunning(cfg.ContainerName())
+	running, err := d.IsContainerRunning(cfg.ContainerName())
 	if err != nil {
 		return err
 	}
 	if running {
 		return fmt.Errorf("project '%s' is already running (container: %s)\n%s attach with 'daedalus %s' or stop with 'docker stop %s'",
-			cfg.ProjectName, cfg.ContainerName(), colorCyan("Hint:"), cfg.ProjectName, cfg.ContainerName())
+			cfg.ProjectName, cfg.ContainerName(), color.Cyan("Hint:"), cfg.ProjectName, cfg.ContainerName())
 	}
 
 	// --- Image build ---
 	image := cfg.Image()
 	if cfg.Build {
 		uid := strconv.Itoa(os.Getuid())
-		if err := docker.Build(cfg.Target, image, uid, cfg.ScriptDir); err != nil {
-			return fmt.Errorf("building image: %w\n%s check Docker is running and try: daedalus --build %s", err, colorCyan("Hint:"), cfg.ProjectName)
+		if err := d.Build(cfg.Target, image, uid, cfg.ScriptDir); err != nil {
+			return fmt.Errorf("building image: %w\n%s check Docker is running and try: daedalus --build %s", err, color.Cyan("Hint:"), cfg.ProjectName)
 		}
-	} else if !docker.ImageExists(image) {
-		fmt.Printf(colorYellow("Warning:")+" image %s missing, building...\n", image)
+	} else if !d.ImageExists(image) {
+		fmt.Printf(color.Yellow("Warning:")+" image %s missing, building...\n", image)
 		uid := strconv.Itoa(os.Getuid())
-		if err := docker.Build(cfg.Target, image, uid, cfg.ScriptDir); err != nil {
-			return fmt.Errorf("building image: %w\n%s check Docker is running and try: daedalus --build %s", err, colorCyan("Hint:"), cfg.ProjectName)
+		if err := d.Build(cfg.Target, image, uid, cfg.ScriptDir); err != nil {
+			return fmt.Errorf("building image: %w\n%s check Docker is running and try: daedalus --build %s", err, color.Cyan("Hint:"), cfg.ProjectName)
 		}
 	}
 
@@ -144,29 +153,29 @@ func run(args []string) error {
 	var extraArgs []string
 	if cfg.DinD {
 		extraArgs = []string{"-v", "/var/run/docker.sock:/var/run/docker.sock"}
-		fmt.Fprintln(os.Stderr, colorYellow("WARNING:")+" --dind mounts the host Docker socket. This grants the container full access to host Docker.")
+		fmt.Fprintln(os.Stderr, color.Yellow("WARNING:")+" --dind mounts the host Docker socket. This grants the container full access to host Docker.")
 	}
 
 	// --- Launch ---
 	if useTmux {
-		dockerCmd := docker.ComposeRunCommand(cfg.ContainerName(), claudeArgs, extraArgs)
+		dockerCmd := d.ComposeRunCommand(cfg.ContainerName(), claudeArgs, extraArgs)
 		tmuxCmd := core.BuildTmuxCommand(cfg, dockerCmd)
 
-		session.PrintAttachHint(os.Args[0])
-		if err := session.Create(); err != nil {
+		sess.PrintAttachHint(os.Args[0])
+		if err := sess.Create(); err != nil {
 			return fmt.Errorf("creating tmux session: %w", err)
 		}
-		if err := session.SendKeys(tmuxCmd); err != nil {
+		if err := sess.SendKeys(tmuxCmd); err != nil {
 			return fmt.Errorf("sending command to tmux: %w", err)
 		}
-		return session.Attach()
+		return sess.Attach()
 	}
 
 	// Direct execution (no tmux)
-	runErr := docker.ComposeRun(cfg.ContainerName(), composeEnv, claudeArgs, extraArgs)
+	runErr := d.ComposeRun(cfg.ContainerName(), composeEnv, claudeArgs, extraArgs)
 	if sessionErr == nil {
 		if err := reg.EndSession(cfg.ProjectName, sessionID); err != nil {
-			fmt.Fprintf(os.Stderr, colorYellow("Warning:")+" failed to end session tracking: %v\n", err)
+			fmt.Fprintf(os.Stderr, color.Yellow("Warning:")+" failed to end session tracking: %v\n", err)
 		}
 	}
 	return runErr
@@ -174,7 +183,7 @@ func run(args []string) error {
 
 // resolveProject determines the project name, directory, and target from the
 // registry and CLI arguments. It modifies cfg in place.
-func resolveProject(cfg *core.Config, reg *Registry) error {
+func resolveProject(cfg *core.Config, reg *registry.Registry) error {
 	if cfg.ProjectDir != "" {
 		return resolveTwoArgs(cfg, reg)
 	}
@@ -182,7 +191,7 @@ func resolveProject(cfg *core.Config, reg *Registry) error {
 }
 
 // resolveTwoArgs handles the case where both project name and directory are provided.
-func resolveTwoArgs(cfg *core.Config, reg *Registry) error {
+func resolveTwoArgs(cfg *core.Config, reg *registry.Registry) error {
 	entry, nameFound, err := reg.GetProject(cfg.ProjectName)
 	if err != nil {
 		return fmt.Errorf("checking project: %w", err)
@@ -216,7 +225,7 @@ func resolveTwoArgs(cfg *core.Config, reg *Registry) error {
 }
 
 // resolveOneArg handles the case where only the project name is provided.
-func resolveOneArg(cfg *core.Config, reg *Registry) error {
+func resolveOneArg(cfg *core.Config, reg *registry.Registry) error {
 	entry, found, err := reg.GetProject(cfg.ProjectName)
 	if err != nil {
 		return fmt.Errorf("checking project: %w", err)
@@ -251,7 +260,7 @@ func resolveOneArg(cfg *core.Config, reg *Registry) error {
 }
 
 // handleNewProject prompts the user or auto-registers a new project.
-func handleNewProject(cfg *core.Config, reg *Registry) error {
+func handleNewProject(cfg *core.Config, reg *registry.Registry) error {
 	register := func() error {
 		if err := reg.AddProject(cfg.ProjectName, cfg.ProjectDir, cfg.Target); err != nil {
 			return err
@@ -259,14 +268,14 @@ func handleNewProject(cfg *core.Config, reg *Registry) error {
 		// Capture non-default flags as per-project defaults
 		if flags := collectDefaultFlags(cfg); len(flags) > 0 {
 			if err := reg.SetDefaultFlags(cfg.ProjectName, flags); err != nil {
-				fmt.Fprintf(os.Stderr, colorYellow("Warning:")+" failed to save default flags: %v\n", err)
+				fmt.Fprintf(os.Stderr, color.Yellow("Warning:")+" failed to save default flags: %v\n", err)
 			}
 		}
 		return nil
 	}
 
-	if isHeadless(cfg) {
-		fmt.Printf("%s new project '%s'.\n", colorGreen("Auto-registering"), cfg.ProjectName)
+	if config.IsHeadless(cfg) {
+		fmt.Printf("%s new project '%s'.\n", color.Green("Auto-registering"), cfg.ProjectName)
 		return register()
 	}
 
@@ -284,7 +293,7 @@ func handleNewProject(cfg *core.Config, reg *Registry) error {
 	case "n", "no":
 		return fmt.Errorf("aborted")
 	default:
-		fmt.Printf("%s new project '%s'.\n", colorGreen("Registering"), cfg.ProjectName)
+		fmt.Printf("%s new project '%s'.\n", color.Green("Registering"), cfg.ProjectName)
 		return register()
 	}
 }
@@ -310,8 +319,8 @@ func collectDefaultFlags(cfg *core.Config) map[string]string {
 // handleDirConflict handles the case where the current directory is already
 // used by a different project. In interactive mode it offers to open the
 // existing project; in headless mode it returns an error.
-func handleDirConflict(cfg *core.Config, reg *Registry, existingName string) error {
-	if isHeadless(cfg) {
+func handleDirConflict(cfg *core.Config, reg *registry.Registry, existingName string) error {
+	if config.IsHeadless(cfg) {
 		return fmt.Errorf("directory '%s' is already used by project '%s' (given name: '%s')",
 			cfg.ProjectDir, existingName, cfg.ProjectName)
 	}
@@ -348,7 +357,7 @@ func showOrEditConfig(cfg *core.Config) error {
 		return fmt.Errorf("usage: daedalus config <project-name> [--set key=value] [--unset key]")
 	}
 
-	reg := NewRegistry(cfg.RegistryPath())
+	reg := registry.NewRegistry(cfg.RegistryPath())
 	if err := reg.Init(); err != nil {
 		return fmt.Errorf("initializing registry: %w", err)
 	}
@@ -358,7 +367,7 @@ func showOrEditConfig(cfg *core.Config) error {
 		return fmt.Errorf("reading project: %w", err)
 	}
 	if !found {
-		return fmt.Errorf("project '%s' not found in registry\n%s run 'daedalus list' to see registered projects", cfg.ConfigTarget, colorCyan("Hint:"))
+		return fmt.Errorf("project '%s' not found in registry\n%s run 'daedalus list' to see registered projects", cfg.ConfigTarget, color.Cyan("Hint:"))
 	}
 
 	// Apply --set and --unset if provided
@@ -376,17 +385,17 @@ func showOrEditConfig(cfg *core.Config) error {
 		if err != nil {
 			return fmt.Errorf("reading project: %w", err)
 		}
-		fmt.Printf("%s updated config for '%s'.\n", colorGreen("OK:"), cfg.ConfigTarget)
+		fmt.Printf("%s updated config for '%s'.\n", color.Green("OK:"), cfg.ConfigTarget)
 	}
 
 	// Display project config
-	fmt.Printf("%s %s\n", colorBold("Project:"), cfg.ConfigTarget)
-	fmt.Printf("%s %s\n", colorBold("Directory:"), entry.Directory)
-	fmt.Printf("%s %s\n", colorBold("Target:"), entry.Target)
-	fmt.Printf("%s %d\n", colorBold("Sessions:"), len(entry.Sessions))
+	fmt.Printf("%s %s\n", color.Bold("Project:"), cfg.ConfigTarget)
+	fmt.Printf("%s %s\n", color.Bold("Directory:"), entry.Directory)
+	fmt.Printf("%s %s\n", color.Bold("Target:"), entry.Target)
+	fmt.Printf("%s %d\n", color.Bold("Sessions:"), len(entry.Sessions))
 
 	if len(entry.DefaultFlags) > 0 {
-		fmt.Printf("\n%s\n", colorBold("Default Flags:"))
+		fmt.Printf("\n%s\n", color.Bold("Default Flags:"))
 		// Sort keys for deterministic output
 		keys := make([]string, 0, len(entry.DefaultFlags))
 		for k := range entry.DefaultFlags {
@@ -397,7 +406,7 @@ func showOrEditConfig(cfg *core.Config) error {
 			fmt.Printf("  %s = %s\n", k, entry.DefaultFlags[k])
 		}
 	} else {
-		fmt.Printf("\n%s\n", colorDim("No default flags configured."))
+		fmt.Printf("\n%s\n", color.Dim("No default flags configured."))
 	}
 
 	return nil
@@ -405,7 +414,7 @@ func showOrEditConfig(cfg *core.Config) error {
 
 // printUsage prints the CLI usage message.
 func printUsage() {
-	fmt.Printf("%s daedalus [flags] <project-name> [project-dir]\n", colorBold("Usage:"))
+	fmt.Printf("%s daedalus [flags] <project-name> [project-dir]\n", color.Bold("Usage:"))
 	fmt.Println("       daedalus list")
 	fmt.Println("       daedalus prune")
 	fmt.Println("       daedalus remove <name> [name...]")
@@ -415,7 +424,7 @@ func printUsage() {
 	fmt.Println("       daedalus completion <bash|zsh|fish>")
 	fmt.Println("       daedalus --help")
 	fmt.Println()
-	fmt.Println(colorBold("Commands:"))
+	fmt.Println(color.Bold("Commands:"))
 	fmt.Println("  <project-name>                Open a registered project (uses stored directory)")
 	fmt.Println("  <project-name> <project-dir>  Register and open a new project")
 	fmt.Println("  list                          List all registered projects")
@@ -426,7 +435,7 @@ func printUsage() {
 	fmt.Println("  web                           Web UI dashboard (default: localhost:3000)")
 	fmt.Println("  completion <shell>            Print shell completion script (bash, zsh, fish)")
 	fmt.Println()
-	fmt.Println(colorBold("Flags:"))
+	fmt.Println(color.Bold("Flags:"))
 	fmt.Println("  --build            Force rebuild the Docker image")
 	fmt.Println("  --target <stage>   Build target: dev (default), godot, base, utils")
 	fmt.Println("  --resume <id>      Resume a previous Claude session")
@@ -440,7 +449,7 @@ func printUsage() {
 	fmt.Println("  --host <host>      Host for web UI (default: 127.0.0.1)")
 	fmt.Println("  --help, -h         Show this help message")
 	fmt.Println()
-	fmt.Println(colorBold("Examples:"))
+	fmt.Println(color.Bold("Examples:"))
 	fmt.Println("  daedalus my-app                         Open existing project from registry")
 	fmt.Println("  daedalus my-app /path/to/project        Register and open a new project")
 	fmt.Println("  daedalus my-app -p \"Fix linting errors\" Run a headless task")
@@ -453,7 +462,7 @@ func printUsage() {
 
 // listProjects prints a formatted table of all registered projects.
 func listProjects(cfg *core.Config) error {
-	reg := NewRegistry(cfg.RegistryPath())
+	reg := registry.NewRegistry(cfg.RegistryPath())
 	if err := reg.Init(); err != nil {
 		return fmt.Errorf("initializing registry: %w", err)
 	}
@@ -483,7 +492,7 @@ func listProjects(cfg *core.Config) error {
 	}
 
 	// Print header
-	fmt.Printf("%-*s  %-*s  %-*s  %-8s  %s\n", nameW, colorBold("PROJECT"), dirW, colorBold("DIRECTORY"), targetW, colorBold("TARGET"), colorBold("SESSIONS"), colorBold("LAST USED"))
+	fmt.Printf("%-*s  %-*s  %-*s  %-8s  %s\n", nameW, color.Bold("PROJECT"), dirW, color.Bold("DIRECTORY"), targetW, color.Bold("TARGET"), color.Bold("SESSIONS"), color.Bold("LAST USED"))
 	fmt.Printf("%-*s  %-*s  %-*s  %-8s  %s\n", nameW, strings.Repeat("-", nameW), dirW, strings.Repeat("-", dirW), targetW, strings.Repeat("-", targetW), "--------", "---------")
 
 	// Print rows
@@ -495,7 +504,7 @@ func listProjects(cfg *core.Config) error {
 
 // pruneProjects removes registry entries whose project directories no longer exist.
 func pruneProjects(cfg *core.Config) error {
-	reg := NewRegistry(cfg.RegistryPath())
+	reg := registry.NewRegistry(cfg.RegistryPath())
 	if err := reg.Init(); err != nil {
 		return fmt.Errorf("initializing registry: %w", err)
 	}
@@ -523,7 +532,7 @@ func pruneProjects(cfg *core.Config) error {
 		fmt.Printf("  - %s\n", name)
 	}
 
-	if !isHeadless(cfg) {
+	if !config.IsHeadless(cfg) {
 		scanner := bufio.NewScanner(os.Stdin)
 		fmt.Print("\nRemove these entries? [Y/n]: ")
 		if !scanner.Scan() {
@@ -543,7 +552,7 @@ func pruneProjects(cfg *core.Config) error {
 		return fmt.Errorf("removing stale projects: %w", err)
 	}
 	for _, name := range removed {
-		fmt.Printf("%s '%s'.\n", colorGreen("Removed"), name)
+		fmt.Printf("%s '%s'.\n", color.Green("Removed"), name)
 	}
 	return nil
 }
@@ -554,7 +563,7 @@ func removeProjects(cfg *core.Config) error {
 		return fmt.Errorf("usage: daedalus remove <name> [name...]")
 	}
 
-	reg := NewRegistry(cfg.RegistryPath())
+	reg := registry.NewRegistry(cfg.RegistryPath())
 	if err := reg.Init(); err != nil {
 		return fmt.Errorf("initializing registry: %w", err)
 	}
@@ -566,12 +575,12 @@ func removeProjects(cfg *core.Config) error {
 			return fmt.Errorf("checking project '%s': %w", name, err)
 		}
 		if !has {
-			return fmt.Errorf("project '%s' not found in registry\n%s run 'daedalus list' to see registered projects", name, colorCyan("Hint:"))
+			return fmt.Errorf("project '%s' not found in registry\n%s run 'daedalus list' to see registered projects", name, color.Cyan("Hint:"))
 		}
 	}
 
 	// Confirm removal
-	if !isHeadless(cfg) {
+	if !config.IsHeadless(cfg) {
 		scanner := bufio.NewScanner(os.Stdin)
 		if len(cfg.RemoveTargets) == 1 {
 			fmt.Printf("Remove project '%s'? [Y/n]: ", cfg.RemoveTargets[0])
@@ -595,7 +604,7 @@ func removeProjects(cfg *core.Config) error {
 		return fmt.Errorf("removing projects: %w", err)
 	}
 	for _, name := range removed {
-		fmt.Printf("%s '%s'.\n", colorGreen("Removed"), name)
+		fmt.Printf("%s '%s'.\n", color.Green("Removed"), name)
 	}
 	return nil
 }

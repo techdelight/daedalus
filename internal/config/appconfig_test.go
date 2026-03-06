@@ -1,6 +1,6 @@
 // Copyright (C) 2026 Techdelight BV
 
-package main
+package config
 
 import (
 	"os"
@@ -10,7 +10,7 @@ import (
 )
 
 func TestLoadAppConfig_FileNotFound(t *testing.T) {
-	cfg, err := loadAppConfig(t.TempDir())
+	cfg, err := LoadAppConfig(t.TempDir())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -25,7 +25,7 @@ func TestLoadAppConfig_ValidJSON(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(data), 0644); err != nil {
 		t.Fatal(err)
 	}
-	cfg, err := loadAppConfig(dir)
+	cfg, err := LoadAppConfig(dir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -48,7 +48,7 @@ func TestLoadAppConfig_InvalidJSON(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte("{bad json"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	_, err := loadAppConfig(dir)
+	_, err := LoadAppConfig(dir)
 	if err == nil {
 		t.Fatal("expected error for invalid JSON")
 	}
@@ -62,7 +62,7 @@ func TestLoadAppConfig_EmptyObject(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte("{}"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	cfg, err := loadAppConfig(dir)
+	cfg, err := LoadAppConfig(dir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -77,7 +77,7 @@ func TestLoadAppConfig_UnknownKeysIgnored(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(data), 0644); err != nil {
 		t.Fatal(err)
 	}
-	cfg, err := loadAppConfig(dir)
+	cfg, err := LoadAppConfig(dir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

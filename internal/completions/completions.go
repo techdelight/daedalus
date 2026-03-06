@@ -1,6 +1,6 @@
 // Copyright (C) 2026 Techdelight BV
 
-package main
+package completions
 
 import (
 	"fmt"
@@ -8,8 +8,8 @@ import (
 	"github.com/techdelight/daedalus/core"
 )
 
-// generateCompletion prints a shell completion script.
-func generateCompletion(cfg *core.Config) error {
+// Generate prints a shell completion script.
+func Generate(cfg *core.Config) error {
 	switch cfg.CompletionShell {
 	case "bash":
 		fmt.Print(bashCompletion)

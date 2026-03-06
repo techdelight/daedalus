@@ -1,17 +1,21 @@
 // Copyright (C) 2026 Techdelight BV
 
-package main
+package session
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/techdelight/daedalus/internal/executor"
+)
 
 // Session manages a tmux session.
 type Session struct {
-	Executor Executor
+	Executor executor.Executor
 	Name     string
 }
 
 // NewSession creates a Session with the given executor and session name.
-func NewSession(exec Executor, name string) *Session {
+func NewSession(exec executor.Executor, name string) *Session {
 	return &Session{Executor: exec, Name: name}
 }
 
@@ -37,7 +41,7 @@ func (s *Session) Attach() error {
 }
 
 // TmuxAvailable checks if tmux is installed.
-func TmuxAvailable(exec Executor) bool {
+func TmuxAvailable(exec executor.Executor) bool {
 	_, err := exec.LookPath("tmux")
 	return err == nil
 }
