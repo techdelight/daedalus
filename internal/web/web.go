@@ -33,6 +33,32 @@ type WebServer struct {
 	cfg      *core.Config
 }
 
+// NewWebServerForTest creates a WebServer with injected dependencies.
+// Intended for integration tests that need to exercise handlers end-to-end.
+func NewWebServerForTest(reg *registry.Registry, d *docker.Docker, exec executor.Executor, cfg *core.Config) *WebServer {
+	return &WebServer{
+		registry: reg,
+		docker:   d,
+		executor: exec,
+		cfg:      cfg,
+	}
+}
+
+// HandleListProjects is the exported handler for GET /api/projects.
+func (ws *WebServer) HandleListProjects(w http.ResponseWriter, r *http.Request) {
+	ws.handleListProjects(w, r)
+}
+
+// HandleStartProject is the exported handler for POST /api/projects/{name}/start.
+func (ws *WebServer) HandleStartProject(w http.ResponseWriter, r *http.Request) {
+	ws.handleStartProject(w, r)
+}
+
+// HandleStopProject is the exported handler for POST /api/projects/{name}/stop.
+func (ws *WebServer) HandleStopProject(w http.ResponseWriter, r *http.Request) {
+	ws.handleStopProject(w, r)
+}
+
 // projectJSON is the JSON representation of a project for the REST API.
 type projectJSON struct {
 	Name         string `json:"name"`

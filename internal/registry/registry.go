@@ -36,6 +36,9 @@ func migrateV1toV2(data *core.RegistryData) error {
 // migrate applies all necessary migrations to bring data to CurrentRegistryVersion.
 // Returns true if any migrations were applied.
 func (r *Registry) migrate(data *core.RegistryData) (bool, error) {
+	if data.Version > core.CurrentRegistryVersion {
+		return false, fmt.Errorf("registry version %d is newer than supported version %d", data.Version, core.CurrentRegistryVersion)
+	}
 	changed := false
 	for data.Version < core.CurrentRegistryVersion {
 		fn, ok := migrations[data.Version]

@@ -1,0 +1,229 @@
+.TH DAEDALUS 1 "2026-03-07" "daedalus 0.8.1" "User Commands"
+.SH NAME
+daedalus \- Docker environment for autonomous Claude Code
+.SH SYNOPSIS
+.B daedalus
+[\fIflags\fR] <\fIproject-name\fR> [\fIproject-dir\fR]
+.br
+.B daedalus list
+.br
+.B daedalus prune
+.br
+.B daedalus remove
+<\fIname\fR> [\fIname\fR...]
+.br
+.B daedalus config
+<\fIname\fR> [\fB\-\-set\fR \fIkey=value\fR] [\fB\-\-unset\fR \fIkey\fR]
+.br
+.B daedalus tui
+.br
+.B daedalus web
+[\fB\-\-port\fR \fIPORT\fR] [\fB\-\-host\fR \fIHOST\fR]
+.br
+.B daedalus completion
+<\fBbash\fR|\fBzsh\fR|\fBfish\fR>
+.br
+.B daedalus \-\-help
+.SH DESCRIPTION
+.B daedalus
+wraps Claude Code in a Docker container with
+.B \-\-dangerously\-skip\-permissions\fR,
+providing isolation instead of interactive permission prompts.
+The container boundary replaces per-action approval with a single trust
+decision: Claude can do anything inside the container.
+.PP
+Each project gets its own named container with the project directory
+mounted read-write at
+.I /workspace
+and a persistent home directory at
+.IR /home/claude .
+Sessions are wrapped in tmux for detach/reattach support.
+.PP
+Three UI surfaces are provided: a command-line interface (CLI), an
+interactive terminal dashboard (TUI), and a browser-based web dashboard
+with an embedded terminal.
+.SH COMMANDS
+.TP
+<\fIproject-name\fR>
+Open a registered project using its stored directory.
+.TP
+<\fIproject-name\fR> <\fIproject-dir\fR>
+Register a new project and open it. The directory is stored in the registry for future use.
+.TP
+\fBlist\fR
+List all registered projects with their directories, targets, session counts, and last-used timestamps.
+.TP
+\fBprune\fR
+Remove registry entries whose project directories no longer exist on disk. Prompts for confirmation in interactive mode; use \fB\-\-force\fR for non-interactive mode.
+.TP
+\fBremove\fR <\fIname\fR> [\fIname\fR...]
+Remove one or more named projects from the registry. Prompts for confirmation in interactive mode; use \fB\-\-force\fR for non-interactive mode.
+.TP
+\fBconfig\fR <\fIname\fR> [\fB\-\-set\fR \fIkey=value\fR] [\fB\-\-unset\fR \fIkey\fR]
+View or edit per-project default flags. Without \fB\-\-set\fR or \fB\-\-unset\fR, displays the current configuration.
+.TP
+\fBtui\fR
+Launch the interactive terminal dashboard for managing all registered projects. Key bindings: j/Down move down, k/Up move up, s start, a attach, K kill, r refresh, q quit.
+.TP
+\fBweb\fR [\fB\-\-port\fR \fIPORT\fR] [\fB\-\-host\fR \fIHOST\fR]
+Start the browser-based web dashboard with project management and an embedded terminal. Default: localhost:3000.
+.TP
+\fBcompletion\fR <\fBbash\fR|\fBzsh\fR|\fBfish\fR>
+Print a shell completion script to stdout. Source the output in your shell profile.
+.TP
+\fB\-\-help\fR, \fB\-h\fR
+Show the usage message and exit.
+.SH OPTIONS
+.TP
+\fB\-\-build\fR
+Force rebuild the Docker image before starting the container.
+.TP
+\fB\-\-target\fR \fIstage\fR
+Docker build target stage. Available targets: \fBdev\fR (default), \fBgodot\fR, \fBbase\fR, \fButils\fR.
+.TP
+\fB\-\-resume\fR \fIid\fR
+Resume a previous Claude Code session by its session ID.
+.TP
+\fB\-p\fR \fIprompt\fR
+Run a headless single-prompt task. The container executes the prompt and exits without interactive input.
+.TP
+\fB\-\-no\-tmux\fR
+Run without tmux session wrapping. The container runs directly in the current terminal.
+.TP
+\fB\-\-debug\fR
+Enable Claude Code debug mode.
+.TP
+\fB\-\-dind\fR
+Mount the host Docker socket into the container. WARNING: this grants the container full access to the host Docker daemon.
+.TP
+\fB\-\-force\fR
+Force deletion in non-interactive mode for \fBprune\fR and \fBremove\fR commands.
+.TP
+\fB\-\-no\-color\fR
+Disable colored output. Also honors the \fBNO_COLOR\fR environment variable.
+.TP
+\fB\-\-port\fR \fIport\fR
+Port for the web UI server. Default: 3000.
+.TP
+\fB\-\-host\fR \fIhost\fR
+Host address for the web UI server to bind to. Default: 127.0.0.1.
+.SH ENVIRONMENT
+.TP
+\fBDAEDALUS_DATA_DIR\fR
+Base directory for the project registry and per-project caches. Defaults to
+.I .cache
+next to the daedalus binary.
+.TP
+\fBNO_COLOR\fR
+When set (to any value), disables colored output. See https://no-color.org/.
+.SH CONFIGURATION
+A JSON configuration file can be placed at
+.I <install-dir>/config.json
+(default:
+.IR ~/.local/share/daedalus/config.json ).
+All fields are optional.
+.PP
+Precedence (highest to lowest): CLI flags, environment variables, config.json, built-in defaults.
+.PP
+Supported fields:
+.TP
+\fBdata-dir\fR (string)
+Base directory for registry and per-project caches. Must be an absolute path.
+.TP
+\fBdebug\fR (bool)
+Enable Claude Code debug mode.
+.TP
+\fBno-tmux\fR (bool)
+Run without tmux session wrapping.
+.TP
+\fBimage-prefix\fR (string)
+Docker image prefix. Default: techdelight/claude-runner.
+.SH EXAMPLES
+Open an existing project from the registry:
+.PP
+.RS
+.nf
+daedalus my\-app
+.fi
+.RE
+.PP
+Register a new project with a directory:
+.PP
+.RS
+.nf
+daedalus my\-app /path/to/project
+.fi
+.RE
+.PP
+Run a headless single-prompt task:
+.PP
+.RS
+.nf
+daedalus my\-app \-p "Fix all linting errors"
+.fi
+.RE
+.PP
+Force rebuild with a specific target:
+.PP
+.RS
+.nf
+daedalus \-\-build \-\-target godot my\-game /path/to/game
+.fi
+.RE
+.PP
+Start the web UI on a custom port:
+.PP
+.RS
+.nf
+daedalus web \-\-port 8080
+.fi
+.RE
+.PP
+Set per-project defaults:
+.PP
+.RS
+.nf
+daedalus config my\-app \-\-set dind=true
+.fi
+.RE
+.PP
+Generate and source shell completions:
+.PP
+.RS
+.nf
+eval "$(daedalus completion bash)"
+.fi
+.RE
+.PP
+Resume a previous Claude session:
+.PP
+.RS
+.nf
+daedalus \-\-resume <session\-id> my\-app
+.fi
+.RE
+.SH EXIT STATUS
+.TP
+\fB0\fR
+Success.
+.TP
+\fB1\fR
+An error occurred (invalid arguments, Docker failure, missing project, etc.).
+.SH FILES
+.TP
+.I <install-dir>/config.json
+Application configuration file. See \fBCONFIGURATION\fR above.
+.TP
+.I .cache/projects.json
+Project registry file containing all registered projects, their directories, targets, session history, and timestamps.
+.TP
+.I .cache/<project>/
+Per-project persistent home directory, bind-mounted as \fI/home/claude\fR inside the container. Stores shell history, Claude session transcripts, tool caches, and per-project MCP/settings overrides.
+.SH SEE ALSO
+.BR docker (1),
+.BR tmux (1),
+.BR claude (1)
+.SH AUTHORS
+Techdelight BV
+.SH COPYRIGHT
+Copyright (C) 2026 Techdelight BV. Licensed under the Apache License, Version 2.0.

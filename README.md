@@ -310,6 +310,20 @@ Claude Code reads instructions from several locations inside the container. Use 
 
 **Per-project override:** the persistent home directory at `.cache/<project>/.claude-config/` stores the runtime copies of `.claude.json` and `settings.json`. Edit them directly to override image-level defaults for a single project without rebuilding.
 
+## Man Page
+
+A man page is included for offline reference:
+
+```bash
+# Install the man page
+sudo cp daedalus.1 /usr/local/share/man/man1/
+sudo mandb
+man daedalus
+
+# Or generate a fresh copy
+go run ./cmd/generate-manpage > daedalus.1
+```
+
 ## Environment Variables
 
 | Variable | Default | Description |
@@ -331,6 +345,8 @@ Claude Code reads instructions from several locations inside the container. Use 
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for build instructions, development workflow, and technical details. See [ARCHITECTURE.md](ARCHITECTURE.md) for system design.
+
+CI runs automatically on pull requests via GitHub Actions (vet, test, build).
 
 ## License
 

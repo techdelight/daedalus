@@ -24,6 +24,12 @@ Contains types, command builders, and helpers with no side effects.
 |---|---|
 | `main.go` | `main()`, `run()` dispatcher, project resolution, subcommand handlers (`list`, `prune`, `remove`, `config`) |
 
+### `cmd/generate-manpage/` — Man Page Generator
+
+| File | Responsibility |
+|---|---|
+| `main.go` | Generates `daedalus.1` roff man page from embedded content and VERSION file |
+
 ### `internal/` — I/O Boundary Packages
 
 All side effects (filesystem, shell, network) live here behind interfaces.
@@ -55,6 +61,7 @@ tui       → core, executor, registry, docker, session
 web       → core, executor, registry, docker, session
   ↑
 cmd/daedalus → all of the above
+cmd/generate-manpage → (standalone, reads VERSION file only)
 ```
 
 ## Components

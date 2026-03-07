@@ -12,6 +12,18 @@
 
 ## Sprint History
 
+### Sprint 9: 1.0 Preparation (v1.0.0)
+
+Delivered 2026-03-07. Stability audit, integration tests, CI/CD, man page, final docs.
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | Stability audit — review and freeze public API surface (CLI, config, registry, env vars) | Done |
+| 2 | End-to-end integration test suite — cross-package workflow tests | Done |
+| 3 | Binary releases via GitHub Actions (CI + release workflows, Linux/macOS amd64/arm64) | Done |
+| 4 | Man page generation — `daedalus(1)` roff man page from CLI help | Done |
+| 5 | Final documentation pass — README, CONTRIBUTING, ARCHITECTURE, CHANGELOG, VERSION bump to 1.0.0 | Done |
+
 ### Sprint 8: Structure & Distribution (v0.8.0)
 
 Delivered 2026-03-06. Code restructuring, installation improvements, and documentation.
@@ -130,13 +142,7 @@ Three UI surfaces sharing one core. Clean architecture extraction.
 
 ## Future Sprints
 
-### Sprint 9: 1.0 Preparation
-
-- Stability audit — no breaking changes after 1.0
-- End-to-end integration test suite
-- Binary releases via GitHub Actions (Linux amd64/arm64, macOS amd64/arm64)
-- Man page generation
-- Final documentation pass
+(none)
 
 ---
 

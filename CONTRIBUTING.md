@@ -102,7 +102,20 @@ go test ./core/
 
 # Single test
 go test -run TestConfig_UseTmux ./core/
+
+# Integration tests only
+go test -v ./cmd/daedalus/ -run Integration
 ```
+
+## Continuous Integration
+
+GitHub Actions runs on every push to `master` and on pull requests:
+
+- `go vet ./...` — static analysis
+- `go test -v -race ./...` — tests with race detector
+- `go build -o daedalus ./cmd/daedalus` — compilation check
+
+Releases are built automatically when a version tag (`v*`) is pushed.
 
 ## Code Quality
 
