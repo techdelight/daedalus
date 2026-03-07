@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- GitHub Pages landing page in `/docs`.
+
 ## [1.0.1] - 2026-03-07
 
 ### Changed
