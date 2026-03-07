@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-03-07
+
+### Changed
+- `install.sh` now downloads pre-built binaries from the latest GitHub Release instead of downloading source and building via Docker. Docker is no longer required for installation (still required at runtime).
+- Removed `.claude.json` from `install.sh` runtime files — it is baked into the Docker image and not included in release assets.
+- Removed `start.sh` from release workflow assets — it is a development helper not needed by end users.
+
 ## [1.0.0] - 2026-03-07
 
 ### Added

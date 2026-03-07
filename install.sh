@@ -6,14 +6,13 @@ set -euo pipefail
 PREFIX="$HOME/.local/share/daedalus"
 CREATE_LINK=true
 UNINSTALL=false
-REPO_URL="https://github.com/techdelight/daedalus/archive/master.tar.gz"
+GITHUB_API="https://api.github.com/repos/techdelight/daedalus/releases/latest"
 
 # ── Runtime files to install alongside the binary ────────────────────────────
 RUNTIME_FILES=(
     docker-compose.yml
     Dockerfile
     entrypoint.sh
-    .claude.json
     settings.json
     logo.txt
     config.json
@@ -29,8 +28,8 @@ Options:
   --no-link       Skip creating a symlink in PATH
   --uninstall     Remove Daedalus installation (prompts before deleting project data)
 
-Downloads the Daedalus source, builds the binary via Docker, installs
-runtime files to the prefix directory, and creates a PATH symlink.
+Downloads a pre-built Daedalus binary from the latest GitHub Release,
+installs runtime files to the prefix directory, and creates a PATH symlink.
 EOF
     exit 0
 }
@@ -117,49 +116,66 @@ if ! command -v curl &>/dev/null; then
     exit 1
 fi
 
-if ! command -v docker &>/dev/null; then
-    echo "Error: Docker is not installed or not in PATH." >&2
-    echo "  Install Docker: https://docs.docker.com/get-docker/" >&2
-    exit 1
-fi
-
-if ! docker info &>/dev/null 2>&1; then
-    echo "Error: Docker daemon is not running." >&2
-    echo "  Start Docker and try again." >&2
-    exit 1
-fi
-
 echo "  curl: OK"
-echo "  Docker: OK"
 
-# ── Download source ──────────────────────────────────────────────────────────
+# ── Detect OS and architecture ───────────────────────────────────────────────
+OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
+ARCH="$(uname -m)"
+
+case "$OS" in
+    linux)  OS="linux" ;;
+    darwin) OS="darwin" ;;
+    *)
+        echo "Error: unsupported operating system '$OS'." >&2
+        exit 1
+        ;;
+esac
+
+case "$ARCH" in
+    x86_64)  ARCH="amd64" ;;
+    aarch64) ARCH="arm64" ;;
+    arm64)   ARCH="arm64" ;;
+    *)
+        echo "Error: unsupported architecture '$ARCH'." >&2
+        exit 1
+        ;;
+esac
+
+echo "  Platform: ${OS}/${ARCH}"
+
+# ── Fetch latest release tag ────────────────────────────────────────────────
+echo ""
+echo "Fetching latest release..."
+
+RELEASE_JSON="$(curl -fsSL "$GITHUB_API")"
+TAG="$(echo "$RELEASE_JSON" | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')"
+
+if [[ -z "$TAG" ]]; then
+    echo "Error: could not determine latest release tag." >&2
+    exit 1
+fi
+
+echo "  Latest release: $TAG"
+
+DOWNLOAD_BASE="https://github.com/techdelight/daedalus/releases/download/${TAG}"
+
+# ── Download binary and runtime files ────────────────────────────────────────
 WORK_DIR="$(mktemp -d)"
 cleanup() { rm -rf "$WORK_DIR"; }
 trap cleanup EXIT
 
+BINARY_NAME="daedalus-${OS}-${ARCH}"
 echo ""
-echo "Downloading Daedalus source..."
-curl -fsSL "$REPO_URL" | tar xz -C "$WORK_DIR" --strip-components=1
+echo "Downloading ${BINARY_NAME}..."
+curl -fsSL -o "$WORK_DIR/daedalus" "${DOWNLOAD_BASE}/${BINARY_NAME}"
+chmod 755 "$WORK_DIR/daedalus"
 
-# Verify runtime files exist in the download
+echo "Downloading runtime files..."
 for f in "${RUNTIME_FILES[@]}"; do
-    if [[ ! -f "$WORK_DIR/$f" ]]; then
-        echo "Error: required file '$f' not found in downloaded source." >&2
-        exit 1
-    fi
+    curl -fsSL -o "$WORK_DIR/$f" "${DOWNLOAD_BASE}/${f}"
 done
 
-echo "  Source downloaded to temporary directory."
-
-# ── Build ────────────────────────────────────────────────────────────────────
-echo ""
-echo "Building Daedalus binary..."
-bash "$WORK_DIR/build.sh"
-
-if [[ ! -f "$WORK_DIR/daedalus" ]]; then
-    echo "Error: build did not produce the 'daedalus' binary." >&2
-    exit 1
-fi
+echo "  Downloaded binary and ${#RUNTIME_FILES[@]} runtime files."
 
 # ── Install ──────────────────────────────────────────────────────────────────
 echo ""
@@ -205,5 +221,6 @@ if [[ "$CREATE_LINK" == true ]]; then
 fi
 echo "  Config:   $PREFIX/config.json"
 echo ""
+echo "  Note: Docker is required at runtime to run projects."
 echo "  Edit config.json to customize settings (data-dir, debug, etc.)."
 echo "  Get started: daedalus my-app /path/to/project"

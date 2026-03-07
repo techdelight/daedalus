@@ -22,9 +22,9 @@ daedalus my-awesome-app /path/to/project
 
 ## Installation
 
-The install script downloads the Daedalus source from GitHub, builds the binary via Docker, copies runtime files to a prefix directory, and symlinks `daedalus` into `~/.local/bin`.
+The install script downloads a pre-built binary and runtime files from the latest GitHub Release, copies them to a prefix directory, and symlinks `daedalus` into `~/.local/bin`. No build step required.
 
-**Prerequisites:** curl and Docker (running).
+**Prerequisites:** curl. Docker is required at runtime but not for installation.
 
 ```bash
 # Install to ~/.local/share/daedalus (default)

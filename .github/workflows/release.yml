@@ -84,7 +84,7 @@ jobs:
         run: |
           mkdir -p release-assets
           cp artifacts/daedalus-*/daedalus-* release-assets/
-          cp install.sh config.json docker-compose.yml Dockerfile entrypoint.sh start.sh settings.json logo.txt release-assets/
+          cp install.sh config.json docker-compose.yml Dockerfile entrypoint.sh settings.json logo.txt release-assets/
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
