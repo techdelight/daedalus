@@ -42,6 +42,7 @@
         <div class="nav-inner">
             <div class="nav-spacer"></div>
             <div class="nav-links">
+                <a href="#why">Why</a>
                 <a href="#demos">Demos</a>
                 <a href="#features">Features</a>
                 <a href="#quick-start">Quick Start</a>
@@ -129,20 +130,16 @@
                 </div>
                 <div class="demo-panel" id="demo-tui">
                     <div class="demo-video-wrap">
-                        <video loop muted playsinline poster="assets/tui-poster.png">
-                            <source src="demos/tui.webm" type="video/webm">
-                            <source src="demos/tui.mp4" type="video/mp4">
-                            <img src="demos/tui.gif" alt="TUI demo">
+                        <video loop muted playsinline>
+                            <source src="demos/tui-demo.mp4" type="video/mp4">
                         </video>
                     </div>
                     <p class="demo-caption">Interactive terminal dashboard — start, attach, and monitor projects.</p>
                 </div>
                 <div class="demo-panel" id="demo-web">
                     <div class="demo-video-wrap">
-                        <video loop muted playsinline poster="assets/web-poster.png">
-                            <source src="demos/web.webm" type="video/webm">
-                            <source src="demos/web.mp4" type="video/mp4">
-                            <img src="demos/web.gif" alt="Web UI demo">
+                        <video loop muted playsinline>
+                            <source src="demos/web-demo.mp4" type="video/mp4">
                         </video>
                     </div>
                     <p class="demo-caption">Browser-based dashboard with embedded terminal via WebSocket.</p>
@@ -157,43 +154,47 @@
             <div class="section-header reveal">
                 <span class="section-label">The Problem & Solution</span>
                 <h2>Why Daedalus?</h2>
-                <p class="section-desc">Claude Code is powerful, but constantly asking for permission slows everything down.</p>
+                <p class="section-desc">Claude Code is powerful, but using it day-to-day has real friction.</p>
             </div>
-            <div class="comparison reveal">
-                <div class="comparison-card comparison-problem">
-                    <div class="comparison-indicator">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
-                            <circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>
+            <div class="why-cards">
+                <div class="why-card reveal" style="--delay: 0">
+                    <div class="why-card-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="32" height="32">
+                            <path d="M12 9v4M12 17h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
                         </svg>
-                        Without Daedalus
                     </div>
-                    <ul class="comparison-list">
-                        <li><span class="x-mark">Approve</span> every file edit</li>
-                        <li><span class="x-mark">Approve</span> every shell command</li>
-                        <li><span class="x-mark">Approve</span> every tool access</li>
-                        <li><span class="x-mark">Approve</span> every network call</li>
-                    </ul>
-                    <p class="comparison-verdict">Dozens of interruptions per session. Autonomous workflows impossible.</p>
+                    <h3>Permission fatigue</h3>
+                    <p class="why-card-problem">Claude asks for confirmation on every file edit, shell command, and tool call. You end up babysitting instead of building.</p>
+                    <div class="why-card-solution">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>
+                        <span>Daedalus gives Claude 100% green light inside a locked-down Docker container. It works autonomously while your system stays safe.</span>
+                    </div>
                 </div>
-                <div class="comparison-divider">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="28" height="28">
-                        <path d="M5 12h14M12 5l7 7-7 7"/>
-                    </svg>
-                </div>
-                <div class="comparison-card comparison-solution">
-                    <div class="comparison-indicator">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
-                            <circle cx="12" cy="12" r="10"/><path d="M9 12l2 2 4-4"/>
+                <div class="why-card reveal" style="--delay: 1">
+                    <div class="why-card-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="32" height="32">
+                            <path d="M1 1l22 22M16.72 11.06A10.94 10.94 0 0119 12.55M5 12.55a10.94 10.94 0 015.17-2.39M10.71 5.05A16 16 0 0122.56 9M1.42 9a15.91 15.91 0 014.7-2.88M8.53 16.11a6 6 0 016.95 0M12 20h.01"/>
                         </svg>
-                        With Daedalus
                     </div>
-                    <ul class="comparison-list">
-                        <li><span class="check-mark">Pre-approved</span> file access</li>
-                        <li><span class="check-mark">Pre-approved</span> shell commands</li>
-                        <li><span class="check-mark">Pre-approved</span> tool access</li>
-                        <li><span class="check-mark">Isolated</span> in Docker container</li>
-                    </ul>
-                    <p class="comparison-verdict">Zero prompts. Claude works freely. Your system stays safe.</p>
+                    <h3>Fragile connections kill sessions</h3>
+                    <p class="why-card-problem">Working from a phone, a train, or anywhere with spotty wifi means your session dies the moment the connection drops &mdash; and all context is lost.</p>
+                    <div class="why-card-solution">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>
+                        <span>Every session is wrapped in tmux. Disconnect (or get disconnected) and pick up exactly where you left off.</span>
+                    </div>
+                </div>
+                <div class="why-card reveal" style="--delay: 2">
+                    <div class="why-card-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="32" height="32">
+                            <rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
+                        </svg>
+                    </div>
+                    <h3>Switching projects is painful</h3>
+                    <p class="why-card-problem">Juggling multiple Claude sessions across different codebases means manually managing terminals, containers, and context.</p>
+                    <div class="why-card-solution">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>
+                        <span>A TUI and web dashboard to start, stop, attach, and switch between projects in seconds.</span>
+                    </div>
                 </div>
             </div>
         </div>

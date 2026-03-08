@@ -159,6 +159,8 @@ An interactive terminal dashboard for managing all registered projects.
 daedalus tui
 ```
 
+<video src="assets/tui-demo.mp4" width="100%" autoplay loop muted></video>
+
 **Key bindings:** `j`/`↓` move down, `k`/`↑` move up, `s` start (auto-attaches to tmux), `a` attach to running session, `Del` stop container, `n` create new project, `F2` rename, `r` refresh, `q` quit.
 
 The dashboard shows each project's name, running status, build target, session count, and last-used time. Status refreshes automatically every 5 seconds.
@@ -174,6 +176,8 @@ daedalus web                    # Start on localhost:3000
 daedalus web --port 8080        # Custom port
 daedalus web --host 0.0.0.0    # Bind to all interfaces
 ```
+
+<video src="assets/web-demo.mp4" width="100%" autoplay loop muted></video>
 
 The web UI provides:
 - **Project list** with live status (running/stopped), target, and last-used time. Auto-refreshes every 5 seconds.

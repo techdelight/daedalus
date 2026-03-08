@@ -548,109 +548,84 @@ section {
 }
 
 /* ============================================================
-   Why Daedalus (Comparison)
+   Why Daedalus (Cards)
    ============================================================ */
 
 .why {
     border-top: 1px solid var(--border-subtle);
 }
 
-.comparison {
+.why-cards {
     display: grid;
-    grid-template-columns: 1fr auto 1fr;
-    gap: 0;
-    align-items: stretch;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
     margin-top: 40px;
 }
 
-.comparison-card {
+.why-card {
     background: var(--bg-surface);
     border: 1px solid var(--border);
     border-radius: 12px;
-    padding: 32px;
-}
-
-.comparison-problem {
-    border-color: rgba(196, 93, 93, 0.2);
-}
-
-.comparison-solution {
-    border-color: rgba(126, 168, 102, 0.2);
-}
-
-.comparison-indicator {
+    padding: 28px;
     display: flex;
-    align-items: center;
-    gap: 10px;
-    font-family: var(--font-mono);
-    font-size: 12px;
-    font-weight: 500;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    margin-bottom: 24px;
-    padding-bottom: 16px;
-    border-bottom: 1px solid var(--border-subtle);
+    flex-direction: column;
+    transition: all 0.25s ease;
 }
 
-.comparison-problem .comparison-indicator {
-    color: var(--red);
+.why-card:hover {
+    border-color: rgba(201, 131, 78, 0.3);
+    background: var(--bg-hover);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
 }
 
-.comparison-solution .comparison-indicator {
-    color: var(--green);
-}
-
-.comparison-list {
-    list-style: none;
-    margin-bottom: 20px;
-}
-
-.comparison-list li {
-    padding: 8px 0;
-    font-size: 15px;
-    color: var(--text-muted);
-    border-bottom: 1px solid var(--border-subtle);
-}
-
-.comparison-list li:last-child {
-    border-bottom: none;
-}
-
-.x-mark {
-    font-family: var(--font-mono);
-    font-size: 12px;
-    font-weight: 500;
-    color: var(--red);
-    background: var(--red-dim);
-    padding: 2px 8px;
-    border-radius: 3px;
-    margin-right: 8px;
-}
-
-.check-mark {
-    font-family: var(--font-mono);
-    font-size: 12px;
-    font-weight: 500;
-    color: var(--green);
-    background: var(--green-dim);
-    padding: 2px 8px;
-    border-radius: 3px;
-    margin-right: 8px;
-}
-
-.comparison-verdict {
-    font-size: 14px;
-    color: var(--text-dim);
-    margin-bottom: 0;
-    font-style: italic;
-}
-
-.comparison-divider {
+.why-card-icon {
+    width: 52px;
+    height: 52px;
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 0 20px;
-    color: var(--text-dim);
+    border-radius: 12px;
+    background: var(--copper-glow2);
+    border: 1px solid rgba(201, 131, 78, 0.1);
+    color: var(--copper);
+    margin-bottom: 20px;
+}
+
+.why-card h3 {
+    font-family: var(--font-display);
+    font-size: 20px;
+    font-weight: 600;
+    color: var(--text-bright);
+    margin-bottom: 12px;
+}
+
+.why-card-problem {
+    font-size: 14px;
+    color: var(--text-muted);
+    line-height: 1.65;
+    margin-bottom: 20px;
+    flex: 1;
+}
+
+.why-card-solution {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border-subtle);
+}
+
+.why-card-solution svg {
+    color: var(--green);
+    flex-shrink: 0;
+    margin-top: 1px;
+}
+
+.why-card-solution span {
+    font-size: 14px;
+    color: var(--green);
+    line-height: 1.55;
 }
 
 /* ============================================================
@@ -1002,6 +977,10 @@ section {
    ============================================================ */
 
 @media (max-width: 900px) {
+    .why-cards {
+        grid-template-columns: 1fr;
+    }
+
     .features-grid {
         grid-template-columns: repeat(2, 1fr);
     }
@@ -1037,15 +1016,10 @@ section {
         font-size: 28px;
     }
 
-    /* Comparison stacks */
-    .comparison {
+    /* Why cards stack */
+    .why-cards {
         grid-template-columns: 1fr;
         gap: 16px;
-    }
-
-    .comparison-divider {
-        transform: rotate(90deg);
-        padding: 8px 0;
     }
 
     /* Features stacks */
@@ -1113,8 +1087,8 @@ section {
         justify-content: center;
     }
 
-    .comparison-card {
-        padding: 24px;
+    .why-card {
+        padding: 22px;
     }
 
     .feature-card {
