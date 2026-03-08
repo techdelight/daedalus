@@ -739,6 +739,16 @@ func attachToSession(exec executor.Executor, name string) tea.Cmd {
 
 // --- Entry point ---
 
+// handleTUIResult inspects the final model after the TUI exits.
+// It returns the session name to attach to, or "" if the user quit normally.
+func handleTUIResult(finalModel tea.Model) string {
+	fm, ok := finalModel.(tuiModel)
+	if !ok || fm.pendingAttach == "" {
+		return ""
+	}
+	return fm.pendingAttach
+}
+
 func Run(cfg *core.Config) error {
 	core.PrintBanner(cfg.ScriptDir)
 	exec := &executor.RealExecutor{}
@@ -748,22 +758,26 @@ func Run(cfg *core.Config) error {
 	}
 	d := docker.NewDocker(exec, filepath.Join(cfg.ScriptDir, "docker-compose.yml"))
 
-	m := tuiModel{
-		registry: reg,
-		docker:   d,
-		executor: exec,
-		cfg:      cfg,
-	}
+	for {
+		m := tuiModel{
+			registry: reg,
+			docker:   d,
+			executor: exec,
+			cfg:      cfg,
+		}
 
-	p := tea.NewProgram(m, tea.WithAltScreen())
-	finalModel, err := p.Run()
-	if err != nil {
-		return err
-	}
+		p := tea.NewProgram(m, tea.WithAltScreen())
+		finalModel, err := p.Run()
+		if err != nil {
+			return err
+		}
 
-	if fm, ok := finalModel.(tuiModel); ok && fm.pendingAttach != "" {
-		sess := session.NewSession(exec, fm.pendingAttach)
-		return sess.Attach()
+		sessionName := handleTUIResult(finalModel)
+		if sessionName == "" {
+			return nil // normal quit — exit to shell
+		}
+
+		sess := session.NewSession(exec, sessionName)
+		sess.AttachWait() // blocks until detach/exit, then loops back to TUI
 	}
-	return nil
 }

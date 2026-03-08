@@ -40,6 +40,13 @@ func (s *Session) Attach() error {
 	return s.Executor.Exec("tmux", "attach-session", "-t", s.Name)
 }
 
+// AttachWait attaches to the tmux session and waits for it to return
+// (on detach or session end). Unlike Attach(), this does not replace
+// the current process.
+func (s *Session) AttachWait() error {
+	return s.Executor.Run("tmux", "attach-session", "-t", s.Name)
+}
+
 // TmuxAvailable checks if tmux is installed.
 func TmuxAvailable(exec executor.Executor) bool {
 	_, err := exec.LookPath("tmux")

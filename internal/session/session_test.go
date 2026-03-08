@@ -107,6 +107,34 @@ func TestSessionAttach(t *testing.T) {
 	}
 }
 
+func TestSessionAttachWait(t *testing.T) {
+	mock := executor.NewMockExecutor()
+	session := NewSession(mock, "claude-test")
+
+	err := session.AttachWait()
+	if err != nil {
+		t.Fatalf("AttachWait failed: %v", err)
+	}
+
+	// AttachWait uses Run (not Exec), so it should record "tmux" not "exec:tmux"
+	call := mock.FindCall("tmux")
+	if call == nil {
+		t.Fatal("expected tmux call via Run")
+	}
+	expected := []string{"attach-session", "-t", "claude-test"}
+	for i, a := range expected {
+		if call.Args[i] != a {
+			t.Errorf("arg[%d] = %q, want %q", i, call.Args[i], a)
+		}
+	}
+
+	// Verify it did NOT use Exec
+	execCall := mock.FindCall("exec:tmux")
+	if execCall != nil {
+		t.Error("AttachWait should use Run, not Exec")
+	}
+}
+
 func TestTmuxAvailable_True(t *testing.T) {
 	mock := executor.NewMockExecutor()
 	if !TmuxAvailable(mock) {

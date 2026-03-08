@@ -367,6 +367,30 @@ func TestRequestAttachMsg_QuitsWithPendingAttach(t *testing.T) {
 	}
 }
 
+func TestHandleTUIResult_PendingAttach(t *testing.T) {
+	m := tuiModel{pendingAttach: "claude-my-app"}
+	got := handleTUIResult(m)
+	if got != "claude-my-app" {
+		t.Errorf("handleTUIResult() = %q, want %q", got, "claude-my-app")
+	}
+}
+
+func TestHandleTUIResult_NormalQuit(t *testing.T) {
+	m := tuiModel{}
+	got := handleTUIResult(m)
+	if got != "" {
+		t.Errorf("handleTUIResult() = %q, want empty", got)
+	}
+}
+
+func TestHandleTUIResult_InvalidModel(t *testing.T) {
+	// A non-tuiModel value should be treated as normal quit.
+	got := handleTUIResult(nil)
+	if got != "" {
+		t.Errorf("handleTUIResult(nil) = %q, want empty", got)
+	}
+}
+
 func TestKillKey_NotRunning(t *testing.T) {
 	m := tuiModel{
 		projects: []projectRow{{name: "stopped-app", running: false}},
