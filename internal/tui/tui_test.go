@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"testing"
 	"time"
 
@@ -608,10 +607,25 @@ func TestVisibleRows_SmallTerminal(t *testing.T) {
 	}
 }
 
-var ansiRegex = regexp.MustCompile(`\x1b\[[0-9;]*m`)
-
 func stripAnsi(s string) string {
-	return ansiRegex.ReplaceAllString(s, "")
+	result := make([]byte, 0, len(s))
+	i := 0
+	for i < len(s) {
+		if s[i] == '\x1b' {
+			// Skip until we find a letter that terminates the sequence
+			i++
+			for i < len(s) && !((s[i] >= 'A' && s[i] <= 'Z') || (s[i] >= 'a' && s[i] <= 'z')) {
+				i++
+			}
+			if i < len(s) {
+				i++ // skip the terminating letter
+			}
+		} else {
+			result = append(result, s[i])
+			i++
+		}
+	}
+	return string(result)
 }
 
 func containsString(s, substr string) bool {
