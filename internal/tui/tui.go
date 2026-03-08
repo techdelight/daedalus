@@ -97,6 +97,7 @@ type tuiModel struct {
 	executor       executor.Executor
 	cfg            *core.Config
 	pendingAttach  string
+	confirming     bool     // whether delete-confirm mode is active
 	renaming       bool     // whether rename mode is active
 	renameInput    string   // text being typed for the new name
 	termHeight     int      // from tea.WindowSizeMsg
@@ -162,6 +163,22 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
+		// When in confirm-delete mode, only accept y/Enter/n/Esc
+		if m.confirming {
+			switch msg.String() {
+			case "y", "enter":
+				p := m.projects[m.cursor]
+				m.confirming = false
+				m.statusMsg = fmt.Sprintf("Removing %s...", p.name)
+				return m, removeProject(m.registry, p.name)
+			case "n", "esc":
+				m.confirming = false
+				m.statusMsg = ""
+				return m, nil
+			}
+			return m, nil
+		}
+
 		// When in rename mode, forward all keys to the rename input
 		if m.renaming {
 			switch msg.Type {
@@ -236,7 +253,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, attachToSession(m.executor, p.name)
 
-		case "delete":
+		case "x":
 			if len(m.projects) == 0 {
 				return m, nil
 			}
@@ -267,6 +284,21 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.renaming = true
 			m.renameInput = ""
+			return m, nil
+		}
+
+		// Del enters confirm-delete mode
+		if msg.Type == tea.KeyDelete {
+			if len(m.projects) == 0 {
+				return m, nil
+			}
+			p := m.projects[m.cursor]
+			if p.running {
+				m.statusMsg = fmt.Sprintf("%s is running — stop it before removing", p.name)
+				return m, nil
+			}
+			m.confirming = true
+			m.statusMsg = fmt.Sprintf("Remove %q? (y to confirm, esc to cancel)", p.name)
 			return m, nil
 		}
 	}
@@ -396,12 +428,16 @@ func (m tuiModel) View() string {
 
 	if m.creating {
 		b.WriteString(m.viewCreate())
+	} else if m.confirming && m.cursor >= 0 && m.cursor < len(m.projects) {
+		prompt := fmt.Sprintf("  Remove %q? ", m.projects[m.cursor].name)
+		b.WriteString(statusMsgStyle.Render(prompt))
+		b.WriteString(helpStyle.Render("  (y to confirm, esc to cancel)"))
 	} else if m.renaming && m.cursor >= 0 && m.cursor < len(m.projects) {
 		prompt := fmt.Sprintf("  Rename %q to: %s", m.projects[m.cursor].name, m.renameInput)
 		b.WriteString(statusMsgStyle.Render(prompt))
 		b.WriteString(helpStyle.Render("  (enter to confirm, esc to cancel)"))
 	} else {
-		b.WriteString(helpStyle.Render("  [n]ew  [s]tart  [a]ttach  [del]ete  [r]efresh  [F2] rename  [q]uit"))
+		b.WriteString(helpStyle.Render("  [n]ew  [s]tart  [a]ttach  [x] kill  [del] remove  [r]efresh  [F2] rename  [q]uit"))
 	}
 	b.WriteString("\n")
 
@@ -712,6 +748,15 @@ func addProject(reg *registry.Registry, name, directory string) tea.Cmd {
 			return actionResultMsg{err: err}
 		}
 		return actionResultMsg{msg: fmt.Sprintf("Created project %s", name)}
+	}
+}
+
+func removeProject(reg *registry.Registry, name string) tea.Cmd {
+	return func() tea.Msg {
+		if err := reg.RemoveProject(name); err != nil {
+			return actionResultMsg{err: fmt.Errorf("removing %s: %w", name, err)}
+		}
+		return actionResultMsg{msg: fmt.Sprintf("Removed %s", name)}
 	}
 }
 

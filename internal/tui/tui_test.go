@@ -397,13 +397,30 @@ func TestKillKey_NotRunning(t *testing.T) {
 		cursor:   0,
 	}
 
-	newM, cmd := m.Update(tea.KeyMsg{Type: tea.KeyDelete})
+	newM, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
 	updated := newM.(tuiModel)
 	if cmd != nil {
 		t.Error("expected nil command for kill on stopped project")
 	}
 	if updated.statusMsg != "stopped-app is not running" {
 		t.Errorf("statusMsg = %q, want %q", updated.statusMsg, "stopped-app is not running")
+	}
+}
+
+func TestKillKey_Running(t *testing.T) {
+	m := tuiModel{
+		projects: []projectRow{{name: "my-app", running: true}},
+		cursor:   0,
+		executor: executor.NewMockExecutor(),
+	}
+
+	newM, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	updated := newM.(tuiModel)
+	if cmd == nil {
+		t.Fatal("expected command for kill on running project")
+	}
+	if updated.statusMsg != "Stopping my-app..." {
+		t.Errorf("statusMsg = %q, want %q", updated.statusMsg, "Stopping my-app...")
 	}
 }
 
@@ -817,6 +834,190 @@ func TestView_CreateMode_Step1(t *testing.T) {
 	}
 	if !containsString(view, "s=select") {
 		t.Errorf("expected help text in view, got:\n%s", view)
+	}
+}
+
+func TestDelKey_EntersConfirmMode(t *testing.T) {
+	m := tuiModel{
+		projects: []projectRow{{name: "my-app", running: false}},
+		cursor:   0,
+	}
+
+	newM, cmd := m.Update(tea.KeyMsg{Type: tea.KeyDelete})
+	updated := newM.(tuiModel)
+	if !updated.confirming {
+		t.Error("confirming = false, want true after Del on stopped project")
+	}
+	if cmd != nil {
+		t.Error("expected nil command on Del")
+	}
+}
+
+func TestDelKey_EmptyProjects(t *testing.T) {
+	m := tuiModel{}
+
+	newM, cmd := m.Update(tea.KeyMsg{Type: tea.KeyDelete})
+	updated := newM.(tuiModel)
+	if updated.confirming {
+		t.Error("confirming = true, want false when no projects")
+	}
+	if cmd != nil {
+		t.Error("expected nil command on Del with no projects")
+	}
+}
+
+func TestDelKey_RunningProject(t *testing.T) {
+	m := tuiModel{
+		projects: []projectRow{{name: "my-app", running: true}},
+		cursor:   0,
+	}
+
+	newM, cmd := m.Update(tea.KeyMsg{Type: tea.KeyDelete})
+	updated := newM.(tuiModel)
+	if updated.confirming {
+		t.Error("confirming = true, want false for running project")
+	}
+	if !containsString(updated.statusMsg, "running") {
+		t.Errorf("statusMsg = %q, want message about running", updated.statusMsg)
+	}
+	if cmd != nil {
+		t.Error("expected nil command on Del for running project")
+	}
+}
+
+func TestConfirmMode_YConfirms(t *testing.T) {
+	dir := t.TempDir()
+	regPath := filepath.Join(dir, "projects.json")
+	reg := registry.NewRegistry(regPath)
+	reg.Init()
+	reg.AddProject("my-app", "/tmp", "dev")
+
+	m := tuiModel{
+		projects:   []projectRow{{name: "my-app", running: false}},
+		cursor:     0,
+		confirming: true,
+		registry:   reg,
+	}
+
+	newM, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+	updated := newM.(tuiModel)
+	if updated.confirming {
+		t.Error("confirming = true, want false after y")
+	}
+	if cmd == nil {
+		t.Fatal("expected command after y confirmation")
+	}
+
+	msg := cmd()
+	result, ok := msg.(actionResultMsg)
+	if !ok {
+		t.Fatalf("expected actionResultMsg, got %T", msg)
+	}
+	if result.err != nil {
+		t.Fatalf("unexpected error: %v", result.err)
+	}
+}
+
+func TestConfirmMode_EnterConfirms(t *testing.T) {
+	dir := t.TempDir()
+	regPath := filepath.Join(dir, "projects.json")
+	reg := registry.NewRegistry(regPath)
+	reg.Init()
+	reg.AddProject("my-app", "/tmp", "dev")
+
+	m := tuiModel{
+		projects:   []projectRow{{name: "my-app", running: false}},
+		cursor:     0,
+		confirming: true,
+		registry:   reg,
+	}
+
+	newM, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated := newM.(tuiModel)
+	if updated.confirming {
+		t.Error("confirming = true, want false after Enter")
+	}
+	if cmd == nil {
+		t.Fatal("expected command after Enter confirmation")
+	}
+}
+
+func TestConfirmMode_EscCancels(t *testing.T) {
+	m := tuiModel{
+		projects:   []projectRow{{name: "my-app", running: false}},
+		cursor:     0,
+		confirming: true,
+	}
+
+	newM, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	updated := newM.(tuiModel)
+	if updated.confirming {
+		t.Error("confirming = true, want false after Esc")
+	}
+	if cmd != nil {
+		t.Error("expected nil command on Esc")
+	}
+}
+
+func TestConfirmMode_NCancels(t *testing.T) {
+	m := tuiModel{
+		projects:   []projectRow{{name: "my-app", running: false}},
+		cursor:     0,
+		confirming: true,
+	}
+
+	newM, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
+	updated := newM.(tuiModel)
+	if updated.confirming {
+		t.Error("confirming = true, want false after n")
+	}
+	if cmd != nil {
+		t.Error("expected nil command on n")
+	}
+}
+
+func TestRemoveProject_CallsRegistry(t *testing.T) {
+	dir := t.TempDir()
+	regPath := filepath.Join(dir, "projects.json")
+	reg := registry.NewRegistry(regPath)
+	reg.Init()
+	reg.AddProject("my-app", "/tmp", "dev")
+
+	cmd := removeProject(reg, "my-app")
+	msg := cmd()
+
+	result, ok := msg.(actionResultMsg)
+	if !ok {
+		t.Fatalf("expected actionResultMsg, got %T", msg)
+	}
+	if result.err != nil {
+		t.Fatalf("unexpected error: %v", result.err)
+	}
+	if result.msg != "Removed my-app" {
+		t.Errorf("msg = %q, want %q", result.msg, "Removed my-app")
+	}
+
+	exists, err := reg.HasProject("my-app")
+	if err != nil {
+		t.Fatalf("HasProject error: %v", err)
+	}
+	if exists {
+		t.Error("project should not exist after removeProject")
+	}
+}
+
+func TestView_ConfirmMode(t *testing.T) {
+	m := tuiModel{
+		projects:   []projectRow{{name: "my-app", running: false}},
+		cursor:     0,
+		confirming: true,
+	}
+	view := stripAnsi(m.View())
+	if !containsString(view, `Remove "my-app"?`) {
+		t.Errorf("expected confirm prompt in view, got:\n%s", view)
+	}
+	if !containsString(view, "y to confirm") {
+		t.Errorf("expected confirm help text in view, got:\n%s", view)
 	}
 }
 
