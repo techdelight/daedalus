@@ -226,25 +226,56 @@ func (r *Registry) renameCache(oldName, newName string) {
 }
 
 // copyDir recursively copies a directory tree from src to dst.
+// Symlinks are recreated (preserving the link target) rather than followed.
 func copyDir(src, dst string) error {
-	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+	srcInfo, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dst, srcInfo.Mode()); err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		srcPath := filepath.Join(src, entry.Name())
+		dstPath := filepath.Join(dst, entry.Name())
+
+		// Use Lstat to detect symlinks without following them
+		info, err := os.Lstat(srcPath)
 		if err != nil {
 			return err
 		}
-		rel, err := filepath.Rel(src, path)
-		if err != nil {
-			return err
+
+		if info.Mode()&os.ModeSymlink != 0 {
+			link, err := os.Readlink(srcPath)
+			if err != nil {
+				return err
+			}
+			if err := os.Symlink(link, dstPath); err != nil {
+				return err
+			}
+			continue
 		}
-		target := filepath.Join(dst, rel)
+
 		if info.IsDir() {
-			return os.MkdirAll(target, info.Mode())
+			if err := copyDir(srcPath, dstPath); err != nil {
+				return err
+			}
+			continue
 		}
-		data, err := os.ReadFile(path)
+
+		data, err := os.ReadFile(srcPath)
 		if err != nil {
 			return err
 		}
-		return os.WriteFile(target, data, info.Mode())
-	})
+		if err := os.WriteFile(dstPath, data, info.Mode()); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // RemoveProject deletes a project from the registry by name and cleans up
