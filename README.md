@@ -8,7 +8,13 @@ A Docker environment for running [Claude Code](https://claude.ai/code) autonomou
 
 ## Why
 
-Claude Code is powerful but constantly asks for permission to run commands, edit files, and access tools. Daedalus lets Claude work on your code autonomously — without confirmation prompts — while keeping your system safe by isolating everything inside a locked-down Docker container.
+Claude Code is powerful, but using it day-to-day has real friction:
+
+- **Permission fatigue.** Claude asks for confirmation on every file edit, shell command, and tool call. You end up babysitting instead of building. Daedalus gives Claude 100% green light inside a locked-down Docker container, so it works autonomously while your system stays safe.
+
+- **Fragile connections kill sessions.** Working from a phone, a train, or anywhere with spotty wifi means your Claude Code session dies the moment the connection drops — and all context is lost. Daedalus wraps every session in tmux, so you can disconnect (or get disconnected) and pick up exactly where you left off.
+
+- **Switching between projects is painful.** Juggling multiple Claude sessions across different codebases means manually managing terminals. Daedalus gives you a TUI and web dashboard to start, stop, attach, and switch between projects in seconds.
 
 ## Quick Start
 
