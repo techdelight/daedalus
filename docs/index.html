@@ -47,6 +47,7 @@
                 Daedalus
             </a>
             <div class="nav-links">
+                <a href="#demos">Demos</a>
                 <a href="#features">Features</a>
                 <a href="#quick-start">Quick Start</a>
                 <a href="https://github.com/techdelight/daedalus" class="nav-github" aria-label="GitHub repository">
@@ -78,7 +79,7 @@
         <div class="container">
             <div class="hero-content reveal">
                 <p class="hero-eyebrow">The autonomous workshop</p>
-                <h1 class="hero-title">Daedalus</h1>
+                <img src="assets/banner.png" alt="Daedalus — A Techdelight Project" class="hero-banner" width="720">
                 <p class="hero-tagline">Run Claude Code autonomously.<br>Zero permission prompts. Isolated in Docker.</p>
 
                 <div class="install-block">
@@ -101,6 +102,55 @@
                         View on GitHub
                     </a>
                     <a href="#quick-start" class="btn btn-ghost">Quick Start</a>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Demos -->
+    <section class="demos" id="demos">
+        <div class="container">
+            <div class="section-header reveal">
+                <span class="section-label">See it in action</span>
+                <h2>Three interfaces, one core</h2>
+            </div>
+
+            <div class="demo-tabs reveal">
+                <button class="demo-tab active" data-demo="cli">CLI</button>
+                <button class="demo-tab" data-demo="tui">TUI</button>
+                <button class="demo-tab" data-demo="web">Web</button>
+            </div>
+
+            <div class="demo-stage reveal">
+                <div class="demo-panel active" id="demo-cli">
+                    <div class="demo-video-wrap">
+                        <video autoplay loop muted playsinline poster="assets/cli-poster.png">
+                            <source src="demos/cli.webm" type="video/webm">
+                            <source src="demos/cli.mp4" type="video/mp4">
+                            <img src="demos/cli.gif" alt="CLI demo">
+                        </video>
+                    </div>
+                    <p class="demo-caption">Launch projects and run headless tasks from the command line.</p>
+                </div>
+                <div class="demo-panel" id="demo-tui">
+                    <div class="demo-video-wrap">
+                        <video loop muted playsinline poster="assets/tui-poster.png">
+                            <source src="demos/tui.webm" type="video/webm">
+                            <source src="demos/tui.mp4" type="video/mp4">
+                            <img src="demos/tui.gif" alt="TUI demo">
+                        </video>
+                    </div>
+                    <p class="demo-caption">Interactive terminal dashboard — start, attach, and monitor projects.</p>
+                </div>
+                <div class="demo-panel" id="demo-web">
+                    <div class="demo-video-wrap">
+                        <video loop muted playsinline poster="assets/web-poster.png">
+                            <source src="demos/web.webm" type="video/webm">
+                            <source src="demos/web.mp4" type="video/mp4">
+                            <img src="demos/web.gif" alt="Web UI demo">
+                        </video>
+                    </div>
+                    <p class="demo-caption">Browser-based dashboard with embedded terminal via WebSocket.</p>
                 </div>
             </div>
         </div>
@@ -410,6 +460,28 @@
             }
         });
     });
+
+    // Demo tabs
+    (function() {
+        var tabs = document.querySelectorAll('.demo-tab');
+        var panels = document.querySelectorAll('.demo-panel');
+        tabs.forEach(function(tab) {
+            tab.addEventListener('click', function() {
+                var target = tab.getAttribute('data-demo');
+                tabs.forEach(function(t) { t.classList.remove('active'); });
+                panels.forEach(function(p) {
+                    p.classList.remove('active');
+                    var v = p.querySelector('video');
+                    if (v) v.pause();
+                });
+                tab.classList.add('active');
+                var panel = document.getElementById('demo-' + target);
+                panel.classList.add('active');
+                var video = panel.querySelector('video');
+                if (video) video.play();
+            });
+        });
+    })();
     </script>
 
 </body>
