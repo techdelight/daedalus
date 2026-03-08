@@ -7,12 +7,12 @@ All notable changes to this project will be documented in this file.
 ### Added
 - GitHub Pages landing page in `/docs`.
 
-## [1.4.0] - 2026-03-08
+## [1.5.0] - 2026-03-08
 
 ### Added
 - TUI viewport scrolling — projects beyond the terminal height are now reachable via cursor keys. Scrollbar indicator (`█` thumb / `░` track) appears on the right when the list exceeds the viewport.
 - Dark-themed scrollbar styling for the web UI project list, matching the Tokyo Night color palette (Webkit and Firefox).
-- Version displayed in brackets after the title in both TUI (`Claude Runner [1.4.0]`) and web UI (`Daedalus [1.4.0]`).
+- Version displayed in brackets after the title in both TUI (`Claude Runner [1.5.0]`) and web UI (`Daedalus [1.5.0]`).
 
 ## [1.3.0] - 2026-03-08
 
