@@ -7,12 +7,12 @@ All notable changes to this project will be documented in this file.
 ### Added
 - GitHub Pages landing page in `/docs`.
 
-## [0.5.6] - 2026-03-08
+## [0.5.7] - 2026-03-08
 
 ### Added
 - TUI viewport scrolling — projects beyond the terminal height are now reachable via cursor keys. Scrollbar indicator (`█` thumb / `░` track) appears on the right when the list exceeds the viewport.
 - Dark-themed scrollbar styling for the web UI project list, matching the Tokyo Night color palette (Webkit and Firefox).
-- Version displayed in brackets after the title in both TUI and web UI (`Daedalus [0.5.6]`).
+- Version displayed in brackets after the title in both TUI and web UI (`Daedalus [0.5.7]`).
 
 ### Changed
 - Version is now baked into the binary at compile time via `-ldflags` instead of reading a VERSION file at runtime.
@@ -21,6 +21,7 @@ All notable changes to this project will be documented in this file.
 - Release workflow was not injecting version into binaries via `-ldflags`, causing `unknown` to appear in titles.
 - Web scrollbar not appearing — `#project-view` was missing flex layout, preventing `.project-list` from having a constrained height to overflow.
 - Renaming a project via the web UI could corrupt the cache directory on WSL2/bind-mounted filesystems. Replaced `os.Rename` with copy+remove for directory renames.
+- Cache directory copy failed on dangling symlinks (e.g. `.claude-config/debug/latest`). Symlinks are now recreated instead of followed.
 
 ## [1.3.0] - 2026-03-08
 
