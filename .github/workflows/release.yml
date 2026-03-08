@@ -58,7 +58,9 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: "0"
-        run: go build -ldflags="-s -w" -o daedalus-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/daedalus
+        run: |
+          VERSION=$(cat VERSION)
+          go build -ldflags="-s -w -X github.com/techdelight/daedalus/core.Version=$VERSION" -o daedalus-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/daedalus
 
       - name: Upload binary artifact
         uses: actions/upload-artifact@v4
