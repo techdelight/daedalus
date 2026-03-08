@@ -2,18 +2,22 @@
 
 ## Backlog
 
-(empty)
+| # | Item |
+|---|------|
+| 1 | Authentication for Web UI — add token-based login to protect the dashboard when exposed on a network |
+| 2 | Session cookie with configurable expiry |
+| 3 | `--auth` / `--no-auth` flag for `daedalus web` (default: auth enabled) |
+| 4 | Generate and display access token on first `daedalus web` launch |
 
 ## Current Sprint
 
-### Sprint 11: Web UI Security (v1.2.0)
+### Sprint 11: UX & Installer Polish (v1.2.0)
 
 | # | Item | Status |
 |---|------|--------|
-| 1 | Authentication for Web UI — add token-based login to protect the dashboard when exposed on a network | Pending |
-| 2 | Session cookie with configurable expiry | Pending |
-| 3 | `--auth` / `--no-auth` flag for `daedalus web` (default: auth enabled) | Pending |
-| 4 | Generate and display access token on first `daedalus web` launch | Pending |
+| 1 | Suppress `docker inspect` output when starting a container from the web interface | Pending |
+| 2 | Change TUI kill shortcut from `K` to the `Del` key | Pending |
+| 3 | Upgrade-aware installer — store version in `config.json`, detect existing install, replace binary and migrate config fields as needed | Pending |
 
 ---
 
