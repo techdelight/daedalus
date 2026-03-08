@@ -11,7 +11,7 @@ import (
 )
 
 func TestBashCompletion_ContainsSubcommands(t *testing.T) {
-	if !strings.Contains(bashCompletion, "list prune remove config tui web completion") {
+	if !strings.Contains(bashCompletion, "list prune remove rename config tui web completion") {
 		t.Error("bash completion missing subcommands")
 	}
 	if !strings.Contains(bashCompletion, "complete -F _daedalus daedalus") {
