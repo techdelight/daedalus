@@ -298,7 +298,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			m.confirming = true
-			m.statusMsg = fmt.Sprintf("Remove %q? (y to confirm, esc to cancel)", p.name)
+			m.statusMsg = ""
 			return m, nil
 		}
 	}

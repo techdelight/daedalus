@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.7.3] - 2026-03-08
+
+### Fixed
+- TUI delete confirmation prompt showed twice — once in the status area and once in the help area. Now only displays in the help area.
+
 ## [0.7.2] - 2026-03-08
 
 ### Added
