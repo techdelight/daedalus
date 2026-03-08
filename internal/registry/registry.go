@@ -206,6 +206,8 @@ func (r *Registry) RenameProject(oldName, newName string) error {
 }
 
 // renameCache renames the per-project cache directory.
+// Uses copy+remove instead of os.Rename to avoid cross-device and
+// WSL2/bind-mount issues with directory renames.
 // Failures are logged to stderr but not returned as errors.
 func (r *Registry) renameCache(oldName, newName string) {
 	baseDir := filepath.Dir(r.FilePath)
@@ -214,9 +216,35 @@ func (r *Registry) renameCache(oldName, newName string) {
 	if _, err := os.Stat(oldDir); os.IsNotExist(err) {
 		return
 	}
-	if err := os.Rename(oldDir, newDir); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to rename cache directory '%s' to '%s': %v\n", oldDir, newDir, err)
+	if err := copyDir(oldDir, newDir); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to copy cache directory '%s' to '%s': %v\n", oldDir, newDir, err)
+		return
 	}
+	if err := os.RemoveAll(oldDir); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to remove old cache directory '%s': %v\n", oldDir, err)
+	}
+}
+
+// copyDir recursively copies a directory tree from src to dst.
+func copyDir(src, dst string) error {
+	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+		if info.IsDir() {
+			return os.MkdirAll(target, info.Mode())
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(target, data, info.Mode())
+	})
 }
 
 // RemoveProject deletes a project from the registry by name and cleans up

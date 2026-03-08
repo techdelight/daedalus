@@ -20,6 +20,7 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 - Release workflow was not injecting version into binaries via `-ldflags`, causing `unknown` to appear in titles.
 - Web scrollbar not appearing — `#project-view` was missing flex layout, preventing `.project-list` from having a constrained height to overflow.
+- Renaming a project via the web UI could corrupt the cache directory on WSL2/bind-mounted filesystems. Replaced `os.Rename` with copy+remove for directory renames.
 
 ## [1.3.0] - 2026-03-08
 
