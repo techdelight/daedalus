@@ -5,6 +5,7 @@ package web
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
@@ -449,6 +450,44 @@ func TestWebServerRouting_Integration(t *testing.T) {
 	defer resp3.Body.Close()
 	if resp3.StatusCode != http.StatusNotFound {
 		t.Errorf("POST stop unknown: status = %d, want %d", resp3.StatusCode, http.StatusNotFound)
+	}
+}
+
+func TestRootHandler_InjectsVersionInTitle(t *testing.T) {
+	ws, _ := setupWebTest(t)
+
+	// Write a VERSION file into the test ScriptDir
+	os.WriteFile(filepath.Join(ws.cfg.ScriptDir, "VERSION"), []byte("9.8.7\n"), 0644)
+
+	version := core.ReadVersion(ws.cfg.ScriptDir)
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
+		data, err := staticFiles.ReadFile("static/index.html")
+		if err != nil {
+			http.Error(w, "index.html not found", http.StatusInternalServerError)
+			return
+		}
+		html := strings.Replace(string(data), ">Daedalus<", ">Daedalus ["+version+"]<", 1)
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write([]byte(html))
+	})
+
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	resp, err := http.Get(server.URL + "/")
+	if err != nil {
+		t.Fatalf("GET /: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("reading body: %v", err)
+	}
+
+	if !strings.Contains(string(body), ">Daedalus [9.8.7]<") {
+		t.Errorf("expected version in title, got:\n%s", string(body))
 	}
 }
 
