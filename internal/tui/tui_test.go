@@ -464,6 +464,27 @@ func TestView_WithProjects(t *testing.T) {
 	}
 }
 
+func TestView_TitleShowsVersion(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "VERSION"), []byte("1.2.3\n"), 0644)
+
+	m := tuiModel{
+		cfg: &core.Config{ScriptDir: dir},
+	}
+	view := m.View()
+	if !containsString(view, "Daedalus [1.2.3]") {
+		t.Errorf("expected title 'Daedalus [1.2.3]' in view, got:\n%s", view)
+	}
+}
+
+func TestView_TitleWithoutConfig(t *testing.T) {
+	m := tuiModel{}
+	view := m.View()
+	if !containsString(view, "Daedalus [") {
+		t.Errorf("expected title 'Daedalus [' in view even without config, got:\n%s", view)
+	}
+}
+
 func TestWindowSizeMsg_UpdatesTermHeight(t *testing.T) {
 	m := tuiModel{
 		projects: []projectRow{{name: "a"}},
