@@ -95,6 +95,8 @@ type tuiModel struct {
 	executor      executor.Executor
 	cfg           *core.Config
 	pendingAttach string
+	renaming      bool   // whether rename mode is active
+	renameInput   string // text being typed for the new name
 }
 
 // --- tea.Model interface ---
@@ -143,6 +145,40 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 
 	case tea.KeyMsg:
+		// When in rename mode, forward all keys to the rename input
+		if m.renaming {
+			switch msg.Type {
+			case tea.KeyEnter:
+				name := strings.TrimSpace(m.renameInput)
+				if name == "" {
+					return m, nil
+				}
+				p := m.projects[m.cursor]
+				if p.running {
+					m.statusMsg = fmt.Sprintf("%s is running — stop it before renaming", p.name)
+					m.renaming = false
+					m.renameInput = ""
+					return m, nil
+				}
+				m.renaming = false
+				m.statusMsg = fmt.Sprintf("Renaming %s to %s...", p.name, name)
+				return m, renameProject(m.registry, p.name, name)
+			case tea.KeyEsc:
+				m.renaming = false
+				m.renameInput = ""
+				return m, nil
+			case tea.KeyBackspace:
+				if len(m.renameInput) > 0 {
+					m.renameInput = m.renameInput[:len(m.renameInput)-1]
+				}
+				return m, nil
+			case tea.KeyRunes:
+				m.renameInput += string(msg.Runes)
+				return m, nil
+			}
+			return m, nil
+		}
+
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
@@ -191,6 +227,16 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "r":
 			m.statusMsg = "Refreshing..."
 			return m, loadProjects(m.registry, m.docker)
+		}
+
+		// F2 enters rename mode
+		if msg.Type == tea.KeyF2 {
+			if len(m.projects) == 0 {
+				return m, nil
+			}
+			m.renaming = true
+			m.renameInput = ""
+			return m, nil
 		}
 	}
 
@@ -260,7 +306,13 @@ func (m tuiModel) View() string {
 		b.WriteString("\n\n")
 	}
 
-	b.WriteString(helpStyle.Render("  [s]tart  [a]ttach  [del]ete  [r]efresh  [q]uit"))
+	if m.renaming && m.cursor >= 0 && m.cursor < len(m.projects) {
+		prompt := fmt.Sprintf("  Rename %q to: %s", m.projects[m.cursor].name, m.renameInput)
+		b.WriteString(statusMsgStyle.Render(prompt))
+		b.WriteString(helpStyle.Render("  (enter to confirm, esc to cancel)"))
+	} else {
+		b.WriteString(helpStyle.Render("  [s]tart  [a]ttach  [del]ete  [r]efresh  [F2] rename  [q]uit"))
+	}
 	b.WriteString("\n")
 
 	return b.String()
@@ -352,6 +404,18 @@ func startProject(cfg *core.Config, exec executor.Executor, reg *registry.Regist
 		}
 
 		return requestAttachMsg{sessionName: projCfg.TmuxSession()}
+	}
+}
+
+func renameProject(reg *registry.Registry, oldName, newName string) tea.Cmd {
+	return func() tea.Msg {
+		if err := core.ValidateProjectName(newName); err != nil {
+			return actionResultMsg{err: err}
+		}
+		if err := reg.RenameProject(oldName, newName); err != nil {
+			return actionResultMsg{err: fmt.Errorf("renaming %s: %w", oldName, err)}
+		}
+		return actionResultMsg{msg: fmt.Sprintf("Renamed %s to %s", oldName, newName)}
 	}
 }
 

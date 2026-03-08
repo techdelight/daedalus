@@ -30,7 +30,7 @@ _daedalus() {
     local cur prev words cword
     _init_completion || return
 
-    local subcommands="list prune remove config tui web completion"
+    local subcommands="list prune remove rename config tui web completion"
     local flags="--build --target --resume -p --no-tmux --debug --dind --force --port --host --no-color --help -h"
 
     # Complete subcommands and flags for the first argument
@@ -41,7 +41,7 @@ _daedalus() {
 
     # Complete flags after subcommand
     case "${words[1]}" in
-        remove|config)
+        remove|rename|config)
             # Try to complete project names from registry
             local projects
             projects=$(daedalus list 2>/dev/null | tail -n +3 | awk '{print $1}')
@@ -73,6 +73,7 @@ _daedalus() {
         'list:List all registered projects'
         'prune:Remove registry entries with missing directories'
         'remove:Remove named projects from the registry'
+        'rename:Rename a registered project'
         'config:View or edit per-project default flags'
         'tui:Interactive dashboard for managing projects'
         'web:Web UI dashboard'
@@ -111,7 +112,7 @@ _daedalus() {
                 completion)
                     _values 'shell' bash zsh fish
                     ;;
-                remove|config)
+                remove|rename|config)
                     local projects
                     projects=(${(f)"$(daedalus list 2>/dev/null | tail -n +3 | awk '{print $1}')"})
                     _describe -t projects 'project' projects
@@ -135,6 +136,7 @@ const fishCompletion = `# fish completion for daedalus
 complete -c daedalus -n '__fish_use_subcommand' -a 'list' -d 'List all registered projects'
 complete -c daedalus -n '__fish_use_subcommand' -a 'prune' -d 'Remove registry entries with missing directories'
 complete -c daedalus -n '__fish_use_subcommand' -a 'remove' -d 'Remove named projects from the registry'
+complete -c daedalus -n '__fish_use_subcommand' -a 'rename' -d 'Rename a registered project'
 complete -c daedalus -n '__fish_use_subcommand' -a 'config' -d 'View or edit per-project default flags'
 complete -c daedalus -n '__fish_use_subcommand' -a 'tui' -d 'Interactive dashboard for managing projects'
 complete -c daedalus -n '__fish_use_subcommand' -a 'web' -d 'Web UI dashboard'
@@ -161,5 +163,5 @@ complete -c daedalus -l unset -d 'Remove a default flag' -r
 complete -c daedalus -n '__fish_seen_subcommand_from completion' -a 'bash zsh fish'
 
 # Dynamic project names for remove and config
-complete -c daedalus -n '__fish_seen_subcommand_from remove config' -a '(daedalus list 2>/dev/null | tail -n +3 | string match -r "^\S+")'
+complete -c daedalus -n '__fish_seen_subcommand_from remove rename config' -a '(daedalus list 2>/dev/null | tail -n +3 | string match -r "^\S+")'
 `

@@ -221,6 +221,121 @@ func TestHandleStopProject_Error(t *testing.T) {
 	}
 }
 
+func TestHandleRenameProject_Success(t *testing.T) {
+	ws, mock := setupWebTest(t)
+	if err := ws.registry.AddProject("old-app", "/path/old", "dev"); err != nil {
+		t.Fatal(err)
+	}
+	mock.Results["docker"] = executor.MockResult{Output: ""}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/projects/{name}/rename", ws.handleRenameProject)
+	req := httptest.NewRequest("POST", "/api/projects/old-app/rename",
+		strings.NewReader(`{"newName":"new-app"}`))
+	rec := httptest.NewRecorder()
+
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var resp map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("cannot decode response: %v", err)
+	}
+	if resp["status"] != "renamed" {
+		t.Errorf("status = %q, want %q", resp["status"], "renamed")
+	}
+
+	has, _ := ws.registry.HasProject("new-app")
+	if !has {
+		t.Error("new-app not found in registry after rename")
+	}
+	has, _ = ws.registry.HasProject("old-app")
+	if has {
+		t.Error("old-app still exists in registry after rename")
+	}
+}
+
+func TestHandleRenameProject_NotFound(t *testing.T) {
+	ws, _ := setupWebTest(t)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/projects/{name}/rename", ws.handleRenameProject)
+	req := httptest.NewRequest("POST", "/api/projects/nonexistent/rename",
+		strings.NewReader(`{"newName":"new-app"}`))
+	rec := httptest.NewRecorder()
+
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
+	}
+}
+
+func TestHandleRenameProject_Running(t *testing.T) {
+	ws, mock := setupWebTest(t)
+	if err := ws.registry.AddProject("running-app", "/path/app", "dev"); err != nil {
+		t.Fatal(err)
+	}
+	mock.Results["docker"] = executor.MockResult{Output: "claude-run-running-app\n"}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/projects/{name}/rename", ws.handleRenameProject)
+	req := httptest.NewRequest("POST", "/api/projects/running-app/rename",
+		strings.NewReader(`{"newName":"new-app"}`))
+	rec := httptest.NewRecorder()
+
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusConflict, rec.Body.String())
+	}
+}
+
+func TestHandleRenameProject_TargetExists(t *testing.T) {
+	ws, mock := setupWebTest(t)
+	if err := ws.registry.AddProject("app-a", "/path/a", "dev"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ws.registry.AddProject("app-b", "/path/b", "dev"); err != nil {
+		t.Fatal(err)
+	}
+	mock.Results["docker"] = executor.MockResult{Output: ""}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/projects/{name}/rename", ws.handleRenameProject)
+	req := httptest.NewRequest("POST", "/api/projects/app-a/rename",
+		strings.NewReader(`{"newName":"app-b"}`))
+	rec := httptest.NewRecorder()
+
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusConflict, rec.Body.String())
+	}
+}
+
+func TestHandleRenameProject_InvalidName(t *testing.T) {
+	ws, mock := setupWebTest(t)
+	if err := ws.registry.AddProject("my-app", "/path/app", "dev"); err != nil {
+		t.Fatal(err)
+	}
+	mock.Results["docker"] = executor.MockResult{Output: ""}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/projects/{name}/rename", ws.handleRenameProject)
+	req := httptest.NewRequest("POST", "/api/projects/my-app/rename",
+		strings.NewReader(`{"newName":""}`))
+	rec := httptest.NewRecorder()
+
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+}
+
 func TestHandleTerminal_NoSession(t *testing.T) {
 	ws, mock := setupWebTest(t)
 	if err := ws.registry.AddProject("myapp", "/path/myapp", "dev"); err != nil {

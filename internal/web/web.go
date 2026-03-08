@@ -59,6 +59,16 @@ func (ws *WebServer) HandleStopProject(w http.ResponseWriter, r *http.Request) {
 	ws.handleStopProject(w, r)
 }
 
+// HandleRenameProject is the exported handler for POST /api/projects/{name}/rename.
+func (ws *WebServer) HandleRenameProject(w http.ResponseWriter, r *http.Request) {
+	ws.handleRenameProject(w, r)
+}
+
+// renameRequest is the JSON body for the rename endpoint.
+type renameRequest struct {
+	NewName string `json:"newName"`
+}
+
 // projectJSON is the JSON representation of a project for the REST API.
 type projectJSON struct {
 	Name         string `json:"name"`
@@ -90,6 +100,7 @@ func Run(cfg *core.Config) error {
 	mux.HandleFunc("GET /api/projects", ws.handleListProjects)
 	mux.HandleFunc("POST /api/projects/{name}/start", ws.handleStartProject)
 	mux.HandleFunc("POST /api/projects/{name}/stop", ws.handleStopProject)
+	mux.HandleFunc("POST /api/projects/{name}/rename", ws.handleRenameProject)
 	mux.HandleFunc("GET /api/projects/{name}/terminal", ws.handleTerminal)
 
 	// Serve static files (embedded in binary)
@@ -233,6 +244,50 @@ func (ws *WebServer) handleStopProject(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "stopped", "project": name})
+}
+
+// handleRenameProject renames a project.
+func (ws *WebServer) handleRenameProject(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+
+	_, found, err := ws.registry.GetProject(name)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if !found {
+		http.Error(w, fmt.Sprintf("project %q not found", name), http.StatusNotFound)
+		return
+	}
+
+	var req renameRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if err := core.ValidateProjectName(req.NewName); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	containerName := "claude-run-" + name
+	running, err := ws.docker.IsContainerRunning(containerName)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if running {
+		http.Error(w, fmt.Sprintf("project %q is running — stop it before renaming", name), http.StatusConflict)
+		return
+	}
+
+	if err := ws.registry.RenameProject(name, req.NewName); err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "renamed", "oldName": name, "newName": req.NewName})
 }
 
 var wsUpgrader = websocket.Upgrader{

@@ -383,6 +383,63 @@ func TestKillKey_NotRunning(t *testing.T) {
 	}
 }
 
+func TestF2Key_EntersRenameMode(t *testing.T) {
+	m := tuiModel{
+		projects: []projectRow{{name: "my-app", running: false}},
+		cursor:   0,
+	}
+
+	newM, cmd := m.Update(tea.KeyMsg{Type: tea.KeyF2})
+	updated := newM.(tuiModel)
+	if !updated.renaming {
+		t.Error("renaming = false, want true after F2")
+	}
+	if updated.renameInput != "" {
+		t.Errorf("renameInput = %q, want empty", updated.renameInput)
+	}
+	if cmd != nil {
+		t.Error("expected nil command on F2")
+	}
+}
+
+func TestRenameMode_EscCancels(t *testing.T) {
+	m := tuiModel{
+		projects:    []projectRow{{name: "my-app", running: false}},
+		cursor:      0,
+		renaming:    true,
+		renameInput: "new-name",
+	}
+
+	newM, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	updated := newM.(tuiModel)
+	if updated.renaming {
+		t.Error("renaming = true, want false after Esc")
+	}
+	if updated.renameInput != "" {
+		t.Errorf("renameInput = %q, want empty after Esc", updated.renameInput)
+	}
+	if cmd != nil {
+		t.Error("expected nil command on Esc")
+	}
+}
+
+func TestRenameMode_EnterOnEmpty(t *testing.T) {
+	m := tuiModel{
+		projects:    []projectRow{{name: "my-app", running: false}},
+		cursor:      0,
+		renaming:    true,
+		renameInput: "",
+	}
+
+	newM, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated := newM.(tuiModel)
+	// Should stay in rename mode and do nothing
+	if cmd != nil {
+		t.Error("expected nil command for Enter on empty input")
+	}
+	_ = updated
+}
+
 func TestView_EmptyProjects(t *testing.T) {
 	m := tuiModel{}
 	view := m.View()

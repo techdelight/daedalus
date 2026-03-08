@@ -480,6 +480,54 @@ func TestParseArgs_CompletionNoShell(t *testing.T) {
 	}
 }
 
+func TestParseArgs_RenameSubcommand(t *testing.T) {
+	cfg, err := ParseArgs([]string{"rename", "old-app", "new-app"})
+	if err != nil {
+		t.Fatalf("ParseArgs failed: %v", err)
+	}
+	if cfg.Subcommand != "rename" {
+		t.Errorf("Subcommand = %q, want %q", cfg.Subcommand, "rename")
+	}
+	if cfg.RenameOldName != "old-app" {
+		t.Errorf("RenameOldName = %q, want %q", cfg.RenameOldName, "old-app")
+	}
+	if cfg.RenameNewName != "new-app" {
+		t.Errorf("RenameNewName = %q, want %q", cfg.RenameNewName, "new-app")
+	}
+}
+
+func TestParseArgs_RenameOneArg(t *testing.T) {
+	cfg, err := ParseArgs([]string{"rename", "old-app"})
+	if err != nil {
+		t.Fatalf("ParseArgs failed: %v", err)
+	}
+	if cfg.Subcommand != "rename" {
+		t.Errorf("Subcommand = %q, want %q", cfg.Subcommand, "rename")
+	}
+	if cfg.RenameOldName != "old-app" {
+		t.Errorf("RenameOldName = %q, want %q", cfg.RenameOldName, "old-app")
+	}
+	if cfg.RenameNewName != "" {
+		t.Errorf("RenameNewName = %q, want empty", cfg.RenameNewName)
+	}
+}
+
+func TestParseArgs_RenameNoArgs(t *testing.T) {
+	cfg, err := ParseArgs([]string{"rename"})
+	if err != nil {
+		t.Fatalf("ParseArgs failed: %v", err)
+	}
+	if cfg.Subcommand != "rename" {
+		t.Errorf("Subcommand = %q, want %q", cfg.Subcommand, "rename")
+	}
+	if cfg.RenameOldName != "" {
+		t.Errorf("RenameOldName = %q, want empty", cfg.RenameOldName)
+	}
+	if cfg.RenameNewName != "" {
+		t.Errorf("RenameNewName = %q, want empty", cfg.RenameNewName)
+	}
+}
+
 func TestParseArgs_DataDirEnvVar(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("DAEDALUS_DATA_DIR", tmp)

@@ -55,6 +55,8 @@ func run(args []string) error {
 		return pruneProjects(cfg)
 	case "remove":
 		return removeProjects(cfg)
+	case "rename":
+		return renameProject(cfg)
 	case "config":
 		return showOrEditConfig(cfg)
 	case "completion":
@@ -411,6 +413,7 @@ func printUsage() {
 	fmt.Println("       daedalus list")
 	fmt.Println("       daedalus prune")
 	fmt.Println("       daedalus remove <name> [name...]")
+	fmt.Println("       daedalus rename <old-name> <new-name>")
 	fmt.Println("       daedalus config <project-name> [--set key=value] [--unset key]")
 	fmt.Println("       daedalus tui")
 	fmt.Println("       daedalus web [--port PORT] [--host HOST]")
@@ -423,6 +426,7 @@ func printUsage() {
 	fmt.Println("  list                          List all registered projects")
 	fmt.Println("  prune                         Remove registry entries with missing directories")
 	fmt.Println("  remove <name> [name...]       Remove named projects from the registry")
+	fmt.Println("  rename <old> <new>            Rename a registered project")
 	fmt.Println("  config <name>                 View or edit per-project default flags")
 	fmt.Println("  tui                           Interactive dashboard for managing projects")
 	fmt.Println("  web                           Web UI dashboard (default: localhost:3000)")
@@ -449,6 +453,7 @@ func printUsage() {
 	fmt.Println("  daedalus --build --target godot my-game /path/to/game")
 	fmt.Println("  daedalus list                           Show all registered projects")
 	fmt.Println("  daedalus web --port 8080                Start web UI on port 8080")
+	fmt.Println("  daedalus rename my-app my-new-app        Rename a project")
 	fmt.Println("  daedalus config my-app --set dind=true  Set per-project default")
 	fmt.Println("  daedalus completion bash                Print bash completion script")
 }
@@ -547,6 +552,49 @@ func pruneProjects(cfg *core.Config) error {
 	for _, name := range removed {
 		fmt.Printf("%s '%s'.\n", color.Green("Removed"), name)
 	}
+	return nil
+}
+
+// renameProject renames a registered project.
+func renameProject(cfg *core.Config) error {
+	if cfg.RenameOldName == "" || cfg.RenameNewName == "" {
+		return fmt.Errorf("usage: daedalus rename <old-name> <new-name>")
+	}
+
+	if err := core.ValidateProjectName(cfg.RenameNewName); err != nil {
+		return err
+	}
+
+	reg := registry.NewRegistry(cfg.RegistryPath())
+	if err := reg.Init(); err != nil {
+		return fmt.Errorf("initializing registry: %w", err)
+	}
+
+	_, found, err := reg.GetProject(cfg.RenameOldName)
+	if err != nil {
+		return fmt.Errorf("checking project: %w", err)
+	}
+	if !found {
+		return fmt.Errorf("project '%s' not found in registry\n%s run 'daedalus list' to see registered projects", cfg.RenameOldName, color.Cyan("Hint:"))
+	}
+
+	// Refuse rename if the project is running
+	exec := &executor.RealExecutor{}
+	d := docker.NewDocker(exec, filepath.Join(cfg.ScriptDir, "docker-compose.yml"))
+	containerName := "claude-run-" + cfg.RenameOldName
+	running, err := d.IsContainerRunning(containerName)
+	if err != nil {
+		return fmt.Errorf("checking container status: %w", err)
+	}
+	if running {
+		return fmt.Errorf("project '%s' is running — stop it before renaming", cfg.RenameOldName)
+	}
+
+	if err := reg.RenameProject(cfg.RenameOldName, cfg.RenameNewName); err != nil {
+		return fmt.Errorf("renaming project: %w", err)
+	}
+
+	fmt.Printf("%s '%s' to '%s'.\n", color.Green("Renamed"), cfg.RenameOldName, cfg.RenameNewName)
 	return nil
 }
 

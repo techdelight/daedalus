@@ -20,12 +20,14 @@ type Config struct {
 	Force           bool
 	NoColor         bool
 	ImagePrefix     string
-	Subcommand      string   // "list", "help", "web", "remove", "config", "completion", or "" for normal mode
+	Subcommand      string   // "list", "help", "web", "remove", "rename", "config", "completion", or "" for normal mode
 	RemoveTargets   []string // project names for "remove" subcommand
 	ConfigTarget    string   // project name for "config" subcommand
 	ConfigSet       []string // "key=value" pairs for --set
 	ConfigUnset     []string // keys for --unset
 	CompletionShell string   // shell name for "completion" subcommand
+	RenameOldName   string   // old project name for "rename" subcommand
+	RenameNewName   string   // new project name for "rename" subcommand
 	TargetOverride  bool     // true when --target was explicitly passed
 	WebAddr         string   // host:port for web UI server
 }

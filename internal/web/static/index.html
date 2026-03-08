@@ -91,7 +91,8 @@
                         ${p.running
                             ? `<button class="btn btn-attach" onclick="attachProject('${escapeHtml(p.name)}')">Attach</button>
                                <button class="btn btn-stop" onclick="stopProject('${escapeHtml(p.name)}')">Stop</button>`
-                            : `<button class="btn btn-start" onclick="startProject('${escapeHtml(p.name)}')">Start</button>`
+                            : `<button class="btn btn-start" onclick="startProject('${escapeHtml(p.name)}')">Start</button>
+                               <button class="btn btn-rename" onclick="renameProject('${escapeHtml(p.name)}')">Rename</button>`
                         }
                     </td>
                 </tr>
@@ -124,6 +125,28 @@
                     return;
                 }
                 setStatus('Stopped ' + name);
+                fetchProjects();
+            } catch (err) {
+                setStatus('Error: ' + err.message);
+            }
+        }
+
+        async function renameProject(name) {
+            const newName = prompt('Rename "' + name + '" to:');
+            if (!newName || newName.trim() === '') return;
+            setStatus('Renaming ' + name + ' to ' + newName.trim() + '...');
+            try {
+                const resp = await fetch(`/api/projects/${encodeURIComponent(name)}/rename`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({newName: newName.trim()})
+                });
+                if (!resp.ok) {
+                    const text = await resp.text();
+                    setStatus('Error: ' + text);
+                    return;
+                }
+                setStatus('Renamed ' + name + ' to ' + newName.trim());
                 fetchProjects();
             } catch (err) {
                 setStatus('Error: ' + err.message);

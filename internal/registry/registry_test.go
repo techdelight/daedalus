@@ -291,6 +291,136 @@ func TestRegistryFindProjectByDir_SymlinkInRegistry(t *testing.T) {
 	}
 }
 
+func TestRegistryRenameProject(t *testing.T) {
+	dir := t.TempDir()
+	regFile := filepath.Join(dir, "projects.json")
+	reg := NewRegistry(regFile)
+	reg.Init()
+	reg.AddProject("old-app", "/path/to/app", "dev")
+
+	err := reg.RenameProject("old-app", "new-app")
+	if err != nil {
+		t.Fatalf("RenameProject failed: %v", err)
+	}
+
+	has, _ := reg.HasProject("old-app")
+	if has {
+		t.Error("old name still exists after rename")
+	}
+	has, _ = reg.HasProject("new-app")
+	if !has {
+		t.Error("new name not found after rename")
+	}
+}
+
+func TestRegistryRenameProject_NotFound(t *testing.T) {
+	dir := t.TempDir()
+	regFile := filepath.Join(dir, "projects.json")
+	reg := NewRegistry(regFile)
+	reg.Init()
+
+	err := reg.RenameProject("nonexistent", "new-name")
+	if err == nil {
+		t.Fatal("expected error for renaming nonexistent project")
+	}
+}
+
+func TestRegistryRenameProject_TargetExists(t *testing.T) {
+	dir := t.TempDir()
+	regFile := filepath.Join(dir, "projects.json")
+	reg := NewRegistry(regFile)
+	reg.Init()
+	reg.AddProject("app-a", "/tmp/a", "dev")
+	reg.AddProject("app-b", "/tmp/b", "dev")
+
+	err := reg.RenameProject("app-a", "app-b")
+	if err == nil {
+		t.Fatal("expected error when target name already exists")
+	}
+}
+
+func TestRegistryRenameProject_PreservesEntry(t *testing.T) {
+	dir := t.TempDir()
+	regFile := filepath.Join(dir, "projects.json")
+	reg := NewRegistry(regFile)
+	reg.Init()
+	reg.AddProject("old-app", "/path/to/app", "godot")
+	reg.SetDefaultFlags("old-app", map[string]string{"debug": "true"})
+
+	err := reg.RenameProject("old-app", "new-app")
+	if err != nil {
+		t.Fatalf("RenameProject failed: %v", err)
+	}
+
+	entry, found, err := reg.GetProject("new-app")
+	if err != nil {
+		t.Fatalf("GetProject failed: %v", err)
+	}
+	if !found {
+		t.Fatal("renamed project not found")
+	}
+	if entry.Directory != "/path/to/app" {
+		t.Errorf("directory = %q, want %q", entry.Directory, "/path/to/app")
+	}
+	if entry.Target != "godot" {
+		t.Errorf("target = %q, want %q", entry.Target, "godot")
+	}
+	if entry.DefaultFlags["debug"] != "true" {
+		t.Errorf("defaultFlags[debug] = %q, want %q", entry.DefaultFlags["debug"], "true")
+	}
+}
+
+func TestRegistryRenameProject_RenamesCacheDir(t *testing.T) {
+	dir := t.TempDir()
+	regFile := filepath.Join(dir, "projects.json")
+	reg := NewRegistry(regFile)
+	reg.Init()
+	reg.AddProject("old-app", "/tmp/old", "dev")
+
+	oldCache := filepath.Join(dir, "old-app")
+	os.MkdirAll(oldCache, 0755)
+	os.WriteFile(filepath.Join(oldCache, "data.txt"), []byte("test"), 0644)
+
+	err := reg.RenameProject("old-app", "new-app")
+	if err != nil {
+		t.Fatalf("RenameProject failed: %v", err)
+	}
+
+	if _, err := os.Stat(oldCache); !os.IsNotExist(err) {
+		t.Error("old cache directory still exists")
+	}
+	newCache := filepath.Join(dir, "new-app")
+	if _, err := os.Stat(newCache); err != nil {
+		t.Error("new cache directory does not exist")
+	}
+	data, err := os.ReadFile(filepath.Join(newCache, "data.txt"))
+	if err != nil {
+		t.Fatalf("reading data from renamed cache: %v", err)
+	}
+	if string(data) != "test" {
+		t.Errorf("cache data = %q, want %q", string(data), "test")
+	}
+}
+
+func TestRegistryRenameProject_NoCacheDir(t *testing.T) {
+	dir := t.TempDir()
+	regFile := filepath.Join(dir, "projects.json")
+	reg := NewRegistry(regFile)
+	reg.Init()
+	reg.AddProject("old-app", "/tmp/old", "dev")
+
+	// No cache dir created — rename should succeed without error
+	err := reg.RenameProject("old-app", "new-app")
+	if err != nil {
+		t.Fatalf("RenameProject failed: %v", err)
+	}
+
+	has, _ := reg.HasProject("new-app")
+	if !has {
+		t.Error("new name not found after rename")
+	}
+}
+
 func TestRegistryRemoveProject(t *testing.T) {
 	dir := t.TempDir()
 	regFile := filepath.Join(dir, "projects.json")

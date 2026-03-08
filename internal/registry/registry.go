@@ -181,6 +181,44 @@ func (r *Registry) AddProject(name, directory, target string) error {
 	return r.write(data)
 }
 
+// RenameProject changes a project's registry key from oldName to newName.
+// Returns an error if oldName does not exist or newName already exists.
+// The per-project cache directory is renamed best-effort (warning on failure).
+func (r *Registry) RenameProject(oldName, newName string) error {
+	data, err := r.read()
+	if err != nil {
+		return err
+	}
+	entry, ok := data.Projects[oldName]
+	if !ok {
+		return fmt.Errorf("project '%s' not found", oldName)
+	}
+	if _, exists := data.Projects[newName]; exists {
+		return fmt.Errorf("project '%s' already exists", newName)
+	}
+	data.Projects[newName] = entry
+	delete(data.Projects, oldName)
+	if err := r.write(data); err != nil {
+		return err
+	}
+	r.renameCache(oldName, newName)
+	return nil
+}
+
+// renameCache renames the per-project cache directory.
+// Failures are logged to stderr but not returned as errors.
+func (r *Registry) renameCache(oldName, newName string) {
+	baseDir := filepath.Dir(r.FilePath)
+	oldDir := filepath.Join(baseDir, oldName)
+	newDir := filepath.Join(baseDir, newName)
+	if _, err := os.Stat(oldDir); os.IsNotExist(err) {
+		return
+	}
+	if err := os.Rename(oldDir, newDir); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to rename cache directory '%s' to '%s': %v\n", oldDir, newDir, err)
+	}
+}
+
 // RemoveProject deletes a project from the registry by name and cleans up
 // its per-project cache directory (#23).
 func (r *Registry) RemoveProject(name string) error {

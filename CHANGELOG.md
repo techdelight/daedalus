@@ -7,6 +7,18 @@ All notable changes to this project will be documented in this file.
 ### Added
 - GitHub Pages landing page in `/docs`.
 
+## [1.3.0] - 2026-03-08
+
+### Added
+- `daedalus rename <old-name> <new-name>` CLI subcommand to rename registered projects.
+- `POST /api/projects/{name}/rename` web API endpoint with JSON body `{"newName": "..."}`.
+- Rename button in the web dashboard for stopped projects (uses `prompt()` for new name).
+- F2 key in TUI to rename the selected project via inline text input (Enter to confirm, Esc to cancel).
+- `ValidateProjectName()` pure validation function — names must start with alphanumeric and contain only `[a-zA-Z0-9._-]`.
+- `RenameProject()` registry method — atomic rename of registry key with best-effort cache directory rename.
+- Shell completions for `rename` subcommand (bash, zsh, fish).
+- Man page entry for `rename` command with synopsis and example.
+
 ## [1.2.0] - 2026-03-08
 
 ### Added

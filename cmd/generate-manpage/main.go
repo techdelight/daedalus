@@ -75,6 +75,9 @@ func writeSynopsis(b *strings.Builder) {
 	b.WriteString(".B daedalus remove\n")
 	b.WriteString("<\\fIname\\fR> [\\fIname\\fR...]\n")
 	b.WriteString(".br\n")
+	b.WriteString(".B daedalus rename\n")
+	b.WriteString("<\\fIold-name\\fR> <\\fInew-name\\fR>\n")
+	b.WriteString(".br\n")
 	b.WriteString(".B daedalus config\n")
 	b.WriteString("<\\fIname\\fR> [\\fB\\-\\-set\\fR \\fIkey=value\\fR] [\\fB\\-\\-unset\\fR \\fIkey\\fR]\n")
 	b.WriteString(".br\n")
@@ -134,6 +137,10 @@ func writeCommands(b *strings.Builder) {
 	writeCommand(b,
 		"\\fBremove\\fR <\\fIname\\fR> [\\fIname\\fR...]",
 		"Remove one or more named projects from the registry. Prompts for confirmation in interactive mode; use \\fB\\-\\-force\\fR for non-interactive mode.")
+
+	writeCommand(b,
+		"\\fBrename\\fR <\\fIold-name\\fR> <\\fInew-name\\fR>",
+		"Rename a registered project. The project must be stopped. Updates the registry key and renames the per-project cache directory.")
 
 	writeCommand(b,
 		"\\fBconfig\\fR <\\fIname\\fR> [\\fB\\-\\-set\\fR \\fIkey=value\\fR] [\\fB\\-\\-unset\\fR \\fIkey\\fR]",
@@ -292,6 +299,15 @@ func writeExamples(b *strings.Builder) {
 	b.WriteString(".RS\n")
 	b.WriteString(".nf\n")
 	b.WriteString("daedalus web \\-\\-port 8080\n")
+	b.WriteString(".fi\n")
+	b.WriteString(".RE\n")
+
+	b.WriteString(".PP\n")
+	b.WriteString("Rename a project:\n")
+	b.WriteString(".PP\n")
+	b.WriteString(".RS\n")
+	b.WriteString(".nf\n")
+	b.WriteString("daedalus rename my\\-app my\\-new\\-app\n")
 	b.WriteString(".fi\n")
 	b.WriteString(".RE\n")
 

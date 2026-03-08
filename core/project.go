@@ -2,6 +2,11 @@
 
 package core
 
+import (
+	"fmt"
+	"regexp"
+)
+
 // CurrentRegistryVersion is the latest registry schema version.
 const CurrentRegistryVersion = 2
 
@@ -34,4 +39,21 @@ type ProjectEntry struct {
 type ProjectInfo struct {
 	Name  string
 	Entry ProjectEntry
+}
+
+// validProjectName matches names that start with an alphanumeric character,
+// followed by zero or more alphanumeric, dot, underscore, or hyphen characters.
+var validProjectName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]*$`)
+
+// ValidateProjectName checks whether name is a valid project name.
+// Valid names start with an alphanumeric character and contain only
+// alphanumeric characters, dots, underscores, or hyphens.
+func ValidateProjectName(name string) error {
+	if name == "" {
+		return fmt.Errorf("project name cannot be empty")
+	}
+	if !validProjectName.MatchString(name) {
+		return fmt.Errorf("invalid project name %q: must start with alphanumeric and contain only [a-zA-Z0-9._-]", name)
+	}
+	return nil
 }

@@ -149,6 +149,18 @@ func ParseArgs(args []string) (*core.Config, error) {
 		return cfg, nil
 	}
 
+	// Handle "rename" subcommand (e.g., daedalus rename old-name new-name).
+	if len(positional) > 0 && positional[0] == "rename" {
+		cfg.Subcommand = "rename"
+		if len(positional) > 1 {
+			cfg.RenameOldName = positional[1]
+		}
+		if len(positional) > 2 {
+			cfg.RenameNewName = positional[2]
+		}
+		return cfg, nil
+	}
+
 	// Handle "config" subcommand
 	if len(positional) > 0 && positional[0] == "config" {
 		cfg.Subcommand = "config"
