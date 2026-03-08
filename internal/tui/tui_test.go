@@ -464,6 +464,128 @@ func TestView_WithProjects(t *testing.T) {
 	}
 }
 
+func TestWindowSizeMsg_UpdatesTermHeight(t *testing.T) {
+	m := tuiModel{
+		projects: []projectRow{{name: "a"}},
+	}
+
+	newM, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 30})
+	updated := newM.(tuiModel)
+	if updated.termHeight != 30 {
+		t.Errorf("termHeight = %d, want 30", updated.termHeight)
+	}
+}
+
+func TestScrollOffset_AdjustsOnCursorDown(t *testing.T) {
+	projects := make([]projectRow, 20)
+	for i := range projects {
+		projects[i] = projectRow{name: fmt.Sprintf("proj-%d", i)}
+	}
+	m := tuiModel{
+		projects:   projects,
+		cursor:     0,
+		termHeight: 12, // visibleRows = 12 - 7 = 5
+	}
+
+	// Move cursor down past visible area
+	for i := 0; i < 6; i++ {
+		newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+		m = newM.(tuiModel)
+	}
+
+	if m.cursor != 6 {
+		t.Errorf("cursor = %d, want 6", m.cursor)
+	}
+	// cursor 6 with 5 visible rows: scrollOffset should be 2 (6 - 5 + 1)
+	if m.scrollOffset != 2 {
+		t.Errorf("scrollOffset = %d, want 2", m.scrollOffset)
+	}
+}
+
+func TestScrollOffset_AdjustsOnCursorUp(t *testing.T) {
+	projects := make([]projectRow, 20)
+	for i := range projects {
+		projects[i] = projectRow{name: fmt.Sprintf("proj-%d", i)}
+	}
+	m := tuiModel{
+		projects:     projects,
+		cursor:       5,
+		scrollOffset: 5,
+		termHeight:   12, // visibleRows = 5
+	}
+
+	// Move cursor up past scroll offset
+	newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("k")})
+	m = newM.(tuiModel)
+
+	if m.cursor != 4 {
+		t.Errorf("cursor = %d, want 4", m.cursor)
+	}
+	if m.scrollOffset != 4 {
+		t.Errorf("scrollOffset = %d, want 4", m.scrollOffset)
+	}
+}
+
+func TestView_ShowsScrollbar_WhenProjectsExceedViewport(t *testing.T) {
+	projects := make([]projectRow, 20)
+	for i := range projects {
+		projects[i] = projectRow{
+			name:   fmt.Sprintf("proj-%d", i),
+			target: "dev",
+		}
+	}
+	m := tuiModel{
+		projects:   projects,
+		cursor:     0,
+		termHeight: 12, // visibleRows = 5, fewer than 20 projects
+	}
+
+	view := m.View()
+	// Scrollbar should contain thumb (█) and track (░) characters
+	if !containsString(view, "\u2588") {
+		t.Error("expected scrollbar thumb (█) in view when projects exceed viewport")
+	}
+	if !containsString(view, "\u2591") {
+		t.Error("expected scrollbar track (░) in view when projects exceed viewport")
+	}
+}
+
+func TestView_NoScrollbar_WhenAllProjectsFit(t *testing.T) {
+	m := tuiModel{
+		projects: []projectRow{
+			{name: "app1", target: "dev"},
+			{name: "app2", target: "dev"},
+		},
+		cursor:     0,
+		termHeight: 30, // visibleRows = 23, far more than 2 projects
+	}
+
+	view := m.View()
+	if containsString(view, "\u2588") || containsString(view, "\u2591") {
+		t.Error("expected no scrollbar characters when all projects fit in viewport")
+	}
+}
+
+func TestVisibleRows_ClampedToProjectCount(t *testing.T) {
+	m := tuiModel{
+		projects:   []projectRow{{name: "a"}, {name: "b"}},
+		termHeight: 50, // capacity = 43, but only 2 projects
+	}
+	if m.visibleRows() != 2 {
+		t.Errorf("visibleRows() = %d, want 2", m.visibleRows())
+	}
+}
+
+func TestVisibleRows_SmallTerminal(t *testing.T) {
+	m := tuiModel{
+		projects:   make([]projectRow, 20),
+		termHeight: 5, // below chromeLines, should return 1
+	}
+	if m.visibleRows() != 1 {
+		t.Errorf("visibleRows() = %d, want 1", m.visibleRows())
+	}
+}
+
 func containsString(s, substr string) bool {
 	return len(s) >= len(substr) && searchString(s, substr)
 }

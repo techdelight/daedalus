@@ -97,6 +97,8 @@ type tuiModel struct {
 	pendingAttach string
 	renaming      bool   // whether rename mode is active
 	renameInput   string // text being typed for the new name
+	termHeight    int    // from tea.WindowSizeMsg
+	scrollOffset  int    // first visible project index
 }
 
 // --- tea.Model interface ---
@@ -130,6 +132,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.cursor < 0 {
 			m.cursor = 0
 		}
+		clampScroll(&m)
 		return m, nil
 
 	case actionResultMsg:
@@ -143,6 +146,10 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case requestAttachMsg:
 		m.pendingAttach = msg.sessionName
 		return m, tea.Quit
+
+	case tea.WindowSizeMsg:
+		m.termHeight = msg.Height
+		return m, nil
 
 	case tea.KeyMsg:
 		// When in rename mode, forward all keys to the rename input
@@ -187,11 +194,13 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.cursor < len(m.projects)-1 {
 				m.cursor++
 			}
+			clampScroll(&m)
 
 		case "k", "up":
 			if m.cursor > 0 {
 				m.cursor--
 			}
+			clampScroll(&m)
 
 		case "s":
 			if len(m.projects) == 0 {
@@ -243,6 +252,31 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// chromeLines is the number of lines reserved for non-project UI elements:
+// blank + title + blank + header + separator + blank + status/help + newline = 7
+const chromeLines = 7
+
+func (m tuiModel) visibleRows() int {
+	if m.termHeight <= chromeLines {
+		return 1
+	}
+	capacity := m.termHeight - chromeLines
+	if capacity > len(m.projects) {
+		return len(m.projects)
+	}
+	return capacity
+}
+
+func clampScroll(m *tuiModel) {
+	vis := m.visibleRows()
+	if m.cursor < m.scrollOffset {
+		m.scrollOffset = m.cursor
+	}
+	if m.cursor >= m.scrollOffset+vis {
+		m.scrollOffset = m.cursor - vis + 1
+	}
+}
+
 func (m tuiModel) View() string {
 	var b strings.Builder
 
@@ -265,7 +299,30 @@ func (m tuiModel) View() string {
 		b.WriteString(headerStyle.Render("  " + strings.Repeat("\u2500", 70)))
 		b.WriteString("\n")
 
-		for i, p := range m.projects {
+		visRows := m.visibleRows()
+		end := m.scrollOffset + visRows
+		if end > len(m.projects) {
+			end = len(m.projects)
+		}
+		showScrollbar := len(m.projects) > visRows
+		trackHeight := visRows
+
+		// Compute scrollbar thumb position and size
+		var thumbStart, thumbEnd int
+		if showScrollbar && trackHeight > 0 {
+			thumbSize := trackHeight * visRows / len(m.projects)
+			if thumbSize < 1 {
+				thumbSize = 1
+			}
+			thumbStart = trackHeight * m.scrollOffset / len(m.projects)
+			thumbEnd = thumbStart + thumbSize
+			if thumbEnd > trackHeight {
+				thumbEnd = trackHeight
+			}
+		}
+
+		for i := m.scrollOffset; i < end; i++ {
+			p := m.projects[i]
 			cursor := "  "
 			if i == m.cursor {
 				cursor = "> "
@@ -291,6 +348,15 @@ func (m tuiModel) View() string {
 				row = selectedStyle.Render(cursor + row)
 			} else {
 				row = normalStyle.Render(cursor + row)
+			}
+
+			if showScrollbar {
+				trackIdx := i - m.scrollOffset
+				if trackIdx >= thumbStart && trackIdx < thumbEnd {
+					row += " \u2588"
+				} else {
+					row += " \u2591"
+				}
 			}
 
 			b.WriteString(row)

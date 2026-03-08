@@ -45,6 +45,25 @@ header .status {
     flex: 1;
     overflow-y: auto;
     padding: 8px 0;
+    scrollbar-width: thin;
+    scrollbar-color: #414868 #1a1b26;
+}
+
+.project-list::-webkit-scrollbar {
+    width: 8px;
+}
+
+.project-list::-webkit-scrollbar-track {
+    background: #1a1b26;
+}
+
+.project-list::-webkit-scrollbar-thumb {
+    background: #414868;
+    border-radius: 4px;
+}
+
+.project-list::-webkit-scrollbar-thumb:hover {
+    background: #565f89;
 }
 
 table {
