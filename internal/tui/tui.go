@@ -380,6 +380,7 @@ func attachToSession(exec executor.Executor, name string) tea.Cmd {
 // --- Entry point ---
 
 func Run(cfg *core.Config) error {
+	core.PrintBanner(cfg.ScriptDir)
 	exec := &executor.RealExecutor{}
 	reg := registry.NewRegistry(cfg.RegistryPath())
 	if err := reg.Init(); err != nil {
