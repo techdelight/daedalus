@@ -160,14 +160,8 @@ section {
     justify-content: space-between;
 }
 
-.nav-logo {
-    display: flex;
-    align-items: center;
-}
-
-.nav-logo-img {
-    height: 28px;
-    width: auto;
+.nav-spacer {
+    flex: 1;
 }
 
 .nav-links {
