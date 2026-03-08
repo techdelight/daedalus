@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 
@@ -110,15 +111,17 @@ func Run(cfg *core.Config) error {
 	}
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
 
-	// Root serves index.html
+	// Root serves index.html with version injected into the title
+	version := core.ReadVersion(cfg.ScriptDir)
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		data, err := staticFiles.ReadFile("static/index.html")
 		if err != nil {
 			http.Error(w, "index.html not found", http.StatusInternalServerError)
 			return
 		}
+		html := strings.Replace(string(data), ">Daedalus<", ">Daedalus ["+version+"]<", 1)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Write(data)
+		w.Write([]byte(html))
 	})
 
 	fmt.Printf("Starting web UI at http://%s\n", cfg.WebAddr)

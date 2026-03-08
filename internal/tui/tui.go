@@ -281,7 +281,11 @@ func (m tuiModel) View() string {
 	var b strings.Builder
 
 	b.WriteString("\n")
-	b.WriteString(titleStyle.Render("Claude Runner"))
+	version := ""
+	if m.cfg != nil {
+		version = core.ReadVersion(m.cfg.ScriptDir)
+	}
+	b.WriteString(titleStyle.Render("Claude Runner [" + version + "]"))
 	b.WriteString("\n\n")
 
 	if m.err != nil {

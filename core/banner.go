@@ -9,6 +9,16 @@ import (
 	"strings"
 )
 
+// ReadVersion reads the VERSION file from scriptDir and returns the trimmed string.
+// Returns "unknown" if the file cannot be read.
+func ReadVersion(scriptDir string) string {
+	data, err := os.ReadFile(filepath.Join(scriptDir, "VERSION"))
+	if err != nil {
+		return "unknown"
+	}
+	return strings.TrimSpace(string(data))
+}
+
 // PrintBanner displays the Techdelight logo, version, and build timestamp.
 func PrintBanner(scriptDir string) {
 	logo, err := os.ReadFile(filepath.Join(scriptDir, "logo.txt"))
