@@ -112,7 +112,7 @@ func Run(cfg *core.Config) error {
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
 
 	// Root serves index.html with version injected into the title
-	version := core.ReadVersion(cfg.ScriptDir)
+	version := core.ReadVersion()
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		data, err := staticFiles.ReadFile("static/index.html")
 		if err != nil {

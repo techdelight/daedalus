@@ -454,12 +454,11 @@ func TestWebServerRouting_Integration(t *testing.T) {
 }
 
 func TestRootHandler_InjectsVersionInTitle(t *testing.T) {
-	ws, _ := setupWebTest(t)
+	old := core.Version
+	defer func() { core.Version = old }()
+	core.Version = "9.8.7"
 
-	// Write a VERSION file into the test ScriptDir
-	os.WriteFile(filepath.Join(ws.cfg.ScriptDir, "VERSION"), []byte("9.8.7\n"), 0644)
-
-	version := core.ReadVersion(ws.cfg.ScriptDir)
+	version := core.ReadVersion()
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		data, err := staticFiles.ReadFile("static/index.html")

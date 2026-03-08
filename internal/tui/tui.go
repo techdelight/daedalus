@@ -281,11 +281,7 @@ func (m tuiModel) View() string {
 	var b strings.Builder
 
 	b.WriteString("\n")
-	version := ""
-	if m.cfg != nil {
-		version = core.ReadVersion(m.cfg.ScriptDir)
-	}
-	b.WriteString(titleStyle.Render("Daedalus [" + version + "]"))
+	b.WriteString(titleStyle.Render("Daedalus [" + core.ReadVersion() + "]"))
 	b.WriteString("\n\n")
 
 	if m.err != nil {

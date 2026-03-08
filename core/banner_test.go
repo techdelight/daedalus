@@ -10,22 +10,35 @@ import (
 	"testing"
 )
 
+func TestReadVersion(t *testing.T) {
+	old := Version
+	defer func() { Version = old }()
+
+	Version = "3.2.1"
+	if got := ReadVersion(); got != "3.2.1" {
+		t.Errorf("ReadVersion() = %q, want %q", got, "3.2.1")
+	}
+}
+
 func TestPrintBanner(t *testing.T) {
 	dir := t.TempDir()
 
 	logoContent := "=== LOGO ==="
 	os.WriteFile(filepath.Join(dir, "logo.txt"), []byte(logoContent+"\n"), 0644)
-	os.WriteFile(filepath.Join(dir, "VERSION"), []byte("1.2.3\n"), 0644)
+
+	old := Version
+	defer func() { Version = old }()
+	Version = "1.2.3"
 
 	// Capture stdout.
-	old := os.Stdout
+	stdold := os.Stdout
 	r, w, _ := os.Pipe()
 	os.Stdout = w
 
 	PrintBanner(dir)
 
 	w.Close()
-	os.Stdout = old
+	os.Stdout = stdold
 	out, _ := io.ReadAll(r)
 	output := string(out)
 

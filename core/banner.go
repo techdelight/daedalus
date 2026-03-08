@@ -5,31 +5,27 @@ package core
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 )
 
-// ReadVersion reads the VERSION file from scriptDir and returns the trimmed string.
-// Returns "unknown" if the file cannot be read.
-func ReadVersion(scriptDir string) string {
-	data, err := os.ReadFile(filepath.Join(scriptDir, "VERSION"))
-	if err != nil {
-		return "unknown"
-	}
-	return strings.TrimSpace(string(data))
+// Version is set at compile time via -ldflags:
+//
+//	go build -ldflags "-X github.com/techdelight/daedalus/core.Version=0.5.2"
+var Version = "unknown"
+
+// ReadVersion returns the compile-time version baked into the binary.
+func ReadVersion() string {
+	return Version
 }
 
 // PrintBanner displays the Techdelight logo, version, and build timestamp.
 func PrintBanner(scriptDir string) {
-	logo, err := os.ReadFile(filepath.Join(scriptDir, "logo.txt"))
+	logo, err := os.ReadFile(scriptDir + "/logo.txt")
 	if err == nil {
 		fmt.Println(strings.TrimRight(string(logo), "\n"))
 	}
 
-	version, err := os.ReadFile(filepath.Join(scriptDir, "VERSION"))
-	if err == nil {
-		fmt.Printf("Version: %s\n", strings.TrimSpace(string(version)))
-	}
+	fmt.Printf("Version: %s\n", Version)
 
 	exe, err := os.Executable()
 	if err == nil {
