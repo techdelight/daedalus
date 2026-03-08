@@ -38,7 +38,7 @@ func (d *Docker) IsContainerRunning(name string) (bool, error) {
 
 // ImageExists checks if a Docker image exists locally.
 func (d *Docker) ImageExists(image string) bool {
-	err := d.Executor.Run("docker", "image", "inspect", image)
+	_, err := d.Executor.Output("docker", "image", "inspect", image)
 	return err == nil
 }
 
