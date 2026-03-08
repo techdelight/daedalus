@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"testing"
 	"time"
 
@@ -471,7 +472,7 @@ func TestView_TitleShowsVersion(t *testing.T) {
 	m := tuiModel{
 		cfg: &core.Config{ScriptDir: dir},
 	}
-	view := m.View()
+	view := stripAnsi(m.View())
 	if !containsString(view, "Daedalus [1.2.3]") {
 		t.Errorf("expected title 'Daedalus [1.2.3]' in view, got:\n%s", view)
 	}
@@ -479,7 +480,7 @@ func TestView_TitleShowsVersion(t *testing.T) {
 
 func TestView_TitleWithoutConfig(t *testing.T) {
 	m := tuiModel{}
-	view := m.View()
+	view := stripAnsi(m.View())
 	if !containsString(view, "Daedalus [") {
 		t.Errorf("expected title 'Daedalus [' in view even without config, got:\n%s", view)
 	}
@@ -605,6 +606,12 @@ func TestVisibleRows_SmallTerminal(t *testing.T) {
 	if m.visibleRows() != 1 {
 		t.Errorf("visibleRows() = %d, want 1", m.visibleRows())
 	}
+}
+
+var ansiRegex = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+
+func stripAnsi(s string) string {
+	return ansiRegex.ReplaceAllString(s, "")
 }
 
 func containsString(s, substr string) bool {
