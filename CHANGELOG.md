@@ -7,12 +7,12 @@ All notable changes to this project will be documented in this file.
 ### Added
 - GitHub Pages landing page in `/docs`.
 
-## [0.5.5] - 2026-03-08
+## [0.5.6] - 2026-03-08
 
 ### Added
 - TUI viewport scrolling — projects beyond the terminal height are now reachable via cursor keys. Scrollbar indicator (`█` thumb / `░` track) appears on the right when the list exceeds the viewport.
 - Dark-themed scrollbar styling for the web UI project list, matching the Tokyo Night color palette (Webkit and Firefox).
-- Version displayed in brackets after the title in both TUI and web UI (`Daedalus [0.5.5]`).
+- Version displayed in brackets after the title in both TUI and web UI (`Daedalus [0.5.6]`).
 
 ### Changed
 - Version is now baked into the binary at compile time via `-ldflags` instead of reading a VERSION file at runtime.
