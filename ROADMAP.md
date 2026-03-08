@@ -6,11 +6,26 @@
 
 ## Current Sprint
 
-(none)
+### Sprint 11: Web UI Security (v1.2.0)
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | Authentication for Web UI — add token-based login to protect the dashboard when exposed on a network | Pending |
+| 2 | Session cookie with configurable expiry | Pending |
+| 3 | `--auth` / `--no-auth` flag for `daedalus web` (default: auth enabled) | Pending |
+| 4 | Generate and display access token on first `daedalus web` launch | Pending |
 
 ---
 
 ## Sprint History
+
+### Sprint 10: Container Polish (v1.1.0)
+
+Delivered 2026-03-08. Suppress docker command echo on container startup.
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | Suppress docker compose command and env exports from terminal on container startup | Done |
 
 ### Sprint 9: 1.0 Preparation (v1.0.0)
 
@@ -142,7 +157,7 @@ Three UI surfaces sharing one core. Clean architecture extraction.
 
 ## Future Sprints
 
-(none)
+(see Current Sprint above)
 
 ---
 

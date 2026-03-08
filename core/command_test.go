@@ -61,6 +61,10 @@ func TestBuildTmuxCommand_QuotesDockerArgs(t *testing.T) {
 	dockerCmd := []string{"docker", "compose", "-f", "/path/with spaces/compose.yml", "run", "--rm", "claude"}
 	result := BuildTmuxCommand(cfg, dockerCmd)
 
+	// Command should start with clear to suppress docker command echo
+	if !strings.HasPrefix(result, "clear && ") {
+		t.Errorf("command should start with 'clear && ', got: %s", result)
+	}
 	// Each docker arg should be individually shell-quoted
 	if !strings.Contains(result, "'/path/with spaces/compose.yml'") {
 		t.Errorf("docker args not quoted, got: %s", result)

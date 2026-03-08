@@ -7,6 +7,11 @@ All notable changes to this project will be documented in this file.
 ### Added
 - GitHub Pages landing page in `/docs`.
 
+## [1.1.0] - 2026-03-08
+
+### Fixed
+- Docker compose command and environment exports no longer visible in the terminal when starting a container via TUI or Web UI. The tmux command now clears the screen before execution.
+
 ## [1.0.1] - 2026-03-07
 
 ### Changed

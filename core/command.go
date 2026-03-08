@@ -53,5 +53,5 @@ func BuildTmuxCommand(cfg *Config, dockerCmd []string) string {
 	for i, arg := range dockerCmd {
 		quoted[i] = ShellQuote(arg)
 	}
-	return exports + " && " + strings.Join(quoted, " ") + "; exit"
+	return "clear && " + exports + " && " + strings.Join(quoted, " ") + "; exit"
 }
