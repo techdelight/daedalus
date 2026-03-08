@@ -177,23 +177,72 @@ done
 
 echo "  Downloaded binary and ${#RUNTIME_FILES[@]} runtime files."
 
+# ── Detect existing installation ────────────────────────────────────────────
+INSTALLED_VERSION=""
+UPGRADING=false
+if [[ -f "$PREFIX/config.json" ]]; then
+    INSTALLED_VERSION="$(grep '"version"' "$PREFIX/config.json" | sed 's/.*"version": *"\([^"]*\)".*/\1/' || true)"
+    if [[ -n "$INSTALLED_VERSION" ]]; then
+        UPGRADING=true
+    fi
+fi
+
 # ── Install ──────────────────────────────────────────────────────────────────
-echo ""
-echo "Installing to $PREFIX..."
+NEW_VERSION="${TAG#v}"
+
+if [[ "$UPGRADING" == true ]]; then
+    echo ""
+    echo "Upgrading Daedalus from $INSTALLED_VERSION to $NEW_VERSION..."
+
+    # Preserve user settings from existing config
+    OLD_CONFIG="$PREFIX/config.json"
+    OLD_DATA_DIR="$(grep '"data-dir"' "$OLD_CONFIG" | sed 's/.*"data-dir": *"\([^"]*\)".*/\1/' || true)"
+    OLD_DEBUG="$(grep '"debug"' "$OLD_CONFIG" | sed 's/.*"debug": *\([a-z]*\).*/\1/' || true)"
+    OLD_NO_TMUX="$(grep '"no-tmux"' "$OLD_CONFIG" | sed 's/.*"no-tmux": *\([a-z]*\).*/\1/' || true)"
+    OLD_IMAGE_PREFIX="$(grep '"image-prefix"' "$OLD_CONFIG" | sed 's/.*"image-prefix": *"\([^"]*\)".*/\1/' || true)"
+else
+    echo ""
+    echo "Installing to $PREFIX..."
+fi
+
 mkdir -p "$PREFIX"
 
 cp "$WORK_DIR/daedalus" "$PREFIX/daedalus"
 chmod 755 "$PREFIX/daedalus"
 
 for f in "${RUNTIME_FILES[@]}"; do
+    # Config is written separately with merged settings
+    if [[ "$f" == "config.json" ]]; then
+        continue
+    fi
     cp "$WORK_DIR/$f" "$PREFIX/$f"
 done
 
-echo "  Copied binary and ${#RUNTIME_FILES[@]} runtime files."
+# Write config.json with version and preserved/default settings
+if [[ "$UPGRADING" == true ]]; then
+    DATA_DIR="${OLD_DATA_DIR}"
+    DEBUG="${OLD_DEBUG:-false}"
+    NO_TMUX="${OLD_NO_TMUX:-false}"
+    IMAGE_PREFIX="${OLD_IMAGE_PREFIX:-techdelight/claude-runner}"
+else
+    DATA_DIR="$PREFIX/.cache"
+    DEBUG="false"
+    NO_TMUX="false"
+    IMAGE_PREFIX="techdelight/claude-runner"
+fi
 
-# Set the default data-dir to the resolved absolute path
-DATA_DIR="$PREFIX/.cache"
-sed "s|\"data-dir\": \"\"|\"data-dir\": \"$DATA_DIR\"|" "$PREFIX/config.json" > "$PREFIX/config.json.tmp" && mv "$PREFIX/config.json.tmp" "$PREFIX/config.json"
+cat > "$PREFIX/config.json" <<EOCFG
+{
+  "version": "$NEW_VERSION",
+  "data-dir": "$DATA_DIR",
+  "debug": $DEBUG,
+  "no-tmux": $NO_TMUX,
+  "image-prefix": "$IMAGE_PREFIX"
+}
+EOCFG
+
+echo "  Copied binary and $((${#RUNTIME_FILES[@]} - 1)) runtime files."
+echo "  Configuration: $PREFIX/config.json"
 
 # ── Symlink ──────────────────────────────────────────────────────────────────
 if [[ "$CREATE_LINK" == true ]]; then
@@ -213,7 +262,11 @@ fi
 
 # ── Summary ──────────────────────────────────────────────────────────────────
 echo ""
-echo "Daedalus installed successfully."
+if [[ "$UPGRADING" == true ]]; then
+    echo "Daedalus upgraded successfully from $INSTALLED_VERSION to $NEW_VERSION."
+else
+    echo "Daedalus installed successfully."
+fi
 echo ""
 echo "  Location: $PREFIX/daedalus"
 if [[ "$CREATE_LINK" == true ]]; then

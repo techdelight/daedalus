@@ -14,7 +14,7 @@ func TestLoadAppConfig_FileNotFound(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if cfg.DataDir != nil || cfg.Debug != nil || cfg.NoTmux != nil || cfg.ImagePrefix != nil {
+	if cfg.Version != nil || cfg.DataDir != nil || cfg.Debug != nil || cfg.NoTmux != nil || cfg.ImagePrefix != nil {
 		t.Error("expected all nil fields for missing file")
 	}
 }
@@ -66,7 +66,7 @@ func TestLoadAppConfig_EmptyObject(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if cfg.DataDir != nil || cfg.Debug != nil || cfg.NoTmux != nil || cfg.ImagePrefix != nil {
+	if cfg.Version != nil || cfg.DataDir != nil || cfg.Debug != nil || cfg.NoTmux != nil || cfg.ImagePrefix != nil {
 		t.Error("expected all nil fields for empty object")
 	}
 }
@@ -83,5 +83,48 @@ func TestLoadAppConfig_UnknownKeysIgnored(t *testing.T) {
 	}
 	if cfg.DataDir == nil || *cfg.DataDir != "/data" {
 		t.Errorf("DataDir = %v, want /data", cfg.DataDir)
+	}
+}
+
+func TestLoadAppConfig_WithVersion(t *testing.T) {
+	// Arrange
+	dir := t.TempDir()
+	data := `{"version": "1.2.0", "data-dir": "/data"}`
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(data), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	cfg, err := LoadAppConfig(dir)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Version == nil || *cfg.Version != "1.2.0" {
+		t.Errorf("Version = %v, want 1.2.0", cfg.Version)
+	}
+	if cfg.DataDir == nil || *cfg.DataDir != "/data" {
+		t.Errorf("DataDir = %v, want /data", cfg.DataDir)
+	}
+}
+
+func TestLoadAppConfig_EmptyVersion(t *testing.T) {
+	// Arrange
+	dir := t.TempDir()
+	data := `{"version": "", "data-dir": "/data"}`
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(data), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	cfg, err := LoadAppConfig(dir)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Version == nil || *cfg.Version != "" {
+		t.Errorf("Version = %v, want empty string", cfg.Version)
 	}
 }

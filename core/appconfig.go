@@ -5,6 +5,7 @@ package core
 // AppConfig holds optional application-level configuration loaded from config.json.
 // Pointer fields distinguish "not set" (nil) from zero values.
 type AppConfig struct {
+	Version     *string `json:"version,omitempty"`
 	DataDir     *string `json:"data-dir,omitempty"`
 	Debug       *bool   `json:"debug,omitempty"`
 	NoTmux      *bool   `json:"no-tmux,omitempty"`
