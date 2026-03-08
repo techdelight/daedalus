@@ -11,17 +11,21 @@
 
 ## Current Sprint
 
-### Sprint 11: UX & Installer Polish (v1.2.0)
-
-| # | Item | Status |
-|---|------|--------|
-| 1 | Suppress `docker inspect` output when starting a container from the web interface | Pending |
-| 2 | Change TUI kill shortcut from `K` to the `Del` key | Pending |
-| 3 | Upgrade-aware installer — store version in `config.json`, detect existing install, replace binary and migrate config fields as needed | Pending |
+(planning next sprint)
 
 ---
 
 ## Sprint History
+
+### Sprint 11: UX & Installer Polish (v1.2.0)
+
+Delivered 2026-03-08. Docker inspect suppression, TUI keybinding change, upgrade-aware installer.
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | Suppress `docker inspect` output when starting a container from the web interface | Done |
+| 2 | Change TUI kill shortcut from `K` to the `Del` key | Done |
+| 3 | Upgrade-aware installer — store version in `config.json`, detect existing install, replace binary and migrate config fields as needed | Done |
 
 ### Sprint 10: Container Polish (v1.1.0)
 

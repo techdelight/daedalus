@@ -7,6 +7,19 @@ All notable changes to this project will be documented in this file.
 ### Added
 - GitHub Pages landing page in `/docs`.
 
+## [1.2.0] - 2026-03-08
+
+### Added
+- Startup banner — `PrintBanner()` displays the Techdelight logo, version, and build timestamp when launching `daedalus web` or `daedalus tui`.
+- Upgrade-aware installer — `install.sh` now detects an existing installation via the `version` field in `config.json`. On upgrade, it preserves user settings (data-dir, debug, no-tmux, image-prefix), replaces the binary and runtime files, and updates the version.
+- `version` field in `config.json` and `AppConfig` struct.
+
+### Changed
+- TUI kill shortcut changed from `K` (shift+k) to the `Del` (Delete) key.
+
+### Fixed
+- `docker image inspect` output no longer leaks to the terminal when starting a container from the web interface. `ImageExists()` now uses `Output()` instead of `Run()`.
+
 ## [1.1.0] - 2026-03-08
 
 ### Fixed
