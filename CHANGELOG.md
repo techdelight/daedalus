@@ -7,6 +7,11 @@ All notable changes to this project will be documented in this file.
 ### Added
 - GitHub Pages landing page in `/docs`.
 
+## [0.6.0] - 2026-03-08
+
+### Added
+- TUI create mode — press `n` to register a new project directly from the TUI with an interactive directory browser. Step 1: enter project name (validated, duplicate-checked). Step 2: browse filesystem with j/k navigation, Enter to descend, Backspace to go up, `s` to select directory, `c` to create a new subdirectory. Target defaults to `dev`. Esc cancels at any step.
+
 ## [0.5.7] - 2026-03-08
 
 ### Added

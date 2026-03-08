@@ -598,6 +598,204 @@ func TestVisibleRows_SmallTerminal(t *testing.T) {
 	}
 }
 
+func TestNKey_EntersCreateMode(t *testing.T) {
+	m := tuiModel{
+		projects: []projectRow{{name: "app"}},
+		cursor:   0,
+	}
+
+	newM, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
+	updated := newM.(tuiModel)
+	if !updated.creating {
+		t.Error("creating = false, want true after n")
+	}
+	if updated.createStep != 0 {
+		t.Errorf("createStep = %d, want 0", updated.createStep)
+	}
+	if updated.createName != "" {
+		t.Errorf("createName = %q, want empty", updated.createName)
+	}
+	if cmd != nil {
+		t.Error("expected nil command on n")
+	}
+}
+
+func TestCreateMode_NameValidation_RejectsInvalid(t *testing.T) {
+	dir := t.TempDir()
+	regPath := filepath.Join(dir, "projects.json")
+	reg := registry.NewRegistry(regPath)
+	reg.Init()
+
+	m := tuiModel{
+		creating:   true,
+		createStep: 0,
+		createName: "!invalid",
+		registry:   reg,
+	}
+
+	newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated := newM.(tuiModel)
+	if updated.creating {
+		t.Error("creating should be false after invalid name")
+	}
+	if !containsString(updated.statusMsg, "Error") {
+		t.Errorf("statusMsg = %q, want error message", updated.statusMsg)
+	}
+}
+
+func TestCreateMode_NameValidation_RejectsDuplicate(t *testing.T) {
+	dir := t.TempDir()
+	regPath := filepath.Join(dir, "projects.json")
+	reg := registry.NewRegistry(regPath)
+	reg.Init()
+	reg.AddProject("existing", "/tmp", "dev")
+
+	m := tuiModel{
+		creating:   true,
+		createStep: 0,
+		createName: "existing",
+		registry:   reg,
+	}
+
+	newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated := newM.(tuiModel)
+	if updated.creating {
+		t.Error("creating should be false after duplicate name")
+	}
+	if !containsString(updated.statusMsg, "already exists") {
+		t.Errorf("statusMsg = %q, want 'already exists' message", updated.statusMsg)
+	}
+}
+
+func TestCreateMode_EscCancels_Step0(t *testing.T) {
+	m := tuiModel{
+		creating:   true,
+		createStep: 0,
+		createName: "partial",
+	}
+
+	newM, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	updated := newM.(tuiModel)
+	if updated.creating {
+		t.Error("creating = true, want false after Esc")
+	}
+	if updated.createName != "" {
+		t.Errorf("createName = %q, want empty after Esc", updated.createName)
+	}
+	if cmd != nil {
+		t.Error("expected nil command on Esc")
+	}
+}
+
+func TestCreateMode_EscCancels_Step1(t *testing.T) {
+	m := tuiModel{
+		creating:   true,
+		createStep: 1,
+		createName: "my-app",
+		createDir:  "/tmp",
+	}
+
+	newM, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	updated := newM.(tuiModel)
+	if updated.creating {
+		t.Error("creating = true, want false after Esc in step 1")
+	}
+	if cmd != nil {
+		t.Error("expected nil command on Esc")
+	}
+}
+
+func TestListDirs_ReturnsSortedSubdirs(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "charlie"), 0755)
+	os.MkdirAll(filepath.Join(dir, "alpha"), 0755)
+	os.MkdirAll(filepath.Join(dir, "bravo"), 0755)
+	// Create a file — should not appear in listing
+	os.WriteFile(filepath.Join(dir, "file.txt"), []byte("hi"), 0644)
+	// Create a hidden dir — should not appear
+	os.MkdirAll(filepath.Join(dir, ".hidden"), 0755)
+
+	items := listDirs(dir)
+
+	expected := []string{"..", "alpha", "bravo", "charlie"}
+	if len(items) != len(expected) {
+		t.Fatalf("listDirs returned %d items, want %d: %v", len(items), len(expected), items)
+	}
+	for i, want := range expected {
+		if items[i] != want {
+			t.Errorf("items[%d] = %q, want %q", i, items[i], want)
+		}
+	}
+}
+
+func TestAddProject_RegistersProject(t *testing.T) {
+	dir := t.TempDir()
+	regPath := filepath.Join(dir, "projects.json")
+	reg := registry.NewRegistry(regPath)
+	reg.Init()
+
+	cmd := addProject(reg, "new-app", "/tmp/new-app")
+	msg := cmd()
+
+	result, ok := msg.(actionResultMsg)
+	if !ok {
+		t.Fatalf("expected actionResultMsg, got %T", msg)
+	}
+	if result.err != nil {
+		t.Fatalf("unexpected error: %v", result.err)
+	}
+	if result.msg != "Created project new-app" {
+		t.Errorf("msg = %q, want %q", result.msg, "Created project new-app")
+	}
+
+	exists, err := reg.HasProject("new-app")
+	if err != nil {
+		t.Fatalf("HasProject error: %v", err)
+	}
+	if !exists {
+		t.Error("project should exist in registry after addProject")
+	}
+}
+
+func TestView_CreateMode_Step0(t *testing.T) {
+	m := tuiModel{
+		creating:   true,
+		createStep: 0,
+		createName: "my-app",
+	}
+	view := stripAnsi(m.View())
+	if !containsString(view, "New project name: my-app") {
+		t.Errorf("expected name prompt in view, got:\n%s", view)
+	}
+	if !containsString(view, "enter to continue") {
+		t.Errorf("expected help text in view, got:\n%s", view)
+	}
+}
+
+func TestView_CreateMode_Step1(t *testing.T) {
+	m := tuiModel{
+		creating:       true,
+		createStep:     1,
+		createName:     "my-app",
+		createDir:      "/home/user/projects",
+		createDirItems: []string{"..", "subfolder-a", "subfolder-b"},
+		createDirIdx:   1,
+	}
+	view := stripAnsi(m.View())
+	if !containsString(view, "New project: my-app") {
+		t.Errorf("expected project name in view, got:\n%s", view)
+	}
+	if !containsString(view, "Select directory: /home/user/projects") {
+		t.Errorf("expected directory path in view, got:\n%s", view)
+	}
+	if !containsString(view, "> subfolder-a") {
+		t.Errorf("expected cursor on subfolder-a, got:\n%s", view)
+	}
+	if !containsString(view, "s=select") {
+		t.Errorf("expected help text in view, got:\n%s", view)
+	}
+}
+
 func stripAnsi(s string) string {
 	result := make([]byte, 0, len(s))
 	i := 0

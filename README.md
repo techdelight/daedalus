@@ -153,9 +153,11 @@ An interactive terminal dashboard for managing all registered projects.
 daedalus tui
 ```
 
-**Key bindings:** `j`/`↓` move down, `k`/`↑` move up, `s` start (auto-attaches to tmux), `a` attach to running session, `K` kill container, `r` refresh, `q` quit.
+**Key bindings:** `j`/`↓` move down, `k`/`↑` move up, `s` start (auto-attaches to tmux), `a` attach to running session, `Del` stop container, `n` create new project, `F2` rename, `r` refresh, `q` quit.
 
-The dashboard shows each project's name, running status, build target, and last-used time. Status refreshes automatically every 5 seconds.
+The dashboard shows each project's name, running status, build target, session count, and last-used time. Status refreshes automatically every 5 seconds.
+
+**Creating a project:** Press `n` to enter create mode. Type a project name and press Enter, then browse the filesystem to select a directory (`j`/`k` to navigate, `Enter` to open, `Backspace` to go up, `s` to select, `c` to create a new subdirectory). Press `Esc` to cancel at any step.
 
 ## Web UI Dashboard
 
