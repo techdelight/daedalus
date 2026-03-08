@@ -12,7 +12,7 @@ All notable changes to this project will be documented in this file.
 ### Added
 - TUI viewport scrolling — projects beyond the terminal height are now reachable via cursor keys. Scrollbar indicator (`█` thumb / `░` track) appears on the right when the list exceeds the viewport.
 - Dark-themed scrollbar styling for the web UI project list, matching the Tokyo Night color palette (Webkit and Firefox).
-- Version displayed in brackets after the title in both TUI (`Claude Runner [1.5.0]`) and web UI (`Daedalus [1.5.0]`).
+- Version displayed in brackets after the title in both TUI and web UI (`Daedalus [1.5.0]`).
 
 ## [1.3.0] - 2026-03-08
 
