@@ -161,22 +161,13 @@ section {
 }
 
 .nav-logo {
-    font-family: var(--font-display);
-    font-size: 18px;
-    font-weight: 600;
-    color: var(--text-bright);
     display: flex;
     align-items: center;
-    gap: 8px;
-    letter-spacing: -0.01em;
 }
 
-.nav-logo:hover {
-    color: var(--text-bright);
-}
-
-.nav-logo-icon {
-    color: var(--copper);
+.nav-logo-img {
+    height: 28px;
+    width: auto;
 }
 
 .nav-links {
