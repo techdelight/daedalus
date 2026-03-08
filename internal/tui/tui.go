@@ -176,7 +176,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, attachToSession(m.executor, p.name)
 
-		case "K":
+		case "delete":
 			if len(m.projects) == 0 {
 				return m, nil
 			}
@@ -260,7 +260,7 @@ func (m tuiModel) View() string {
 		b.WriteString("\n\n")
 	}
 
-	b.WriteString(helpStyle.Render("  [s]tart  [a]ttach  [K]ill  [r]efresh  [q]uit"))
+	b.WriteString(helpStyle.Render("  [s]tart  [a]ttach  [del]ete  [r]efresh  [q]uit"))
 	b.WriteString("\n")
 
 	return b.String()

@@ -373,7 +373,7 @@ func TestKillKey_NotRunning(t *testing.T) {
 		cursor:   0,
 	}
 
-	newM, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("K")})
+	newM, cmd := m.Update(tea.KeyMsg{Type: tea.KeyDelete})
 	updated := newM.(tuiModel)
 	if cmd != nil {
 		t.Error("expected nil command for kill on stopped project")
