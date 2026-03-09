@@ -26,7 +26,7 @@ curl -fsSL https://raw.githubusercontent.com/techdelight/daedalus/master/install
 daedalus my-awesome-app /path/to/project
 ```
 
-## tmux Controls
+## Basic Usage
 
 Daedalus wraps each container session in tmux. A few essentials:
 
