@@ -114,9 +114,6 @@ daedalus my-awesome-app
 # Register a new project with a directory
 daedalus my-awesome-app /path/to/project
 
-# Headless task
-daedalus my-awesome-app -p "Fix all linting errors"
-
 # Force rebuild the Docker image
 daedalus --build my-awesome-app /path/to/project
 

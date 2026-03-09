@@ -312,7 +312,7 @@
         <div class="container">
             <div class="section-header reveal">
                 <span class="section-label">Get started</span>
-                <h2>Up and running in 60 seconds</h2>
+                <h2>Three commands to autonomous Claude</h2>
             </div>
 
             <div class="steps">
@@ -323,7 +323,7 @@
                     </div>
                     <div class="step-content">
                         <h3>Install</h3>
-                        <p>Downloads a pre-built binary. No build step required.</p>
+                        <p>One command. Downloads a pre-built binary &mdash; no build step, no dependencies.</p>
                         <div class="terminal-window terminal-sm">
                             <div class="terminal-bar">
                                 <span class="terminal-dot"></span>
@@ -341,8 +341,8 @@
                         <span class="step-line"></span>
                     </div>
                     <div class="step-content">
-                        <h3>Start a project</h3>
-                        <p>Register and launch a project directory in an isolated container.</p>
+                        <h3>Launch a project</h3>
+                        <p>Point Daedalus at any codebase. It registers the project, spins up an isolated container, and drops you into a tmux session. On first run, authenticate with <code>claude /login</code> &mdash; credentials persist automatically.</p>
                         <div class="terminal-window terminal-sm">
                             <div class="terminal-bar">
                                 <span class="terminal-dot"></span>
@@ -357,42 +357,20 @@
                 <div class="step reveal" style="--delay: 2">
                     <div class="step-marker">
                         <span class="step-num">3</span>
-                        <span class="step-line"></span>
                     </div>
                     <div class="step-content">
-                        <h3>Authenticate (first time)</h3>
-                        <p>Log in once inside the container. Credentials persist across sessions.</p>
+                        <h3>Manage from a dashboard</h3>
+                        <p>Start, stop, attach, and switch between projects. Disconnect anytime &mdash; tmux keeps sessions alive.</p>
                         <div class="terminal-window terminal-sm">
                             <div class="terminal-bar">
                                 <span class="terminal-dot"></span>
                                 <span class="terminal-dot"></span>
                                 <span class="terminal-dot"></span>
                             </div>
-                            <pre class="terminal-body"><span class="t-prompt">$</span> <span class="t-cmd">claude /login</span></pre>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="step reveal" style="--delay: 3">
-                    <div class="step-marker">
-                        <span class="step-num">4</span>
-                    </div>
-                    <div class="step-content">
-                        <h3>Run autonomous tasks</h3>
-                        <p>Send single-prompt tasks or use the TUI and Web dashboards.</p>
-                        <div class="terminal-window terminal-sm">
-                            <div class="terminal-bar">
-                                <span class="terminal-dot"></span>
-                                <span class="terminal-dot"></span>
-                                <span class="terminal-dot"></span>
-                            </div>
-                            <pre class="terminal-body"><span class="t-comment"># Headless single-prompt task</span>
-<span class="t-prompt">$</span> <span class="t-cmd">daedalus my-app -p "Fix all linting errors"</span>
-
-<span class="t-comment"># Interactive TUI dashboard</span>
+                            <pre class="terminal-body"><span class="t-comment"># Terminal dashboard</span>
 <span class="t-prompt">$</span> <span class="t-cmd">daedalus tui</span>
 
-<span class="t-comment"># Web UI with embedded terminal</span>
+<span class="t-comment"># Browser dashboard</span>
 <span class="t-prompt">$</span> <span class="t-cmd">daedalus web</span></pre>
                         </div>
                     </div>
