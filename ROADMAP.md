@@ -10,6 +10,8 @@
 | 4 | Generate and display access token on first `daedalus web` launch |
 | 5 | Shell toggle — switch between Claude Code and a regular project shell inside the container |
 | 6 | Switch target for existing project — change build target from TUI (e.g. `F3`) and CLI (`daedalus config <name> --set target=<stage>`) without re-registering |
+| 7 | Bundle release assets — package runtime files into a single tarball on the GitHub Release page instead of individual files |
+| 8 | Release changelog — show a curated changelog / new features summary on the GitHub Release page |
 
 ## Current Sprint
 

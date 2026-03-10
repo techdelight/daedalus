@@ -10,7 +10,7 @@ GITHUB_API="https://api.github.com/repos/techdelight/daedalus/releases/latest"
 
 # ── Runtime files to install alongside the binary ────────────────────────────
 RUNTIME_FILES=(
-    .claude.json
+    claude.json
     docker-compose.yml
     Dockerfile
     entrypoint.sh

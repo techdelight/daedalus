@@ -24,7 +24,7 @@ RUN mv /home/claude/.local /opt/claude && \
     mkdir -p /opt/claude/defaults && \
     chown -R claude:claude /opt/claude
 
-COPY --chown=claude:claude .claude.json /opt/claude/defaults/.claude.json
+COPY --chown=claude:claude claude.json /opt/claude/defaults/.claude.json
 COPY --chown=claude:claude settings.json /opt/claude/defaults/settings.json
 COPY --chown=claude:claude entrypoint.sh /opt/claude/bin/entrypoint.sh
 RUN chmod +x /opt/claude/bin/entrypoint.sh

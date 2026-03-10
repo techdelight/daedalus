@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.7.6] - 2026-03-10
+
+### Changed
+- Renamed `.claude.json` to `claude.json` in the repo. The Dockerfile copies it as `.claude.json` into the image at build time, avoiding dotfile glob issues in releases and installs.
+
 ## [0.7.5] - 2026-03-10
 
 ### Fixed

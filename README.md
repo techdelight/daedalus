@@ -311,7 +311,7 @@ All fields are optional. The file itself is optional — Daedalus works without 
 
 ## MCP Servers
 
-Daedalus supports [MCP servers](https://modelcontextprotocol.io/) configured in `.claude.json` at the repo root. The file is baked into the Docker image at build time, so **rebuild after any changes** (`daedalus --build`).
+Daedalus supports [MCP servers](https://modelcontextprotocol.io/) configured in `claude.json` at the repo root. The file is copied as `.claude.json` into the Docker image at build time, so **rebuild after any changes** (`daedalus --build`).
 
 **Transport types:**
 
@@ -353,7 +353,7 @@ Claude Code reads instructions from several locations inside the container. Use 
 |---|---|---|
 | Project `CLAUDE.md` | Per-project | Mounted automatically at `/workspace/CLAUDE.md` from the project directory |
 | Project `.claude/` dir | Per-project | Mounted at `/workspace/.claude/` — place commands, settings, or memory files here |
-| `.claude.json` | All projects (same image) | Baked into the image; seeds `/home/claude/.claude-config/.claude.json` on first run |
+| `claude.json` | All projects (same image) | Copied as `.claude.json` into the image; seeds `/home/claude/.claude-config/.claude.json` on first run |
 | `settings.json` | All projects (same image) | Baked into the image; seeds `/home/claude/.claude-config/settings.json` on first run |
 
 **Per-project override:** the persistent home directory at `.cache/<project>/.claude-config/` stores the runtime copies of `.claude.json` and `settings.json`. Edit them directly to override image-level defaults for a single project without rebuilding.
