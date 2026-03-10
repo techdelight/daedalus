@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.7.4] - 2026-03-10
+
+### Added
+- README: zsh `source ~/.zshrc` note for macOS users after installation.
+- README: "Creating a New Target" section with example and guidelines.
+- ROADMAP: shell toggle and target switching backlog items.
+
+### Fixed
+- Install script and release workflow now include `.claude.json` in runtime files and release assets.
+
 ## [0.7.3] - 2026-03-08
 
 ### Fixed
