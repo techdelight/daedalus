@@ -22,6 +22,7 @@ RUN curl -fsSL https://claude.ai/install.sh > /tmp/install.sh && \
 USER root
 RUN mv /home/claude/.local /opt/claude && \
     mkdir -p /opt/claude/defaults && \
+    ln -sf /opt/claude/share/claude/versions/*/claude /opt/claude/bin/claude && \
     chown -R claude:claude /opt/claude
 
 COPY --chown=claude:claude claude.json /opt/claude/defaults/.claude.json
