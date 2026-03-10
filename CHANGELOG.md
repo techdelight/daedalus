@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.7.5] - 2026-03-10
+
+### Fixed
+- Release workflow glob `release-assets/*` did not match dotfiles — `.claude.json` was missing from GitHub Release assets.
+
 ## [0.7.4] - 2026-03-10
 
 ### Added
