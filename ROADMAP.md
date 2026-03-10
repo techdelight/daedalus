@@ -8,6 +8,8 @@
 | 2 | Session cookie with configurable expiry |
 | 3 | `--auth` / `--no-auth` flag for `daedalus web` (default: auth enabled) |
 | 4 | Generate and display access token on first `daedalus web` launch |
+| 5 | Shell toggle — switch between Claude Code and a regular project shell inside the container |
+| 6 | Switch target for existing project — change build target from TUI (e.g. `F3`) and CLI (`daedalus config <name> --set target=<stage>`) without re-registering |
 
 ## Current Sprint
 

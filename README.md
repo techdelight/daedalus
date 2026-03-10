@@ -72,6 +72,8 @@ curl -fsSL https://raw.githubusercontent.com/techdelight/daedalus/master/install
 
 The symlink is created in `~/.local/bin`. If this directory is not on your PATH, the script prints a hint.
 
+> **Note:** zsh users (the default shell on macOS) may need to run `source ~/.zshrc` or open a new terminal before the `daedalus` command is available.
+
 ## Usage
 
 ```
@@ -211,6 +213,39 @@ Select a target with `--target`:
 ```bash
 daedalus --build --target godot my-game /path/to/game-project
 ```
+
+### Creating a New Target
+
+Add a new `FROM … AS <name>` stage to the `Dockerfile`. Extend `base` (minimal) or `utils` (adds build tools) depending on what you need.
+
+```dockerfile
+# ── Stage: rust ─────────────────────────────────────────────────────────────
+# Rust development environment.
+FROM utils AS rust
+
+USER root
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+      pkg-config libssl-dev && \
+    rm -rf /var/lib/apt/lists/*
+
+USER claude
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+ENV PATH="/home/claude/.cargo/bin:$PATH"
+```
+
+Then build and run with the new target:
+
+```bash
+daedalus --build --target rust my-rust-app /path/to/project
+```
+
+**Guidelines:**
+
+- Always switch back to `USER claude` at the end of the stage.
+- Clean up apt lists (`rm -rf /var/lib/apt/lists/*`) to keep images small.
+- The stage name becomes the `--target` value — keep it short and lowercase.
 
 ## Authentication
 
