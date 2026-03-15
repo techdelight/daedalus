@@ -30,6 +30,7 @@ type Config struct {
 	RenameNewName   string   // new project name for "rename" subcommand
 	TargetOverride  bool     // true when --target was explicitly passed
 	WebAddr         string   // host:port for web UI server
+	LogFile         string   // path to log file for persistent logging
 }
 
 // Image returns the full Docker image tag.

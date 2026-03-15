@@ -17,6 +17,7 @@ import (
 	"github.com/techdelight/daedalus/internal/config"
 	"github.com/techdelight/daedalus/internal/docker"
 	"github.com/techdelight/daedalus/internal/executor"
+	"github.com/techdelight/daedalus/internal/logging"
 	"github.com/techdelight/daedalus/internal/registry"
 	"github.com/techdelight/daedalus/internal/session"
 	"github.com/techdelight/daedalus/internal/tui"
@@ -26,6 +27,7 @@ import (
 func main() {
 	color.Init()
 	if err := run(os.Args[1:]); err != nil {
+		logging.Error(err.Error())
 		fmt.Fprintf(os.Stderr, "%s %v\n", color.Red("Error:"), err)
 		os.Exit(1)
 	}
@@ -37,6 +39,14 @@ func run(args []string) error {
 		return err
 	}
 
+	// Initialize file logging
+	if err := logging.Init(cfg.LogFile, cfg.Debug); err != nil {
+		fmt.Fprintf(os.Stderr, "%s could not initialize log file: %v\n", color.Yellow("Warning:"), err)
+	}
+	defer logging.Close()
+
+	logging.Info("starting daedalus version " + core.Version)
+
 	if cfg.NoColor {
 		color.Disable()
 	}
@@ -46,26 +56,38 @@ func run(args []string) error {
 		printUsage()
 		return nil
 	case "build":
+		logging.Info("subcommand: build")
 		return buildAllProjects(cfg)
 	case "list":
+		logging.Info("subcommand: list")
 		return listProjects(cfg)
 	case "tui":
+		logging.Info("subcommand: tui")
 		return tui.Run(cfg)
 	case "web":
+		logging.Info("subcommand: web")
 		return web.Run(cfg)
 	case "prune":
+		logging.Info("subcommand: prune")
 		return pruneProjects(cfg)
 	case "remove":
+		logging.Info("subcommand: remove")
 		return removeProjects(cfg)
 	case "rename":
+		logging.Info("subcommand: rename")
 		return renameProject(cfg)
 	case "config":
+		logging.Info("subcommand: config")
 		return showOrEditConfig(cfg)
 	case "completion":
+		logging.Info("subcommand: completion")
 		return completions.Generate(cfg)
 	}
 
 	// --- Normal project flow ---
+	logging.Info("project: " + cfg.ProjectName)
+	logging.Debug("config: project-dir=" + cfg.ProjectDir + " target=" + cfg.Target + " data-dir=" + cfg.DataDir + " log-file=" + cfg.LogFile)
+
 	exec := &executor.RealExecutor{}
 
 	reg := registry.NewRegistry(cfg.RegistryPath())
@@ -127,17 +149,21 @@ func run(args []string) error {
 	// --- Image build ---
 	image := cfg.Image()
 	if cfg.Build {
+		logging.Info("building image: " + image)
 		if cfg.Debug {
 			printBuildDebugInfo(cfg, cfg.Target, image)
 		}
 		uid := strconv.Itoa(os.Getuid())
 		if err := d.Build(cfg.Target, image, uid, cfg.ScriptDir); err != nil {
+			logging.Error("build failed: " + err.Error())
 			return fmt.Errorf("building image: %w\n%s check Docker is running and try: daedalus --build %s", err, color.Cyan("Hint:"), cfg.ProjectName)
 		}
 	} else if !d.ImageExists(image) {
+		logging.Info("building image: " + image + " (missing)")
 		fmt.Printf(color.Yellow("Warning:")+" image %s missing, building...\n", image)
 		uid := strconv.Itoa(os.Getuid())
 		if err := d.Build(cfg.Target, image, uid, cfg.ScriptDir); err != nil {
+			logging.Error("build failed: " + err.Error())
 			return fmt.Errorf("building image: %w\n%s check Docker is running and try: daedalus --build %s", err, color.Cyan("Hint:"), cfg.ProjectName)
 		}
 	}
@@ -177,6 +203,11 @@ func run(args []string) error {
 		if err := reg.EndSession(cfg.ProjectName, sessionID); err != nil {
 			fmt.Fprintf(os.Stderr, color.Yellow("Warning:")+" failed to end session tracking: %v\n", err)
 		}
+	}
+	if runErr != nil {
+		logging.Error(runErr.Error())
+	} else {
+		logging.Info("done")
 	}
 	return runErr
 }

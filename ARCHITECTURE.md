@@ -44,6 +44,7 @@ All side effects (filesystem, shell, network) live here behind interfaces.
 | `session` | `Session`, `TmuxAvailable()` | tmux session create/attach/send-keys |
 | `tui` | `Run()` | Interactive TUI dashboard (bubbletea + lipgloss) |
 | `web` | `Run()`, `WebServer` | REST API + WebSocket terminal relay, embedded static assets |
+| `logging` | `Init()`, `Close()`, `Info()`, `Error()`, `Debug()` | Thread-safe file logging with timestamp and level prefixes |
 | `completions` | `Generate()` | bash/zsh/fish shell completion scripts |
 
 ### Dependency Graph (no cycles)
@@ -51,6 +52,7 @@ All side effects (filesystem, shell, network) live here behind interfaces.
 ```
 executor  (leaf)
 color     (leaf)
+logging   (leaf)
   ↑
 config    → core, color
 registry  → core

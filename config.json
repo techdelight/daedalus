@@ -3,5 +3,6 @@
   "data-dir": "",
   "debug": false,
   "no-tmux": false,
-  "image-prefix": "techdelight/claude-runner"
+  "image-prefix": "techdelight/claude-runner",
+  "log-file": ""
 }

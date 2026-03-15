@@ -140,6 +140,9 @@ func ParseArgs(args []string) (*core.Config, error) {
 	if cfg.DataDir == "" {
 		cfg.DataDir = filepath.Join(cfg.ScriptDir, ".cache")
 	}
+	if cfg.LogFile == "" {
+		cfg.LogFile = filepath.Join(cfg.DataDir, "daedalus.log")
+	}
 
 	// Handle "remove" subcommand — before the positional switch to allow
 	// arbitrary number of target names (e.g., daedalus remove a b c).
