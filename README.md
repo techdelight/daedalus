@@ -107,7 +107,7 @@ daedalus --help
 
 | Flag | Description |
 |---|---|
-| `--build` | Force rebuild the Docker image |
+| `--build` | Force rebuild the Docker image (standalone: rebuild all registered projects) |
 | `--target <stage>` | Build target: `dev` (default), `godot`, `base`, `utils` |
 | `--resume <id>` | Resume a previous Claude session |
 | `-p <prompt>` | Run a headless single-prompt task |
@@ -130,6 +130,12 @@ daedalus my-awesome-app /path/to/project
 
 # Force rebuild the Docker image
 daedalus --build my-awesome-app /path/to/project
+
+# Rebuild all registered projects
+daedalus --build
+
+# Rebuild only the godot target image
+daedalus --build --target godot
 
 # Build a specific target (default: dev)
 daedalus --build --target godot my-awesome-app /path/to/project
@@ -296,7 +302,8 @@ A default `config.json` is installed next to the binary. The installer automatic
   "data-dir": "/mnt/data/daedalus",
   "debug": true,
   "no-tmux": false,
-  "image-prefix": "custom/claude-runner"
+  "image-prefix": "custom/claude-runner",
+  "log-file": "/mnt/data/daedalus/daedalus.log"
 }
 ```
 
@@ -308,6 +315,7 @@ All fields are optional. The file itself is optional — Daedalus works without 
 | `debug` | bool | Enable Claude Code debug mode |
 | `no-tmux` | bool | Run without tmux session wrapping |
 | `image-prefix` | string | Docker image prefix (default: `techdelight/claude-runner`) |
+| `log-file` | string | Path to the runtime log file (default: `<data-dir>/daedalus.log`) |
 
 ## MCP Servers
 
@@ -371,6 +379,18 @@ man daedalus
 # Or generate a fresh copy
 go run ./cmd/generate-manpage > daedalus.1
 ```
+
+## Logging
+
+Daedalus writes runtime logs to a persistent file for post-mortem debugging. Log entries include timestamps, levels (`INFO`, `DEBUG`, `ERROR`), and key events.
+
+**Default location:** `<data-dir>/daedalus.log`
+
+Customize via `log-file` in `config.json`. Debug-level messages are only written when `--debug` is enabled.
+
+## Auto-Rebuild
+
+Daedalus tracks a SHA-256 checksum of build-relevant files (Dockerfile, entrypoint.sh, docker-compose.yml, settings.json, claude.json). After an install or upgrade that changes these files, the Docker image is automatically rebuilt on next project start. No manual `--build` needed.
 
 ## Environment Variables
 

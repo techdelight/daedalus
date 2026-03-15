@@ -4,18 +4,31 @@
 
 | # | Item |
 |---|------|
-| 1 | Authentication for Web UI — add token-based login to protect the dashboard when exposed on a network |
-| 2 | Session cookie with configurable expiry |
-| 3 | `--auth` / `--no-auth` flag for `daedalus web` (default: auth enabled) |
-| 4 | Generate and display access token on first `daedalus web` launch |
-| 5 | Shell toggle — switch between Claude Code and a regular project shell inside the container |
-| 6 | Switch target for existing project — change build target from TUI (e.g. `F3`) and CLI (`daedalus config <name> --set target=<stage>`) without re-registering |
-| 7 | Bundle release assets — package runtime files into a single tarball on the GitHub Release page instead of individual files |
-| 8 | Release changelog — show a curated changelog / new features summary on the GitHub Release page |
+| 1 | Agent mode (`--agent`) — start Claude Code as a specific agent by passing a named agent configuration, enabling purpose-built personas and tool sets per project |
+| 2 | Authentication for Web UI — add token-based login to protect the dashboard when exposed on a network |
+| 3 | Session cookie with configurable expiry |
+| 4 | `--auth` / `--no-auth` flag for `daedalus web` (default: auth enabled) |
+| 5 | Generate and display access token on first `daedalus web` launch |
+| 6 | Shell toggle — switch between Claude Code and a regular project shell inside the container |
+| 7 | Switch target for existing project — change build target from TUI (e.g. `F3`) and CLI (`daedalus config <name> --set target=<stage>`) without re-registering |
+| 8 | Bundle release assets — package runtime files into a single tarball on the GitHub Release page instead of individual files |
+| 9 | Side-by-side versions — install a new version alongside the existing one, allowing rollback or A/B comparison before switching |
+| 10 | Shared skills/MCP repository — a central directory of skills and MCP server configs that can be mounted or linked into any project, avoiding per-project duplication |
 
 ## Current Sprint
 
-(planning next sprint)
+### Sprint 12: Build, Debug & Logging Improvements (v0.8.0)
+
+Goal: improve the build workflow, add diagnostic tooling, and set up release documentation.
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | Standalone `--build` — allow `daedalus --build` without requiring a project name or path, rebuilding the image for the current directory or all registered projects | Done |
+| 2 | Verbose `--debug --build` output — when `--debug` is combined with `--build`, log all environment variables and the resolved paths for Dockerfile and docker-compose.yml | Done |
+| 3 | File logging — write runtime logs to a persistent log file (e.g. `~/.local/share/daedalus/daedalus.log` or configurable path) for post-mortem debugging | Done |
+| 4 | Release changelog — show a curated changelog / new features summary on the GitHub Release page | Done |
+| 5 | Auto-rebuild after install/upgrade — detect when runtime files (Dockerfile, entrypoint, etc.) have changed and rebuild the Docker image on next project start | Done |
+| 6 | Install script test harness — run the installer in a chroot or lightweight container to validate install/upgrade/uninstall flows without affecting the host | Done |
 
 ---
 

@@ -105,6 +105,12 @@ go test -run TestConfig_UseTmux ./core/
 
 # Integration tests only
 go test -v ./cmd/daedalus/ -run Integration
+
+# Changelog extraction tests
+bash scripts/extract-changelog_test.sh
+
+# Install script tests (mocked downloads, no network)
+bash scripts/test-install.sh
 ```
 
 ## Continuous Integration
