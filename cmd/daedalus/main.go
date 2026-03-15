@@ -45,6 +45,8 @@ func run(args []string) error {
 	case "help":
 		printUsage()
 		return nil
+	case "build":
+		return buildAllProjects(cfg)
 	case "list":
 		return listProjects(cfg)
 	case "tui":
@@ -174,6 +176,64 @@ func run(args []string) error {
 		}
 	}
 	return runErr
+}
+
+// buildAllProjects rebuilds Docker images for all registered projects.
+// When --target is explicitly provided, only that target is rebuilt.
+// Otherwise, each unique target from the registry is rebuilt.
+func buildAllProjects(cfg *core.Config) error {
+	exec := &executor.RealExecutor{}
+	d := docker.NewDocker(exec, filepath.Join(cfg.ScriptDir, "docker-compose.yml"))
+
+	reg := registry.NewRegistry(cfg.RegistryPath())
+	if err := reg.Init(); err != nil {
+		return fmt.Errorf("initializing registry: %w", err)
+	}
+
+	entries, err := reg.GetProjectEntries()
+	if err != nil {
+		return fmt.Errorf("reading projects: %w", err)
+	}
+
+	if len(entries) == 0 {
+		return fmt.Errorf("no registered projects\n%s register a project first with: daedalus <name> <path>", color.Cyan("Hint:"))
+	}
+
+	// Collect unique targets to build
+	targets := collectBuildTargets(cfg, entries)
+
+	uid := strconv.Itoa(os.Getuid())
+	fmt.Printf("Rebuilding %d image(s) for %d registered project(s)...\n\n", len(targets), len(entries))
+
+	for _, target := range targets {
+		image := cfg.ImagePrefix + ":" + target
+		if err := d.Build(target, image, uid, cfg.ScriptDir); err != nil {
+			return fmt.Errorf("building image %s: %w", image, err)
+		}
+		fmt.Println()
+	}
+
+	fmt.Printf("%s all images rebuilt.\n", color.Green("Done:"))
+	return nil
+}
+
+// collectBuildTargets returns the deduplicated, sorted list of targets to build.
+// If --target was explicitly set, only that target is returned.
+// Otherwise, unique targets are collected from all registered projects.
+func collectBuildTargets(cfg *core.Config, entries []core.ProjectInfo) []string {
+	if cfg.TargetOverride {
+		return []string{cfg.Target}
+	}
+	seen := make(map[string]bool)
+	for _, e := range entries {
+		seen[e.Entry.Target] = true
+	}
+	targets := make([]string, 0, len(seen))
+	for t := range seen {
+		targets = append(targets, t)
+	}
+	sort.Strings(targets)
+	return targets
 }
 
 // resolveProject determines the project name, directory, and target from the
@@ -410,6 +470,7 @@ func showOrEditConfig(cfg *core.Config) error {
 // printUsage prints the CLI usage message.
 func printUsage() {
 	fmt.Printf("%s daedalus [flags] <project-name> [project-dir]\n", color.Bold("Usage:"))
+	fmt.Println("       daedalus --build")
 	fmt.Println("       daedalus list")
 	fmt.Println("       daedalus prune")
 	fmt.Println("       daedalus remove <name> [name...]")
@@ -423,6 +484,7 @@ func printUsage() {
 	fmt.Println(color.Bold("Commands:"))
 	fmt.Println("  <project-name>                Open a registered project (uses stored directory)")
 	fmt.Println("  <project-name> <project-dir>  Register and open a new project")
+	fmt.Println("  --build                       Rebuild images for all registered projects")
 	fmt.Println("  list                          List all registered projects")
 	fmt.Println("  prune                         Remove registry entries with missing directories")
 	fmt.Println("  remove <name> [name...]       Remove named projects from the registry")
@@ -433,7 +495,7 @@ func printUsage() {
 	fmt.Println("  completion <shell>            Print shell completion script (bash, zsh, fish)")
 	fmt.Println()
 	fmt.Println(color.Bold("Flags:"))
-	fmt.Println("  --build            Force rebuild the Docker image")
+	fmt.Println("  --build            Force rebuild the Docker image (standalone: rebuild all)")
 	fmt.Println("  --target <stage>   Build target: dev (default), godot, base, utils")
 	fmt.Println("  --resume <id>      Resume a previous Claude session")
 	fmt.Println("  -p <prompt>        Run a headless single-prompt task")
@@ -450,6 +512,8 @@ func printUsage() {
 	fmt.Println("  daedalus my-app                         Open existing project from registry")
 	fmt.Println("  daedalus my-app /path/to/project        Register and open a new project")
 	fmt.Println("  daedalus my-app -p \"Fix linting errors\" Run a headless task")
+	fmt.Println("  daedalus --build                        Rebuild images for all projects")
+	fmt.Println("  daedalus --build --target godot          Rebuild only the godot target image")
 	fmt.Println("  daedalus --build --target godot my-game /path/to/game")
 	fmt.Println("  daedalus list                           Show all registered projects")
 	fmt.Println("  daedalus web --port 8080                Start web UI on port 8080")

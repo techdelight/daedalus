@@ -182,6 +182,10 @@ func ParseArgs(args []string) (*core.Config, error) {
 	// Handle positional args
 	switch len(positional) {
 	case 0:
+		if cfg.Build {
+			cfg.Subcommand = "build"
+			return cfg, nil
+		}
 		cfg.Subcommand = "help"
 		return cfg, nil
 	case 1:

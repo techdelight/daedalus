@@ -20,7 +20,7 @@ type Config struct {
 	Force           bool
 	NoColor         bool
 	ImagePrefix     string
-	Subcommand      string   // "list", "help", "web", "remove", "rename", "config", "completion", or "" for normal mode
+	Subcommand      string   // "list", "help", "build", "web", "remove", "rename", "config", "completion", or "" for normal mode
 	RemoveTargets   []string // project names for "remove" subcommand
 	ConfigTarget    string   // project name for "config" subcommand
 	ConfigSet       []string // "key=value" pairs for --set

@@ -551,3 +551,68 @@ func TestParseArgs_DataDirDefaultFallback(t *testing.T) {
 		t.Errorf("DataDir = %q, want default %q", cfg.DataDir, want)
 	}
 }
+
+func TestParseArgs_BuildNoArgs_BuildSubcommand(t *testing.T) {
+	cfg, err := ParseArgs([]string{"--build"})
+	if err != nil {
+		t.Fatalf("ParseArgs failed: %v", err)
+	}
+	if cfg.Subcommand != "build" {
+		t.Errorf("Subcommand = %q, want %q", cfg.Subcommand, "build")
+	}
+	if !cfg.Build {
+		t.Error("Build = false, want true")
+	}
+}
+
+func TestParseArgs_BuildWithTargetNoArgs(t *testing.T) {
+	cfg, err := ParseArgs([]string{"--build", "--target", "godot"})
+	if err != nil {
+		t.Fatalf("ParseArgs failed: %v", err)
+	}
+	if cfg.Subcommand != "build" {
+		t.Errorf("Subcommand = %q, want %q", cfg.Subcommand, "build")
+	}
+	if !cfg.Build {
+		t.Error("Build = false, want true")
+	}
+	if cfg.Target != "godot" {
+		t.Errorf("Target = %q, want %q", cfg.Target, "godot")
+	}
+}
+
+func TestParseArgs_BuildWithProjectName_NormalFlow(t *testing.T) {
+	cfg, err := ParseArgs([]string{"--build", "my-project"})
+	if err != nil {
+		t.Fatalf("ParseArgs failed: %v", err)
+	}
+	if cfg.Subcommand != "" {
+		t.Errorf("Subcommand = %q, want empty (normal project flow)", cfg.Subcommand)
+	}
+	if !cfg.Build {
+		t.Error("Build = false, want true")
+	}
+	if cfg.ProjectName != "my-project" {
+		t.Errorf("ProjectName = %q, want %q", cfg.ProjectName, "my-project")
+	}
+}
+
+func TestParseArgs_BuildNoArgs_ScriptDirResolved(t *testing.T) {
+	cfg, err := ParseArgs([]string{"--build"})
+	if err != nil {
+		t.Fatalf("ParseArgs failed: %v", err)
+	}
+	if cfg.ScriptDir == "" {
+		t.Error("ScriptDir is empty, want non-empty (should be resolved)")
+	}
+}
+
+func TestParseArgs_BuildNoArgs_DataDirResolved(t *testing.T) {
+	cfg, err := ParseArgs([]string{"--build"})
+	if err != nil {
+		t.Fatalf("ParseArgs failed: %v", err)
+	}
+	if cfg.DataDir == "" {
+		t.Error("DataDir is empty, want non-empty (should be resolved)")
+	}
+}
