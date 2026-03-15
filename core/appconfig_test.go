@@ -86,6 +86,35 @@ func TestApplyAppConfig_NilPointers_NoChange(t *testing.T) {
 	if cfg.ImagePrefix != "techdelight/claude-runner" {
 		t.Errorf("ImagePrefix = %q, want default", cfg.ImagePrefix)
 	}
+	if cfg.LogFile != "" {
+		t.Errorf("LogFile = %q, want empty", cfg.LogFile)
+	}
+}
+
+func TestApplyAppConfig_LogFile_Applied(t *testing.T) {
+	// Arrange
+	cfg := &Config{ImagePrefix: "techdelight/claude-runner"}
+
+	// Act
+	ApplyAppConfig(cfg, AppConfig{LogFile: strPtr("/var/log/daedalus.log")})
+
+	// Assert
+	if cfg.LogFile != "/var/log/daedalus.log" {
+		t.Errorf("LogFile = %q, want %q", cfg.LogFile, "/var/log/daedalus.log")
+	}
+}
+
+func TestApplyAppConfig_LogFile_CLIWins(t *testing.T) {
+	// Arrange
+	cfg := &Config{LogFile: "/from-cli/debug.log", ImagePrefix: "techdelight/claude-runner"}
+
+	// Act
+	ApplyAppConfig(cfg, AppConfig{LogFile: strPtr("/from-config/daedalus.log")})
+
+	// Assert
+	if cfg.LogFile != "/from-cli/debug.log" {
+		t.Errorf("LogFile = %q, want %q (CLI should win)", cfg.LogFile, "/from-cli/debug.log")
+	}
 }
 
 func TestApplyAppConfig_AllFields(t *testing.T) {
@@ -95,6 +124,7 @@ func TestApplyAppConfig_AllFields(t *testing.T) {
 		Debug:       boolPtr(true),
 		NoTmux:      boolPtr(true),
 		ImagePrefix: strPtr("my/image"),
+		LogFile:     strPtr("/tmp/daedalus.log"),
 	})
 	if cfg.DataDir != "/data" {
 		t.Errorf("DataDir = %q, want %q", cfg.DataDir, "/data")
@@ -107,5 +137,8 @@ func TestApplyAppConfig_AllFields(t *testing.T) {
 	}
 	if cfg.ImagePrefix != "my/image" {
 		t.Errorf("ImagePrefix = %q, want %q", cfg.ImagePrefix, "my/image")
+	}
+	if cfg.LogFile != "/tmp/daedalus.log" {
+		t.Errorf("LogFile = %q, want %q", cfg.LogFile, "/tmp/daedalus.log")
 	}
 }

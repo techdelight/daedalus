@@ -201,6 +201,7 @@ if [[ "$UPGRADING" == true ]]; then
     OLD_DEBUG="$(grep '"debug"' "$OLD_CONFIG" | sed 's/.*"debug": *\([a-z]*\).*/\1/' || true)"
     OLD_NO_TMUX="$(grep '"no-tmux"' "$OLD_CONFIG" | sed 's/.*"no-tmux": *\([a-z]*\).*/\1/' || true)"
     OLD_IMAGE_PREFIX="$(grep '"image-prefix"' "$OLD_CONFIG" | sed 's/.*"image-prefix": *"\([^"]*\)".*/\1/' || true)"
+    OLD_LOG_FILE="$(grep '"log-file"' "$OLD_CONFIG" | sed 's/.*"log-file": *"\([^"]*\)".*/\1/' || true)"
 else
     echo ""
     echo "Installing to $PREFIX..."
@@ -225,11 +226,13 @@ if [[ "$UPGRADING" == true ]]; then
     DEBUG="${OLD_DEBUG:-false}"
     NO_TMUX="${OLD_NO_TMUX:-false}"
     IMAGE_PREFIX="${OLD_IMAGE_PREFIX:-techdelight/claude-runner}"
+    LOG_FILE="${OLD_LOG_FILE:-$DATA_DIR/daedalus.log}"
 else
     DATA_DIR="$PREFIX/.cache"
     DEBUG="false"
     NO_TMUX="false"
     IMAGE_PREFIX="techdelight/claude-runner"
+    LOG_FILE="$DATA_DIR/daedalus.log"
 fi
 
 cat > "$PREFIX/config.json" <<EOCFG
@@ -238,7 +241,8 @@ cat > "$PREFIX/config.json" <<EOCFG
   "data-dir": "$DATA_DIR",
   "debug": $DEBUG,
   "no-tmux": $NO_TMUX,
-  "image-prefix": "$IMAGE_PREFIX"
+  "image-prefix": "$IMAGE_PREFIX",
+  "log-file": "$LOG_FILE"
 }
 EOCFG
 

@@ -10,6 +10,7 @@ type AppConfig struct {
 	Debug       *bool   `json:"debug,omitempty"`
 	NoTmux      *bool   `json:"no-tmux,omitempty"`
 	ImagePrefix *string `json:"image-prefix,omitempty"`
+	LogFile     *string `json:"log-file,omitempty"`
 }
 
 // ApplyAppConfig sets fields on cfg from app only when the cfg field is still
@@ -26,5 +27,8 @@ func ApplyAppConfig(cfg *Config, app AppConfig) {
 	}
 	if cfg.ImagePrefix == "techdelight/claude-runner" && app.ImagePrefix != nil {
 		cfg.ImagePrefix = *app.ImagePrefix
+	}
+	if cfg.LogFile == "" && app.LogFile != nil {
+		cfg.LogFile = *app.LogFile
 	}
 }
