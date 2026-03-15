@@ -148,6 +148,8 @@ func run(args []string) error {
 
 	// --- Image build ---
 	image := cfg.Image()
+	checksumPath := filepath.Join(cfg.DataDir, "build-checksum")
+
 	if cfg.Build {
 		logging.Info("building image: " + image)
 		if cfg.Debug {
@@ -158,6 +160,9 @@ func run(args []string) error {
 			logging.Error("build failed: " + err.Error())
 			return fmt.Errorf("building image: %w\n%s check Docker is running and try: daedalus --build %s", err, color.Cyan("Hint:"), cfg.ProjectName)
 		}
+		if err := updateBuildChecksum(cfg.ScriptDir, checksumPath); err != nil {
+			fmt.Fprintf(os.Stderr, "%s could not update build checksum: %v\n", color.Yellow("Warning:"), err)
+		}
 	} else if !d.ImageExists(image) {
 		logging.Info("building image: " + image + " (missing)")
 		fmt.Printf(color.Yellow("Warning:")+" image %s missing, building...\n", image)
@@ -165,6 +170,20 @@ func run(args []string) error {
 		if err := d.Build(cfg.Target, image, uid, cfg.ScriptDir); err != nil {
 			logging.Error("build failed: " + err.Error())
 			return fmt.Errorf("building image: %w\n%s check Docker is running and try: daedalus --build %s", err, color.Cyan("Hint:"), cfg.ProjectName)
+		}
+		if err := updateBuildChecksum(cfg.ScriptDir, checksumPath); err != nil {
+			fmt.Fprintf(os.Stderr, "%s could not update build checksum: %v\n", color.Yellow("Warning:"), err)
+		}
+	} else if docker.NeedsRebuild(cfg.ScriptDir, checksumPath) {
+		logging.Info("runtime files changed, rebuilding image: " + image)
+		fmt.Printf("%s runtime files changed, rebuilding image %s...\n", color.Yellow("Notice:"), image)
+		uid := strconv.Itoa(os.Getuid())
+		if err := d.Build(cfg.Target, image, uid, cfg.ScriptDir); err != nil {
+			logging.Error("auto-rebuild failed: " + err.Error())
+			return fmt.Errorf("auto-rebuilding image: %w", err)
+		}
+		if err := updateBuildChecksum(cfg.ScriptDir, checksumPath); err != nil {
+			fmt.Fprintf(os.Stderr, "%s could not update build checksum: %v\n", color.Yellow("Warning:"), err)
 		}
 	}
 
@@ -239,6 +258,8 @@ func buildAllProjects(cfg *core.Config) error {
 	uid := strconv.Itoa(os.Getuid())
 	fmt.Printf("Rebuilding %d image(s) for %d registered project(s)...\n\n", len(targets), len(entries))
 
+	checksumPath := filepath.Join(cfg.DataDir, "build-checksum")
+
 	for _, target := range targets {
 		image := cfg.ImagePrefix + ":" + target
 		if cfg.Debug {
@@ -250,7 +271,24 @@ func buildAllProjects(cfg *core.Config) error {
 		fmt.Println()
 	}
 
+	if err := updateBuildChecksum(cfg.ScriptDir, checksumPath); err != nil {
+		fmt.Fprintf(os.Stderr, "%s could not update build checksum: %v\n", color.Yellow("Warning:"), err)
+	}
+
 	fmt.Printf("%s all images rebuilt.\n", color.Green("Done:"))
+	return nil
+}
+
+// updateBuildChecksum computes and stores the checksum of build-relevant files.
+func updateBuildChecksum(scriptDir, checksumPath string) error {
+	content, err := docker.ReadBuildFilesContent(scriptDir)
+	if err != nil {
+		return fmt.Errorf("reading build files: %w", err)
+	}
+	checksum := core.ComputeBuildChecksum(content)
+	if err := docker.WriteChecksum(checksumPath, checksum); err != nil {
+		return fmt.Errorf("writing checksum: %w", err)
+	}
 	return nil
 }
 
