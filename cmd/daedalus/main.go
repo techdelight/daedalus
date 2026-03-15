@@ -127,6 +127,9 @@ func run(args []string) error {
 	// --- Image build ---
 	image := cfg.Image()
 	if cfg.Build {
+		if cfg.Debug {
+			printBuildDebugInfo(cfg, cfg.Target, image)
+		}
 		uid := strconv.Itoa(os.Getuid())
 		if err := d.Build(cfg.Target, image, uid, cfg.ScriptDir); err != nil {
 			return fmt.Errorf("building image: %w\n%s check Docker is running and try: daedalus --build %s", err, color.Cyan("Hint:"), cfg.ProjectName)
@@ -207,6 +210,9 @@ func buildAllProjects(cfg *core.Config) error {
 
 	for _, target := range targets {
 		image := cfg.ImagePrefix + ":" + target
+		if cfg.Debug {
+			printBuildDebugInfo(cfg, target, image)
+		}
 		if err := d.Build(target, image, uid, cfg.ScriptDir); err != nil {
 			return fmt.Errorf("building image %s: %w", image, err)
 		}
@@ -215,6 +221,26 @@ func buildAllProjects(cfg *core.Config) error {
 
 	fmt.Printf("%s all images rebuilt.\n", color.Green("Done:"))
 	return nil
+}
+
+// printBuildDebugInfo prints diagnostic information before a Docker build when
+// both --debug and --build are set. It prints resolved paths, target, image,
+// and all environment variables sorted alphabetically.
+func printBuildDebugInfo(cfg *core.Config, target, image string) {
+	fmt.Println(color.Dim("--- Build Debug Info ---"))
+	fmt.Printf("  Dockerfile:       %s\n", filepath.Join(cfg.ScriptDir, "Dockerfile"))
+	fmt.Printf("  Compose file:     %s\n", filepath.Join(cfg.ScriptDir, "docker-compose.yml"))
+	fmt.Printf("  Target:           %s\n", target)
+	fmt.Printf("  Image:            %s\n", image)
+	fmt.Println()
+	fmt.Println(color.Dim("  Environment variables:"))
+	envVars := os.Environ()
+	sort.Strings(envVars)
+	for _, env := range envVars {
+		fmt.Printf("    %s\n", env)
+	}
+	fmt.Println(color.Dim("--- End Build Debug Info ---"))
+	fmt.Println()
 }
 
 // collectBuildTargets returns the deduplicated, sorted list of targets to build.
