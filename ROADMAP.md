@@ -14,6 +14,7 @@
 | 8 | Bundle release assets — package runtime files into a single tarball on the GitHub Release page instead of individual files |
 | 9 | Side-by-side versions — install a new version alongside the existing one, allowing rollback or A/B comparison before switching |
 | 10 | Shared skills/MCP repository — a central directory of skills and MCP server configs that can be mounted or linked into any project, avoiding per-project duplication |
+| 11 | Homebrew installation (`brew install daedalus`) — add Homebrew tap, formula generator, and CI automation. See [docs/homebrew-plan.md](docs/homebrew-plan.md) for full plan |
 
 ## Current Sprint
 
