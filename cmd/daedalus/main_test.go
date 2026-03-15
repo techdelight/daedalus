@@ -738,6 +738,118 @@ func TestBuildAllProjects_NoRegisteredProjects(t *testing.T) {
 	}
 }
 
+func TestPrintBuildDebugInfo(t *testing.T) {
+	tests := []struct {
+		name      string
+		scriptDir string
+		target    string
+		image     string
+		wantParts []string
+	}{
+		{
+			name:      "prints all expected fields",
+			scriptDir: "/opt/daedalus",
+			target:    "dev",
+			image:     "techdelight/claude-runner:dev",
+			wantParts: []string{
+				"--- Build Debug Info ---",
+				"/opt/daedalus/Dockerfile",
+				"/opt/daedalus/docker-compose.yml",
+				"Target:           dev",
+				"Image:            techdelight/claude-runner:dev",
+				"Environment variables:",
+				"--- End Build Debug Info ---",
+			},
+		},
+		{
+			name:      "uses correct paths for custom script dir",
+			scriptDir: "/home/user/daedalus",
+			target:    "godot",
+			image:     "techdelight/claude-runner:godot",
+			wantParts: []string{
+				"/home/user/daedalus/Dockerfile",
+				"/home/user/daedalus/docker-compose.yml",
+				"Target:           godot",
+				"Image:            techdelight/claude-runner:godot",
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			cfg := &core.Config{
+				ScriptDir: tc.scriptDir,
+			}
+
+			// Set a known env var so we can verify env output
+			t.Setenv("DAEDALUS_TEST_VAR", "test_value_123")
+
+			// Capture stdout
+			old := os.Stdout
+			r, w, _ := os.Pipe()
+			os.Stdout = w
+
+			// Act
+			printBuildDebugInfo(cfg, tc.target, tc.image)
+
+			w.Close()
+			var buf [65536]byte
+			n, _ := r.Read(buf[:])
+			os.Stdout = old
+
+			output := string(buf[:n])
+
+			// Assert
+			for _, part := range tc.wantParts {
+				if !strings.Contains(output, part) {
+					t.Errorf("output missing %q\ngot:\n%s", part, output)
+				}
+			}
+
+			// Verify env vars are included
+			if !strings.Contains(output, "DAEDALUS_TEST_VAR=test_value_123") {
+				t.Errorf("output missing test env var\ngot:\n%s", output)
+			}
+		})
+	}
+}
+
+func TestPrintBuildDebugInfo_EnvVarsSorted(t *testing.T) {
+	// Arrange
+	cfg := &core.Config{
+		ScriptDir: "/opt/daedalus",
+	}
+
+	t.Setenv("DAEDALUS_AAA", "first")
+	t.Setenv("DAEDALUS_ZZZ", "last")
+
+	// Capture stdout
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	// Act
+	printBuildDebugInfo(cfg, "dev", "img:dev")
+
+	w.Close()
+	var buf [65536]byte
+	n, _ := r.Read(buf[:])
+	os.Stdout = old
+
+	output := string(buf[:n])
+
+	// Assert: AAA should appear before ZZZ
+	aaaIdx := strings.Index(output, "DAEDALUS_AAA")
+	zzzIdx := strings.Index(output, "DAEDALUS_ZZZ")
+	if aaaIdx == -1 || zzzIdx == -1 {
+		t.Fatalf("expected both DAEDALUS_AAA and DAEDALUS_ZZZ in output, got:\n%s", output)
+	}
+	if aaaIdx >= zzzIdx {
+		t.Errorf("DAEDALUS_AAA (at %d) should appear before DAEDALUS_ZZZ (at %d)", aaaIdx, zzzIdx)
+	}
+}
+
 func TestHandleDirConflict_TouchProjectError(t *testing.T) {
 	dir := t.TempDir()
 	regFile := filepath.Join(dir, "projects.json")
