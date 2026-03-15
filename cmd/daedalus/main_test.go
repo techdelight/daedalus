@@ -635,6 +635,109 @@ func TestShowConfig_NoProjectName(t *testing.T) {
 	}
 }
 
+func TestCollectBuildTargets_UniqueTargets(t *testing.T) {
+	tests := []struct {
+		name           string
+		targetOverride bool
+		target         string
+		entries        []core.ProjectInfo
+		want           []string
+	}{
+		{
+			name:           "single target from one project",
+			targetOverride: false,
+			target:         "dev",
+			entries: []core.ProjectInfo{
+				{Name: "app1", Entry: core.ProjectEntry{Target: "dev"}},
+			},
+			want: []string{"dev"},
+		},
+		{
+			name:           "dedup same target from multiple projects",
+			targetOverride: false,
+			target:         "dev",
+			entries: []core.ProjectInfo{
+				{Name: "app1", Entry: core.ProjectEntry{Target: "dev"}},
+				{Name: "app2", Entry: core.ProjectEntry{Target: "dev"}},
+				{Name: "app3", Entry: core.ProjectEntry{Target: "dev"}},
+			},
+			want: []string{"dev"},
+		},
+		{
+			name:           "multiple unique targets sorted",
+			targetOverride: false,
+			target:         "dev",
+			entries: []core.ProjectInfo{
+				{Name: "game", Entry: core.ProjectEntry{Target: "godot"}},
+				{Name: "api", Entry: core.ProjectEntry{Target: "dev"}},
+				{Name: "tools", Entry: core.ProjectEntry{Target: "utils"}},
+			},
+			want: []string{"dev", "godot", "utils"},
+		},
+		{
+			name:           "target override uses explicit target only",
+			targetOverride: true,
+			target:         "godot",
+			entries: []core.ProjectInfo{
+				{Name: "app1", Entry: core.ProjectEntry{Target: "dev"}},
+				{Name: "app2", Entry: core.ProjectEntry{Target: "utils"}},
+			},
+			want: []string{"godot"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			cfg := &core.Config{
+				Target:         tc.target,
+				TargetOverride: tc.targetOverride,
+			}
+
+			// Act
+			got := collectBuildTargets(cfg, tc.entries)
+
+			// Assert
+			if len(got) != len(tc.want) {
+				t.Fatalf("collectBuildTargets() returned %d targets, want %d: got %v", len(got), len(tc.want), got)
+			}
+			for i, target := range got {
+				if target != tc.want[i] {
+					t.Errorf("targets[%d] = %q, want %q", i, target, tc.want[i])
+				}
+			}
+		})
+	}
+}
+
+func TestBuildAllProjects_NoRegisteredProjects(t *testing.T) {
+	// Arrange
+	dir := t.TempDir()
+	cacheDir := filepath.Join(dir, ".cache")
+	os.MkdirAll(cacheDir, 0755)
+	regFile := filepath.Join(cacheDir, "projects.json")
+	reg := registry.NewRegistry(regFile)
+	reg.Init()
+
+	cfg := &core.Config{
+		ScriptDir:   dir,
+		DataDir:     cacheDir,
+		ImagePrefix: "techdelight/claude-runner",
+		Target:      "dev",
+	}
+
+	// Act
+	err := buildAllProjects(cfg)
+
+	// Assert
+	if err == nil {
+		t.Fatal("expected error for empty registry, got nil")
+	}
+	if !strings.Contains(err.Error(), "no registered projects") {
+		t.Errorf("error = %q, want mention of 'no registered projects'", err)
+	}
+}
+
 func TestHandleDirConflict_TouchProjectError(t *testing.T) {
 	dir := t.TempDir()
 	regFile := filepath.Join(dir, "projects.json")
