@@ -410,6 +410,18 @@ Daedalus tracks a SHA-256 checksum of build-relevant files (Dockerfile, entrypoi
 - Docker and Docker Compose
 - (Optional) `tmux` for detach/reattach support
 
+## Dev Builds
+
+Rolling pre-release binaries are built automatically from the latest `master` commit. These are useful for testing in-progress work before a stable release.
+
+```bash
+# Download a dev binary (replace PLATFORM with linux-amd64, linux-arm64, darwin-amd64, or darwin-arm64)
+curl -fsSL https://github.com/techdelight/daedalus/releases/download/dev/daedalus-PLATFORM -o daedalus
+chmod +x daedalus
+```
+
+Dev builds are marked as pre-release on the [Releases page](https://github.com/techdelight/daedalus/releases/tag/dev) and report a version like `0.8.1-dev+abc1234`. They are overwritten on every push to `master`.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for build instructions, development workflow, and technical details. See [ARCHITECTURE.md](ARCHITECTURE.md) for system design.

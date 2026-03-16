@@ -29,6 +29,7 @@ Goal: improve cross-platform experience and Web UI accessibility.
 | # | Item | Status |
 |---|------|--------|
 | 1 | WSL2 Web UI access — auto-detect WSL2, bind to `0.0.0.0`, print VM IP for Windows browser access | Done |
+| 2 | Dev release workflow — rolling `dev` pre-release on push to master with `VERSION-dev+SHA` binaries | Done |
 
 ### Sprint 12: Build, Debug & Logging Improvements (v0.8.0)
 

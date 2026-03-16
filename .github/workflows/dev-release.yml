@@ -1,0 +1,122 @@
+# Copyright (C) 2026 Techdelight BV
+
+name: Dev Release
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    name: Pre-release Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+
+      - name: Run tests
+        run: go test -v -race ./...
+
+  build:
+    name: Build Dev Binary
+    needs: test
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+
+      - name: Build binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          VERSION="$(cat VERSION)-dev+$(git rev-parse --short HEAD)"
+          go build -ldflags="-s -w -X github.com/techdelight/daedalus/core.Version=$VERSION" -o daedalus-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/daedalus
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: daedalus-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: daedalus-${{ matrix.goos }}-${{ matrix.goarch }}
+
+  publish:
+    name: Create Dev Release
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release-assets
+          cp artifacts/daedalus-*/daedalus-* release-assets/
+          cp claude.json install.sh config.json docker-compose.yml Dockerfile entrypoint.sh settings.json logo.txt release-assets/
+
+      - name: Delete existing dev release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release delete dev --yes --cleanup-tag 2>/dev/null || true
+
+      - name: Create dev pre-release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: dev
+          name: "Dev Build (${{ github.event.head_commit.timestamp && format('{0}', github.event.head_commit.timestamp) || 'manual' }})"
+          prerelease: true
+          make_latest: false
+          target_commitish: ${{ github.sha }}
+          body: |
+            ## Rolling Dev Build
+
+            This is an **automated pre-release** built from the latest `master` branch.
+            It may be unstable — use a [stable release](https://github.com/techdelight/daedalus/releases/latest) for production.
+
+            **Commit:** ${{ github.sha }}
+            **Compare:** [Changes since last release](https://github.com/techdelight/daedalus/compare/...master)
+
+            ### Install
+
+            ```bash
+            # Download the binary for your platform, e.g.:
+            curl -fsSL https://github.com/techdelight/daedalus/releases/download/dev/daedalus-linux-amd64 -o daedalus
+            chmod +x daedalus
+            ```
+          files: release-assets/*
