@@ -15,8 +15,20 @@
 | 9 | Side-by-side versions — install a new version alongside the existing one, allowing rollback or A/B comparison before switching |
 | 10 | Shared skills/MCP repository — a central directory of skills and MCP server configs that can be mounted or linked into any project, avoiding per-project duplication |
 | 11 | Homebrew installation (`brew install daedalus`) — add Homebrew tap, formula generator, and CI automation. See [docs/homebrew-plan.md](docs/homebrew-plan.md) for full plan |
+| 12 | WSL2 Web UI access — enable `daedalus web` to be reachable from the Windows host when running inside WSL2 (bind to `0.0.0.0` or WSL2 IP, port-forwarding guidance, auto-detect WSL2 environment) |
+| 13 | Project management view in Web UI — per-project dashboard showing vision, version, time spent, and percentage complete |
+| 14 | Project management MCP server — provide an MCP server inside each project container so Claude Code can report progress (vision, version, percentage complete, time spent) back to Daedalus |
+| 15 | Skill catalog — a browsable catalog of available skills that projects can select from and mount into their containers |
 
 ## Current Sprint
+
+### Sprint 13: Platform & Accessibility
+
+Goal: improve cross-platform experience and Web UI accessibility.
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | WSL2 Web UI access — auto-detect WSL2, bind to `0.0.0.0`, print VM IP for Windows browser access | Done |
 
 ### Sprint 12: Build, Debug & Logging Improvements (v0.8.0)
 

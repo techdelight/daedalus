@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-03-16
+
+### Added
+- Auto-detect WSL2 and bind web UI to `0.0.0.0` for Windows host accessibility
+- Print WSL2 VM IP address at web UI startup for easy browser access
+
 ## [0.8.0] - 2026-03-15
 
 ### Added

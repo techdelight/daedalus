@@ -30,6 +30,7 @@ type Config struct {
 	RenameNewName   string   // new project name for "rename" subcommand
 	TargetOverride  bool     // true when --target was explicitly passed
 	WebAddr         string   // host:port for web UI server
+	WSL2Detected    bool     // true when WSL2 was auto-detected and host defaulted to 0.0.0.0
 	LogFile         string   // path to log file for persistent logging
 }
 

@@ -17,8 +17,10 @@ import (
 	"syscall"
 
 	"github.com/techdelight/daedalus/core"
+	"github.com/techdelight/daedalus/internal/color"
 	"github.com/techdelight/daedalus/internal/docker"
 	"github.com/techdelight/daedalus/internal/executor"
+	"github.com/techdelight/daedalus/internal/platform"
 	"github.com/techdelight/daedalus/internal/registry"
 	"github.com/techdelight/daedalus/internal/session"
 
@@ -124,6 +126,12 @@ func Run(cfg *core.Config) error {
 		w.Write([]byte(html))
 	})
 
+	if cfg.WSL2Detected {
+		fmt.Printf("%s binding to 0.0.0.0 instead of 127.0.0.1\n", color.Yellow("WSL2 detected:"))
+		if ip := platform.WSL2IPAddress(); ip != "" {
+			fmt.Printf("Open in Windows browser: http://%s:%s\n", ip, strings.Split(cfg.WebAddr, ":")[1])
+		}
+	}
 	fmt.Printf("Starting web UI at http://%s\n", cfg.WebAddr)
 	return http.ListenAndServe(cfg.WebAddr, mux)
 }

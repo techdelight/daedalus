@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/techdelight/daedalus/internal/platform"
 )
 
 func TestParseArgs_NoArgs_Help(t *testing.T) {
@@ -186,8 +188,20 @@ func TestParseArgs_WebSubcommand(t *testing.T) {
 	if cfg.Subcommand != "web" {
 		t.Errorf("Subcommand = %q, want %q", cfg.Subcommand, "web")
 	}
-	if cfg.WebAddr != "127.0.0.1:3000" {
-		t.Errorf("WebAddr = %q, want %q", cfg.WebAddr, "127.0.0.1:3000")
+	if platform.IsWSL2() {
+		if cfg.WebAddr != "0.0.0.0:3000" {
+			t.Errorf("WebAddr = %q, want %q (WSL2 detected)", cfg.WebAddr, "0.0.0.0:3000")
+		}
+		if !cfg.WSL2Detected {
+			t.Error("WSL2Detected = false, want true on WSL2")
+		}
+	} else {
+		if cfg.WebAddr != "127.0.0.1:3000" {
+			t.Errorf("WebAddr = %q, want %q", cfg.WebAddr, "127.0.0.1:3000")
+		}
+		if cfg.WSL2Detected {
+			t.Error("WSL2Detected = true, want false on non-WSL2")
+		}
 	}
 }
 
@@ -199,8 +213,13 @@ func TestParseArgs_WebWithPort(t *testing.T) {
 	if cfg.Subcommand != "web" {
 		t.Errorf("Subcommand = %q, want %q", cfg.Subcommand, "web")
 	}
-	if cfg.WebAddr != "127.0.0.1:8080" {
-		t.Errorf("WebAddr = %q, want %q", cfg.WebAddr, "127.0.0.1:8080")
+	wantHost := "127.0.0.1"
+	if platform.IsWSL2() {
+		wantHost = "0.0.0.0"
+	}
+	want := wantHost + ":8080"
+	if cfg.WebAddr != want {
+		t.Errorf("WebAddr = %q, want %q", cfg.WebAddr, want)
 	}
 }
 
@@ -367,8 +386,13 @@ func TestParseArgs_WebPortValid(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseArgs failed: %v", err)
 	}
-	if cfg.WebAddr != "127.0.0.1:8080" {
-		t.Errorf("WebAddr = %q, want %q", cfg.WebAddr, "127.0.0.1:8080")
+	wantHost := "127.0.0.1"
+	if platform.IsWSL2() {
+		wantHost = "0.0.0.0"
+	}
+	want := wantHost + ":8080"
+	if cfg.WebAddr != want {
+		t.Errorf("WebAddr = %q, want %q", cfg.WebAddr, want)
 	}
 }
 
@@ -379,6 +403,19 @@ func TestParseArgs_WebHostEmpty(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "non-empty") {
 		t.Errorf("error = %q, want mention of 'non-empty'", err)
+	}
+}
+
+func TestParseArgs_WebHostOverride_PreventsWSL2(t *testing.T) {
+	cfg, err := ParseArgs([]string{"web", "--host", "127.0.0.1"})
+	if err != nil {
+		t.Fatalf("ParseArgs failed: %v", err)
+	}
+	if cfg.WSL2Detected {
+		t.Error("WSL2Detected = true, want false when --host is explicitly set")
+	}
+	if cfg.WebAddr != "127.0.0.1:3000" {
+		t.Errorf("WebAddr = %q, want %q", cfg.WebAddr, "127.0.0.1:3000")
 	}
 }
 

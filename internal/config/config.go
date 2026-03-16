@@ -11,6 +11,7 @@ import (
 
 	"github.com/techdelight/daedalus/core"
 	"github.com/techdelight/daedalus/internal/color"
+	"github.com/techdelight/daedalus/internal/platform"
 )
 
 // IsHeadless returns true if running without interactive input.
@@ -42,6 +43,7 @@ func ParseArgs(args []string) (*core.Config, error) {
 	var positional []string
 	webHost := "127.0.0.1"
 	webPort := "3000"
+	hostOverride := false
 
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
@@ -113,6 +115,7 @@ func ParseArgs(args []string) (*core.Config, error) {
 			if strings.TrimSpace(webHost) == "" {
 				return nil, fmt.Errorf("--host requires a non-empty address")
 			}
+			hostOverride = true
 		default:
 			positional = append(positional, args[i])
 		}
@@ -195,6 +198,10 @@ func ParseArgs(args []string) (*core.Config, error) {
 		if positional[0] == "list" || positional[0] == "tui" || positional[0] == "web" || positional[0] == "prune" {
 			cfg.Subcommand = positional[0]
 			if positional[0] == "web" {
+				if !hostOverride && platform.IsWSL2() {
+					webHost = "0.0.0.0"
+					cfg.WSL2Detected = true
+				}
 				cfg.WebAddr = webHost + ":" + webPort
 			}
 			return cfg, nil
