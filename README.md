@@ -203,6 +203,27 @@ The web UI provides:
 
 **Security:** Binds to `127.0.0.1` by default (localhost only). Use `--host 0.0.0.0` for remote access (add your own authentication layer).
 
+### WSL2
+
+When running inside WSL2, `daedalus web` auto-detects the environment and binds to `0.0.0.0` so the Windows host can reach it. The startup output prints the VM IP for easy access.
+
+To make the Web UI reachable from **other machines on your LAN**, Windows needs a port proxy and firewall rule. A helper script is included:
+
+```powershell
+# Run in an elevated PowerShell on the Windows host
+
+# Enable LAN access (default port 3000)
+.\scripts\wsl2-network.ps1 enable
+
+# Enable on a custom port
+.\scripts\wsl2-network.ps1 enable 8080
+
+# Disable
+.\scripts\wsl2-network.ps1 disable
+```
+
+> **Note:** WSL2's internal IP changes on reboot. Re-run `enable` after restarting WSL2 to update the forwarding rule.
+
 ## Build Targets
 
 The single `Dockerfile` uses a multi-stage build with four stages:
