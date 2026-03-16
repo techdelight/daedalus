@@ -209,17 +209,17 @@ When running inside WSL2, `daedalus web` auto-detects the environment and binds 
 
 To make the Web UI reachable from **other machines on your LAN**, Windows needs a port proxy and firewall rule. A helper script is included:
 
-```powershell
-# Run in an elevated PowerShell on the Windows host
+```bat
+rem Run in an elevated Command Prompt on the Windows host
 
-# Enable LAN access (default port 3000)
-.\scripts\wsl2-network.ps1 enable
+rem Enable LAN access (default port 3000)
+wsl2-network.bat enable
 
-# Enable on a custom port
-.\scripts\wsl2-network.ps1 enable 8080
+rem Enable on a custom port
+wsl2-network.bat enable 8080
 
-# Disable
-.\scripts\wsl2-network.ps1 disable
+rem Disable
+wsl2-network.bat disable
 ```
 
 > **Note:** WSL2's internal IP changes on reboot. Re-run `enable` after restarting WSL2 to update the forwarding rule.
