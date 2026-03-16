@@ -87,7 +87,7 @@ jobs:
         run: |
           mkdir -p release-assets
           cp artifacts/daedalus-*/daedalus-* release-assets/
-          cp claude.json install.sh config.json docker-compose.yml Dockerfile entrypoint.sh settings.json logo.txt release-assets/
+          cp claude.json install.sh config.json docker-compose.yml Dockerfile entrypoint.sh settings.json logo.txt scripts/wsl2-network.ps1 release-assets/
 
       - name: Delete existing dev release
         env:
