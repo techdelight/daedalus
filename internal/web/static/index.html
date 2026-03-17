@@ -154,6 +154,8 @@
         }
 
         function attachProject(name) {
+            document.title = name + ' \u2014 Daedalus';
+
             // Switch to terminal view
             document.getElementById('project-view').classList.add('hidden');
             document.getElementById('terminal-view').classList.add('active');
@@ -169,6 +171,7 @@
         }
 
         function showProjectList() {
+            document.title = 'Daedalus \u2014 Web Dashboard';
             disconnectTerminal();
 
             document.getElementById('terminal-view').classList.remove('active');

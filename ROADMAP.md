@@ -19,6 +19,11 @@
 | 13 | Project management view in Web UI — per-project dashboard showing vision, version, time spent, and percentage complete |
 | 14 | Project management MCP server — provide an MCP server inside each project container so Claude Code can report progress (vision, version, percentage complete, time spent) back to Daedalus |
 | 15 | Skill catalog — a browsable catalog of available skills that projects can select from and mount into their containers |
+| 16 | ACP integration — use the Agent Client Protocol to communicate with the Claude Code CLI, enabling Daedalus to observe agent state (thinking, tool use, idle, error) in real time |
+| 17 | Roadmap in Web UI — display the project roadmap as a collapsible side panel on the right of the dashboard |
+| 18 | Daedalus as MCP client — have Daedalus consume the Project Management MCP server to read roadmaps, construct and manage sprints, and trigger the agent to execute sprint items |
+| 19 | GitHub repo projects — start a project from a GitHub repo URL, cloning into a default project root directory |
+| 20 | Browser tab title — set the Web UI tab title to include the name of the active project |
 
 ## Current Sprint
 
@@ -30,6 +35,7 @@ Goal: improve cross-platform experience and Web UI accessibility.
 |---|------|--------|
 | 1 | WSL2 Web UI access — auto-detect WSL2, bind to `0.0.0.0`, print VM IP for Windows browser access | Done |
 | 2 | Dev release workflow — rolling `dev` pre-release on push to master with `VERSION-dev+SHA` binaries | Done |
+| 3 | Browser tab title — set the Web UI tab title to include the name of the active project | |
 
 ### Sprint 12: Build, Debug & Logging Improvements (v0.8.0)
 
