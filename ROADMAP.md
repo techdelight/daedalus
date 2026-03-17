@@ -23,7 +23,7 @@
 | 17 | Roadmap in Web UI — display the project roadmap as a collapsible side panel on the right of the dashboard |
 | 18 | Daedalus as MCP client — have Daedalus consume the Project Management MCP server to read roadmaps, construct and manage sprints, and trigger the agent to execute sprint items |
 | 19 | GitHub repo projects — start a project from a GitHub repo URL, cloning into a default project root directory |
-| 20 | Browser tab title — set the Web UI tab title to include the name of the active project |
+| ~~20~~ | ~~Browser tab title — set the Web UI tab title to include the name of the active project~~ |
 
 ## Current Sprint
 
@@ -35,7 +35,7 @@ Goal: improve cross-platform experience and Web UI accessibility.
 |---|------|--------|
 | 1 | WSL2 Web UI access — auto-detect WSL2, bind to `0.0.0.0`, print VM IP for Windows browser access | Done |
 | 2 | Dev release workflow — rolling `dev` pre-release on push to master with `VERSION-dev+SHA` binaries | Done |
-| 3 | Browser tab title — set the Web UI tab title to include the name of the active project | |
+| 3 | Browser tab title — set the Web UI tab title to include the name of the active project | Done |
 
 ### Sprint 12: Build, Debug & Logging Improvements (v0.8.0)
 
