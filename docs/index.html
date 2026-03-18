@@ -112,25 +112,15 @@
             </div>
 
             <div class="demo-tabs reveal">
-                <button class="demo-tab active" data-demo="cli">CLI</button>
-                <button class="demo-tab" data-demo="tui">TUI</button>
+                <button class="demo-tab active" data-demo="tui">TUI</button>
                 <button class="demo-tab" data-demo="web">Web</button>
+                <button class="demo-tab" data-demo="cli">CLI</button>
             </div>
 
             <div class="demo-stage reveal">
-                <div class="demo-panel active" id="demo-cli">
+                <div class="demo-panel active" id="demo-tui">
                     <div class="demo-video-wrap">
-                        <video autoplay loop muted playsinline poster="assets/cli-poster.png">
-                            <source src="demos/cli.webm" type="video/webm">
-                            <source src="demos/cli.mp4" type="video/mp4">
-                            <img src="demos/cli.gif" alt="CLI demo">
-                        </video>
-                    </div>
-                    <p class="demo-caption">Launch projects and run headless tasks from the command line.</p>
-                </div>
-                <div class="demo-panel" id="demo-tui">
-                    <div class="demo-video-wrap">
-                        <video loop muted playsinline>
+                        <video autoplay loop muted playsinline>
                             <source src="demos/tui-demo.mp4" type="video/mp4">
                         </video>
                     </div>
@@ -143,6 +133,14 @@
                         </video>
                     </div>
                     <p class="demo-caption">Browser-based dashboard with embedded terminal via WebSocket.</p>
+                </div>
+                <div class="demo-panel" id="demo-cli">
+                    <div class="demo-video-wrap">
+                        <video loop muted playsinline>
+                            <source src="demos/cli-demo.mp4" type="video/mp4">
+                        </video>
+                    </div>
+                    <p class="demo-caption">Launch projects and run headless tasks from the command line.</p>
                 </div>
             </div>
         </div>
