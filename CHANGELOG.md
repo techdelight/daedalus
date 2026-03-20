@@ -4,8 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-03-20
+
 ### Added
-- `--display` CLI flag to forward the host X11/Wayland display into Docker containers
+- `--display` CLI flag to forward the host X11/Wayland display into Docker containers, enabling GUI application rendering on the host screen
 - Per-project `display` default flag stored in `projects.json`, configurable via `daedalus config <name> --set display=true`
 - Shell completions and man page documentation for `--display`
 - `internal/platform/display.go` — pure `DisplayArgs()` function for resolving X11/Wayland Docker arguments
