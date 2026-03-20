@@ -117,6 +117,7 @@ func TestGenerateManpage_ContainsAllFlags(t *testing.T) {
 		"\\-\\-no\\-tmux",
 		"\\-\\-debug",
 		"\\-\\-dind",
+		"\\-\\-display",
 		"\\-\\-force",
 		"\\-\\-no\\-color",
 		"\\-\\-port",

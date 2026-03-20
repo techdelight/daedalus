@@ -195,6 +195,9 @@ func writeOptions(b *strings.Builder) {
 	writeOption(b, "\\fB\\-\\-dind\\fR",
 		"Mount the host Docker socket into the container. WARNING: this grants the container full access to the host Docker daemon.")
 
+	writeOption(b, "\\fB\\-\\-display\\fR",
+		"Forward the host X11 or Wayland display into the container, allowing GUI applications to render on the host screen. Requires a running display server on the host.")
+
 	writeOption(b, "\\fB\\-\\-force\\fR",
 		"Force deletion in non-interactive mode for \\fBprune\\fR and \\fBremove\\fR commands.")
 

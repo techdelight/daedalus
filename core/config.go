@@ -17,6 +17,7 @@ type Config struct {
 	NoTmux          bool
 	Debug           bool
 	DinD            bool
+	Display         bool
 	Force           bool
 	NoColor         bool
 	ImagePrefix     string
@@ -90,6 +91,10 @@ func applyDefaultFlags(cfg *Config, flags map[string]string) {
 		case "dind":
 			if !cfg.DinD {
 				cfg.DinD = val == "true"
+			}
+		case "display":
+			if !cfg.Display {
+				cfg.Display = val == "true"
 			}
 		case "no-tmux":
 			if !cfg.NoTmux {

@@ -565,6 +565,19 @@ func TestParseArgs_RenameNoArgs(t *testing.T) {
 	}
 }
 
+func TestParseArgs_DisplayFlag(t *testing.T) {
+	cfg, err := ParseArgs([]string{"--display", "my-project"})
+	if err != nil {
+		t.Fatalf("ParseArgs failed: %v", err)
+	}
+	if !cfg.Display {
+		t.Error("Display = false, want true")
+	}
+	if cfg.ProjectName != "my-project" {
+		t.Errorf("ProjectName = %q, want %q", cfg.ProjectName, "my-project")
+	}
+}
+
 func TestParseArgs_DataDirEnvVar(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("DAEDALUS_DATA_DIR", tmp)

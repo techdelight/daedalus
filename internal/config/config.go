@@ -77,6 +77,8 @@ func ParseArgs(args []string) (*core.Config, error) {
 			cfg.Debug = true
 		case "--dind":
 			cfg.DinD = true
+		case "--display":
+			cfg.Display = true
 		case "--force":
 			cfg.Force = true
 		case "--no-color":

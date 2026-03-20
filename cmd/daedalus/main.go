@@ -469,6 +469,9 @@ func collectDefaultFlags(cfg *core.Config) map[string]string {
 	if cfg.DinD {
 		flags["dind"] = "true"
 	}
+	if cfg.Display {
+		flags["display"] = "true"
+	}
 	if cfg.Debug {
 		flags["debug"] = "true"
 	}
@@ -612,6 +615,7 @@ func printUsage() {
 	fmt.Println("  --no-tmux          Run without tmux session wrapping")
 	fmt.Println("  --debug            Enable Claude Code debug mode")
 	fmt.Println("  --dind             Mount Docker socket (WARNING: grants host Docker access)")
+	fmt.Println("  --display          Forward host display (X11/Wayland) into the container")
 	fmt.Println("  --force            Force deletion in non-interactive mode (e.g. prune)")
 	fmt.Println("  --no-color         Disable colored output (also honors NO_COLOR env var)")
 	fmt.Println("  --port <port>      Port for web UI (default: 3000)")

@@ -850,6 +850,54 @@ func TestPrintBuildDebugInfo_EnvVarsSorted(t *testing.T) {
 	}
 }
 
+func TestCollectDefaultFlags_DisplayFlag(t *testing.T) {
+	tests := []struct {
+		name    string
+		cfg     core.Config
+		wantKey string
+		wantVal string
+		wantNil bool
+	}{
+		{
+			name:    "display true is collected",
+			cfg:     core.Config{Display: true},
+			wantKey: "display",
+			wantVal: "true",
+		},
+		{
+			name:    "display false not collected",
+			cfg:     core.Config{Display: false},
+			wantNil: true,
+		},
+		{
+			name:    "display and dind both collected",
+			cfg:     core.Config{Display: true, DinD: true},
+			wantKey: "display",
+			wantVal: "true",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			cfg := &tc.cfg
+
+			// Act
+			flags := collectDefaultFlags(cfg)
+
+			// Assert
+			if tc.wantNil {
+				if flags != nil {
+					t.Errorf("flags = %v, want nil", flags)
+				}
+				return
+			}
+			if flags[tc.wantKey] != tc.wantVal {
+				t.Errorf("flags[%q] = %q, want %q", tc.wantKey, flags[tc.wantKey], tc.wantVal)
+			}
+		})
+	}
+}
+
 func TestHandleDirConflict_TouchProjectError(t *testing.T) {
 	dir := t.TempDir()
 	regFile := filepath.Join(dir, "projects.json")
