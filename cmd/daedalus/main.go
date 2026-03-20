@@ -63,9 +63,11 @@ func run(args []string) error {
 		return listProjects(cfg)
 	case "tui":
 		logging.Info("subcommand: tui")
+		printBanner(cfg.ScriptDir)
 		return tui.Run(cfg)
 	case "web":
 		logging.Info("subcommand: web")
+		printBanner(cfg.ScriptDir)
 		return web.Run(cfg)
 	case "prune":
 		logging.Info("subcommand: prune")
