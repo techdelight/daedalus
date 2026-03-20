@@ -107,89 +107,7 @@ All notable changes to this project will be documented in this file.
 - Renaming a project via the web UI could corrupt the cache directory on WSL2/bind-mounted filesystems. Replaced `os.Rename` with copy+remove for directory renames.
 - Cache directory copy failed on dangling symlinks (e.g. `.claude-config/debug/latest`). Symlinks are now recreated instead of followed.
 
-## [1.3.0] - 2026-03-08
-
-### Added
-- `daedalus rename <old-name> <new-name>` CLI subcommand to rename registered projects.
-- `POST /api/projects/{name}/rename` web API endpoint with JSON body `{"newName": "..."}`.
-- Rename button in the web dashboard for stopped projects (uses `prompt()` for new name).
-- F2 key in TUI to rename the selected project via inline text input (Enter to confirm, Esc to cancel).
-- `ValidateProjectName()` pure validation function — names must start with alphanumeric and contain only `[a-zA-Z0-9._-]`.
-- `RenameProject()` registry method — atomic rename of registry key with best-effort cache directory rename.
-- Shell completions for `rename` subcommand (bash, zsh, fish).
-- Man page entry for `rename` command with synopsis and example.
-
-## [1.2.0] - 2026-03-08
-
-### Added
-- Startup banner — `PrintBanner()` displays the Techdelight logo, version, and build timestamp when launching `daedalus web` or `daedalus tui`.
-- Upgrade-aware installer — `install.sh` now detects an existing installation via the `version` field in `config.json`. On upgrade, it preserves user settings (data-dir, debug, no-tmux, image-prefix), replaces the binary and runtime files, and updates the version.
-- `version` field in `config.json` and `AppConfig` struct.
-
-### Changed
-- TUI kill shortcut changed from `K` (shift+k) to the `Del` (Delete) key.
-
-### Fixed
-- `docker image inspect` output no longer leaks to the terminal when starting a container from the web interface. `ImageExists()` now uses `Output()` instead of `Run()`.
-
-## [1.1.0] - 2026-03-08
-
-### Fixed
-- Docker compose command and environment exports no longer visible in the terminal when starting a container via TUI or Web UI. The tmux command now clears the screen before execution.
-
-## [1.0.1] - 2026-03-07
-
-### Changed
-- `install.sh` now downloads pre-built binaries from the latest GitHub Release instead of downloading source and building via Docker. Docker is no longer required for installation (still required at runtime).
-- Removed `.claude.json` from `install.sh` runtime files — it is baked into the Docker image and not included in release assets.
-- Removed `start.sh` from release workflow assets — it is a development helper not needed by end users.
-
-## [1.0.0] - 2026-03-07
-
-### Added
-- End-to-end integration test suite — 9 test functions covering full project lifecycle, config precedence, registry lifecycle, Docker command construction, Web API, headless mode detection, and shell completions.
-- GitHub Actions CI workflow — runs `go vet` and `go test -race` on push/PR to master.
-- GitHub Actions release workflow — cross-compiles binaries for Linux and macOS (amd64/arm64) on version tags, creates GitHub Release with all assets.
-- Man page generator (`cmd/generate-manpage/`) — produces `daedalus.1` roff man page with all commands, flags, environment variables, configuration, examples, and exit codes.
-- Pre-built `daedalus.1` man page.
-- `NewWebServerForTest()` constructor and exported handler wrappers (`HandleListProjects`, `HandleStartProject`, `HandleStopProject`) for cross-package integration testing.
-
-### Fixed
-- Registry migration did not reject future schema versions — a registry file with a version newer than the binary could be silently accepted. Now returns an error with both the file version and the supported version.
-
-## [0.8.1] - 2026-03-06
-
-### Fixed
-- TUI kill (`K`) and web UI stop did not stop containers — `executor.Run` attached stdout/stderr/stdin to the subprocess, conflicting with bubbletea's alt-screen terminal. Replaced with `executor.Output` which captures output without terminal interference (#27).
-
-## [0.8.0] - 2026-03-06
-
-### Added
-- Configurable data directory via `DAEDALUS_DATA_DIR` environment variable. Allows storing registry and per-project caches on a different drive or following XDG conventions. Default remains `.cache` next to the binary (backward compatible).
-- `RegistryPath()` method on `Config` to eliminate duplicated registry path construction.
-- `install.sh` deployment script — builds the binary, copies runtime files to a configurable `--prefix` directory (default: `~/.local/share/daedalus`), and creates a PATH symlink. Validates Docker as a prerequisite.
-- Application configuration file (`config.json`) — optional JSON config file next to the binary for persistent settings. Supports `data-dir`, `debug`, `no-tmux`, and `image-prefix`. Precedence: env vars > config file > defaults.
-- `--uninstall` flag for `install.sh` — removes binary, runtime files, and symlink. Prompts before deleting project data in `.cache/`.
-- Documentation for MCP server configuration and container restrictions.
-- Documentation for sharing skills and instructions across projects.
-
-### Changed
-- `CacheDir()` now derives from `DataDir` instead of `ScriptDir`.
-- **Rebrand**: Renamed project from `agentenv` to `Daedalus` across all source files, Go module path, binary name, shell completions, documentation, and build scripts.
-- Copyright holder changed from "David Stibbe" to "Techdelight BV" in all source file headers.
-- Apache-2.0 license added (`LICENSE` file).
-- Documentation restructured: `README.md` is now end-user focused, `CONTRIBUTING.md` expanded with coding standards and Definition of Done, `ARCHITECTURE.md` created with module breakdown, component diagram, and data flow.
-
-### Fixed
-- `install.sh` `sed -i` command now portable across Linux and macOS (replaced with `sed` + temp file).
-
-### Removed
-- `--data-dir` CLI flag — data directory is now configured via `config.json` or the `DAEDALUS_DATA_DIR` environment variable.
-- Host credential linking — `ClaudeConfigDir`, `CredSourcePath()`, and `CRED_PATH` env var removed from config, command builder, and compose environment. Users now run `claude /login` inside the container; credentials persist in the per-project cache directory.
-- Credential prerequisite check from `install.sh` — Claude credentials are no longer required on the host.
-- `/opt/claude/credentials/` directory from Dockerfile and credential symlink logic from `entrypoint.sh`.
-
-## [0.6.0] - 2026-03-02
+## [0.5.2] - 2026-03-08
 
 ### Added
 - Colored CLI output — errors in red, warnings in yellow, success in green, hints in cyan, section headers in bold. Respects `NO_COLOR` environment variable convention.
@@ -200,6 +118,54 @@ All notable changes to this project will be documented in this file.
 - `daedalus completion <bash|zsh|fish>` subcommand to print shell completion scripts. Covers all subcommands, flags, and dynamic project name completion.
 - Input validation for `--port` (must be 1-65535) and `--host` (must be non-empty) at parse time (#21).
 - Actionable hint messages on 6 key errors: missing credentials, missing project directory, already running, image build failure, project not found, too many arguments.
+- Configurable data directory via `DAEDALUS_DATA_DIR` environment variable. Allows storing registry and per-project caches on a different drive or following XDG conventions. Default remains `.cache` next to the binary (backward compatible).
+- `RegistryPath()` method on `Config` to eliminate duplicated registry path construction.
+- `install.sh` deployment script — builds the binary, copies runtime files to a configurable `--prefix` directory (default: `~/.local/share/daedalus`), and creates a PATH symlink. Validates Docker as a prerequisite.
+- Application configuration file (`config.json`) — optional JSON config file next to the binary for persistent settings. Supports `data-dir`, `debug`, `no-tmux`, and `image-prefix`. Precedence: env vars > config file > defaults.
+- `--uninstall` flag for `install.sh` — removes binary, runtime files, and symlink. Prompts before deleting project data in `.cache/`.
+- Documentation for MCP server configuration and container restrictions.
+- Documentation for sharing skills and instructions across projects.
+- End-to-end integration test suite — 9 test functions covering full project lifecycle, config precedence, registry lifecycle, Docker command construction, Web API, headless mode detection, and shell completions.
+- GitHub Actions CI workflow — runs `go vet` and `go test -race` on push/PR to master.
+- GitHub Actions release workflow — cross-compiles binaries for Linux and macOS (amd64/arm64) on version tags, creates GitHub Release with all assets.
+- Man page generator (`cmd/generate-manpage/`) — produces `daedalus.1` roff man page with all commands, flags, environment variables, configuration, examples, and exit codes.
+- Pre-built `daedalus.1` man page.
+- `NewWebServerForTest()` constructor and exported handler wrappers (`HandleListProjects`, `HandleStartProject`, `HandleStopProject`) for cross-package integration testing.
+- Startup banner — `PrintBanner()` displays the Techdelight logo, version, and build timestamp when launching `daedalus web` or `daedalus tui`.
+- Upgrade-aware installer — `install.sh` now detects an existing installation via the `version` field in `config.json`. On upgrade, it preserves user settings (data-dir, debug, no-tmux, image-prefix), replaces the binary and runtime files, and updates the version.
+- `version` field in `config.json` and `AppConfig` struct.
+- `daedalus rename <old-name> <new-name>` CLI subcommand to rename registered projects.
+- `POST /api/projects/{name}/rename` web API endpoint with JSON body `{"newName": "..."}`.
+- Rename button in the web dashboard for stopped projects (uses `prompt()` for new name).
+- F2 key in TUI to rename the selected project via inline text input (Enter to confirm, Esc to cancel).
+- `ValidateProjectName()` pure validation function — names must start with alphanumeric and contain only `[a-zA-Z0-9._-]`.
+- `RenameProject()` registry method — atomic rename of registry key with best-effort cache directory rename.
+- Shell completions for `rename` subcommand (bash, zsh, fish).
+- Man page entry for `rename` command with synopsis and example.
+
+### Changed
+- `CacheDir()` now derives from `DataDir` instead of `ScriptDir`.
+- **Rebrand**: Renamed project from `agentenv` to `Daedalus` across all source files, Go module path, binary name, shell completions, documentation, and build scripts.
+- Copyright holder changed from "David Stibbe" to "Techdelight BV" in all source file headers.
+- Apache-2.0 license added (`LICENSE` file).
+- Documentation restructured: `README.md` is now end-user focused, `CONTRIBUTING.md` expanded with coding standards and Definition of Done, `ARCHITECTURE.md` created with module breakdown, component diagram, and data flow.
+- `install.sh` now downloads pre-built binaries from the latest GitHub Release instead of downloading source and building via Docker. Docker is no longer required for installation (still required at runtime).
+- TUI kill shortcut changed from `K` (shift+k) to the `Del` (Delete) key.
+
+### Fixed
+- `install.sh` `sed -i` command now portable across Linux and macOS (replaced with `sed` + temp file).
+- TUI kill (`K`) and web UI stop did not stop containers — `executor.Run` attached stdout/stderr/stdin to the subprocess, conflicting with bubbletea's alt-screen terminal. Replaced with `executor.Output` which captures output without terminal interference (#27).
+- Registry migration did not reject future schema versions — a registry file with a version newer than the binary could be silently accepted. Now returns an error with both the file version and the supported version.
+- Docker compose command and environment exports no longer visible in the terminal when starting a container via TUI or Web UI. The tmux command now clears the screen before execution.
+- `docker image inspect` output no longer leaks to the terminal when starting a container from the web interface. `ImageExists()` now uses `Output()` instead of `Run()`.
+
+### Removed
+- `--data-dir` CLI flag — data directory is now configured via `config.json` or the `DAEDALUS_DATA_DIR` environment variable.
+- Host credential linking — `ClaudeConfigDir`, `CredSourcePath()`, and `CRED_PATH` env var removed from config, command builder, and compose environment. Users now run `claude /login` inside the container; credentials persist in the per-project cache directory.
+- Credential prerequisite check from `install.sh` — Claude credentials are no longer required on the host.
+- `/opt/claude/credentials/` directory from Dockerfile and credential symlink logic from `entrypoint.sh`.
+- `.claude.json` from `install.sh` runtime files — it is baked into the Docker image and not included in release assets.
+- `start.sh` from release workflow assets — it is a development helper not needed by end users.
 
 ## [0.5.0] - 2026-03-02
 
