@@ -11,6 +11,7 @@ All notable changes to this project will be documented in this file.
 - `internal/platform/display.go` — pure `DisplayArgs()` function for resolving X11/Wayland Docker arguments
 - X11 forwarding via `/tmp/.X11-unix` socket mount and `DISPLAY` environment variable
 - Wayland forwarding via `$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY` socket mount
+- Interactive prompt during first project registration to enable display forwarding (default: no)
 
 ## [0.8.3] - 2026-03-20
 
