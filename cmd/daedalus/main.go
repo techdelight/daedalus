@@ -472,8 +472,31 @@ func handleNewProject(cfg *core.Config, reg *registry.Registry) error {
 		return fmt.Errorf("aborted")
 	default:
 		fmt.Printf("%s new project '%s'.\n", color.Green("Registering"), cfg.ProjectName)
-		return register()
+		if err := register(); err != nil {
+			return err
+		}
+		promptDisplayForwarding(cfg, reg, scanner)
+		return nil
 	}
+}
+
+// promptDisplayForwarding asks the user whether to enable display forwarding
+// for a newly registered project. Default is no.
+func promptDisplayForwarding(cfg *core.Config, reg *registry.Registry, scanner *bufio.Scanner) {
+	fmt.Printf("\nEnable display forwarding (X11/Wayland) for '%s'? [y/N]: ", cfg.ProjectName)
+	if !scanner.Scan() {
+		return
+	}
+	reply := strings.TrimSpace(strings.ToLower(scanner.Text()))
+	if reply != "y" && reply != "yes" {
+		return
+	}
+	cfg.Display = true
+	if err := reg.UpdateDefaultFlags(cfg.ProjectName, map[string]string{"display": "true"}, nil); err != nil {
+		fmt.Fprintf(os.Stderr, color.Yellow("Warning:")+" failed to save display setting: %v\n", err)
+		return
+	}
+	fmt.Println(color.Green("Display forwarding enabled."))
 }
 
 // collectDefaultFlags returns a map of non-default flag values from the config.
