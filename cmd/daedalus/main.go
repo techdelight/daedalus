@@ -260,23 +260,23 @@ func launchProject(cfg *core.Config, d *docker.Docker, reg *registry.Registry, s
 		"TARGET":      cfg.Target,
 	}
 
-	var extraArgs []string
 	if cfg.DinD {
-		extraArgs = []string{"-v", "/var/run/docker.sock:/var/run/docker.sock"}
 		fmt.Fprintln(os.Stderr, color.Yellow("WARNING:")+" --dind mounts the host Docker socket. This grants the container full access to host Docker.")
 	}
 
+	var displayArgs []string
 	if cfg.Display {
-		displayArgs, displayWarnings := platform.DisplayArgs(
+		var displayWarnings []string
+		displayArgs, displayWarnings = platform.DisplayArgs(
 			os.Getenv("DISPLAY"),
 			os.Getenv("WAYLAND_DISPLAY"),
 			os.Getenv("XDG_RUNTIME_DIR"),
 		)
-		extraArgs = append(extraArgs, displayArgs...)
 		for _, w := range displayWarnings {
 			fmt.Fprintln(os.Stderr, color.Yellow("Warning:")+" "+w)
 		}
 	}
+	extraArgs := core.BuildExtraArgs(cfg, displayArgs)
 
 	if useTmux {
 		dockerCmd := d.ComposeRunCommand(cfg.ContainerName(), claudeArgs, extraArgs)

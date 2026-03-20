@@ -39,6 +39,19 @@ func BuildClaudeArgs(cfg *Config) []string {
 	return args
 }
 
+// BuildExtraArgs returns extra docker compose run flags derived from the config.
+// displayArgs should come from platform.DisplayArgs when cfg.Display is true.
+func BuildExtraArgs(cfg *Config, displayArgs []string) []string {
+	var args []string
+	if cfg.DinD {
+		args = append(args, "-v", "/var/run/docker.sock:/var/run/docker.sock")
+	}
+	if cfg.Display {
+		args = append(args, displayArgs...)
+	}
+	return args
+}
+
 // BuildTmuxCommand constructs the full command string for tmux send-keys.
 // It sets env vars and runs docker compose.
 func BuildTmuxCommand(cfg *Config, dockerCmd []string) string {

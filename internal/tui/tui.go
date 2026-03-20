@@ -13,6 +13,7 @@ import (
 	"github.com/techdelight/daedalus/core"
 	"github.com/techdelight/daedalus/internal/docker"
 	"github.com/techdelight/daedalus/internal/executor"
+	"github.com/techdelight/daedalus/internal/platform"
 	"github.com/techdelight/daedalus/internal/registry"
 	"github.com/techdelight/daedalus/internal/session"
 
@@ -681,11 +682,20 @@ func startProject(cfg *core.Config, exec executor.Executor, reg *registry.Regist
 	return func() tea.Msg {
 		projCfg := &core.Config{
 			ProjectName: p.name,
-			ProjectDir:  p.directory,
 			ScriptDir:   cfg.ScriptDir,
 			DataDir:     cfg.DataDir,
-			Target:      p.target,
 			ImagePrefix: cfg.ImagePrefix,
+		}
+
+		entry, found, err := reg.GetProject(p.name)
+		if err != nil {
+			return actionResultMsg{err: err}
+		}
+		if found {
+			core.ApplyRegistryEntry(projCfg, entry)
+		} else {
+			projCfg.ProjectDir = p.directory
+			projCfg.Target = p.target
 		}
 
 		if err := setupCacheDir(projCfg); err != nil {
@@ -714,8 +724,18 @@ func startProject(cfg *core.Config, exec executor.Executor, reg *registry.Regist
 			return actionResultMsg{err: fmt.Errorf("creating tmux session: %w", err)}
 		}
 
+		var displayArgs []string
+		if projCfg.Display {
+			displayArgs, _ = platform.DisplayArgs(
+				os.Getenv("DISPLAY"),
+				os.Getenv("WAYLAND_DISPLAY"),
+				os.Getenv("XDG_RUNTIME_DIR"),
+			)
+		}
+		extraArgs := core.BuildExtraArgs(projCfg, displayArgs)
+
 		claudeArgs := core.BuildClaudeArgs(projCfg)
-		dockerCmd := docker.ComposeRunCommand(projCfg.ContainerName(), claudeArgs, nil)
+		dockerCmd := docker.ComposeRunCommand(projCfg.ContainerName(), claudeArgs, extraArgs)
 		tmuxCmd := core.BuildTmuxCommand(projCfg, dockerCmd)
 
 		if err := sess.SendKeys(tmuxCmd); err != nil {

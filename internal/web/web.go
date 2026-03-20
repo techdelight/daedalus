@@ -180,12 +180,11 @@ func (ws *WebServer) handleStartProject(w http.ResponseWriter, r *http.Request) 
 
 	projCfg := &core.Config{
 		ProjectName: name,
-		ProjectDir:  entry.Directory,
 		ScriptDir:   ws.cfg.ScriptDir,
 		DataDir:     ws.cfg.DataDir,
-		Target:      entry.Target,
 		ImagePrefix: ws.cfg.ImagePrefix,
 	}
+	core.ApplyRegistryEntry(projCfg, entry)
 
 	if err := docker.SetupCacheDir(projCfg); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -215,8 +214,18 @@ func (ws *WebServer) handleStartProject(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
+	var displayArgs []string
+	if projCfg.Display {
+		displayArgs, _ = platform.DisplayArgs(
+			os.Getenv("DISPLAY"),
+			os.Getenv("WAYLAND_DISPLAY"),
+			os.Getenv("XDG_RUNTIME_DIR"),
+		)
+	}
+	extraArgs := core.BuildExtraArgs(projCfg, displayArgs)
+
 	claudeArgs := core.BuildClaudeArgs(projCfg)
-	dockerCmd := ws.docker.ComposeRunCommand(projCfg.ContainerName(), claudeArgs, nil)
+	dockerCmd := ws.docker.ComposeRunCommand(projCfg.ContainerName(), claudeArgs, extraArgs)
 	tmuxCmd := core.BuildTmuxCommand(projCfg, dockerCmd)
 
 	if err := sess.SendKeys(tmuxCmd); err != nil {

@@ -143,6 +143,88 @@ func TestHandleStartProject_Success(t *testing.T) {
 	}
 }
 
+func TestHandleStartProject_DisplayFlag(t *testing.T) {
+	ws, mock := setupWebTest(t)
+	if err := ws.registry.AddProject("gui-app", "/path/gui-app", "dev"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ws.registry.UpdateDefaultFlags("gui-app", map[string]string{"display": "true"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	mock.Results["docker"] = executor.MockResult{Output: ""}
+
+	if err := os.MkdirAll(filepath.Join(ws.cfg.ScriptDir, ".cache"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/projects/{name}/start", ws.handleStartProject)
+	req := httptest.NewRequest("POST", "/api/projects/gui-app/start", nil)
+	rec := httptest.NewRecorder()
+
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	// Find the tmux send-keys call (not has-session or new-session).
+	var sendKeysArgs string
+	for _, c := range mock.FindCalls("tmux") {
+		if len(c.Args) > 0 && c.Args[0] == "send-keys" {
+			sendKeysArgs = strings.Join(c.Args, " ")
+			break
+		}
+	}
+	if sendKeysArgs == "" {
+		t.Fatal("expected tmux send-keys call")
+	}
+	if !strings.Contains(sendKeysArgs, "/tmp/.X11-unix") {
+		t.Errorf("display forwarding args missing from docker command;\nsend-keys args: %s", sendKeysArgs)
+	}
+}
+
+func TestHandleStartProject_DinDFlag(t *testing.T) {
+	ws, mock := setupWebTest(t)
+	if err := ws.registry.AddProject("dind-app", "/path/dind-app", "dev"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ws.registry.UpdateDefaultFlags("dind-app", map[string]string{"dind": "true"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	mock.Results["docker"] = executor.MockResult{Output: ""}
+
+	if err := os.MkdirAll(filepath.Join(ws.cfg.ScriptDir, ".cache"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/projects/{name}/start", ws.handleStartProject)
+	req := httptest.NewRequest("POST", "/api/projects/dind-app/start", nil)
+	rec := httptest.NewRecorder()
+
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	// Find the tmux send-keys call.
+	var sendKeysArgs string
+	for _, c := range mock.FindCalls("tmux") {
+		if len(c.Args) > 0 && c.Args[0] == "send-keys" {
+			sendKeysArgs = strings.Join(c.Args, " ")
+			break
+		}
+	}
+	if sendKeysArgs == "" {
+		t.Fatal("expected tmux send-keys call")
+	}
+	if !strings.Contains(sendKeysArgs, "/var/run/docker.sock") {
+		t.Errorf("DinD args missing from docker command;\nsend-keys args: %s", sendKeysArgs)
+	}
+}
+
 func TestHandleStartProject_AlreadyRunning(t *testing.T) {
 	ws, mock := setupWebTest(t)
 	if err := ws.registry.AddProject("myapp", "/path/myapp", "dev"); err != nil {
