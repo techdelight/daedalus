@@ -107,7 +107,6 @@ func run(args []string) error {
 		return fmt.Errorf("project directory '%s' does not exist\n%s check the path or re-register with: daedalus <name> <correct-path>", cfg.ProjectDir, color.Cyan("Hint:"))
 	}
 
-	// --- Cache directory ---
 	if err := docker.SetupCacheDir(cfg); err != nil {
 		return err
 	}
@@ -123,17 +122,10 @@ func run(args []string) error {
 
 	sess := session.NewSession(exec, cfg.TmuxSession())
 
-	// Reattach to existing tmux session
 	if useTmux && sess.Exists() {
 		fmt.Printf("Attaching to existing session '%s'...\n", cfg.TmuxSession())
 		fmt.Println("  " + color.Dim("(Detach with Ctrl-B d)"))
 		return sess.Attach()
-	}
-
-	// --- Session tracking ---
-	sessionID, sessionErr := reg.StartSession(cfg.ProjectName, cfg.Resume)
-	if sessionErr != nil {
-		fmt.Fprintf(os.Stderr, color.Yellow("Warning:")+" failed to start session tracking: %v\n", sessionErr)
 	}
 
 	// --- Container duplicate detection ---
@@ -148,89 +140,11 @@ func run(args []string) error {
 			cfg.ProjectName, cfg.ContainerName(), color.Cyan("Hint:"), cfg.ProjectName, cfg.ContainerName())
 	}
 
-	// --- Image build ---
-	image := cfg.Image()
-	checksumPath := filepath.Join(cfg.DataDir, "build-checksum")
-
-	if cfg.Build {
-		logging.Info("building image: " + image)
-		if cfg.Debug {
-			printBuildDebugInfo(cfg, cfg.Target, image)
-		}
-		uid := strconv.Itoa(os.Getuid())
-		if err := d.Build(cfg.Target, image, uid, cfg.ScriptDir); err != nil {
-			logging.Error("build failed: " + err.Error())
-			return fmt.Errorf("building image: %w\n%s check Docker is running and try: daedalus --build %s", err, color.Cyan("Hint:"), cfg.ProjectName)
-		}
-		if err := updateBuildChecksum(cfg.ScriptDir, checksumPath); err != nil {
-			fmt.Fprintf(os.Stderr, "%s could not update build checksum: %v\n", color.Yellow("Warning:"), err)
-		}
-	} else if !d.ImageExists(image) {
-		logging.Info("building image: " + image + " (missing)")
-		fmt.Printf(color.Yellow("Warning:")+" image %s missing, building...\n", image)
-		uid := strconv.Itoa(os.Getuid())
-		if err := d.Build(cfg.Target, image, uid, cfg.ScriptDir); err != nil {
-			logging.Error("build failed: " + err.Error())
-			return fmt.Errorf("building image: %w\n%s check Docker is running and try: daedalus --build %s", err, color.Cyan("Hint:"), cfg.ProjectName)
-		}
-		if err := updateBuildChecksum(cfg.ScriptDir, checksumPath); err != nil {
-			fmt.Fprintf(os.Stderr, "%s could not update build checksum: %v\n", color.Yellow("Warning:"), err)
-		}
-	} else if docker.NeedsRebuild(cfg.ScriptDir, checksumPath) {
-		logging.Info("runtime files changed, rebuilding image: " + image)
-		fmt.Printf("%s runtime files changed, rebuilding image %s...\n", color.Yellow("Notice:"), image)
-		uid := strconv.Itoa(os.Getuid())
-		if err := d.Build(cfg.Target, image, uid, cfg.ScriptDir); err != nil {
-			logging.Error("auto-rebuild failed: " + err.Error())
-			return fmt.Errorf("auto-rebuilding image: %w", err)
-		}
-		if err := updateBuildChecksum(cfg.ScriptDir, checksumPath); err != nil {
-			fmt.Fprintf(os.Stderr, "%s could not update build checksum: %v\n", color.Yellow("Warning:"), err)
-		}
+	if err := ensureImageBuilt(cfg, d); err != nil {
+		return err
 	}
 
-	// --- Build docker command ---
-	claudeArgs := core.BuildClaudeArgs(cfg)
-	composeEnv := map[string]string{
-		"PROJECT_DIR": cfg.ProjectDir,
-		"CACHE_DIR":   cfg.CacheDir(),
-		"TARGET":      cfg.Target,
-	}
-
-	var extraArgs []string
-	if cfg.DinD {
-		extraArgs = []string{"-v", "/var/run/docker.sock:/var/run/docker.sock"}
-		fmt.Fprintln(os.Stderr, color.Yellow("WARNING:")+" --dind mounts the host Docker socket. This grants the container full access to host Docker.")
-	}
-
-	// --- Launch ---
-	if useTmux {
-		dockerCmd := d.ComposeRunCommand(cfg.ContainerName(), claudeArgs, extraArgs)
-		tmuxCmd := core.BuildTmuxCommand(cfg, dockerCmd)
-
-		sess.PrintAttachHint(os.Args[0])
-		if err := sess.Create(); err != nil {
-			return fmt.Errorf("creating tmux session: %w", err)
-		}
-		if err := sess.SendKeys(tmuxCmd); err != nil {
-			return fmt.Errorf("sending command to tmux: %w", err)
-		}
-		return sess.Attach()
-	}
-
-	// Direct execution (no tmux)
-	runErr := d.ComposeRun(cfg.ContainerName(), composeEnv, claudeArgs, extraArgs)
-	if sessionErr == nil {
-		if err := reg.EndSession(cfg.ProjectName, sessionID); err != nil {
-			fmt.Fprintf(os.Stderr, color.Yellow("Warning:")+" failed to end session tracking: %v\n", err)
-		}
-	}
-	if runErr != nil {
-		logging.Error(runErr.Error())
-	} else {
-		logging.Info("done")
-	}
-	return runErr
+	return launchProject(cfg, d, reg, sess, useTmux)
 }
 
 // buildAllProjects rebuilds Docker images for all registered projects.
@@ -279,6 +193,105 @@ func buildAllProjects(cfg *core.Config) error {
 
 	fmt.Printf("%s all images rebuilt.\n", color.Green("Done:"))
 	return nil
+}
+
+// ensureImageBuilt builds the Docker image if needed (explicit --build, missing
+// image, or changed runtime files). It also updates the build checksum afterward.
+func ensureImageBuilt(cfg *core.Config, d *docker.Docker) error {
+	image := cfg.Image()
+	checksumPath := filepath.Join(cfg.DataDir, "build-checksum")
+
+	if cfg.Build {
+		logging.Info("building image: " + image)
+		if cfg.Debug {
+			printBuildDebugInfo(cfg, cfg.Target, image)
+		}
+		if err := buildImage(cfg, d, image); err != nil {
+			return err
+		}
+	} else if !d.ImageExists(image) {
+		logging.Info("building image: " + image + " (missing)")
+		fmt.Printf(color.Yellow("Warning:")+" image %s missing, building...\n", image)
+		if err := buildImage(cfg, d, image); err != nil {
+			return err
+		}
+	} else if docker.NeedsRebuild(cfg.ScriptDir, checksumPath) {
+		logging.Info("runtime files changed, rebuilding image: " + image)
+		fmt.Printf("%s runtime files changed, rebuilding image %s...\n", color.Yellow("Notice:"), image)
+		uid := strconv.Itoa(os.Getuid())
+		if err := d.Build(cfg.Target, image, uid, cfg.ScriptDir); err != nil {
+			logging.Error("auto-rebuild failed: " + err.Error())
+			return fmt.Errorf("auto-rebuilding image: %w", err)
+		}
+	} else {
+		return nil
+	}
+
+	if err := updateBuildChecksum(cfg.ScriptDir, checksumPath); err != nil {
+		fmt.Fprintf(os.Stderr, "%s could not update build checksum: %v\n", color.Yellow("Warning:"), err)
+	}
+	return nil
+}
+
+// buildImage builds the Docker image for the configured target. Used by
+// ensureImageBuilt for explicit builds and missing-image builds.
+func buildImage(cfg *core.Config, d *docker.Docker, image string) error {
+	uid := strconv.Itoa(os.Getuid())
+	if err := d.Build(cfg.Target, image, uid, cfg.ScriptDir); err != nil {
+		logging.Error("build failed: " + err.Error())
+		return fmt.Errorf("building image: %w\n%s check Docker is running and try: daedalus --build %s", err, color.Cyan("Hint:"), cfg.ProjectName)
+	}
+	return nil
+}
+
+// launchProject starts the project container, either in a tmux session or
+// directly. It handles session tracking and DinD socket mounting.
+func launchProject(cfg *core.Config, d *docker.Docker, reg *registry.Registry, sess *session.Session, useTmux bool) error {
+	sessionID, sessionErr := reg.StartSession(cfg.ProjectName, cfg.Resume)
+	if sessionErr != nil {
+		fmt.Fprintf(os.Stderr, color.Yellow("Warning:")+" failed to start session tracking: %v\n", sessionErr)
+	}
+
+	claudeArgs := core.BuildClaudeArgs(cfg)
+	composeEnv := map[string]string{
+		"PROJECT_DIR": cfg.ProjectDir,
+		"CACHE_DIR":   cfg.CacheDir(),
+		"TARGET":      cfg.Target,
+	}
+
+	var extraArgs []string
+	if cfg.DinD {
+		extraArgs = []string{"-v", "/var/run/docker.sock:/var/run/docker.sock"}
+		fmt.Fprintln(os.Stderr, color.Yellow("WARNING:")+" --dind mounts the host Docker socket. This grants the container full access to host Docker.")
+	}
+
+	if useTmux {
+		dockerCmd := d.ComposeRunCommand(cfg.ContainerName(), claudeArgs, extraArgs)
+		tmuxCmd := core.BuildTmuxCommand(cfg, dockerCmd)
+
+		sess.PrintAttachHint(os.Args[0])
+		if err := sess.Create(); err != nil {
+			return fmt.Errorf("creating tmux session: %w", err)
+		}
+		if err := sess.SendKeys(tmuxCmd); err != nil {
+			return fmt.Errorf("sending command to tmux: %w", err)
+		}
+		return sess.Attach()
+	}
+
+	// Direct execution (no tmux)
+	runErr := d.ComposeRun(cfg.ContainerName(), composeEnv, claudeArgs, extraArgs)
+	if sessionErr == nil {
+		if err := reg.EndSession(cfg.ProjectName, sessionID); err != nil {
+			fmt.Fprintf(os.Stderr, color.Yellow("Warning:")+" failed to end session tracking: %v\n", err)
+		}
+	}
+	if runErr != nil {
+		logging.Error(runErr.Error())
+	} else {
+		logging.Info("done")
+	}
+	return runErr
 }
 
 // updateBuildChecksum computes and stores the checksum of build-relevant files.
