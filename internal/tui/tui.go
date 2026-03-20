@@ -795,7 +795,6 @@ func handleTUIResult(finalModel tea.Model) string {
 }
 
 func Run(cfg *core.Config) error {
-	core.PrintBanner(cfg.ScriptDir)
 	exec := &executor.RealExecutor{}
 	reg := registry.NewRegistry(cfg.RegistryPath())
 	if err := reg.Init(); err != nil {
