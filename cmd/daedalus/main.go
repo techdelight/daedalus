@@ -18,6 +18,7 @@ import (
 	"github.com/techdelight/daedalus/internal/docker"
 	"github.com/techdelight/daedalus/internal/executor"
 	"github.com/techdelight/daedalus/internal/logging"
+	"github.com/techdelight/daedalus/internal/platform"
 	"github.com/techdelight/daedalus/internal/registry"
 	"github.com/techdelight/daedalus/internal/session"
 	"github.com/techdelight/daedalus/internal/tui"
@@ -263,6 +264,18 @@ func launchProject(cfg *core.Config, d *docker.Docker, reg *registry.Registry, s
 	if cfg.DinD {
 		extraArgs = []string{"-v", "/var/run/docker.sock:/var/run/docker.sock"}
 		fmt.Fprintln(os.Stderr, color.Yellow("WARNING:")+" --dind mounts the host Docker socket. This grants the container full access to host Docker.")
+	}
+
+	if cfg.Display {
+		displayArgs, displayWarnings := platform.DisplayArgs(
+			os.Getenv("DISPLAY"),
+			os.Getenv("WAYLAND_DISPLAY"),
+			os.Getenv("XDG_RUNTIME_DIR"),
+		)
+		extraArgs = append(extraArgs, displayArgs...)
+		for _, w := range displayWarnings {
+			fmt.Fprintln(os.Stderr, color.Yellow("Warning:")+" "+w)
+		}
 	}
 
 	if useTmux {
