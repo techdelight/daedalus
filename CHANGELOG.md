@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-03-20
+
+### Fixed
+- Web UI and TUI now apply per-project default flags (display, dind) when starting containers. Previously only the CLI applied registry defaults.
+- Display forwarding test no longer depends on host `DISPLAY` environment variable, fixing CI failures in headless environments.
+
+### Changed
+- Dev release workflow triggers on pushes to the `development` branch instead of `master`.
+
 ## [0.9.0] - 2026-03-20
 
 ### Added
