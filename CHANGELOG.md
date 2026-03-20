@@ -7,6 +7,9 @@ All notable changes to this project will be documented in this file.
 ### Added
 - Unit tests for `MockExecutor` in `internal/executor/executor_test.go` covering call recording, result lookup, and query helpers
 
+### Fixed
+- Updated 13 stale `"0.8.1"` version strings to `"0.8.2"` in `cmd/generate-manpage/main_test.go` test fixtures
+
 ### Changed
 - Moved `PrintBanner()` from `core/` to `cmd/daedalus/` to restore the zero-I/O invariant in the core package
 
