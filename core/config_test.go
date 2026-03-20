@@ -139,6 +139,38 @@ func TestApplyRegistryEntry_CLIOverridesDefaults(t *testing.T) {
 	}
 }
 
+func TestApplyRegistryEntry_DisplayFlag(t *testing.T) {
+	tests := []struct {
+		name       string
+		cliDisplay bool
+		flagVal    string
+		want       bool
+	}{
+		{"default flag enables display", false, "true", true},
+		{"CLI flag wins over default", true, "false", true},
+		{"default flag false keeps disabled", false, "false", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Arrange
+			cfg := &Config{Display: tt.cliDisplay}
+			entry := ProjectEntry{
+				Directory:    "/tmp/test",
+				Target:       "dev",
+				DefaultFlags: map[string]string{"display": tt.flagVal},
+			}
+
+			// Act
+			ApplyRegistryEntry(cfg, entry)
+
+			// Assert
+			if cfg.Display != tt.want {
+				t.Errorf("Display = %v, want %v", cfg.Display, tt.want)
+			}
+		})
+	}
+}
+
 func TestApplyRegistryEntry_NilDefaultFlags(t *testing.T) {
 	cfg := &Config{Target: "dev"}
 	entry := ProjectEntry{

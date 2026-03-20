@@ -31,7 +31,7 @@ _daedalus() {
     _init_completion || return
 
     local subcommands="list prune remove rename config tui web completion"
-    local flags="--build --target --resume -p --no-tmux --debug --dind --force --port --host --no-color --help -h"
+    local flags="--build --target --resume -p --no-tmux --debug --dind --display --force --port --host --no-color --help -h"
 
     # Complete subcommands and flags for the first argument
     if [[ ${cword} -eq 1 ]]; then
@@ -88,6 +88,7 @@ _daedalus() {
         '--no-tmux[Run without tmux session wrapping]'
         '--debug[Enable Claude Code debug mode]'
         '--dind[Mount Docker socket]'
+        '--display[Forward host display into container]'
         '--force[Force deletion in non-interactive mode]'
         '--no-color[Disable colored output]'
         '--port[Port for web UI]:port:'
@@ -150,6 +151,7 @@ complete -c daedalus -s p -d 'Run a headless single-prompt task' -r
 complete -c daedalus -l no-tmux -d 'Run without tmux session wrapping'
 complete -c daedalus -l debug -d 'Enable Claude Code debug mode'
 complete -c daedalus -l dind -d 'Mount Docker socket'
+complete -c daedalus -l display -d 'Forward host display into container'
 complete -c daedalus -l force -d 'Force deletion in non-interactive mode'
 complete -c daedalus -l no-color -d 'Disable colored output'
 complete -c daedalus -l port -d 'Port for web UI' -r
