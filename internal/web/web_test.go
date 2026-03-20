@@ -144,6 +144,8 @@ func TestHandleStartProject_Success(t *testing.T) {
 }
 
 func TestHandleStartProject_DisplayFlag(t *testing.T) {
+	t.Setenv("DISPLAY", ":0")
+
 	ws, mock := setupWebTest(t)
 	if err := ws.registry.AddProject("gui-app", "/path/gui-app", "dev"); err != nil {
 		t.Fatal(err)

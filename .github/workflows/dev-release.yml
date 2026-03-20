@@ -5,7 +5,7 @@ name: Dev Release
 on:
   push:
     branches:
-      - master
+      - development
   workflow_dispatch:
 
 permissions:
@@ -106,11 +106,11 @@ jobs:
           body: |
             ## Rolling Dev Build
 
-            This is an **automated pre-release** built from the latest `master` branch.
+            This is an **automated pre-release** built from the latest `development` branch.
             It may be unstable — use a [stable release](https://github.com/techdelight/daedalus/releases/latest) for production.
 
             **Commit:** ${{ github.sha }}
-            **Compare:** [Changes since last release](https://github.com/techdelight/daedalus/compare/...master)
+            **Compare:** [Changes since last release](https://github.com/techdelight/daedalus/compare/...development)
 
             ### Install
 
