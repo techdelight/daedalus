@@ -114,6 +114,7 @@ daedalus --help
 | `--no-tmux` | Run without tmux session wrapping |
 | `--debug` | Enable Claude Code debug mode |
 | `--dind` | Mount Docker socket (WARNING: grants host Docker access) |
+| `--display` | Forward host X11/Wayland display into the container for GUI apps |
 | `--force` | Force deletion in non-interactive mode (e.g. prune, remove) |
 | `--no-color` | Disable colored output (also honors `NO_COLOR` env var) |
 | `--port <port>` | Port for web UI (default: `3000`) |
@@ -158,8 +159,11 @@ daedalus web --port 8080
 # List all registered projects
 daedalus list
 
+# Enable display forwarding for GUI apps
+daedalus --display my-app /path/to/project
+
 # Per-project configuration
-daedalus config my-app --set dind=true
+daedalus config my-app --set display=true
 
 # Shell completions
 daedalus completion bash
