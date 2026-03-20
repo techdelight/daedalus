@@ -9,7 +9,7 @@ import (
 
 func TestGenerateManpage_StartsWithTH(t *testing.T) {
 	// Arrange
-	version := "0.8.1"
+	version := "0.8.2"
 	date := "2026-03-07"
 
 	// Act
@@ -37,7 +37,7 @@ func TestGenerateManpage_ContainsVersion(t *testing.T) {
 
 func TestGenerateManpage_ContainsDate(t *testing.T) {
 	// Arrange
-	version := "0.8.1"
+	version := "0.8.2"
 	date := "2026-03-07"
 
 	// Act
@@ -51,7 +51,7 @@ func TestGenerateManpage_ContainsDate(t *testing.T) {
 
 func TestGenerateManpage_ContainsAllSections(t *testing.T) {
 	// Arrange
-	version := "0.8.1"
+	version := "0.8.2"
 	date := "2026-03-07"
 	sections := []string{
 		".SH NAME",
@@ -82,7 +82,7 @@ func TestGenerateManpage_ContainsAllSections(t *testing.T) {
 
 func TestGenerateManpage_ContainsAllCommands(t *testing.T) {
 	// Arrange
-	version := "0.8.1"
+	version := "0.8.2"
 	date := "2026-03-07"
 	commands := []string{
 		"list",
@@ -107,7 +107,7 @@ func TestGenerateManpage_ContainsAllCommands(t *testing.T) {
 
 func TestGenerateManpage_ContainsAllFlags(t *testing.T) {
 	// Arrange
-	version := "0.8.1"
+	version := "0.8.2"
 	date := "2026-03-07"
 	flags := []string{
 		"\\-\\-build",
@@ -136,7 +136,7 @@ func TestGenerateManpage_ContainsAllFlags(t *testing.T) {
 
 func TestGenerateManpage_ContainsEnvironmentVars(t *testing.T) {
 	// Arrange
-	version := "0.8.1"
+	version := "0.8.2"
 	date := "2026-03-07"
 	envVars := []string{
 		"DAEDALUS_DATA_DIR",
@@ -156,7 +156,7 @@ func TestGenerateManpage_ContainsEnvironmentVars(t *testing.T) {
 
 func TestGenerateManpage_ContainsConfigFields(t *testing.T) {
 	// Arrange
-	version := "0.8.1"
+	version := "0.8.2"
 	date := "2026-03-07"
 	fields := []string{
 		"data-dir",
@@ -178,7 +178,7 @@ func TestGenerateManpage_ContainsConfigFields(t *testing.T) {
 
 func TestGenerateManpage_ContainsSeeAlso(t *testing.T) {
 	// Arrange
-	version := "0.8.1"
+	version := "0.8.2"
 	date := "2026-03-07"
 	references := []string{
 		"docker",
@@ -199,7 +199,7 @@ func TestGenerateManpage_ContainsSeeAlso(t *testing.T) {
 
 func TestGenerateManpage_ContainsCopyright(t *testing.T) {
 	// Arrange
-	version := "0.8.1"
+	version := "0.8.2"
 	date := "2026-03-07"
 
 	// Act
@@ -216,7 +216,7 @@ func TestGenerateManpage_ContainsCopyright(t *testing.T) {
 
 func TestGenerateManpage_ContainsExitStatus(t *testing.T) {
 	// Arrange
-	version := "0.8.1"
+	version := "0.8.2"
 	date := "2026-03-07"
 
 	// Act
@@ -233,7 +233,7 @@ func TestGenerateManpage_ContainsExitStatus(t *testing.T) {
 
 func TestGenerateManpage_ContainsFiles(t *testing.T) {
 	// Arrange
-	version := "0.8.1"
+	version := "0.8.2"
 	date := "2026-03-07"
 	files := []string{
 		"config.json",
@@ -254,7 +254,7 @@ func TestGenerateManpage_ContainsFiles(t *testing.T) {
 
 func TestGenerateManpage_NameSection(t *testing.T) {
 	// Arrange
-	version := "0.8.1"
+	version := "0.8.2"
 	date := "2026-03-07"
 
 	// Act
@@ -268,7 +268,7 @@ func TestGenerateManpage_NameSection(t *testing.T) {
 
 func TestGenerateManpage_UsesRoffMacros(t *testing.T) {
 	// Arrange
-	version := "0.8.1"
+	version := "0.8.2"
 	date := "2026-03-07"
 	macros := []string{
 		".TH",
