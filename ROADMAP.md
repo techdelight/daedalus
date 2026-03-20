@@ -26,18 +26,23 @@
 | ~~20~~ | ~~Browser tab title — set the Web UI tab title to include the name of the active project~~ |
 | 21 | Shared Maven `.m2` repository — mount a host-side `.m2/repository` into containers so dependencies are shared across projects. Investigate overlay/merge strategy: a stable global repo (read-only base) combined with a per-container local repo for builds/downloads/installs, so containers benefit from cached artifacts without polluting the shared cache |
 | 22 | Favicon — add a Daedalus favicon to the Web UI so the browser tab shows a recognizable icon |
+| 23 | Display sharing (`--display`) — forward the host X11/Wayland display into Docker containers so GUI applications can render on the host screen. Support WSL2 (via `DISPLAY` + `/tmp/.X11-unix` or Wayland socket) and native Linux. Stored as a per-project `display` flag in `projects.json`, off by default. Prompted during `daedalus <name> <dir>` first registration and configurable via `daedalus config <name> --set display=true` |
 
 ## Current Sprint
 
 ### Sprint 13: Platform & Accessibility
 
-Goal: improve cross-platform experience and Web UI accessibility.
+Goal: improve cross-platform experience, Web UI accessibility, and code quality.
 
 | # | Item | Status |
 |---|------|--------|
 | 1 | WSL2 Web UI access — auto-detect WSL2, bind to `0.0.0.0`, print VM IP for Windows browser access | Done |
 | 2 | Dev release workflow — rolling `dev` pre-release on push to master with `VERSION-dev+SHA` binaries | Done |
 | 3 | Browser tab title — set the Web UI tab title to include the name of the active project | Done |
+| 4 | Core package purity — move `PrintBanner()` from `core/banner.go` to `cmd/daedalus/`, keeping `ReadVersion()` in core. Restores the zero-I/O invariant for the `core/` package | Done |
+| 5 | Executor test coverage — add `internal/executor/executor_test.go` with tests for `MockExecutor` (call recording, result lookup, `HasCall`/`FindCall`/`FindCalls` queries) | Done |
+| 6 | Fix stale test fixture — update 13 hardcoded `"0.8.1"` version strings to `"0.8.2"` in `cmd/generate-manpage/main_test.go` | Done |
+| 7 | Refactor `run()` — extract `ensureImageBuilt()`, `launchProject()`, and `resolveProject()` from the 197-line `run()` function in `cmd/daedalus/main.go` to bring it under ~60 lines | Done |
 
 ### Sprint 12: Build, Debug & Logging Improvements (v0.8.0)
 
