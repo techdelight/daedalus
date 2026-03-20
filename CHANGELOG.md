@@ -8,6 +8,9 @@ All notable changes to this project will be documented in this file.
 - `--display` CLI flag to forward the host X11/Wayland display into Docker containers
 - Per-project `display` default flag stored in `projects.json`, configurable via `daedalus config <name> --set display=true`
 - Shell completions and man page documentation for `--display`
+- `internal/platform/display.go` — pure `DisplayArgs()` function for resolving X11/Wayland Docker arguments
+- X11 forwarding via `/tmp/.X11-unix` socket mount and `DISPLAY` environment variable
+- Wayland forwarding via `$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY` socket mount
 
 ## [0.8.3] - 2026-03-20
 
