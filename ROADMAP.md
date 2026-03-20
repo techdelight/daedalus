@@ -26,13 +26,23 @@
 | ~~20~~ | ~~Browser tab title — set the Web UI tab title to include the name of the active project~~ |
 | 21 | Shared Maven `.m2` repository — mount a host-side `.m2/repository` into containers so dependencies are shared across projects. Investigate overlay/merge strategy: a stable global repo (read-only base) combined with a per-container local repo for builds/downloads/installs, so containers benefit from cached artifacts without polluting the shared cache |
 | 22 | Favicon — add a Daedalus favicon to the Web UI so the browser tab shows a recognizable icon |
-| 23 | Display sharing (`--display`) — forward the host X11/Wayland display into Docker containers so GUI applications can render on the host screen. Support WSL2 (via `DISPLAY` + `/tmp/.X11-unix` or Wayland socket) and native Linux. Stored as a per-project `display` flag in `projects.json`, off by default. Prompted during `daedalus <name> <dir>` first registration and configurable via `daedalus config <name> --set display=true` |
+| ~~23~~ | ~~Display sharing (`--display`) — forward the host X11/Wayland display into Docker containers so GUI applications can render on the host screen. Support WSL2 (via `DISPLAY` + `/tmp/.X11-unix` or Wayland socket) and native Linux. Stored as a per-project `display` flag in `projects.json`, off by default. Prompted during `daedalus <name> <dir>` first registration and configurable via `daedalus config <name> --set display=true`~~ |
 
 ## Current Sprint
 
-### Sprint 13: Platform & Accessibility
+### Sprint 14: Display Sharing
 
-Goal: improve cross-platform experience, Web UI accessibility, and code quality.
+Goal: enable GUI application rendering from Docker containers on the host screen via X11/Wayland forwarding.
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | `--display` flag plumbing — Config field, CLI parsing, per-project defaults, help text, shell completions, man page | Pending |
+| 2 | Display forwarding logic — `DisplayArgs()` in `internal/platform/display.go` for X11 + Wayland, wire into `launchProject()` | Pending |
+| 3 | First-run prompt — ask during interactive project registration whether to enable display forwarding (default: no) | Pending |
+
+### Sprint 13: Platform & Accessibility (v0.8.3)
+
+Delivered 2026-03-20. WSL2 web access, dev releases, browser tab title, code quality improvements.
 
 | # | Item | Status |
 |---|------|--------|
