@@ -36,9 +36,9 @@ Goal: enable GUI application rendering from Docker containers on the host screen
 
 | # | Item | Status |
 |---|------|--------|
-| 1 | `--display` flag plumbing — Config field, CLI parsing, per-project defaults, help text, shell completions, man page | Pending |
-| 2 | Display forwarding logic — `DisplayArgs()` in `internal/platform/display.go` for X11 + Wayland, wire into `launchProject()` | Pending |
-| 3 | First-run prompt — ask during interactive project registration whether to enable display forwarding (default: no) | Pending |
+| 1 | `--display` flag plumbing — Config field, CLI parsing, per-project defaults, help text, shell completions, man page | Done |
+| 2 | Display forwarding logic — `DisplayArgs()` in `internal/platform/display.go` for X11 + Wayland, wire into `launchProject()` | Done |
+| 3 | First-run prompt — ask during interactive project registration whether to enable display forwarding (default: no) | Done |
 
 ### Sprint 13: Platform & Accessibility (v0.8.3)
 

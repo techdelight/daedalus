@@ -46,6 +46,7 @@ All side effects (filesystem, shell, network) live here behind interfaces.
 | `web` | `Run()`, `WebServer` | REST API + WebSocket terminal relay, embedded static assets |
 | `logging` | `Init()`, `Close()`, `Info()`, `Error()`, `Debug()` | Thread-safe file logging with timestamp and level prefixes |
 | `completions` | `Generate()` | bash/zsh/fish shell completion scripts |
+| `platform` | `IsWSL2()`, `WSL2IPAddress()`, `DisplayArgs()` | Platform detection (WSL2) and display forwarding argument resolution |
 
 ### Dependency Graph (no cycles)
 
