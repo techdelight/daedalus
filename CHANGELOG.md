@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.9.2] - 2026-03-21
+
+### Fixed
+- tmux sessions on macOS no longer become unreachable after opening a new terminal window. All tmux commands now use a stable socket path via `TMUX_TMPDIR=/tmp`.
+
+### Added
+- `ExecWithEnv` method on `Executor` interface for process replacement with extra environment variables.
+
 ## [0.9.1] - 2026-03-20
 
 ### Fixed

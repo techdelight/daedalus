@@ -19,6 +19,8 @@ type Executor interface {
 	Output(name string, args ...string) (string, error)
 	// Exec replaces the current process (syscall.Exec).
 	Exec(name string, args ...string) error
+	// ExecWithEnv replaces the current process with extra environment variables.
+	ExecWithEnv(env []string, name string, args ...string) error
 	// LookPath checks if a binary exists on PATH.
 	LookPath(name string) (string, error)
 }
@@ -56,6 +58,15 @@ func (r *RealExecutor) Exec(name string, args ...string) error {
 	}
 	argv := append([]string{name}, args...)
 	return syscall.Exec(binary, argv, os.Environ())
+}
+
+func (r *RealExecutor) ExecWithEnv(env []string, name string, args ...string) error {
+	binary, err := exec.LookPath(name)
+	if err != nil {
+		return err
+	}
+	argv := append([]string{name}, args...)
+	return syscall.Exec(binary, argv, append(os.Environ(), env...))
 }
 
 func (r *RealExecutor) LookPath(name string) (string, error) {
@@ -109,6 +120,14 @@ func (m *MockExecutor) Output(name string, args ...string) (string, error) {
 }
 
 func (m *MockExecutor) Exec(name string, args ...string) error {
+	m.Calls = append(m.Calls, Call{Name: "exec:" + name, Args: args})
+	if r, ok := m.Results["exec:"+name]; ok {
+		return r.Err
+	}
+	return nil
+}
+
+func (m *MockExecutor) ExecWithEnv(env []string, name string, args ...string) error {
 	m.Calls = append(m.Calls, Call{Name: "exec:" + name, Args: args})
 	if r, ok := m.Results["exec:"+name]; ok {
 		return r.Err

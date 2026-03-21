@@ -284,6 +284,70 @@ func TestMockExecutor_Exec(t *testing.T) {
 	}
 }
 
+func TestMockExecutor_ExecWithEnv(t *testing.T) {
+	tests := []struct {
+		name    string
+		env     []string
+		cmdName string
+		args    []string
+		result  *MockResult
+		wantErr bool
+	}{
+		{
+			name:    "records call with exec: prefix and returns nil",
+			env:     []string{"TMUX_TMPDIR=/tmp"},
+			cmdName: "tmux",
+			args:    []string{"attach", "-t", "my-session"},
+			result:  nil,
+			wantErr: false,
+		},
+		{
+			name:    "returns configured error for exec: prefixed key",
+			env:     []string{"TMUX_TMPDIR=/tmp"},
+			cmdName: "tmux",
+			args:    []string{"attach"},
+			result:  &MockResult{Err: errors.New("no session")},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Arrange
+			m := NewMockExecutor()
+			if tt.result != nil {
+				m.Results["exec:"+tt.cmdName] = *tt.result
+			}
+
+			// Act
+			err := m.ExecWithEnv(tt.env, tt.cmdName, tt.args...)
+
+			// Assert
+			if tt.wantErr && err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			if !tt.wantErr && err != nil {
+				t.Fatalf("expected nil error, got %v", err)
+			}
+			if len(m.Calls) != 1 {
+				t.Fatalf("expected 1 call, got %d", len(m.Calls))
+			}
+			expectedName := "exec:" + tt.cmdName
+			if m.Calls[0].Name != expectedName {
+				t.Errorf("expected call name %q, got %q", expectedName, m.Calls[0].Name)
+			}
+			if len(m.Calls[0].Args) != len(tt.args) {
+				t.Fatalf("expected %d args, got %d", len(tt.args), len(m.Calls[0].Args))
+			}
+			for i, arg := range tt.args {
+				if m.Calls[0].Args[i] != arg {
+					t.Errorf("arg[%d]: expected %q, got %q", i, arg, m.Calls[0].Args[i])
+				}
+			}
+		})
+	}
+}
+
 func TestMockExecutor_LookPath(t *testing.T) {
 	tests := []struct {
 		name       string
