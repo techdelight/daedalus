@@ -82,6 +82,7 @@ daedalus list
 daedalus prune
 daedalus remove <name> [name...]
 daedalus config <name> [--set key=value] [--unset key]
+daedalus skills [add <file> | remove <name> | show <name>]
 daedalus tui
 daedalus web [--port PORT] [--host HOST]
 daedalus completion <bash|zsh|fish>
@@ -98,6 +99,7 @@ daedalus --help
 | `prune` | Remove registry entries with missing directories |
 | `remove <name> [name...]` | Remove named projects from the registry |
 | `config <name>` | View or edit per-project default flags |
+| `skills` | List, add, remove, or show skills in the shared catalog |
 | `tui` | Interactive dashboard for managing projects |
 | `web` | Web UI dashboard (default: `localhost:3000`) |
 | `completion <shell>` | Print shell completion script (bash, zsh, fish) |
@@ -378,12 +380,41 @@ Daedalus supports [MCP servers](https://modelcontextprotocol.io/) configured in 
 
 **Per-project override:** edit `.cache/<project>/.claude-config/.claude.json` directly — this file is persisted in the project's home directory and is not overwritten after the first run.
 
+## Skill Catalog
+
+Daedalus includes a shared skill catalog — a directory of Claude Code slash commands (`.md` files) that are available to all projects. Skills are stored at `<data-dir>/skills/` on the host and mounted read-write into every container at `/opt/skills`.
+
+**From the host CLI:**
+
+```bash
+daedalus skills                    # List all skills in the catalog
+daedalus skills add my-skill.md    # Add a skill file to the catalog
+daedalus skills show commit        # Print a skill's content
+daedalus skills remove commit      # Remove a skill from the catalog
+```
+
+**From inside a container**, Claude Code automatically discovers the `skill-catalog` MCP server and can use these tools:
+
+| Tool | Description |
+|---|---|
+| `list_skills` | List all skills in the shared catalog |
+| `read_skill` | Read the full content of a skill |
+| `install_skill` | Install a skill into the project's `~/.claude/commands/` |
+| `uninstall_skill` | Remove a skill from the project's commands |
+| `create_skill` | Publish a new skill to the shared catalog |
+| `update_skill` | Update an existing skill in the catalog |
+| `remove_skill` | Delete a skill from the catalog |
+| `list_installed` | List skills installed in the current project |
+
+Installing a skill copies it from the catalog to the project's `~/.claude/commands/` directory, making it available as a slash command (e.g., `/commit`). The catalog is seeded with starter skills (`commit.md`, `review.md`) on first run.
+
 ## Sharing Skills Across Projects
 
 Claude Code reads instructions from several locations inside the container. Use these to share skills, conventions, and workflows across projects.
 
 | Source | Scope | How it works |
 |---|---|---|
+| Skill Catalog | All projects | Shared `.md` files in `<data-dir>/skills/`, mounted at `/opt/skills`. Managed via `daedalus skills` or MCP tools |
 | Project `CLAUDE.md` | Per-project | Mounted automatically at `/workspace/CLAUDE.md` from the project directory |
 | Project `.claude/` dir | Per-project | Mounted at `/workspace/.claude/` — place commands, settings, or memory files here |
 | `claude.json` | All projects (same image) | Copied as `.claude.json` into the image; seeds `/home/claude/.claude-config/.claude.json` on first run |

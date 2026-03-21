@@ -43,6 +43,10 @@ func BuildClaudeArgs(cfg *Config) []string {
 // displayArgs should come from platform.DisplayArgs when cfg.Display is true.
 func BuildExtraArgs(cfg *Config, displayArgs []string) []string {
 	var args []string
+
+	// Always mount the shared skill catalog
+	args = append(args, "-v", cfg.SkillsDir()+":/opt/skills")
+
 	if cfg.DinD {
 		args = append(args, "-v", "/var/run/docker.sock:/var/run/docker.sock")
 	}

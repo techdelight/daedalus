@@ -187,6 +187,13 @@ func ParseArgs(args []string) (*core.Config, error) {
 		return cfg, nil
 	}
 
+	// Handle "skills" subcommand (e.g., daedalus skills add file.md)
+	if len(positional) > 0 && positional[0] == "skills" {
+		cfg.Subcommand = "skills"
+		cfg.SkillsArgs = positional[1:]
+		return cfg, nil
+	}
+
 	// Handle positional args
 	switch len(positional) {
 	case 0:

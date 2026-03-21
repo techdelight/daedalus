@@ -12,17 +12,24 @@ Contains types, command builders, and helpers with no side effects.
 
 | File | Contents |
 |---|---|
-| `config.go` | `Config` struct, `Image()`, `ContainerName()`, `TmuxSession()`, `CacheDir()`, `UseTmux()`, `ApplyRegistryEntry()` |
+| `config.go` | `Config` struct, `Image()`, `ContainerName()`, `TmuxSession()`, `CacheDir()`, `SkillsDir()`, `UseTmux()`, `ApplyRegistryEntry()` |
 | `appconfig.go` | `AppConfig` struct, `ApplyAppConfig()` |
 | `project.go` | `RegistryData`, `ProjectEntry`, `SessionRecord`, `ProjectInfo` types |
-| `command.go` | `BuildClaudeArgs()`, `BuildTmuxCommand()`, `BuildEnvExports()`, `ShellQuote()` |
+| `command.go` | `BuildClaudeArgs()`, `BuildTmuxCommand()`, `BuildEnvExports()`, `ShellQuote()`, `BuildExtraArgs()` |
+| `skills.go` | `StarterSkills()` — embedded starter skill files via `go:embed` |
 | `time.go` | `NowUTC()`, `ParseUTC()`, `RelativeTime()` |
 
 ### `cmd/daedalus/` — CLI Entry Point
 
 | File | Responsibility |
 |---|---|
-| `main.go` | `main()`, `run()` dispatcher, project resolution, subcommand handlers (`list`, `prune`, `remove`, `config`) |
+| `main.go` | `main()`, `run()` dispatcher, project resolution, subcommand handlers (`list`, `prune`, `remove`, `config`, `skills`) |
+
+### `cmd/skill-catalog-mcp/` — Skill Catalog MCP Server
+
+| File | Responsibility |
+|---|---|
+| `main.go` | MCP server over stdio with 8 tools for skill catalog operations (list, read, install, uninstall, create, update, remove, list_installed) |
 
 ### `cmd/generate-manpage/` — Man Page Generator
 
@@ -46,6 +53,7 @@ All side effects (filesystem, shell, network) live here behind interfaces.
 | `web` | `Run()`, `WebServer` | REST API + WebSocket terminal relay, embedded static assets |
 | `logging` | `Init()`, `Close()`, `Info()`, `Error()`, `Debug()` | Thread-safe file logging with timestamp and level prefixes |
 | `completions` | `Generate()` | bash/zsh/fish shell completion scripts |
+| `catalog` | `Catalog`, `New()`, `List()`, `Read()`, `Install()`, `Uninstall()`, `Create()`, `Update()`, `Remove()`, `ListInstalled()` | Shared skill catalog operations (filesystem I/O) |
 | `platform` | `IsWSL2()`, `WSL2IPAddress()`, `DisplayArgs()` | Platform detection (WSL2) and display forwarding argument resolution |
 
 ### Dependency Graph (no cycles)
@@ -54,6 +62,7 @@ All side effects (filesystem, shell, network) live here behind interfaces.
 executor  (leaf)
 color     (leaf)
 logging   (leaf)
+catalog   (leaf)
   ↑
 config    → core, color
 registry  → core
@@ -63,7 +72,8 @@ completions → core
 tui       → core, executor, registry, docker, session
 web       → core, executor, registry, docker, session
   ↑
-cmd/daedalus → all of the above
+cmd/daedalus → all of the above + catalog
+cmd/skill-catalog-mcp → catalog (standalone MCP server, uses modelcontextprotocol/go-sdk)
 cmd/generate-manpage → (standalone, reads VERSION file only)
 ```
 
@@ -130,6 +140,9 @@ Host                          Container (claude-run-<name>)
 ─────                         ────────────────────────────
 /path/to/project ──(rw)──►   /workspace
 .cache/<name>/ ──(rw)──►     /home/claude (persistent)
+.cache/skills/ ──(rw)──►     /opt/skills (shared skill catalog)
+                              /usr/local/bin/skill-catalog-mcp (MCP server)
+                              Claude Code ⟷ MCP stdio ⟷ skill-catalog-mcp
 ```
 
 Security: non-root user, all capabilities dropped, `no-new-privileges`.

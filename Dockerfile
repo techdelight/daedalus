@@ -29,6 +29,7 @@ COPY --chown=claude:claude claude.json /opt/claude/defaults/.claude.json
 COPY --chown=claude:claude settings.json /opt/claude/defaults/settings.json
 COPY --chown=claude:claude entrypoint.sh /opt/claude/bin/entrypoint.sh
 RUN chmod +x /opt/claude/bin/entrypoint.sh
+COPY --chown=claude:claude skill-catalog-mcp /usr/local/bin/skill-catalog-mcp
 
 ENV PATH="$PATH:/opt/claude/bin"
 ENV CLAUDE_CONFIG_DIR="/home/claude/.claude-config"

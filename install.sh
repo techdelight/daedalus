@@ -17,6 +17,7 @@ RUNTIME_FILES=(
     settings.json
     logo.txt
     config.json
+    skill-catalog-mcp
 )
 
 # ── Argument parsing ─────────────────────────────────────────────────────────

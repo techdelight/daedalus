@@ -1,6 +1,10 @@
 {
-  		"hasCompletedOnboarding":true,
-  		"bypassPermissionsModeAccepted":true,
-      "mcpServers": {
-      }
+  "hasCompletedOnboarding": true,
+  "bypassPermissionsModeAccepted": true,
+  "mcpServers": {
+    "skill-catalog": {
+      "command": "/usr/local/bin/skill-catalog-mcp",
+      "args": ["--catalog-dir", "/opt/skills", "--commands-dir", "/home/claude/.claude/commands"]
+    }
+  }
 }

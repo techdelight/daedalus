@@ -13,12 +13,12 @@
 | 7 | Switch target for existing project — change build target from TUI (e.g. `F3`) and CLI (`daedalus config <name> --set target=<stage>`) without re-registering |
 | 8 | Bundle release assets — package runtime files into a single tarball on the GitHub Release page instead of individual files |
 | 9 | Side-by-side versions — install a new version alongside the existing one, allowing rollback or A/B comparison before switching |
-| 10 | Shared skills/MCP repository — a central directory of skills and MCP server configs that can be mounted or linked into any project, avoiding per-project duplication |
+| ~~10~~ | ~~Shared skills/MCP repository — a central directory of skills and MCP server configs that can be mounted or linked into any project, avoiding per-project duplication~~ |
 | 11 | Homebrew installation (`brew install daedalus`) — add Homebrew tap, formula generator, and CI automation. See [docs/homebrew-plan.md](docs/homebrew-plan.md) for full plan |
 | 12 | WSL2 Web UI access — enable `daedalus web` to be reachable from the Windows host when running inside WSL2 (bind to `0.0.0.0` or WSL2 IP, port-forwarding guidance, auto-detect WSL2 environment) |
 | 13 | Project management view in Web UI — per-project dashboard showing vision, version, time spent, and percentage complete |
 | 14 | Project management MCP server — provide an MCP server inside each project container so Claude Code can report progress (vision, version, percentage complete, time spent) back to Daedalus |
-| 15 | Skill catalog — a browsable catalog of available skills that projects can select from and mount into their containers |
+| ~~15~~ | ~~Skill catalog — a browsable catalog of available skills that projects can select from and mount into their containers~~ |
 | 16 | ACP integration — use the Agent Client Protocol to communicate with the Claude Code CLI, enabling Daedalus to observe agent state (thinking, tool use, idle, error) in real time |
 | 17 | Roadmap in Web UI — display the project roadmap as a collapsible side panel on the right of the dashboard |
 | 18 | Daedalus as MCP client — have Daedalus consume the Project Management MCP server to read roadmaps, construct and manage sprints, and trigger the agent to execute sprint items |
@@ -30,9 +30,22 @@
 
 ## Current Sprint
 
-### Sprint 14: Display Sharing
+### Sprint 15: Skill Catalog (v0.10.0)
 
-Goal: enable GUI application rendering from Docker containers on the host screen via X11/Wayland forwarding.
+Goal: shared skill catalog with MCP server for browsing, installing, and publishing skills across projects.
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | `internal/catalog` package — pure catalog operations (list, read, install, uninstall, create, update, remove) with 21 unit tests | Done |
+| 2 | `skill-catalog-mcp` MCP server — 8 tools over stdio using official `github.com/modelcontextprotocol/go-sdk` | Done |
+| 3 | Docker integration — skills volume mount in `BuildExtraArgs`, MCP server entry in `claude.json`, binary in Dockerfile | Done |
+| 4 | `daedalus skills` CLI subcommand — list, add, remove, show skills from the host | Done |
+| 5 | Starter skills — `commit.md` and `review.md` seeded via `go:embed` on first run | Done |
+| 6 | Build & install — `build.sh` builds both binaries, `install.sh` includes `skill-catalog-mcp` in runtime files | Done |
+
+### Sprint 14: Display Sharing (v0.9.0)
+
+Delivered 2026-03-21. GUI application rendering from Docker containers on the host screen via X11/Wayland forwarding.
 
 | # | Item | Status |
 |---|------|--------|

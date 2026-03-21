@@ -29,6 +29,7 @@ type Config struct {
 	CompletionShell string   // shell name for "completion" subcommand
 	RenameOldName   string   // old project name for "rename" subcommand
 	RenameNewName   string   // new project name for "rename" subcommand
+	SkillsArgs      []string // positional args for "skills" subcommand
 	TargetOverride  bool     // true when --target was explicitly passed
 	WebAddr         string   // host:port for web UI server
 	WSL2Detected    bool     // true when WSL2 was auto-detected and host defaulted to 0.0.0.0
@@ -58,6 +59,11 @@ func (c *Config) CacheDir() string {
 // RegistryPath returns the path to the project registry file.
 func (c *Config) RegistryPath() string {
 	return filepath.Join(c.DataDir, "projects.json")
+}
+
+// SkillsDir returns the path to the shared skill catalog directory.
+func (c *Config) SkillsDir() string {
+	return filepath.Join(c.DataDir, "skills")
 }
 
 // UseTmux returns true if tmux should be used for this session.

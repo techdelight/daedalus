@@ -52,6 +52,15 @@ func TestConfig_RegistryPath(t *testing.T) {
 	}
 }
 
+func TestConfig_SkillsDir(t *testing.T) {
+	cfg := &Config{DataDir: "/data/daedalus"}
+	got := cfg.SkillsDir()
+	want := filepath.Join("/data/daedalus", "skills")
+	if got != want {
+		t.Errorf("SkillsDir() = %q, want %q", got, want)
+	}
+}
+
 func TestConfig_UseTmux(t *testing.T) {
 	tests := []struct {
 		name   string

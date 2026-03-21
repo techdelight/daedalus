@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-03-21
+
+### Added
+- **Skill Catalog** — a shared skill repository on the host filesystem, mounted into every container. Skills are Claude Code slash commands (`.md` files) that can be browsed, installed, created, and shared across projects.
+- `skill-catalog-mcp` — an MCP server (using the official `github.com/modelcontextprotocol/go-sdk`) running inside containers, exposing 8 tools: `list_skills`, `read_skill`, `install_skill`, `uninstall_skill`, `create_skill`, `update_skill`, `remove_skill`, `list_installed`.
+- `daedalus skills` CLI subcommand for host-side catalog management: `daedalus skills` (list), `daedalus skills add <file>`, `daedalus skills remove <name>`, `daedalus skills show <name>`.
+- Starter skills (`commit.md`, `review.md`) seeded via `go:embed` on first run when the catalog directory does not exist.
+- `SkillsDir()` method on `Config` for the shared catalog path (`<data-dir>/skills/`).
+- Skills volume mount (`<data-dir>/skills:/opt/skills`) automatically added to every container via `BuildExtraArgs`.
+- `internal/catalog` package with pure catalog operations and 21 unit tests.
+- `skill-catalog-mcp` binary added to Dockerfile, `build.sh`, and `install.sh`.
+- MCP server entry in `claude.json` for automatic discovery by Claude Code.
+- `~/.claude/commands/` directory creation in `entrypoint.sh` for skill installation target.
+
+### Changed
+- Go module minimum version bumped to 1.25.0 (required by `github.com/modelcontextprotocol/go-sdk`).
+- `build.sh` now builds both `daedalus` and `skill-catalog-mcp` binaries.
+
 ## [0.9.2] - 2026-03-21
 
 ### Fixed

@@ -75,6 +75,33 @@ func TestBuildTmuxCommand_QuotesDockerArgs(t *testing.T) {
 	}
 }
 
+func TestBuildExtraArgs_AlwaysMountsSkills(t *testing.T) {
+	cfg := &Config{DataDir: "/data/daedalus"}
+	args := BuildExtraArgs(cfg, nil)
+	if len(args) < 2 {
+		t.Fatalf("args = %v, want at least 2 elements for skills mount", args)
+	}
+	if args[0] != "-v" {
+		t.Errorf("args[0] = %q, want %q", args[0], "-v")
+	}
+	want := "/data/daedalus/skills:/opt/skills"
+	if args[1] != want {
+		t.Errorf("args[1] = %q, want %q", args[1], want)
+	}
+}
+
+func TestBuildExtraArgs_WithDinD(t *testing.T) {
+	cfg := &Config{DataDir: "/data", DinD: true}
+	args := BuildExtraArgs(cfg, nil)
+	// Should have skills mount (2 args) + DinD mount (2 args)
+	if len(args) != 4 {
+		t.Fatalf("args = %v, want 4 elements", args)
+	}
+	if args[2] != "-v" || args[3] != "/var/run/docker.sock:/var/run/docker.sock" {
+		t.Errorf("DinD mount not found, got: %v", args[2:])
+	}
+}
+
 func TestShellQuote(t *testing.T) {
 	tests := []struct {
 		input    string
