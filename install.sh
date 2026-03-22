@@ -18,7 +18,6 @@ RUNTIME_FILES=(
     settings.json
     logo.txt
     config.json
-    skill-catalog-mcp
 )
 
 # ── Argument parsing ─────────────────────────────────────────────────────────
@@ -98,7 +97,8 @@ if [[ "$UNINSTALL" == true ]]; then
         rm -f "$PREFIX/$f"
     done
     rm -f "$PREFIX/daedalus"
-    echo "  Removed binary and runtime files."
+    rm -f "$PREFIX/skill-catalog-mcp"
+    echo "  Removed binaries and runtime files."
 
     # Remove prefix directory if empty
     rmdir "$PREFIX" 2>/dev/null && echo "  Removed empty directory $PREFIX" || true
@@ -177,17 +177,22 @@ cleanup() { rm -rf "$WORK_DIR"; }
 trap cleanup EXIT
 
 BINARY_NAME="daedalus-${OS}-${ARCH}"
+MCP_BINARY_NAME="skill-catalog-mcp-${OS}-${ARCH}"
 echo ""
 echo "Downloading ${BINARY_NAME}..."
 curl -fsSL -o "$WORK_DIR/daedalus" "${DOWNLOAD_BASE}/${BINARY_NAME}"
 chmod 755 "$WORK_DIR/daedalus"
+
+echo "Downloading ${MCP_BINARY_NAME}..."
+curl -fsSL -o "$WORK_DIR/skill-catalog-mcp" "${DOWNLOAD_BASE}/${MCP_BINARY_NAME}"
+chmod 755 "$WORK_DIR/skill-catalog-mcp"
 
 echo "Downloading runtime files..."
 for f in "${RUNTIME_FILES[@]}"; do
     curl -fsSL -o "$WORK_DIR/$f" "${DOWNLOAD_BASE}/${f}"
 done
 
-echo "  Downloaded binary and ${#RUNTIME_FILES[@]} runtime files."
+echo "  Downloaded 2 binaries and ${#RUNTIME_FILES[@]} runtime files."
 
 # ── Detect existing installation ────────────────────────────────────────────
 INSTALLED_VERSION=""
@@ -222,6 +227,8 @@ mkdir -p "$PREFIX"
 
 cp "$WORK_DIR/daedalus" "$PREFIX/daedalus"
 chmod 755 "$PREFIX/daedalus"
+cp "$WORK_DIR/skill-catalog-mcp" "$PREFIX/skill-catalog-mcp"
+chmod 755 "$PREFIX/skill-catalog-mcp"
 
 for f in "${RUNTIME_FILES[@]}"; do
     # Config is written separately with merged settings
@@ -257,7 +264,7 @@ cat > "$PREFIX/config.json" <<EOCFG
 }
 EOCFG
 
-echo "  Copied binary and $((${#RUNTIME_FILES[@]} - 1)) runtime files."
+echo "  Copied 2 binaries and $((${#RUNTIME_FILES[@]} - 1)) runtime files."
 echo "  Configuration: $PREFIX/config.json"
 
 # ── Symlink ──────────────────────────────────────────────────────────────────
