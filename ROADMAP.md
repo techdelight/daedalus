@@ -28,6 +28,7 @@
 | 22 | Favicon — add a Daedalus favicon to the Web UI so the browser tab shows a recognizable icon |
 | ~~23~~ | ~~Display sharing (`--display`) — forward the host X11/Wayland display into Docker containers so GUI applications can render on the host screen. Support WSL2 (via `DISPLAY` + `/tmp/.X11-unix` or Wayland socket) and native Linux. Stored as a per-project `display` flag in `projects.json`, off by default. Prompted during `daedalus <name> <dir>` first registration and configurable via `daedalus config <name> --set display=true`~~ |
 | ~~24~~ | ~~Copilot CLI support — add GitHub Copilot CLI as an alternative coding agent alongside Claude Code. Allow selecting the agent per project via `--agent copilot` or `daedalus config <name> --set agent=copilot`. Install Copilot CLI in the container, configure entrypoint to launch the selected agent, and adapt session management for Copilot's CLI interface~~ |
+| 25 | Webdev container — move Node.js out of the regular `dev` stage into a dedicated `webdev` build target for web/frontend projects. Keeps the default dev image lean |
 
 ## Current Sprint
 

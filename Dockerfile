@@ -104,13 +104,8 @@ USER claude
 # Minimal base with Copilot CLI instead of Claude CLI.
 FROM base AS copilot-base
 
-USER root
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends nodejs npm && \
-    rm -rf /var/lib/apt/lists/*
-
 USER claude
-RUN npm install -g @github/copilot && \
+RUN curl -fsSL https://gh.io/copilot-install | bash && \
     mkdir -p /opt/copilot/bin && \
     ln -sf "$(which copilot)" /opt/copilot/bin/copilot
 ENV PATH="$PATH:/opt/copilot/bin"
