@@ -240,6 +240,16 @@ tbody td {
 /* --- Mobile / Tablet --- */
 
 @media (max-width: 768px) {
+    /* Fix mobile 100vh — on real phones, 100vh includes the browser
+       chrome (URL bar, bottom nav), pushing the mobile input area
+       off-screen.  100dvh matches the actual visible viewport. */
+    body,
+    #app,
+    #terminal-view {
+        height: -webkit-fill-available;
+        height: 100dvh;
+    }
+
     /* Card layout for project list */
     thead {
         display: none;
