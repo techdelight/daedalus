@@ -26,7 +26,7 @@ All notable changes to this project will be documented in this file.
 - `BuildAgentArgs()` — agent-aware argument builder that uses agent profiles to emit correct flags per agent.
 - `Agent` field in `Config`, `AppConfig`, and per-project default flags (`applyDefaultFlags`).
 - `AGENT` environment variable exported in `BuildTmuxCommand` and passed via `docker-compose.yml`.
-- `copilot-base` and `copilot-dev` Dockerfile stages with Copilot CLI installed via npm.
+- `copilot-base` and `copilot-dev` Dockerfile stages with Copilot CLI installed via the [gh.io installer](https://gh.io/copilot-install).
 - Agent dispatch in `entrypoint.sh` — reads `$AGENT` env var to launch the correct binary (`claude` or `copilot`).
 - Shell completions for `--agent` flag in bash, zsh, and fish with `claude copilot` value suggestions.
 

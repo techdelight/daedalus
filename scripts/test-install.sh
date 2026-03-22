@@ -240,6 +240,8 @@ assert_file_exists "entrypoint.sh present" "$TEST_PREFIX/entrypoint.sh"
 assert_file_exists "settings.json present" "$TEST_PREFIX/settings.json"
 assert_file_exists "logo.txt present" "$TEST_PREFIX/logo.txt"
 assert_file_exists "config.json present" "$TEST_PREFIX/config.json"
+assert_file_exists "setup.sh copied to prefix" "$TEST_PREFIX/setup.sh"
+assert_executable "setup.sh is executable" "$TEST_PREFIX/setup.sh"
 
 # --------------------------------------------------------------------------
 # Test 2: Config.json fields
@@ -343,6 +345,7 @@ assert_file_not_exists "Dockerfile removed" "$TEST_PREFIX_RM/Dockerfile"
 assert_file_not_exists "entrypoint.sh removed" "$TEST_PREFIX_RM/entrypoint.sh"
 assert_file_not_exists "settings.json removed" "$TEST_PREFIX_RM/settings.json"
 assert_file_not_exists "logo.txt removed" "$TEST_PREFIX_RM/logo.txt"
+assert_file_not_exists "setup.sh removed" "$TEST_PREFIX_RM/setup.sh"
 
 # --------------------------------------------------------------------------
 # Test 6: Uninstall with --prefix removes directory

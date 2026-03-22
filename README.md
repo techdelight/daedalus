@@ -56,10 +56,10 @@ curl -fsSL https://raw.githubusercontent.com/techdelight/daedalus/master/install
 
 ```bash
 # Uninstall (keeps project data by default)
-~/.local/share/daedalus/install.sh --uninstall
+~/.local/share/daedalus/setup.sh --uninstall
 
 # Uninstall from a custom prefix
-~/.local/share/daedalus/install.sh --uninstall --prefix ~/daedalus
+~/.local/share/daedalus/setup.sh --uninstall --prefix ~/daedalus
 ```
 
 **Options:**
@@ -69,6 +69,7 @@ curl -fsSL https://raw.githubusercontent.com/techdelight/daedalus/master/install
 | `--prefix <dir>` | Installation directory (default: `~/.local/share/daedalus`) |
 | `--no-link` | Skip creating a symlink in PATH |
 | `--uninstall` | Remove Daedalus installation (prompts before deleting project data) |
+| `--verbose` | Enable shell tracing (`set -x`) for debugging |
 
 The symlink is created in `~/.local/bin`. If this directory is not on your PATH, the script prints a hint.
 
@@ -247,7 +248,7 @@ The single `Dockerfile` uses a multi-stage build with six stages:
 | `utils` | Extends base with unzip, wget, build-essential |
 | `dev` (default) | Full dev environment: Go, Python 3, OpenJDK 17, Maven, Kotlin |
 | `godot` | Godot 4.x engine for headless game CI, exports, and tests |
-| `copilot-base` | Minimal base with Copilot CLI (via npm) instead of Claude CLI |
+| `copilot-base` | Minimal base with Copilot CLI (via [gh.io installer](https://gh.io/copilot-install)) instead of Claude CLI |
 | `copilot-dev` | Copilot CLI with full dev environment (Go, Python 3, OpenJDK 17, Maven, Kotlin) |
 
 Select a target with `--target`:
@@ -351,7 +352,7 @@ All fields are optional. The file itself is optional — Daedalus works without 
 | `data-dir` | string | Base directory for registry and per-project caches. Must be an absolute path. Set during installation to `<install-dir>/.cache`. |
 | `debug` | bool | Enable Claude Code debug mode |
 | `no-tmux` | bool | Run without tmux session wrapping |
-| `image-prefix` | string | Docker image prefix (default: `techdelight/claude-runner`) |
+| `image-prefix` | string | Docker image prefix (default: `techdelight/claude-runner`). For copilot agent, `claude-runner` is automatically replaced with `copilot-runner`. |
 | `log-file` | string | Path to the runtime log file (default: `<data-dir>/daedalus.log`) |
 | `agent` | string | Default AI agent: `claude` (default) or `copilot` |
 

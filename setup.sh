@@ -101,6 +101,7 @@ if [[ "$UNINSTALL" == true ]]; then
     done
     rm -f "$PREFIX/daedalus"
     rm -f "$PREFIX/skill-catalog-mcp"
+    rm -f "$PREFIX/setup.sh"
     echo "  Removed binaries and runtime files."
 
     # Remove prefix directory if empty
@@ -164,6 +165,11 @@ cp "$WORK_DIR/daedalus" "$PREFIX/daedalus"
 chmod 755 "$PREFIX/daedalus"
 cp "$WORK_DIR/skill-catalog-mcp" "$PREFIX/skill-catalog-mcp"
 chmod 755 "$PREFIX/skill-catalog-mcp"
+
+# Copy setup.sh itself so users can run uninstall locally
+SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+cp "$SELF" "$PREFIX/setup.sh"
+chmod 755 "$PREFIX/setup.sh"
 
 for f in "${RUNTIME_FILES[@]}"; do
     # Config is written separately with merged settings

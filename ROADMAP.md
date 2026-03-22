@@ -46,7 +46,7 @@ Goal: agent abstraction so projects can use either Claude Code or Copilot CLI, s
 | 6 | Shell completions for `--agent` in bash, zsh, and fish | Done |
 | 7 | `docker-compose.yml` — `AGENT` environment variable | Done |
 | 8 | `entrypoint.sh` — agent-aware dispatch (claude/copilot) | Done |
-| 9 | `Dockerfile` — `copilot-base` and `copilot-dev` stages with Copilot CLI via npm | Done |
+| 9 | `Dockerfile` — `copilot-base` and `copilot-dev` stages with Copilot CLI via gh.io installer | Done |
 
 ### Sprint 15: Skill Catalog (v0.10.0)
 
