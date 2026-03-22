@@ -6,7 +6,8 @@ set -euo pipefail
 PREFIX="$HOME/.local/share/daedalus"
 CREATE_LINK=true
 UNINSTALL=false
-GITHUB_API="https://api.github.com/repos/techdelight/daedalus/releases/latest"
+DEV_BUILD=false
+GITHUB_REPO="https://api.github.com/repos/techdelight/daedalus/releases"
 
 # ── Runtime files to install alongside the binary ────────────────────────────
 RUNTIME_FILES=(
@@ -23,11 +24,12 @@ RUNTIME_FILES=(
 # ── Argument parsing ─────────────────────────────────────────────────────────
 usage() {
     cat <<EOF
-Usage: $0 [--prefix <dir>] [--no-link] [--uninstall]
+Usage: $0 [--prefix <dir>] [--no-link] [--dev] [--uninstall]
 
 Options:
   --prefix <dir>  Installation directory (default: ~/.local/share/daedalus)
   --no-link       Skip creating a symlink in PATH
+  --dev           Install the latest dev pre-release instead of the stable release
   --uninstall     Remove Daedalus installation (prompts before deleting project data)
 
 Downloads a pre-built Daedalus binary from the latest GitHub Release,
@@ -45,6 +47,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --no-link)
             CREATE_LINK=false
+            shift
+            ;;
+        --dev)
+            DEV_BUILD=true
             shift
             ;;
         --uninstall)
@@ -145,19 +151,25 @@ esac
 
 echo "  Platform: ${OS}/${ARCH}"
 
-# ── Fetch latest release tag ────────────────────────────────────────────────
+# ── Fetch release tag ─────────────────────────────────────────────────────
 echo ""
-echo "Fetching latest release..."
+if [[ "$DEV_BUILD" == true ]]; then
+    echo "Fetching latest dev release..."
+    GITHUB_API="${GITHUB_REPO}/tags/dev"
+else
+    echo "Fetching latest stable release..."
+    GITHUB_API="${GITHUB_REPO}/latest"
+fi
 
 RELEASE_JSON="$(curl -fsSL "$GITHUB_API")"
 TAG="$(echo "$RELEASE_JSON" | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')"
 
 if [[ -z "$TAG" ]]; then
-    echo "Error: could not determine latest release tag." >&2
+    echo "Error: could not determine release tag." >&2
     exit 1
 fi
 
-echo "  Latest release: $TAG"
+echo "  Release: $TAG"
 
 DOWNLOAD_BASE="https://github.com/techdelight/daedalus/releases/download/${TAG}"
 

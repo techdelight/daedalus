@@ -115,8 +115,8 @@ jobs:
             ### Install
 
             ```bash
-            curl -fsSL https://raw.githubusercontent.com/techdelight/daedalus/development/install.sh | bash
+            curl -fsSL https://raw.githubusercontent.com/techdelight/daedalus/development/install.sh | bash -s -- --dev
             ```
 
-            This downloads the binary, runtime files, and creates a PATH symlink. See `install.sh --help` for options.
+            This downloads the dev binary, runtime files, and creates a PATH symlink. See `install.sh --help` for options.
           files: release-assets/*

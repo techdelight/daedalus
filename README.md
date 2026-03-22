@@ -483,7 +483,7 @@ Rolling pre-release builds are published automatically from the latest `developm
 
 ```bash
 # Install the latest dev build (binary + runtime files + symlink)
-curl -fsSL https://raw.githubusercontent.com/techdelight/daedalus/development/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/techdelight/daedalus/development/install.sh | bash -s -- --dev
 ```
 
 Dev builds are marked as pre-release on the [Releases page](https://github.com/techdelight/daedalus/releases/tag/dev) and report a version like `0.8.1-dev+abc1234`. They are overwritten on every push to `development`.
