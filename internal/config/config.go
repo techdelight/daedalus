@@ -89,6 +89,8 @@ func ParseArgs(args []string) (*core.Config, error) {
 			cfg.Force = true
 		case "--no-color":
 			cfg.NoColor = true
+		case "--container-log":
+			cfg.ContainerLog = true
 		case "--set":
 			if i+1 >= len(args) {
 				return nil, fmt.Errorf("--set requires a key=value pair")

@@ -38,6 +38,7 @@ type Config struct {
 	WebAddr         string   // host:port for web UI server
 	WSL2Detected    bool     // true when WSL2 was auto-detected and host defaulted to 0.0.0.0
 	LogFile         string   // path to log file for persistent logging
+	ContainerLog    bool     // log container output to file
 }
 
 // Image returns the full Docker image tag.
@@ -85,6 +86,11 @@ func (c *Config) RegistryPath() string {
 // SkillsDir returns the path to the shared skill catalog directory.
 func (c *Config) SkillsDir() string {
 	return filepath.Join(c.DataDir, "skills")
+}
+
+// ContainerLogPath returns the path to the container log file.
+func (c *Config) ContainerLogPath() string {
+	return filepath.Join(c.DataDir, c.ProjectName, "container.log")
 }
 
 // UseTmux returns true if tmux should be used for this session.

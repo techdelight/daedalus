@@ -86,6 +86,30 @@ func TestSessionSendKeys(t *testing.T) {
 	}
 }
 
+func TestSessionPipePane(t *testing.T) {
+	mock := executor.NewMockExecutor()
+	session := NewSession(mock, "claude-test")
+
+	err := session.PipePane("/tmp/container.log")
+	if err != nil {
+		t.Fatalf("PipePane failed: %v", err)
+	}
+
+	call := mock.FindCall("tmux")
+	if call == nil {
+		t.Fatal("expected tmux call")
+	}
+	expected := []string{"pipe-pane", "-o", "-t", "claude-test", "cat >> '/tmp/container.log'"}
+	if len(call.Args) != len(expected) {
+		t.Fatalf("args len = %d, want %d", len(call.Args), len(expected))
+	}
+	for i, a := range expected {
+		if call.Args[i] != a {
+			t.Errorf("arg[%d] = %q, want %q", i, call.Args[i], a)
+		}
+	}
+}
+
 func TestSessionAttach(t *testing.T) {
 	mock := executor.NewMockExecutor()
 	session := NewSession(mock, "claude-test")

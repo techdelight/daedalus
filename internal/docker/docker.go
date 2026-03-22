@@ -4,7 +4,9 @@ package docker
 
 import (
 	"fmt"
+	"io"
 	"os"
+	"os/exec"
 	"strings"
 
 	"github.com/techdelight/daedalus/core"
@@ -56,13 +58,30 @@ func (d *Docker) Build(target, image, uid, contextDir string) error {
 // ComposeRun executes a docker compose run command with environment variables
 // scoped to the child process (no os.Setenv pollution).
 // Delegates to ComposeRunCommand for arg construction (#20).
-func (d *Docker) ComposeRun(containerName string, env map[string]string, claudeArgs []string, extraArgs []string) error {
+// When logFile is non-empty, container stdout/stderr are teed to the file.
+func (d *Docker) ComposeRun(containerName string, env map[string]string, claudeArgs []string, extraArgs []string, logFile string) error {
 	envSlice := make([]string, 0, len(env))
 	for k, v := range env {
 		envSlice = append(envSlice, k+"="+v)
 	}
-	cmd := d.ComposeRunCommand(containerName, claudeArgs, extraArgs)
-	return d.Executor.RunWithEnv(envSlice, cmd[0], cmd[1:]...)
+	cmdArgs := d.ComposeRunCommand(containerName, claudeArgs, extraArgs)
+
+	if logFile == "" {
+		return d.Executor.RunWithEnv(envSlice, cmdArgs[0], cmdArgs[1:]...)
+	}
+
+	f, err := os.Create(logFile)
+	if err != nil {
+		return fmt.Errorf("creating container log file: %w", err)
+	}
+	defer f.Close()
+
+	c := exec.Command(cmdArgs[0], cmdArgs[1:]...)
+	c.Env = append(os.Environ(), envSlice...)
+	c.Stdin = os.Stdin
+	c.Stdout = io.MultiWriter(os.Stdout, f)
+	c.Stderr = io.MultiWriter(os.Stderr, f)
+	return c.Run()
 }
 
 // ComposeRunCommand returns the full docker compose command as a slice

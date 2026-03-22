@@ -115,7 +115,7 @@ func TestComposeRun(t *testing.T) {
 	}
 	claudeArgs := []string{"--resume", "abc123"}
 
-	err := docker.ComposeRun("claude-run-myapp", env, claudeArgs, nil)
+	err := docker.ComposeRun("claude-run-myapp", env, claudeArgs, nil, "")
 	if err != nil {
 		t.Fatalf("ComposeRun failed: %v", err)
 	}
@@ -143,7 +143,7 @@ func TestComposeRun_WithExtraArgs(t *testing.T) {
 	}
 	extraArgs := []string{"-v", "/var/run/docker.sock:/var/run/docker.sock"}
 
-	err := docker.ComposeRun("claude-run-myapp", env, nil, extraArgs)
+	err := docker.ComposeRun("claude-run-myapp", env, nil, extraArgs, "")
 	if err != nil {
 		t.Fatalf("ComposeRun failed: %v", err)
 	}
@@ -223,7 +223,7 @@ func TestComposeRun_DoesNotPolluteEnv(t *testing.T) {
 		key: "should-not-leak",
 	}
 
-	err := docker.ComposeRun("claude-run-test", env, nil, nil)
+	err := docker.ComposeRun("claude-run-test", env, nil, nil, "")
 	if err != nil {
 		t.Fatalf("ComposeRun failed: %v", err)
 	}

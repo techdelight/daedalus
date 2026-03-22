@@ -35,6 +35,12 @@ func (s *Session) SendKeys(cmd string) error {
 	return s.Executor.Run("tmux", "send-keys", "-t", s.Name, cmd, "Enter")
 }
 
+// PipePane captures all pane output to a log file using tmux pipe-pane.
+func (s *Session) PipePane(logFile string) error {
+	return s.Executor.Run("tmux", "pipe-pane", "-o", "-t", s.Name,
+		"cat >> '"+logFile+"'")
+}
+
 // Attach replaces the current process with tmux attach-session.
 func (s *Session) Attach() error {
 	return s.Executor.Exec("tmux", "attach-session", "-t", s.Name)

@@ -96,6 +96,15 @@ func TestConfig_SkillsDir(t *testing.T) {
 	}
 }
 
+func TestConfig_ContainerLogPath(t *testing.T) {
+	cfg := &Config{DataDir: "/data/daedalus", ProjectName: "my-app"}
+	got := cfg.ContainerLogPath()
+	want := filepath.Join("/data/daedalus", "my-app", "container.log")
+	if got != want {
+		t.Errorf("ContainerLogPath() = %q, want %q", got, want)
+	}
+}
+
 func TestConfig_UseTmux(t *testing.T) {
 	tests := []struct {
 		name   string

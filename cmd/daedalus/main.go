@@ -273,6 +273,12 @@ func launchProject(cfg *core.Config, d *docker.Docker, reg *registry.Registry, s
 		fmt.Fprintln(os.Stderr, color.Yellow("WARNING:")+" --dind mounts the host Docker socket. This grants the container full access to host Docker.")
 	}
 
+	var containerLogPath string
+	if cfg.ContainerLog {
+		containerLogPath = cfg.ContainerLogPath()
+		fmt.Printf("%s container log: %s\n", color.Dim("Log:"), containerLogPath)
+	}
+
 	var displayArgs []string
 	if cfg.Display {
 		var displayWarnings []string
@@ -295,6 +301,11 @@ func launchProject(cfg *core.Config, d *docker.Docker, reg *registry.Registry, s
 		if err := sess.Create(); err != nil {
 			return fmt.Errorf("creating tmux session: %w", err)
 		}
+		if containerLogPath != "" {
+			if err := sess.PipePane(containerLogPath); err != nil {
+				return fmt.Errorf("setting up container log pipe: %w", err)
+			}
+		}
 		if err := sess.SendKeys(tmuxCmd); err != nil {
 			return fmt.Errorf("sending command to tmux: %w", err)
 		}
@@ -302,7 +313,7 @@ func launchProject(cfg *core.Config, d *docker.Docker, reg *registry.Registry, s
 	}
 
 	// Direct execution (no tmux)
-	runErr := d.ComposeRun(cfg.ContainerName(), composeEnv, claudeArgs, extraArgs)
+	runErr := d.ComposeRun(cfg.ContainerName(), composeEnv, claudeArgs, extraArgs, containerLogPath)
 	if sessionErr == nil {
 		if err := reg.EndSession(cfg.ProjectName, sessionID); err != nil {
 			fmt.Fprintf(os.Stderr, color.Yellow("Warning:")+" failed to end session tracking: %v\n", err)
@@ -690,6 +701,7 @@ func printUsage() {
 	fmt.Println("  --display          Forward host display (X11/Wayland) into the container")
 	fmt.Println("  --force            Force deletion in non-interactive mode (e.g. prune)")
 	fmt.Println("  --agent <name>     AI agent: claude (default) or copilot")
+	fmt.Println("  --container-log    Log container output to <data-dir>/<project>/container.log")
 	fmt.Println("  --no-color         Disable colored output (also honors NO_COLOR env var)")
 	fmt.Println("  --port <port>      Port for web UI (default: 3000)")
 	fmt.Println("  --host <host>      Host for web UI (default: 127.0.0.1, 0.0.0.0 on WSL2)")
