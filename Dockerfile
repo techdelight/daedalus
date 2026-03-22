@@ -73,7 +73,7 @@ USER claude
 RUN curl -s "https://get.sdkman.io" | bash
 SHELL ["/bin/bash", "-c"]
 RUN source "$HOME/.sdkman/bin/sdkman-init.sh" && \
-    sdk install java 17.0.14-tem && \
+    sdk install java 21.0.6-tem && \
     sdk install maven && \
     sdk install kotlin
 ENV SDKMAN_DIR="/home/claude/.sdkman"
@@ -133,7 +133,7 @@ USER claude
 RUN curl -s "https://get.sdkman.io" | bash
 SHELL ["/bin/bash", "-c"]
 RUN source "$HOME/.sdkman/bin/sdkman-init.sh" && \
-    sdk install java 17.0.14-tem && \
+    sdk install java 21.0.6-tem && \
     sdk install maven && \
     sdk install kotlin
 ENV SDKMAN_DIR="/home/claude/.sdkman"
