@@ -115,8 +115,8 @@ jobs:
             ### Install
 
             ```bash
-            # Download the binary for your platform, e.g.:
-            curl -fsSL https://github.com/techdelight/daedalus/releases/download/dev/daedalus-linux-amd64 -o daedalus
-            chmod +x daedalus
+            curl -fsSL https://raw.githubusercontent.com/techdelight/daedalus/development/install.sh | bash
             ```
+
+            This downloads the binary, runtime files, and creates a PATH symlink. See `install.sh --help` for options.
           files: release-assets/*
