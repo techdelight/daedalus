@@ -34,8 +34,8 @@ func TestLookupAgent_Copilot(t *testing.T) {
 	if p.Name != "copilot" {
 		t.Errorf("Name = %q, want %q", p.Name, "copilot")
 	}
-	if p.BinaryPath != "/home/claude/.local/bin/copilot" {
-		t.Errorf("BinaryPath = %q, want %q", p.BinaryPath, "/home/claude/.local/bin/copilot")
+	if p.BinaryPath != "/usr/local/bin/copilot" {
+		t.Errorf("BinaryPath = %q, want %q", p.BinaryPath, "/usr/local/bin/copilot")
 	}
 	if p.SkipPermsFlag != "--allow-all" {
 		t.Errorf("SkipPermsFlag = %q, want %q", p.SkipPermsFlag, "--allow-all")

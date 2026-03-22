@@ -108,7 +108,12 @@ FROM base AS copilot-base
 
 USER claude
 RUN echo 'n' | curl -fsSL https://gh.io/copilot-install | bash
-ENV PATH="/home/claude/.local/bin:$PATH"
+
+USER root
+RUN mv /home/claude/.local/bin/copilot /usr/local/bin/copilot
+
+USER claude
+ENV AGENT="copilot"
 
 # ── Stage 6: copilot-dev ────────────────────────────────────────────────────
 # Copilot with full development environment: Go, Python 3, JDK, Maven, Kotlin.
