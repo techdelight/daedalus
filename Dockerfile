@@ -109,29 +109,30 @@ RUN echo 'n' | curl -fsSL https://gh.io/copilot-install | bash
 ENV PATH="/home/claude/.local/bin:$PATH"
 
 # ── Stage 6: copilot-dev ────────────────────────────────────────────────────
-# Copilot with full development environment: Go, Python 3, OpenJDK 17, Maven, Kotlin.
+# Copilot with full development environment: Go, Python 3, JDK, Maven, Kotlin.
+# JVM tooling (Java, Maven, Kotlin) installed via SDKMAN instead of apt.
 FROM copilot-base AS copilot-dev
-
-ARG KOTLIN_VERSION=2.1.10
 
 USER root
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-      unzip wget build-essential \
+      unzip wget zip curl build-essential \
       golang-go \
       python3 python3-pip python3-venv \
-      openjdk-17-jdk-headless maven \
       docker.io && \
     rm -rf /var/lib/apt/lists/*
-
-RUN wget -q "https://github.com/JetBrains/kotlin/releases/download/v${KOTLIN_VERSION}/kotlin-compiler-${KOTLIN_VERSION}.zip" \
-      -O /tmp/kotlin-compiler.zip && \
-    unzip -q /tmp/kotlin-compiler.zip -d /opt && \
-    rm /tmp/kotlin-compiler.zip && \
-    ln -s /opt/kotlinc/bin/kotlin /usr/local/bin/kotlin && \
-    ln -s /opt/kotlinc/bin/kotlinc /usr/local/bin/kotlinc
 
 RUN usermod -aG docker claude
 
 USER claude
+
+# Install SDKMAN and JVM tooling as the claude user
+RUN curl -s "https://get.sdkman.io" | bash
+SHELL ["/bin/bash", "-c"]
+RUN source "$HOME/.sdkman/bin/sdkman-init.sh" && \
+    sdk install java 17.0.14-tem && \
+    sdk install maven && \
+    sdk install kotlin
+ENV SDKMAN_DIR="/home/claude/.sdkman"
+ENV PATH="$SDKMAN_DIR/candidates/java/current/bin:$SDKMAN_DIR/candidates/maven/current/bin:$SDKMAN_DIR/candidates/kotlin/current/bin:$PATH"
