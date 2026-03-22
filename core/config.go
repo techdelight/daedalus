@@ -104,6 +104,27 @@ func ApplyRegistryEntry(cfg *Config, entry ProjectEntry) {
 		cfg.Target = entry.Target
 	}
 	applyDefaultFlags(cfg, entry.DefaultFlags)
+	NormalizeAgentTarget(cfg)
+}
+
+// NormalizeAgentTarget detects agent-prefixed targets like "copilot-dev" and
+// splits them into Agent="copilot" and Target="dev". Only applies when Agent
+// is not already explicitly set.
+func NormalizeAgentTarget(cfg *Config) {
+	if cfg.Agent != "" {
+		return
+	}
+	for _, name := range ValidAgentNames() {
+		if name == "claude" {
+			continue
+		}
+		prefix := name + "-"
+		if strings.HasPrefix(cfg.Target, prefix) {
+			cfg.Agent = name
+			cfg.Target = strings.TrimPrefix(cfg.Target, prefix)
+			return
+		}
+	}
 }
 
 // applyDefaultFlags applies per-project defaults to the config.

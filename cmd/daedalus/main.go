@@ -227,7 +227,7 @@ func ensureImageBuilt(cfg *core.Config, d *docker.Docker) error {
 		logging.Info("runtime files changed, rebuilding image: " + image)
 		fmt.Printf("%s runtime files changed, rebuilding image %s...\n", color.Yellow("Notice:"), image)
 		uid := strconv.Itoa(os.Getuid())
-		if err := d.Build(cfg.Target, image, uid, cfg.ScriptDir); err != nil {
+		if err := d.Build(cfg.BuildTarget(), image, uid, cfg.ScriptDir); err != nil {
 			logging.Error("auto-rebuild failed: " + err.Error())
 			return fmt.Errorf("auto-rebuilding image: %w", err)
 		}

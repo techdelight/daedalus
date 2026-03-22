@@ -245,6 +245,69 @@ func TestApplyRegistryEntry_AgentCLIOverridesDefault(t *testing.T) {
 	}
 }
 
+func TestNormalizeAgentTarget_CopilotDev(t *testing.T) {
+	cfg := &Config{Target: "copilot-dev"}
+	NormalizeAgentTarget(cfg)
+	if cfg.Agent != "copilot" {
+		t.Errorf("Agent = %q, want %q", cfg.Agent, "copilot")
+	}
+	if cfg.Target != "dev" {
+		t.Errorf("Target = %q, want %q", cfg.Target, "dev")
+	}
+}
+
+func TestNormalizeAgentTarget_CopilotBase(t *testing.T) {
+	cfg := &Config{Target: "copilot-base"}
+	NormalizeAgentTarget(cfg)
+	if cfg.Agent != "copilot" {
+		t.Errorf("Agent = %q, want %q", cfg.Agent, "copilot")
+	}
+	if cfg.Target != "base" {
+		t.Errorf("Target = %q, want %q", cfg.Target, "base")
+	}
+}
+
+func TestNormalizeAgentTarget_PlainTarget(t *testing.T) {
+	cfg := &Config{Target: "dev"}
+	NormalizeAgentTarget(cfg)
+	if cfg.Agent != "" {
+		t.Errorf("Agent = %q, want empty", cfg.Agent)
+	}
+	if cfg.Target != "dev" {
+		t.Errorf("Target = %q, want %q", cfg.Target, "dev")
+	}
+}
+
+func TestNormalizeAgentTarget_ExplicitAgentNotOverwritten(t *testing.T) {
+	cfg := &Config{Target: "copilot-dev", Agent: "claude"}
+	NormalizeAgentTarget(cfg)
+	if cfg.Agent != "claude" {
+		t.Errorf("Agent = %q, want %q (explicit should win)", cfg.Agent, "claude")
+	}
+	if cfg.Target != "copilot-dev" {
+		t.Errorf("Target = %q, want %q (should not be modified when agent is explicit)", cfg.Target, "copilot-dev")
+	}
+}
+
+func TestApplyRegistryEntry_NormalizesAgentTarget(t *testing.T) {
+	cfg := &Config{ImagePrefix: "techdelight/claude-runner"}
+	entry := ProjectEntry{
+		Directory: "/tmp/test",
+		Target:    "copilot-dev",
+	}
+	ApplyRegistryEntry(cfg, entry)
+	if cfg.Agent != "copilot" {
+		t.Errorf("Agent = %q, want %q", cfg.Agent, "copilot")
+	}
+	if cfg.Target != "dev" {
+		t.Errorf("Target = %q, want %q", cfg.Target, "dev")
+	}
+	want := "techdelight/copilot-runner:dev"
+	if got := cfg.Image(); got != want {
+		t.Errorf("Image() = %q, want %q", got, want)
+	}
+}
+
 func TestApplyRegistryEntry_NilDefaultFlags(t *testing.T) {
 	cfg := &Config{Target: "dev"}
 	entry := ProjectEntry{

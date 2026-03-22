@@ -242,5 +242,6 @@ func ParseArgs(args []string) (*core.Config, error) {
 		return nil, fmt.Errorf("too many arguments (expected at most 2, got %d)\n%s run 'daedalus --help' for usage", len(positional), color.Cyan("Hint:"))
 	}
 
+	core.NormalizeAgentTarget(cfg)
 	return cfg, nil
 }
