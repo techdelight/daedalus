@@ -91,8 +91,8 @@ jobs:
           mkdir -p release-assets
           cp artifacts/binaries-*/daedalus-* release-assets/
           cp artifacts/binaries-*/skill-catalog-mcp-* release-assets/
-          cp claude.json install.sh config.json docker-compose.yml Dockerfile entrypoint.sh settings.json logo.txt scripts/wsl2-network.bat release-assets/
-          sed -i 's/RELEASE_TAG="latest"/RELEASE_TAG="dev"/' release-assets/install.sh
+          cp claude.json install.sh setup.sh config.json docker-compose.yml Dockerfile entrypoint.sh settings.json logo.txt scripts/wsl2-network.bat release-assets/
+          sed -i 's/RELEASE_TAG="__RELEASE_TAG__"/RELEASE_TAG="dev"/' release-assets/install.sh
 
       - name: Delete existing dev release
         env:
@@ -120,7 +120,7 @@ jobs:
             ### Install
 
             ```bash
-            curl -fsSL https://github.com/techdelight/daedalus/releases/download/dev/install.sh | bash
+            curl -fsSL https://raw.githubusercontent.com/techdelight/daedalus/development/install.sh | bash
             ```
 
             This downloads the dev binary, runtime files, and creates a PATH symlink. See `install.sh --help` for options.

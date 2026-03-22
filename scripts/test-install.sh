@@ -1,6 +1,6 @@
 # Copyright (C) 2026 Techdelight BV
 #
-# Tests for install.sh
+# Tests for install.sh + setup.sh
 #
 # Validates install, upgrade, and uninstall flows by running a patched
 # copy of install.sh that uses local files instead of curl downloads.
@@ -12,6 +12,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 INSTALL_SH="$REPO_ROOT/install.sh"
+SETUP_SH="$REPO_ROOT/setup.sh"
 PASS=0
 FAIL=0
 
@@ -146,6 +147,7 @@ case "$ARCH" in
 esac
 
 BINARY_NAME="daedalus-${OS}-${ARCH}"
+MCP_BINARY_NAME="skill-catalog-mcp-${OS}-${ARCH}"
 
 # Create mock release directory with fake files
 create_mock_release() {
@@ -153,18 +155,24 @@ create_mock_release() {
     rm -rf "$MOCK_RELEASE"
     mkdir -p "$MOCK_RELEASE"
 
-    # Fake binary
+    # Fake binaries
     printf '#!/bin/sh\necho "daedalus %s"\n' "$version" > "$MOCK_RELEASE/$BINARY_NAME"
     chmod 755 "$MOCK_RELEASE/$BINARY_NAME"
+    printf '#!/bin/sh\necho "skill-catalog-mcp %s"\n' "$version" > "$MOCK_RELEASE/$MCP_BINARY_NAME"
+    chmod 755 "$MOCK_RELEASE/$MCP_BINARY_NAME"
 
     # Fake runtime files
-    echo '{"version":"placeholder"}' > "$MOCK_RELEASE/config.json"
+    echo '{"version":""}' > "$MOCK_RELEASE/config.json"
     echo "compose: true" > "$MOCK_RELEASE/docker-compose.yml"
     echo "FROM alpine" > "$MOCK_RELEASE/Dockerfile"
     echo '#!/bin/sh' > "$MOCK_RELEASE/entrypoint.sh"
     echo '{}' > "$MOCK_RELEASE/claude.json"
     echo '{}' > "$MOCK_RELEASE/settings.json"
     echo "DAEDALUS" > "$MOCK_RELEASE/logo.txt"
+
+    # Include real setup.sh
+    cp "$SETUP_SH" "$MOCK_RELEASE/setup.sh"
+    chmod 755 "$MOCK_RELEASE/setup.sh"
 }
 
 # Create a patched copy of install.sh that uses local files instead of curl.
@@ -191,11 +199,15 @@ create_patched_installer() {
     sed -i 's|echo "Fetching latest release..."|# patched: no fetch needed|' "$dest"
 
     # Replace binary download with local copy.
-    # Original: curl -fsSL -o "$WORK_DIR/daedalus" "${DOWNLOAD_BASE}/${BINARY_NAME}"
     sed -i 's|curl -fsSL -o "\$WORK_DIR/daedalus" .*|cp "'"$mock_dir"'/'"$BINARY_NAME"'" "$WORK_DIR/daedalus"|' "$dest"
 
+    # Replace MCP binary download with local copy.
+    sed -i 's|curl -fsSL -o "\$WORK_DIR/skill-catalog-mcp" .*|cp "'"$mock_dir"'/'"$MCP_BINARY_NAME"'" "$WORK_DIR/skill-catalog-mcp"|' "$dest"
+
+    # Replace setup.sh download with local copy.
+    sed -i 's|curl -fsSL -o "\$WORK_DIR/setup.sh" .*|cp "'"$mock_dir"'/setup.sh" "$WORK_DIR/setup.sh"|' "$dest"
+
     # Replace runtime file downloads with local copies.
-    # Original: curl -fsSL -o "$WORK_DIR/$f" "${DOWNLOAD_BASE}/${f}"
     sed -i 's|curl -fsSL -o "\$WORK_DIR/\$f" .*|cp "'"$mock_dir"'/$f" "$WORK_DIR/$f"|' "$dest"
 
     chmod +x "$dest"
@@ -203,7 +215,7 @@ create_patched_installer() {
 
 # ── Tests ────────────────────────────────────────────────────────────────────
 
-echo "Running install.sh tests..."
+echo "Running install.sh + setup.sh tests..."
 echo ""
 
 # --------------------------------------------------------------------------
@@ -219,6 +231,8 @@ bash "$PATCHED_INSTALLER" --prefix "$TEST_PREFIX" --no-link > /dev/null 2>&1
 
 assert_file_exists "binary exists" "$TEST_PREFIX/daedalus"
 assert_executable "binary is executable" "$TEST_PREFIX/daedalus"
+assert_file_exists "MCP binary exists" "$TEST_PREFIX/skill-catalog-mcp"
+assert_executable "MCP binary is executable" "$TEST_PREFIX/skill-catalog-mcp"
 assert_file_exists "claude.json present" "$TEST_PREFIX/claude.json"
 assert_file_exists "docker-compose.yml present" "$TEST_PREFIX/docker-compose.yml"
 assert_file_exists "Dockerfile present" "$TEST_PREFIX/Dockerfile"
@@ -317,11 +331,11 @@ bash "$PATCHED_INSTALLER" --prefix "$TEST_PREFIX_RM" --no-link > /dev/null 2>&1
 # Verify install worked before uninstalling
 assert_file_exists "pre-uninstall binary exists" "$TEST_PREFIX_RM/daedalus"
 
-# Uninstall (pipe "y" to confirm cache removal prompt, though there is no
-# .cache directory in this test so the prompt should not appear)
-echo "y" | bash "$PATCHED_INSTALLER" --prefix "$TEST_PREFIX_RM" --uninstall > /dev/null 2>&1
+# Uninstall via setup.sh directly (no download needed for uninstall)
+WORK_DIR="$MOCK_RELEASE" bash "$SETUP_SH" --prefix "$TEST_PREFIX_RM" --uninstall > /dev/null 2>&1
 
 assert_file_not_exists "binary removed" "$TEST_PREFIX_RM/daedalus"
+assert_file_not_exists "skill-catalog-mcp removed" "$TEST_PREFIX_RM/skill-catalog-mcp"
 assert_file_not_exists "config.json removed" "$TEST_PREFIX_RM/config.json"
 assert_file_not_exists "claude.json removed" "$TEST_PREFIX_RM/claude.json"
 assert_file_not_exists "docker-compose.yml removed" "$TEST_PREFIX_RM/docker-compose.yml"
@@ -341,7 +355,7 @@ TEST_PREFIX_DIR="$TMPDIR_ROOT/test6-prefix"
 create_mock_release "0.8.0"
 create_patched_installer "v0.8.0" "$MOCK_RELEASE" "$PATCHED_INSTALLER"
 bash "$PATCHED_INSTALLER" --prefix "$TEST_PREFIX_DIR" --no-link > /dev/null 2>&1
-echo "y" | bash "$PATCHED_INSTALLER" --prefix "$TEST_PREFIX_DIR" --uninstall > /dev/null 2>&1
+WORK_DIR="$MOCK_RELEASE" bash "$SETUP_SH" --prefix "$TEST_PREFIX_DIR" --uninstall > /dev/null 2>&1
 
 assert_dir_not_exists "prefix directory removed" "$TEST_PREFIX_DIR"
 
@@ -355,15 +369,15 @@ if [ "$(id -u)" -eq 0 ]; then
 else
     TEST_PREFIX_ROOT="$TMPDIR_ROOT/test7-prefix"
     create_mock_release "0.8.0"
-    create_patched_installer "v0.8.0" "$MOCK_RELEASE" "$PATCHED_INSTALLER"
 
-    # Patch the installer to fake EUID=0 for this test.
-    # Replace the EUID check with a hardcoded 0.
-    cp "$PATCHED_INSTALLER" "$TMPDIR_ROOT/install-root-test.sh"
-    sed -i 's|\$EUID -eq 0|0 -eq 0|' "$TMPDIR_ROOT/install-root-test.sh"
+    # Test root rejection in setup.sh (where the check lives)
+    # Patch setup.sh to fake EUID=0
+    cp "$SETUP_SH" "$TMPDIR_ROOT/setup-root-test.sh"
+    sed -i 's|\$EUID -eq 0|0 -eq 0|' "$TMPDIR_ROOT/setup-root-test.sh"
+    chmod +x "$TMPDIR_ROOT/setup-root-test.sh"
 
     set +e
-    bash "$TMPDIR_ROOT/install-root-test.sh" --prefix "$TEST_PREFIX_ROOT" --no-link > /dev/null 2>&1
+    WORK_DIR="$MOCK_RELEASE" bash "$TMPDIR_ROOT/setup-root-test.sh" --prefix "$TEST_PREFIX_ROOT" --no-link > /dev/null 2>&1
     exit_code=$?
     set -e
 
