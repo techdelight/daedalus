@@ -120,7 +120,7 @@ jobs:
             ### Install
 
             ```bash
-            curl -fsSL https://raw.githubusercontent.com/techdelight/daedalus/development/install.sh | bash
+            curl -fsSL https://github.com/techdelight/daedalus/releases/download/dev/install.sh | bash
             ```
 
             This downloads the dev binary, runtime files, and creates a PATH symlink. See `install.sh --help` for options.
