@@ -23,12 +23,13 @@ RUNTIME_FILES=(
 # ── Argument parsing ─────────────────────────────────────────────────────────
 usage() {
     cat <<EOF
-Usage: $0 [--prefix <dir>] [--no-link] [--uninstall]
+Usage: $0 [--prefix <dir>] [--no-link] [--uninstall] [--verbose]
 
 Options:
   --prefix <dir>  Installation directory (default: ~/.local/share/daedalus)
   --no-link       Skip creating a symlink in PATH
   --uninstall     Remove Daedalus installation (prompts before deleting project data)
+  --verbose       Enable shell tracing (set -x) for debugging
 
 Downloads a pre-built Daedalus binary from the latest GitHub Release,
 installs runtime files to the prefix directory, and creates a PATH symlink.
@@ -52,6 +53,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --uninstall)
             UNINSTALL=true
+            shift
+            ;;
+        --verbose)
+            set -x
             shift
             ;;
         --help|-h)

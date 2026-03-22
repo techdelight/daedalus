@@ -4,10 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- `--verbose` flag for `install.sh` — enables shell tracing (`set -x`) for debugging installation issues.
+
 ### Changed
 - Install script uses a baked-in `RELEASE_TAG` variable instead of a `--dev` flag. The release pipelines sed-replace the tag before uploading `install.sh` as a release asset.
 - Dev and stable release workflows now patch `install.sh` with the correct release tag during build.
 - Dev install URL points to release asset (`releases/download/dev/install.sh`) instead of raw source.
+- Release workflows now build `skill-catalog-mcp` per-platform alongside `daedalus`. Install script downloads the platform-specific MCP binary.
 
 ## [0.11.0] - 2026-03-22
 
