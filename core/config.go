@@ -2,7 +2,10 @@
 
 package core
 
-import "path/filepath"
+import (
+	"path/filepath"
+	"strings"
+)
 
 // Config holds all parsed CLI configuration.
 type Config struct {
@@ -38,8 +41,25 @@ type Config struct {
 }
 
 // Image returns the full Docker image tag.
+// For non-claude agents, "claude-runner" in the prefix is replaced with
+// "<agent>-runner" (e.g. "techdelight/copilot-runner:dev").
 func (c *Config) Image() string {
-	return c.ImagePrefix + ":" + c.Target
+	prefix := c.ImagePrefix
+	agent := ResolveAgentName(c)
+	if agent != "claude" {
+		prefix = strings.Replace(prefix, "claude-runner", agent+"-runner", 1)
+	}
+	return prefix + ":" + c.Target
+}
+
+// BuildTarget returns the Dockerfile stage name for the current agent and
+// target. Non-claude agents use prefixed stages (e.g. "copilot-dev").
+func (c *Config) BuildTarget() string {
+	agent := ResolveAgentName(c)
+	if agent != "claude" {
+		return agent + "-" + c.Target
+	}
+	return c.Target
 }
 
 // ContainerName returns the Docker container name for this project.

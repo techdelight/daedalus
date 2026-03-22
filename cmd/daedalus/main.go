@@ -177,21 +177,20 @@ func buildAllProjects(cfg *core.Config) error {
 		return fmt.Errorf("no registered projects\n%s register a project first with: daedalus <name> <path>", color.Cyan("Hint:"))
 	}
 
-	// Collect unique targets to build
-	targets := collectBuildTargets(cfg, entries)
+	// Collect unique (agent, target) build specs
+	specs := collectBuildSpecs(cfg, entries)
 
 	uid := strconv.Itoa(os.Getuid())
-	fmt.Printf("Rebuilding %d image(s) for %d registered project(s)...\n\n", len(targets), len(entries))
+	fmt.Printf("Rebuilding %d image(s) for %d registered project(s)...\n\n", len(specs), len(entries))
 
 	checksumPath := filepath.Join(cfg.DataDir, "build-checksum")
 
-	for _, target := range targets {
-		image := cfg.ImagePrefix + ":" + target
+	for _, spec := range specs {
 		if cfg.Debug {
-			printBuildDebugInfo(cfg, target, image)
+			printBuildDebugInfo(cfg, spec.dockerTarget, spec.imageName)
 		}
-		if err := d.Build(target, image, uid, cfg.ScriptDir); err != nil {
-			return fmt.Errorf("building image %s: %w", image, err)
+		if err := d.Build(spec.dockerTarget, spec.imageName, uid, cfg.ScriptDir); err != nil {
+			return fmt.Errorf("building image %s: %w", spec.imageName, err)
 		}
 		fmt.Println()
 	}
@@ -213,7 +212,7 @@ func ensureImageBuilt(cfg *core.Config, d *docker.Docker) error {
 	if cfg.Build {
 		logging.Info("building image: " + image)
 		if cfg.Debug {
-			printBuildDebugInfo(cfg, cfg.Target, image)
+			printBuildDebugInfo(cfg, cfg.BuildTarget(), image)
 		}
 		if err := buildImage(cfg, d, image); err != nil {
 			return err
@@ -246,7 +245,7 @@ func ensureImageBuilt(cfg *core.Config, d *docker.Docker) error {
 // ensureImageBuilt for explicit builds and missing-image builds.
 func buildImage(cfg *core.Config, d *docker.Docker, image string) error {
 	uid := strconv.Itoa(os.Getuid())
-	if err := d.Build(cfg.Target, image, uid, cfg.ScriptDir); err != nil {
+	if err := d.Build(cfg.BuildTarget(), image, uid, cfg.ScriptDir); err != nil {
 		logging.Error("build failed: " + err.Error())
 		return fmt.Errorf("building image: %w\n%s check Docker is running and try: daedalus --build %s", err, color.Cyan("Hint:"), cfg.ProjectName)
 	}
@@ -349,23 +348,45 @@ func printBuildDebugInfo(cfg *core.Config, target, image string) {
 	fmt.Println()
 }
 
-// collectBuildTargets returns the deduplicated, sorted list of targets to build.
-// If --target was explicitly set, only that target is returned.
-// Otherwise, unique targets are collected from all registered projects.
-func collectBuildTargets(cfg *core.Config, entries []core.ProjectInfo) []string {
+// buildSpec describes a single Docker image build: the Dockerfile stage name
+// and the resulting image tag.
+type buildSpec struct {
+	dockerTarget string // Dockerfile stage (e.g. "dev", "copilot-dev")
+	imageName    string // full image tag (e.g. "techdelight/copilot-runner:dev")
+}
+
+// collectBuildSpecs returns the deduplicated, sorted list of images to build.
+// If --target was explicitly set, only the current config's spec is returned.
+// Otherwise, unique (agent, target) pairs are collected from all registered
+// projects to produce the correct Dockerfile stage and image name per agent.
+func collectBuildSpecs(cfg *core.Config, entries []core.ProjectInfo) []buildSpec {
 	if cfg.TargetOverride {
-		return []string{cfg.Target}
+		return []buildSpec{{
+			dockerTarget: cfg.BuildTarget(),
+			imageName:    cfg.Image(),
+		}}
 	}
 	seen := make(map[string]bool)
+	var specs []buildSpec
 	for _, e := range entries {
-		seen[e.Entry.Target] = true
+		tmpCfg := &core.Config{
+			ImagePrefix: cfg.ImagePrefix,
+			Target:      e.Entry.Target,
+			Agent:       e.Entry.DefaultFlags["agent"],
+		}
+		img := tmpCfg.Image()
+		if !seen[img] {
+			seen[img] = true
+			specs = append(specs, buildSpec{
+				dockerTarget: tmpCfg.BuildTarget(),
+				imageName:    img,
+			})
+		}
 	}
-	targets := make([]string, 0, len(seen))
-	for t := range seen {
-		targets = append(targets, t)
-	}
-	sort.Strings(targets)
-	return targets
+	sort.Slice(specs, func(i, j int) bool {
+		return specs[i].imageName < specs[j].imageName
+	})
+	return specs
 }
 
 // resolveProject determines the project name, directory, and target from the

@@ -635,22 +635,25 @@ func TestShowConfig_NoProjectName(t *testing.T) {
 	}
 }
 
-func TestCollectBuildTargets_UniqueTargets(t *testing.T) {
+func TestCollectBuildSpecs(t *testing.T) {
 	tests := []struct {
 		name           string
 		targetOverride bool
 		target         string
+		agent          string
 		entries        []core.ProjectInfo
-		want           []string
+		wantImages     []string
+		wantTargets    []string
 	}{
 		{
-			name:           "single target from one project",
+			name:           "single claude project",
 			targetOverride: false,
 			target:         "dev",
 			entries: []core.ProjectInfo{
 				{Name: "app1", Entry: core.ProjectEntry{Target: "dev"}},
 			},
-			want: []string{"dev"},
+			wantImages:  []string{"techdelight/claude-runner:dev"},
+			wantTargets: []string{"dev"},
 		},
 		{
 			name:           "dedup same target from multiple projects",
@@ -659,20 +662,20 @@ func TestCollectBuildTargets_UniqueTargets(t *testing.T) {
 			entries: []core.ProjectInfo{
 				{Name: "app1", Entry: core.ProjectEntry{Target: "dev"}},
 				{Name: "app2", Entry: core.ProjectEntry{Target: "dev"}},
-				{Name: "app3", Entry: core.ProjectEntry{Target: "dev"}},
 			},
-			want: []string{"dev"},
+			wantImages:  []string{"techdelight/claude-runner:dev"},
+			wantTargets: []string{"dev"},
 		},
 		{
-			name:           "multiple unique targets sorted",
+			name:           "multiple unique targets sorted by image",
 			targetOverride: false,
 			target:         "dev",
 			entries: []core.ProjectInfo{
 				{Name: "game", Entry: core.ProjectEntry{Target: "godot"}},
 				{Name: "api", Entry: core.ProjectEntry{Target: "dev"}},
-				{Name: "tools", Entry: core.ProjectEntry{Target: "utils"}},
 			},
-			want: []string{"dev", "godot", "utils"},
+			wantImages:  []string{"techdelight/claude-runner:dev", "techdelight/claude-runner:godot"},
+			wantTargets: []string{"dev", "godot"},
 		},
 		{
 			name:           "target override uses explicit target only",
@@ -680,30 +683,70 @@ func TestCollectBuildTargets_UniqueTargets(t *testing.T) {
 			target:         "godot",
 			entries: []core.ProjectInfo{
 				{Name: "app1", Entry: core.ProjectEntry{Target: "dev"}},
-				{Name: "app2", Entry: core.ProjectEntry{Target: "utils"}},
 			},
-			want: []string{"godot"},
+			wantImages:  []string{"techdelight/claude-runner:godot"},
+			wantTargets: []string{"godot"},
+		},
+		{
+			name:           "copilot agent produces copilot-runner image",
+			targetOverride: false,
+			target:         "dev",
+			entries: []core.ProjectInfo{
+				{Name: "app1", Entry: core.ProjectEntry{
+					Target:       "dev",
+					DefaultFlags: map[string]string{"agent": "copilot"},
+				}},
+			},
+			wantImages:  []string{"techdelight/copilot-runner:dev"},
+			wantTargets: []string{"copilot-dev"},
+		},
+		{
+			name:           "mixed agents produce separate images",
+			targetOverride: false,
+			target:         "dev",
+			entries: []core.ProjectInfo{
+				{Name: "api", Entry: core.ProjectEntry{Target: "dev"}},
+				{Name: "copilot-app", Entry: core.ProjectEntry{
+					Target:       "dev",
+					DefaultFlags: map[string]string{"agent": "copilot"},
+				}},
+			},
+			wantImages:  []string{"techdelight/claude-runner:dev", "techdelight/copilot-runner:dev"},
+			wantTargets: []string{"dev", "copilot-dev"},
+		},
+		{
+			name:           "target override with copilot agent",
+			targetOverride: true,
+			target:         "dev",
+			agent:          "copilot",
+			entries: []core.ProjectInfo{
+				{Name: "app1", Entry: core.ProjectEntry{Target: "dev"}},
+			},
+			wantImages:  []string{"techdelight/copilot-runner:dev"},
+			wantTargets: []string{"copilot-dev"},
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			// Arrange
 			cfg := &core.Config{
+				ImagePrefix:    "techdelight/claude-runner",
 				Target:         tc.target,
 				TargetOverride: tc.targetOverride,
+				Agent:          tc.agent,
 			}
 
-			// Act
-			got := collectBuildTargets(cfg, tc.entries)
+			got := collectBuildSpecs(cfg, tc.entries)
 
-			// Assert
-			if len(got) != len(tc.want) {
-				t.Fatalf("collectBuildTargets() returned %d targets, want %d: got %v", len(got), len(tc.want), got)
+			if len(got) != len(tc.wantImages) {
+				t.Fatalf("collectBuildSpecs() returned %d specs, want %d: got %v", len(got), len(tc.wantImages), got)
 			}
-			for i, target := range got {
-				if target != tc.want[i] {
-					t.Errorf("targets[%d] = %q, want %q", i, target, tc.want[i])
+			for i, spec := range got {
+				if spec.imageName != tc.wantImages[i] {
+					t.Errorf("specs[%d].imageName = %q, want %q", i, spec.imageName, tc.wantImages[i])
+				}
+				if spec.dockerTarget != tc.wantTargets[i] {
+					t.Errorf("specs[%d].dockerTarget = %q, want %q", i, spec.dockerTarget, tc.wantTargets[i])
 				}
 			}
 		})

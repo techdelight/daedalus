@@ -16,6 +16,41 @@ func TestConfig_Image(t *testing.T) {
 	}
 }
 
+func TestConfig_Image_CopilotAgent(t *testing.T) {
+	cfg := &Config{ImagePrefix: "techdelight/claude-runner", Target: "dev", Agent: "copilot"}
+	got := cfg.Image()
+	want := "techdelight/copilot-runner:dev"
+	if got != want {
+		t.Errorf("Image() = %q, want %q", got, want)
+	}
+}
+
+func TestConfig_Image_CustomPrefix_CopilotAgent(t *testing.T) {
+	cfg := &Config{ImagePrefix: "custom/my-image", Target: "dev", Agent: "copilot"}
+	got := cfg.Image()
+	// Custom prefix without "claude-runner" stays unchanged
+	want := "custom/my-image:dev"
+	if got != want {
+		t.Errorf("Image() = %q, want %q", got, want)
+	}
+}
+
+func TestConfig_BuildTarget(t *testing.T) {
+	cfg := &Config{Target: "dev"}
+	got := cfg.BuildTarget()
+	if got != "dev" {
+		t.Errorf("BuildTarget() = %q, want %q", got, "dev")
+	}
+}
+
+func TestConfig_BuildTarget_CopilotAgent(t *testing.T) {
+	cfg := &Config{Target: "dev", Agent: "copilot"}
+	got := cfg.BuildTarget()
+	if got != "copilot-dev" {
+		t.Errorf("BuildTarget() = %q, want %q", got, "copilot-dev")
+	}
+}
+
 func TestConfig_ContainerName(t *testing.T) {
 	cfg := &Config{ProjectName: "my-app"}
 	got := cfg.ContainerName()
