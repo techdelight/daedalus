@@ -29,7 +29,7 @@ var agentProfiles = map[string]AgentProfile{
 	},
 	"copilot": {
 		Name:          "copilot",
-		BinaryPath:    "/opt/copilot/bin/copilot",
+		BinaryPath:    "/home/claude/.local/bin/copilot",
 		SkipPermsFlag: "--allow-all",
 		ConfigEnvVar:  "COPILOT_HOME",
 		ConfigDirPath: "/home/claude/.copilot",

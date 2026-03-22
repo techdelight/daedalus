@@ -22,7 +22,7 @@ case "$AGENT" in
         ;;
     copilot)
         mkdir -p "${COPILOT_HOME:-$HOME/.copilot}"
-        exec /opt/copilot/bin/copilot --allow-all "$@"
+        exec /home/claude/.local/bin/copilot --allow-all "$@"
         ;;
     *)
         echo "Unknown agent: $AGENT" >&2
