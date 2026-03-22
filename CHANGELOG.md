@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+- Dev release workflow install instructions now reference `install.sh` instead of a raw binary download.
+- README dev builds section updated to use `install.sh` from the `development` branch.
+
 ## [0.11.0] - 2026-03-22
 
 ### Added
