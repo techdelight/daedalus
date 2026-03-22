@@ -265,6 +265,7 @@ func launchProject(cfg *core.Config, d *docker.Docker, reg *registry.Registry, s
 		"PROJECT_DIR": cfg.ProjectDir,
 		"CACHE_DIR":   cfg.CacheDir(),
 		"TARGET":      cfg.Target,
+		"IMAGE":       cfg.Image(),
 		"AGENT":       core.ResolveAgentName(cfg),
 	}
 

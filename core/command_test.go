@@ -118,12 +118,16 @@ func TestBuildTmuxCommand_IncludesAgentEnv(t *testing.T) {
 		ProjectDir:  "/tmp",
 		Target:      "dev",
 		Agent:       "copilot",
+		ImagePrefix: "techdelight/claude-runner",
 	}
 	dockerCmd := []string{"docker", "compose", "run", "claude"}
 	result := BuildTmuxCommand(cfg, dockerCmd)
 
 	if !strings.Contains(result, "AGENT='copilot'") {
 		t.Errorf("tmux command should include AGENT='copilot', got: %s", result)
+	}
+	if !strings.Contains(result, "IMAGE='techdelight/copilot-runner:dev'") {
+		t.Errorf("tmux command should include copilot-runner IMAGE, got: %s", result)
 	}
 }
 

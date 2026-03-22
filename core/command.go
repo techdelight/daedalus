@@ -73,6 +73,7 @@ func BuildTmuxCommand(cfg *Config, dockerCmd []string) string {
 		"PROJECT_DIR":  cfg.ProjectDir,
 		"CACHE_DIR":    cfg.CacheDir(),
 		"TARGET":       cfg.Target,
+		"IMAGE":        cfg.Image(),
 		"AGENT":        ResolveAgentName(cfg),
 	})
 
