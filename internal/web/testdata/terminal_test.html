@@ -1,0 +1,336 @@
+<!-- Copyright (C) 2026 Techdelight BV -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>terminal.js — tests</title>
+    <style>
+        body { font-family: monospace; background: #1a1b26; color: #c0caf5; padding: 24px; }
+        .pass { color: #9ece6a; }
+        .fail { color: #f7768e; }
+        #summary { margin-top: 16px; font-size: 16px; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+<!-- Minimal DOM structure matching index.html -->
+<div id="terminal-view">
+    <div id="terminal-container"></div>
+    <div id="mobile-input-area">
+        <textarea id="mobile-input" placeholder="Type command..." rows="1"
+                  autocomplete="off" autocorrect="off" autocapitalize="off"
+                  spellcheck="false"></textarea>
+        <button class="btn btn-send" id="mobile-send-btn">Send</button>
+    </div>
+</div>
+
+<h2>terminal.js tests</h2>
+<pre id="output"></pre>
+<div id="summary"></div>
+
+<script>
+// === Test framework ===
+
+var testResults = [];
+
+function test(name, fn) {
+    try {
+        fn();
+        testResults.push({name: name, pass: true});
+    } catch(e) {
+        testResults.push({name: name, pass: false, error: e.message});
+    }
+}
+
+function assert(cond, msg) {
+    if (!cond) throw new Error(msg || 'assertion failed');
+}
+
+function assertEqual(actual, expected, msg) {
+    if (actual !== expected) {
+        throw new Error((msg ? msg + ': ' : '') +
+            'expected ' + JSON.stringify(expected) + ', got ' + JSON.stringify(actual));
+    }
+}
+
+// === Mocks ===
+
+var mockMobile = false;
+window.matchMedia = function(query) {
+    return { matches: mockMobile, media: query, addEventListener: function() {} };
+};
+
+window.requestAnimationFrame = function(fn) { fn(); };
+
+var MockTerminal_lastOptions = null;
+
+function Terminal(opts) {
+    MockTerminal_lastOptions = opts;
+    this.options = Object.assign({}, opts);
+    this.cols = 80;
+    this.rows = 24;
+    this.textarea = document.createElement('textarea');
+    this._onDataCb = null;
+    this._onResizeCb = null;
+}
+Terminal.prototype.open = function() {};
+Terminal.prototype.write = function() {};
+Terminal.prototype.loadAddon = function() {};
+Terminal.prototype.dispose = function() {};
+Terminal.prototype.focus = function() {};
+Terminal.prototype.onData = function(cb) { this._onDataCb = cb; };
+Terminal.prototype.onResize = function(cb) { this._onResizeCb = cb; };
+
+var FitAddon = { FitAddon: function() { this.fit = function() {}; } };
+
+var mockWsSent = [];
+var mockWsInstance = null;
+
+function MockWebSocket(url) {
+    this.url = url;
+    this.binaryType = 'blob';
+    this.readyState = 1;
+    this.onopen = null;
+    this.onmessage = null;
+    this.onclose = null;
+    this.onerror = null;
+    this.close = function() {};
+    this.send = function(data) { mockWsSent.push(data); };
+    mockWsInstance = this;
+}
+MockWebSocket.OPEN = 1;
+MockWebSocket.CLOSED = 3;
+
+var OriginalWebSocket = window.WebSocket;
+window.WebSocket = MockWebSocket;
+</script>
+
+<!-- Load the actual terminal.js under test -->
+<script src="../static/terminal.js"></script>
+
+<script>
+// === Helpers ===
+
+function reset() {
+    disconnectTerminal();
+    mockWsSent = [];
+    mockMobile = false;
+    mockWsInstance = null;
+    MockTerminal_lastOptions = null;
+    document.getElementById('mobile-input').value = '';
+    document.getElementById('mobile-input').style.height = '';
+}
+
+function decodeSent(data) {
+    if (data instanceof Uint8Array) return new TextDecoder().decode(data);
+    if (data instanceof ArrayBuffer) return new TextDecoder().decode(new Uint8Array(data));
+    return data;
+}
+
+// === Tests ===
+
+// --- Scrollback ---
+
+test('Terminal options include scrollback: 10000', function() {
+    reset();
+    connectTerminal('test-project');
+    assertEqual(MockTerminal_lastOptions.scrollback, 10000, 'scrollback');
+    reset();
+});
+
+// --- isMobileView ---
+
+test('isMobileView returns false on desktop', function() {
+    mockMobile = false;
+    assert(!isMobileView(), 'should be false on desktop');
+});
+
+test('isMobileView returns true on mobile', function() {
+    mockMobile = true;
+    assert(isMobileView(), 'should be true on mobile');
+    mockMobile = false;
+});
+
+// --- Mobile input send ---
+
+test('Send button sends text + newline via WebSocket as Uint8Array', function() {
+    reset();
+    connectTerminal('test-project');
+    mockWsSent = [];
+    document.getElementById('mobile-input').value = 'hello world';
+    document.getElementById('mobile-send-btn').click();
+    assertEqual(mockWsSent.length, 1, 'one send');
+    assert(mockWsSent[0] instanceof Uint8Array, 'should be Uint8Array');
+    assertEqual(decodeSent(mockWsSent[0]), 'hello world\n', 'sent data');
+    reset();
+});
+
+test('Send button clears textarea after send', function() {
+    reset();
+    connectTerminal('test-project');
+    var input = document.getElementById('mobile-input');
+    input.value = 'test';
+    document.getElementById('mobile-send-btn').click();
+    assertEqual(input.value, '', 'textarea should be empty');
+    reset();
+});
+
+test('Send button does nothing when textarea is empty', function() {
+    reset();
+    connectTerminal('test-project');
+    mockWsSent = [];
+    document.getElementById('mobile-input').value = '';
+    document.getElementById('mobile-send-btn').click();
+    assertEqual(mockWsSent.length, 0, 'no sends');
+    reset();
+});
+
+// --- Keyboard shortcuts ---
+
+test('Ctrl+Enter triggers send', function() {
+    reset();
+    connectTerminal('test-project');
+    mockWsSent = [];
+    document.getElementById('mobile-input').value = 'ctrl-enter test';
+    var event = new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true });
+    document.getElementById('mobile-input').dispatchEvent(event);
+    assertEqual(mockWsSent.length, 1, 'one send');
+    assertEqual(decodeSent(mockWsSent[0]), 'ctrl-enter test\n', 'sent data');
+    reset();
+});
+
+test('Plain Enter does NOT trigger send', function() {
+    reset();
+    connectTerminal('test-project');
+    mockWsSent = [];
+    document.getElementById('mobile-input').value = 'should not send';
+    var event = new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: false, bubbles: true });
+    document.getElementById('mobile-input').dispatchEvent(event);
+    assertEqual(mockWsSent.length, 0, 'no sends');
+    reset();
+});
+
+// --- disableStdin ---
+
+test('disableStdin is true on mobile', function() {
+    reset();
+    mockMobile = true;
+    connectTerminal('test-project');
+    assert(term.options.disableStdin === true, 'disableStdin should be true');
+    reset();
+});
+
+test('disableStdin is NOT set on desktop', function() {
+    reset();
+    mockMobile = false;
+    connectTerminal('test-project');
+    assert(!term.options.disableStdin, 'disableStdin should not be set');
+    reset();
+});
+
+// --- BUG: xterm helper textarea must be disabled on mobile ---
+
+test('xterm helper textarea is disabled on mobile to prevent focus stealing', function() {
+    reset();
+    mockMobile = true;
+    connectTerminal('test-project');
+    assert(term.textarea.disabled === true,
+        'xterm helper textarea must be disabled on mobile — ' +
+        'otherwise tapping the terminal opens the on-screen keyboard ' +
+        'but input goes nowhere because disableStdin drops it silently');
+    reset();
+});
+
+test('xterm helper textarea is NOT disabled on desktop', function() {
+    reset();
+    mockMobile = false;
+    connectTerminal('test-project');
+    assert(!term.textarea.disabled,
+        'xterm helper textarea should remain enabled on desktop');
+    reset();
+});
+
+test('xterm helper textarea toggles on resize between mobile and desktop', function() {
+    reset();
+    mockMobile = false;
+    connectTerminal('test-project');
+    assert(!term.textarea.disabled, 'desktop: not disabled');
+
+    // Simulate resize to mobile
+    mockMobile = true;
+    window.dispatchEvent(new Event('resize'));
+    assert(term.textarea.disabled === true, 'after resize to mobile: disabled');
+
+    // Simulate resize back to desktop
+    mockMobile = false;
+    window.dispatchEvent(new Event('resize'));
+    assert(!term.textarea.disabled, 'after resize to desktop: not disabled');
+    reset();
+});
+
+// --- Event listener leak ---
+
+test('No duplicate sends after connect/disconnect/reconnect cycle', function() {
+    reset();
+    connectTerminal('test-project-1');
+    disconnectTerminal();
+    connectTerminal('test-project-2');
+    mockWsSent = [];
+    document.getElementById('mobile-input').value = 'no-dupes';
+    document.getElementById('mobile-send-btn').click();
+    assertEqual(mockWsSent.length, 1, 'exactly one send, no listener leak');
+    reset();
+});
+
+test('No duplicate Ctrl+Enter sends after reconnect', function() {
+    reset();
+    connectTerminal('test-project-1');
+    disconnectTerminal();
+    connectTerminal('test-project-2');
+    mockWsSent = [];
+    document.getElementById('mobile-input').value = 'no-dupes';
+    var event = new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true });
+    document.getElementById('mobile-input').dispatchEvent(event);
+    assertEqual(mockWsSent.length, 1, 'exactly one send');
+    reset();
+});
+
+// --- Cleanup ---
+
+test('disconnectTerminal clears mobile input', function() {
+    reset();
+    connectTerminal('test-project');
+    document.getElementById('mobile-input').value = 'leftover text';
+    disconnectTerminal();
+    assertEqual(document.getElementById('mobile-input').value, '', 'input cleared');
+});
+
+// === Report ===
+
+var el = document.getElementById('output');
+var summary = document.getElementById('summary');
+var passed = 0, failed = 0;
+
+testResults.forEach(function(r) {
+    var line = document.createElement('div');
+    if (r.pass) {
+        passed++;
+        line.className = 'pass';
+        line.textContent = 'PASS  ' + r.name;
+    } else {
+        failed++;
+        line.className = 'fail';
+        line.textContent = 'FAIL  ' + r.name + ' — ' + r.error;
+    }
+    el.appendChild(line);
+});
+
+summary.textContent = passed + ' passed, ' + failed + ' failed';
+summary.className = failed > 0 ? 'fail' : 'pass';
+document.title = failed > 0 ? 'FAIL (' + failed + ')' : 'ALL PASS (' + passed + ')';
+
+// Restore
+window.WebSocket = OriginalWebSocket;
+</script>
+</body>
+</html>

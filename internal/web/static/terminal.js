@@ -101,12 +101,19 @@ function connectTerminal(projectName) {
     });
 
     // Named handlers for cleanup
+    function applyMobileMode(mobile) {
+        term.options.disableStdin = mobile;
+        if (term.textarea) {
+            term.textarea.disabled = mobile;
+        }
+    }
+
     function onWindowResize() {
         if (fitAddon) {
             fitAddon.fit();
         }
         if (term) {
-            term.options.disableStdin = isMobileView();
+            applyMobileMode(isMobileView());
         }
     }
 
@@ -147,7 +154,7 @@ function connectTerminal(projectName) {
     mobileInput.addEventListener('input', onMobileInput);
 
     if (isMobileView()) {
-        term.options.disableStdin = true;
+        applyMobileMode(true);
     }
 
     // Store cleanup function for disconnectTerminal
