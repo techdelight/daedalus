@@ -5,8 +5,9 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Changed
-- Dev release workflow install instructions now reference `install.sh` instead of a raw binary download.
-- README dev builds section updated to use `install.sh` from the `development` branch.
+- Install script uses a baked-in `RELEASE_TAG` variable instead of a `--dev` flag. The release pipelines sed-replace the tag before uploading `install.sh` as a release asset.
+- Dev and stable release workflows now patch `install.sh` with the correct release tag during build.
+- Dev install URL points to release asset (`releases/download/dev/install.sh`) instead of raw source.
 
 ## [0.11.0] - 2026-03-22
 

@@ -6,7 +6,7 @@ set -euo pipefail
 PREFIX="$HOME/.local/share/daedalus"
 CREATE_LINK=true
 UNINSTALL=false
-DEV_BUILD=false
+RELEASE_TAG="latest"
 GITHUB_REPO="https://api.github.com/repos/techdelight/daedalus/releases"
 
 # ── Runtime files to install alongside the binary ────────────────────────────
@@ -24,16 +24,18 @@ RUNTIME_FILES=(
 # ── Argument parsing ─────────────────────────────────────────────────────────
 usage() {
     cat <<EOF
-Usage: $0 [--prefix <dir>] [--no-link] [--dev] [--uninstall]
+Usage: $0 [--prefix <dir>] [--no-link] [--uninstall]
 
 Options:
   --prefix <dir>  Installation directory (default: ~/.local/share/daedalus)
   --no-link       Skip creating a symlink in PATH
-  --dev           Install the latest dev pre-release instead of the stable release
   --uninstall     Remove Daedalus installation (prompts before deleting project data)
 
 Downloads a pre-built Daedalus binary from the latest GitHub Release,
 installs runtime files to the prefix directory, and creates a PATH symlink.
+
+The RELEASE_TAG variable is baked in during the release pipeline.
+Use install.sh from the dev release assets for dev builds.
 EOF
     exit 0
 }
@@ -47,10 +49,6 @@ while [[ $# -gt 0 ]]; do
             ;;
         --no-link)
             CREATE_LINK=false
-            shift
-            ;;
-        --dev)
-            DEV_BUILD=true
             shift
             ;;
         --uninstall)
@@ -153,12 +151,12 @@ echo "  Platform: ${OS}/${ARCH}"
 
 # ── Fetch release tag ─────────────────────────────────────────────────────
 echo ""
-if [[ "$DEV_BUILD" == true ]]; then
-    echo "Fetching latest dev release..."
-    GITHUB_API="${GITHUB_REPO}/tags/dev"
-else
+if [[ "$RELEASE_TAG" == "latest" ]]; then
     echo "Fetching latest stable release..."
     GITHUB_API="${GITHUB_REPO}/latest"
+else
+    echo "Fetching release: ${RELEASE_TAG}..."
+    GITHUB_API="${GITHUB_REPO}/tags/${RELEASE_TAG}"
 fi
 
 RELEASE_JSON="$(curl -fsSL "$GITHUB_API")"
