@@ -180,6 +180,36 @@ func TestApplyRegistryEntry_DisplayFlag(t *testing.T) {
 	}
 }
 
+func TestApplyRegistryEntry_AgentDefaultFlag(t *testing.T) {
+	cfg := &Config{Target: "dev"}
+	entry := ProjectEntry{
+		Directory:    "/tmp/test",
+		Target:       "dev",
+		DefaultFlags: map[string]string{"agent": "copilot"},
+	}
+
+	ApplyRegistryEntry(cfg, entry)
+
+	if cfg.Agent != "copilot" {
+		t.Errorf("Agent = %q, want %q", cfg.Agent, "copilot")
+	}
+}
+
+func TestApplyRegistryEntry_AgentCLIOverridesDefault(t *testing.T) {
+	cfg := &Config{Target: "dev", Agent: "claude"}
+	entry := ProjectEntry{
+		Directory:    "/tmp/test",
+		Target:       "dev",
+		DefaultFlags: map[string]string{"agent": "copilot"},
+	}
+
+	ApplyRegistryEntry(cfg, entry)
+
+	if cfg.Agent != "claude" {
+		t.Errorf("Agent = %q, want %q (CLI should win)", cfg.Agent, "claude")
+	}
+}
+
 func TestApplyRegistryEntry_NilDefaultFlags(t *testing.T) {
 	cfg := &Config{Target: "dev"}
 	entry := ProjectEntry{

@@ -4,7 +4,7 @@
 
 # Daedalus
 
-A Docker environment for running [Claude Code](https://claude.ai/code) autonomously without permission prompts. The container isolates Claude Code with write access only to the mounted project directory.
+A Docker environment for running AI coding agents ([Claude Code](https://claude.ai/code), [GitHub Copilot CLI](https://github.com/features/copilot)) autonomously without permission prompts. The container isolates the agent with write access only to the mounted project directory.
 
 ## Why
 
@@ -116,6 +116,7 @@ daedalus --help
 | `--no-tmux` | Run without tmux session wrapping |
 | `--debug` | Enable Claude Code debug mode |
 | `--dind` | Mount Docker socket (WARNING: grants host Docker access) |
+| `--agent <name>` | AI agent to use: `claude` (default) or `copilot` |
 | `--display` | Forward host X11/Wayland display into the container for GUI apps |
 | `--force` | Force deletion in non-interactive mode (e.g. prune, remove) |
 | `--no-color` | Disable colored output (also honors `NO_COLOR` env var) |
@@ -163,6 +164,12 @@ daedalus list
 
 # Enable display forwarding for GUI apps
 daedalus --display my-app /path/to/project
+
+# Use Copilot CLI instead of Claude Code
+daedalus --agent copilot my-app /path/to/project
+
+# Set Copilot as the default agent for a project
+daedalus config my-app --set agent=copilot
 
 # Per-project configuration
 daedalus config my-app --set display=true
@@ -232,7 +239,7 @@ wsl2-network.bat disable
 
 ## Build Targets
 
-The single `Dockerfile` uses a multi-stage build with four stages:
+The single `Dockerfile` uses a multi-stage build with six stages:
 
 | Target | Description |
 |---|---|
@@ -240,6 +247,8 @@ The single `Dockerfile` uses a multi-stage build with four stages:
 | `utils` | Extends base with unzip, wget, build-essential |
 | `dev` (default) | Full dev environment: Go, Python 3, OpenJDK 17, Maven, Kotlin |
 | `godot` | Godot 4.x engine for headless game CI, exports, and tests |
+| `copilot-base` | Minimal base with Copilot CLI (via npm) instead of Claude CLI |
+| `copilot-dev` | Copilot CLI with full dev environment (Go, Python 3, OpenJDK 17, Maven, Kotlin) |
 
 Select a target with `--target`:
 
@@ -330,7 +339,8 @@ A default `config.json` is installed next to the binary. The installer automatic
   "debug": true,
   "no-tmux": false,
   "image-prefix": "custom/claude-runner",
-  "log-file": "/mnt/data/daedalus/daedalus.log"
+  "log-file": "/mnt/data/daedalus/daedalus.log",
+  "agent": "claude"
 }
 ```
 
@@ -343,6 +353,7 @@ All fields are optional. The file itself is optional — Daedalus works without 
 | `no-tmux` | bool | Run without tmux session wrapping |
 | `image-prefix` | string | Docker image prefix (default: `techdelight/claude-runner`) |
 | `log-file` | string | Path to the runtime log file (default: `<data-dir>/daedalus.log`) |
+| `agent` | string | Default AI agent: `claude` (default) or `copilot` |
 
 ## MCP Servers
 

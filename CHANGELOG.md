@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-03-22
+
+### Added
+- **Copilot CLI support** — GitHub Copilot CLI can now be used as an alternative AI agent alongside Claude Code, selectable per-project via `--agent copilot` or `daedalus config <name> --set agent=copilot`.
+- `core/agent.go` — `AgentProfile` struct and `LookupAgent()`, `ValidAgentNames()`, `ResolveAgentName()` functions for agent abstraction (pure logic, zero I/O).
+- `--agent <name>` CLI flag with validation (accepts `claude` or `copilot`).
+- `BuildAgentArgs()` — agent-aware argument builder that uses agent profiles to emit correct flags per agent.
+- `Agent` field in `Config`, `AppConfig`, and per-project default flags (`applyDefaultFlags`).
+- `AGENT` environment variable exported in `BuildTmuxCommand` and passed via `docker-compose.yml`.
+- `copilot-base` and `copilot-dev` Dockerfile stages with Copilot CLI installed via npm.
+- Agent dispatch in `entrypoint.sh` — reads `$AGENT` env var to launch the correct binary (`claude` or `copilot`).
+- Shell completions for `--agent` flag in bash, zsh, and fish with `claude copilot` value suggestions.
+
+### Changed
+- `BuildClaudeArgs()` is now a deprecated alias for `BuildAgentArgs()` — no breakage for existing callers.
+- `cmd/daedalus/main.go`, `internal/tui/tui.go`, and `internal/web/web.go` now use `BuildAgentArgs()`.
+- Help text and usage examples updated with `--agent` flag documentation.
+
 ## [0.10.0] - 2026-03-21
 
 ### Added

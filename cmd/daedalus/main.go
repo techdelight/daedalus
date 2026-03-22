@@ -261,11 +261,12 @@ func launchProject(cfg *core.Config, d *docker.Docker, reg *registry.Registry, s
 		fmt.Fprintf(os.Stderr, color.Yellow("Warning:")+" failed to start session tracking: %v\n", sessionErr)
 	}
 
-	claudeArgs := core.BuildClaudeArgs(cfg)
+	claudeArgs := core.BuildAgentArgs(cfg)
 	composeEnv := map[string]string{
 		"PROJECT_DIR": cfg.ProjectDir,
 		"CACHE_DIR":   cfg.CacheDir(),
 		"TARGET":      cfg.Target,
+		"AGENT":       core.ResolveAgentName(cfg),
 	}
 
 	if cfg.DinD {
@@ -522,6 +523,9 @@ func collectDefaultFlags(cfg *core.Config) map[string]string {
 	if cfg.NoTmux {
 		flags["no-tmux"] = "true"
 	}
+	if cfg.Agent != "" {
+		flags["agent"] = cfg.Agent
+	}
 	if len(flags) == 0 {
 		return nil
 	}
@@ -663,6 +667,7 @@ func printUsage() {
 	fmt.Println("  --dind             Mount Docker socket (WARNING: grants host Docker access)")
 	fmt.Println("  --display          Forward host display (X11/Wayland) into the container")
 	fmt.Println("  --force            Force deletion in non-interactive mode (e.g. prune)")
+	fmt.Println("  --agent <name>     AI agent: claude (default) or copilot")
 	fmt.Println("  --no-color         Disable colored output (also honors NO_COLOR env var)")
 	fmt.Println("  --port <port>      Port for web UI (default: 3000)")
 	fmt.Println("  --host <host>      Host for web UI (default: 127.0.0.1, 0.0.0.0 on WSL2)")
@@ -679,6 +684,7 @@ func printUsage() {
 	fmt.Println("  daedalus web --port 8080                Start web UI on port 8080")
 	fmt.Println("  daedalus rename my-app my-new-app        Rename a project")
 	fmt.Println("  daedalus config my-app --set dind=true  Set per-project default")
+	fmt.Println("  daedalus --agent copilot my-app          Use Copilot CLI instead of Claude")
 	fmt.Println("  daedalus completion bash                Print bash completion script")
 }
 

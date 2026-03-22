@@ -666,3 +666,53 @@ func TestParseArgs_BuildNoArgs_DataDirResolved(t *testing.T) {
 		t.Error("DataDir is empty, want non-empty (should be resolved)")
 	}
 }
+
+func TestParseArgs_AgentFlag_Claude(t *testing.T) {
+	cfg, err := ParseArgs([]string{"--agent", "claude", "my-project"})
+	if err != nil {
+		t.Fatalf("ParseArgs failed: %v", err)
+	}
+	if cfg.Agent != "claude" {
+		t.Errorf("Agent = %q, want %q", cfg.Agent, "claude")
+	}
+}
+
+func TestParseArgs_AgentFlag_Copilot(t *testing.T) {
+	cfg, err := ParseArgs([]string{"--agent", "copilot", "my-project"})
+	if err != nil {
+		t.Fatalf("ParseArgs failed: %v", err)
+	}
+	if cfg.Agent != "copilot" {
+		t.Errorf("Agent = %q, want %q", cfg.Agent, "copilot")
+	}
+}
+
+func TestParseArgs_AgentFlag_Invalid(t *testing.T) {
+	_, err := ParseArgs([]string{"--agent", "gpt", "my-project"})
+	if err == nil {
+		t.Fatal("expected error for --agent gpt")
+	}
+	if !strings.Contains(err.Error(), "unknown agent") {
+		t.Errorf("error = %q, want mention of 'unknown agent'", err)
+	}
+}
+
+func TestParseArgs_AgentFlag_MissingValue(t *testing.T) {
+	_, err := ParseArgs([]string{"--agent"})
+	if err == nil {
+		t.Fatal("expected error for --agent without value")
+	}
+	if !strings.Contains(err.Error(), "requires an agent name") {
+		t.Errorf("error = %q, want mention of 'requires an agent name'", err)
+	}
+}
+
+func TestParseArgs_AgentFlag_Default(t *testing.T) {
+	cfg, err := ParseArgs([]string{"my-project"})
+	if err != nil {
+		t.Fatalf("ParseArgs failed: %v", err)
+	}
+	if cfg.Agent != "" {
+		t.Errorf("Agent = %q, want empty (default)", cfg.Agent)
+	}
+}

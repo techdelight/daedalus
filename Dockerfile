@@ -99,3 +99,46 @@ RUN wget -q "https://github.com/godotengine/godot/releases/download/${GODOT_VERS
     rm /tmp/godot.zip
 
 USER claude
+
+# ── Stage 5: copilot-base ───────────────────────────────────────────────────
+# Minimal base with Copilot CLI instead of Claude CLI.
+FROM base AS copilot-base
+
+USER root
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends nodejs npm && \
+    rm -rf /var/lib/apt/lists/*
+
+USER claude
+RUN npm install -g @github/copilot && \
+    mkdir -p /opt/copilot/bin && \
+    ln -sf "$(which copilot)" /opt/copilot/bin/copilot
+ENV PATH="$PATH:/opt/copilot/bin"
+
+# ── Stage 6: copilot-dev ────────────────────────────────────────────────────
+# Copilot with full development environment: Go, Python 3, OpenJDK 17, Maven, Kotlin.
+FROM copilot-base AS copilot-dev
+
+ARG KOTLIN_VERSION=2.1.10
+
+USER root
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+      unzip wget build-essential \
+      golang-go \
+      python3 python3-pip python3-venv \
+      openjdk-17-jdk-headless maven \
+      docker.io && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN wget -q "https://github.com/JetBrains/kotlin/releases/download/v${KOTLIN_VERSION}/kotlin-compiler-${KOTLIN_VERSION}.zip" \
+      -O /tmp/kotlin-compiler.zip && \
+    unzip -q /tmp/kotlin-compiler.zip -d /opt && \
+    rm /tmp/kotlin-compiler.zip && \
+    ln -s /opt/kotlinc/bin/kotlin /usr/local/bin/kotlin && \
+    ln -s /opt/kotlinc/bin/kotlinc /usr/local/bin/kotlinc
+
+RUN usermod -aG docker claude
+
+USER claude

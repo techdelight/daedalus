@@ -27,8 +27,25 @@
 | 21 | Shared Maven `.m2` repository — mount a host-side `.m2/repository` into containers so dependencies are shared across projects. Investigate overlay/merge strategy: a stable global repo (read-only base) combined with a per-container local repo for builds/downloads/installs, so containers benefit from cached artifacts without polluting the shared cache |
 | 22 | Favicon — add a Daedalus favicon to the Web UI so the browser tab shows a recognizable icon |
 | ~~23~~ | ~~Display sharing (`--display`) — forward the host X11/Wayland display into Docker containers so GUI applications can render on the host screen. Support WSL2 (via `DISPLAY` + `/tmp/.X11-unix` or Wayland socket) and native Linux. Stored as a per-project `display` flag in `projects.json`, off by default. Prompted during `daedalus <name> <dir>` first registration and configurable via `daedalus config <name> --set display=true`~~ |
+| ~~24~~ | ~~Copilot CLI support — add GitHub Copilot CLI as an alternative coding agent alongside Claude Code. Allow selecting the agent per project via `--agent copilot` or `daedalus config <name> --set agent=copilot`. Install Copilot CLI in the container, configure entrypoint to launch the selected agent, and adapt session management for Copilot's CLI interface~~ |
 
 ## Current Sprint
+
+### Sprint 16: Copilot CLI Support (v0.11.0)
+
+Goal: agent abstraction so projects can use either Claude Code or Copilot CLI, selectable via `--agent copilot` or per-project default.
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | `core/agent.go` — `AgentProfile` struct, `LookupAgent()`, `ValidAgentNames()`, `ResolveAgentName()` with tests | Done |
+| 2 | `Agent` field in `Config`, `AppConfig`, and `applyDefaultFlags` with tests | Done |
+| 3 | `BuildAgentArgs()` — agent-aware argument builder, `BuildClaudeArgs()` kept as deprecated alias, `AGENT` in tmux exports, with tests | Done |
+| 4 | `--agent` flag parsing with validation in `internal/config` with tests | Done |
+| 5 | Wire up in `cmd/daedalus/main.go`, `internal/tui/tui.go`, `internal/web/web.go` — use `BuildAgentArgs`, pass `AGENT` env, update help text and `collectDefaultFlags` | Done |
+| 6 | Shell completions for `--agent` in bash, zsh, and fish | Done |
+| 7 | `docker-compose.yml` — `AGENT` environment variable | Done |
+| 8 | `entrypoint.sh` — agent-aware dispatch (claude/copilot) | Done |
+| 9 | `Dockerfile` — `copilot-base` and `copilot-dev` stages with Copilot CLI via npm | Done |
 
 ### Sprint 15: Skill Catalog (v0.10.0)
 

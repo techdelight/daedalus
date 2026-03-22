@@ -734,7 +734,7 @@ func startProject(cfg *core.Config, exec executor.Executor, reg *registry.Regist
 		}
 		extraArgs := core.BuildExtraArgs(projCfg, displayArgs)
 
-		claudeArgs := core.BuildClaudeArgs(projCfg)
+		claudeArgs := core.BuildAgentArgs(projCfg)
 		dockerCmd := docker.ComposeRunCommand(projCfg.ContainerName(), claudeArgs, extraArgs)
 		tmuxCmd := core.BuildTmuxCommand(projCfg, dockerCmd)
 

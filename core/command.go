@@ -24,19 +24,28 @@ func ShellQuote(s string) string {
 	return "'" + escaped + "'"
 }
 
-// BuildClaudeArgs constructs the Claude CLI arguments from config.
-func BuildClaudeArgs(cfg *Config) []string {
+// BuildAgentArgs constructs agent CLI arguments from config, using the
+// agent profile to determine which flags to emit.
+func BuildAgentArgs(cfg *Config) []string {
+	profile, _ := LookupAgent(ResolveAgentName(cfg))
 	var args []string
-	if cfg.Debug {
-		args = append(args, "--debug")
+	if cfg.Debug && profile.DebugFlag != "" {
+		args = append(args, profile.DebugFlag)
 	}
 	if cfg.Resume != "" {
-		args = append(args, "--resume", cfg.Resume)
+		args = append(args, profile.ResumeFlag, cfg.Resume)
 	}
 	if cfg.Prompt != "" {
-		args = append(args, "--print", "--verbose", "-p", cfg.Prompt)
+		args = append(args, profile.PromptPrefix...)
+		args = append(args, profile.PromptFlag, cfg.Prompt)
 	}
 	return args
+}
+
+// BuildClaudeArgs constructs the Claude CLI arguments from config.
+// Deprecated: use BuildAgentArgs instead.
+func BuildClaudeArgs(cfg *Config) []string {
+	return BuildAgentArgs(cfg)
 }
 
 // BuildExtraArgs returns extra docker compose run flags derived from the config.
@@ -64,6 +73,7 @@ func BuildTmuxCommand(cfg *Config, dockerCmd []string) string {
 		"PROJECT_DIR":  cfg.ProjectDir,
 		"CACHE_DIR":    cfg.CacheDir(),
 		"TARGET":       cfg.Target,
+		"AGENT":        ResolveAgentName(cfg),
 	})
 
 	quoted := make([]string, len(dockerCmd))

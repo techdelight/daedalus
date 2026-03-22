@@ -224,7 +224,7 @@ func (ws *WebServer) handleStartProject(w http.ResponseWriter, r *http.Request) 
 	}
 	extraArgs := core.BuildExtraArgs(projCfg, displayArgs)
 
-	claudeArgs := core.BuildClaudeArgs(projCfg)
+	claudeArgs := core.BuildAgentArgs(projCfg)
 	dockerCmd := ws.docker.ComposeRunCommand(projCfg.ContainerName(), claudeArgs, extraArgs)
 	tmuxCmd := core.BuildTmuxCommand(projCfg, dockerCmd)
 

@@ -29,6 +29,7 @@ type Config struct {
 	CompletionShell string   // shell name for "completion" subcommand
 	RenameOldName   string   // old project name for "rename" subcommand
 	RenameNewName   string   // new project name for "rename" subcommand
+	Agent           string   // agent name: "claude" (default) or "copilot"
 	SkillsArgs      []string // positional args for "skills" subcommand
 	TargetOverride  bool     // true when --target was explicitly passed
 	WebAddr         string   // host:port for web UI server
@@ -105,6 +106,10 @@ func applyDefaultFlags(cfg *Config, flags map[string]string) {
 		case "no-tmux":
 			if !cfg.NoTmux {
 				cfg.NoTmux = val == "true"
+			}
+		case "agent":
+			if cfg.Agent == "" {
+				cfg.Agent = val
 			}
 		}
 	}

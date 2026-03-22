@@ -198,6 +198,9 @@ func writeOptions(b *strings.Builder) {
 	writeOption(b, "\\fB\\-\\-display\\fR",
 		"Forward the host X11 or Wayland display into the container, allowing GUI applications to render on the host screen. Requires a running display server on the host.")
 
+	writeOption(b, "\\fB\\-\\-agent\\fR \\fIname\\fR",
+		"AI agent to use inside the container. Accepted values: \\fBclaude\\fR (default), \\fBcopilot\\fR. Can also be set per-project via \\fBdaedalus config <name> \\-\\-set agent=copilot\\fR.")
+
 	writeOption(b, "\\fB\\-\\-force\\fR",
 		"Force deletion in non-interactive mode for \\fBprune\\fR and \\fBremove\\fR commands.")
 
@@ -255,6 +258,9 @@ func writeConfiguration(b *strings.Builder) {
 	b.WriteString(".TP\n")
 	b.WriteString("\\fBimage-prefix\\fR (string)\n")
 	b.WriteString("Docker image prefix. Default: techdelight/claude-runner.\n")
+	b.WriteString(".TP\n")
+	b.WriteString("\\fBagent\\fR (string)\n")
+	b.WriteString("Default AI agent: claude (default) or copilot.\n")
 }
 
 // writeExamples writes the EXAMPLES section.
@@ -320,6 +326,15 @@ func writeExamples(b *strings.Builder) {
 	b.WriteString(".RS\n")
 	b.WriteString(".nf\n")
 	b.WriteString("daedalus config my\\-app \\-\\-set dind=true\n")
+	b.WriteString(".fi\n")
+	b.WriteString(".RE\n")
+
+	b.WriteString(".PP\n")
+	b.WriteString("Use Copilot CLI instead of Claude Code:\n")
+	b.WriteString(".PP\n")
+	b.WriteString(".RS\n")
+	b.WriteString(".nf\n")
+	b.WriteString("daedalus \\-\\-agent copilot my\\-app /path/to/project\n")
 	b.WriteString(".fi\n")
 	b.WriteString(".RE\n")
 

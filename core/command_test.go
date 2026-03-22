@@ -51,6 +51,96 @@ func TestBuildClaudeArgs_WithPrompt(t *testing.T) {
 	}
 }
 
+func TestBuildAgentArgs_Copilot_NoFlags(t *testing.T) {
+	cfg := &Config{Agent: "copilot"}
+	args := BuildAgentArgs(cfg)
+	if len(args) != 0 {
+		t.Errorf("args = %v, want empty slice", args)
+	}
+}
+
+func TestBuildAgentArgs_Copilot_WithPrompt(t *testing.T) {
+	cfg := &Config{Agent: "copilot", Prompt: "fix bugs"}
+	args := BuildAgentArgs(cfg)
+	// copilot has no prompt prefix, just -p
+	expected := []string{"-p", "fix bugs"}
+	if len(args) != len(expected) {
+		t.Fatalf("len = %d, want %d; args = %v", len(args), len(expected), args)
+	}
+	for i, a := range expected {
+		if args[i] != a {
+			t.Errorf("args[%d] = %q, want %q", i, args[i], a)
+		}
+	}
+}
+
+func TestBuildAgentArgs_Copilot_DebugIgnored(t *testing.T) {
+	cfg := &Config{Agent: "copilot", Debug: true}
+	args := BuildAgentArgs(cfg)
+	// copilot has no debug flag, so nothing emitted
+	if len(args) != 0 {
+		t.Errorf("args = %v, want empty (copilot has no debug flag)", args)
+	}
+}
+
+func TestBuildAgentArgs_Copilot_WithResume(t *testing.T) {
+	cfg := &Config{Agent: "copilot", Resume: "sess-42"}
+	args := BuildAgentArgs(cfg)
+	expected := []string{"--resume", "sess-42"}
+	if len(args) != len(expected) {
+		t.Fatalf("len = %d, want %d", len(args), len(expected))
+	}
+	for i, a := range expected {
+		if args[i] != a {
+			t.Errorf("args[%d] = %q, want %q", i, args[i], a)
+		}
+	}
+}
+
+func TestBuildAgentArgs_Claude_DefaultBehavior(t *testing.T) {
+	// No Agent field set — should behave exactly like original BuildClaudeArgs
+	cfg := &Config{Debug: true, Prompt: "fix bugs"}
+	args := BuildAgentArgs(cfg)
+	expected := []string{"--debug", "--print", "--verbose", "-p", "fix bugs"}
+	if len(args) != len(expected) {
+		t.Fatalf("len = %d, want %d; args = %v", len(args), len(expected), args)
+	}
+	for i, a := range expected {
+		if args[i] != a {
+			t.Errorf("args[%d] = %q, want %q", i, args[i], a)
+		}
+	}
+}
+
+func TestBuildTmuxCommand_IncludesAgentEnv(t *testing.T) {
+	cfg := &Config{
+		ProjectName: "test",
+		ProjectDir:  "/tmp",
+		Target:      "dev",
+		Agent:       "copilot",
+	}
+	dockerCmd := []string{"docker", "compose", "run", "claude"}
+	result := BuildTmuxCommand(cfg, dockerCmd)
+
+	if !strings.Contains(result, "AGENT='copilot'") {
+		t.Errorf("tmux command should include AGENT='copilot', got: %s", result)
+	}
+}
+
+func TestBuildTmuxCommand_DefaultAgentEnv(t *testing.T) {
+	cfg := &Config{
+		ProjectName: "test",
+		ProjectDir:  "/tmp",
+		Target:      "dev",
+	}
+	dockerCmd := []string{"docker", "compose", "run", "claude"}
+	result := BuildTmuxCommand(cfg, dockerCmd)
+
+	if !strings.Contains(result, "AGENT='claude'") {
+		t.Errorf("tmux command should include AGENT='claude' by default, got: %s", result)
+	}
+}
+
 func TestBuildTmuxCommand_QuotesDockerArgs(t *testing.T) {
 	cfg := &Config{
 		ProjectName: "my-app",

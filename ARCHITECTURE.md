@@ -14,8 +14,9 @@ Contains types, command builders, and helpers with no side effects.
 |---|---|
 | `config.go` | `Config` struct, `Image()`, `ContainerName()`, `TmuxSession()`, `CacheDir()`, `SkillsDir()`, `UseTmux()`, `ApplyRegistryEntry()` |
 | `appconfig.go` | `AppConfig` struct, `ApplyAppConfig()` |
+| `agent.go` | `AgentProfile` struct, `LookupAgent()`, `ValidAgentNames()`, `ResolveAgentName()` |
 | `project.go` | `RegistryData`, `ProjectEntry`, `SessionRecord`, `ProjectInfo` types |
-| `command.go` | `BuildClaudeArgs()`, `BuildTmuxCommand()`, `BuildEnvExports()`, `ShellQuote()`, `BuildExtraArgs()` |
+| `command.go` | `BuildAgentArgs()`, `BuildClaudeArgs()` (deprecated alias), `BuildTmuxCommand()`, `BuildEnvExports()`, `ShellQuote()`, `BuildExtraArgs()` |
 | `skills.go` | `StarterSkills()` — embedded starter skill files via `go:embed` |
 | `time.go` | `NowUTC()`, `ParseUTC()`, `RelativeTime()` |
 

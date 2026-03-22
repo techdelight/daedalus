@@ -117,6 +117,22 @@ func TestApplyAppConfig_LogFile_CLIWins(t *testing.T) {
 	}
 }
 
+func TestApplyAppConfig_Agent_Applied(t *testing.T) {
+	cfg := &Config{ImagePrefix: "techdelight/claude-runner"}
+	ApplyAppConfig(cfg, AppConfig{Agent: strPtr("copilot")})
+	if cfg.Agent != "copilot" {
+		t.Errorf("Agent = %q, want %q", cfg.Agent, "copilot")
+	}
+}
+
+func TestApplyAppConfig_Agent_CLIWins(t *testing.T) {
+	cfg := &Config{Agent: "claude", ImagePrefix: "techdelight/claude-runner"}
+	ApplyAppConfig(cfg, AppConfig{Agent: strPtr("copilot")})
+	if cfg.Agent != "claude" {
+		t.Errorf("Agent = %q, want %q (CLI should win)", cfg.Agent, "claude")
+	}
+}
+
 func TestApplyAppConfig_AllFields(t *testing.T) {
 	cfg := &Config{ImagePrefix: "techdelight/claude-runner"}
 	ApplyAppConfig(cfg, AppConfig{

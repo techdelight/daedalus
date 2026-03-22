@@ -14,6 +14,12 @@ import (
 	"github.com/techdelight/daedalus/internal/platform"
 )
 
+// validAgents is the set of accepted --agent values.
+var validAgents = map[string]bool{
+	"claude":  true,
+	"copilot": true,
+}
+
 // IsHeadless returns true if running without interactive input.
 func IsHeadless(cfg *core.Config) bool {
 	if cfg.Prompt != "" {
@@ -118,6 +124,15 @@ func ParseArgs(args []string) (*core.Config, error) {
 				return nil, fmt.Errorf("--host requires a non-empty address")
 			}
 			hostOverride = true
+		case "--agent":
+			if i+1 >= len(args) {
+				return nil, fmt.Errorf("--agent requires an agent name (claude, copilot)")
+			}
+			i++
+			if !validAgents[args[i]] {
+				return nil, fmt.Errorf("unknown agent %q — valid agents: claude, copilot", args[i])
+			}
+			cfg.Agent = args[i]
 		default:
 			positional = append(positional, args[i])
 		}

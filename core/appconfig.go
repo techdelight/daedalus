@@ -11,6 +11,7 @@ type AppConfig struct {
 	NoTmux      *bool   `json:"no-tmux,omitempty"`
 	ImagePrefix *string `json:"image-prefix,omitempty"`
 	LogFile     *string `json:"log-file,omitempty"`
+	Agent       *string `json:"agent,omitempty"`
 }
 
 // ApplyAppConfig sets fields on cfg from app only when the cfg field is still
@@ -30,5 +31,8 @@ func ApplyAppConfig(cfg *Config, app AppConfig) {
 	}
 	if cfg.LogFile == "" && app.LogFile != nil {
 		cfg.LogFile = *app.LogFile
+	}
+	if cfg.Agent == "" && app.Agent != nil {
+		cfg.Agent = *app.Agent
 	}
 }

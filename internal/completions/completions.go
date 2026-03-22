@@ -31,7 +31,7 @@ _daedalus() {
     _init_completion || return
 
     local subcommands="list prune remove rename config tui web completion"
-    local flags="--build --target --resume -p --no-tmux --debug --dind --display --force --port --host --no-color --help -h"
+    local flags="--build --target --resume -p --no-tmux --debug --dind --display --force --port --host --no-color --agent --help -h"
 
     # Complete subcommands and flags for the first argument
     if [[ ${cword} -eq 1 ]]; then
@@ -95,6 +95,7 @@ _daedalus() {
         '--host[Host for web UI]:host:'
         '--help[Show help message]'
         '-h[Show help message]'
+        '--agent[AI agent to use]:agent:(claude copilot)'
         '--set[Set a default flag]:key=value:'
         '--unset[Remove a default flag]:key:'
     )
@@ -158,6 +159,7 @@ complete -c daedalus -l port -d 'Port for web UI' -r
 complete -c daedalus -l host -d 'Host for web UI' -r
 complete -c daedalus -l help -d 'Show help message'
 complete -c daedalus -s h -d 'Show help message'
+complete -c daedalus -l agent -d 'AI agent to use' -r -a 'claude copilot'
 complete -c daedalus -l set -d 'Set a default flag (key=value)' -r
 complete -c daedalus -l unset -d 'Remove a default flag' -r
 
