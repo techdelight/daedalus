@@ -137,8 +137,13 @@ function connectTerminal(projectName) {
         sendMobileInput();
     }
 
+    function onMobileSendTouch(e) {
+        e.preventDefault();
+        sendMobileInput();
+    }
+
     function onMobileKeydown(e) {
-        if (e.key === 'Enter' && !e.shiftKey) {
+        if (e.ctrlKey && e.key === 'Enter') {
             e.preventDefault();
             sendMobileInput();
         }
@@ -149,6 +154,7 @@ function connectTerminal(projectName) {
         this.style.height = Math.min(this.scrollHeight, 120) + 'px';
     }
 
+    mobileSendBtn.addEventListener('touchend', onMobileSendTouch);
     mobileSendBtn.addEventListener('click', onMobileSendClick);
     mobileInput.addEventListener('keydown', onMobileKeydown);
     mobileInput.addEventListener('input', onMobileInput);
@@ -160,6 +166,7 @@ function connectTerminal(projectName) {
     // Store cleanup function for disconnectTerminal
     cleanupListeners = function() {
         window.removeEventListener('resize', onWindowResize);
+        mobileSendBtn.removeEventListener('touchend', onMobileSendTouch);
         mobileSendBtn.removeEventListener('click', onMobileSendClick);
         mobileInput.removeEventListener('keydown', onMobileKeydown);
         mobileInput.removeEventListener('input', onMobileInput);

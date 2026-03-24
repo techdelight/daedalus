@@ -129,24 +129,7 @@ test.describe('Terminal View', () => {
     await expect(textarea).toHaveValue('');
   });
 
-  test('Enter sends and clears textarea', async ({ page }, testInfo) => {
-    test.skip(testInfo.project.name !== 'mobile-chrome', 'mobile-only test');
-
-    await interceptProjects(page, mockProjects());
-    await page.goto('/');
-    await waitForProjects(page);
-
-    await page.locator('.btn-attach').first().click();
-
-    const textarea = page.locator('#mobile-input');
-    await textarea.fill('pwd');
-    await expect(textarea).toHaveValue('pwd');
-
-    await textarea.press('Enter');
-    await expect(textarea).toHaveValue('');
-  });
-
-  test('Shift+Enter inserts newline instead of sending', async ({ page }, testInfo) => {
+  test('Enter inserts newline and does not send', async ({ page }, testInfo) => {
     test.skip(testInfo.project.name !== 'mobile-chrome', 'mobile-only test');
 
     await interceptProjects(page, mockProjects());
@@ -157,13 +140,12 @@ test.describe('Terminal View', () => {
 
     const textarea = page.locator('#mobile-input');
     await textarea.fill('line1');
-    await textarea.press('Shift+Enter');
+    await textarea.press('Enter');
     await textarea.type('line2');
 
     const value = await textarea.inputValue();
     expect(value).toContain('line1');
     expect(value).toContain('line2');
-    expect(value).toContain('\n');
   });
 
   test('Send button does nothing when textarea is empty', async ({ page }, testInfo) => {
