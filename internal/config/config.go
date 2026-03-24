@@ -140,10 +140,15 @@ func ParseArgs(args []string) (*core.Config, error) {
 		}
 	}
 
-	// Resolve script directory
+	// Resolve script directory (follow symlinks so runtime files are found
+	// when the binary is invoked via a symlink, e.g. ~/.local/bin/daedalus)
 	exe, err := os.Executable()
 	if err != nil {
 		return nil, fmt.Errorf("cannot determine executable path: %w", err)
+	}
+	exe, err = filepath.EvalSymlinks(exe)
+	if err != nil {
+		return nil, fmt.Errorf("cannot resolve executable symlink: %w", err)
 	}
 	cfg.ScriptDir, err = filepath.Abs(filepath.Dir(exe))
 	if err != nil {

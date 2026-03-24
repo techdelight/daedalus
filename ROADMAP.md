@@ -44,6 +44,7 @@ Goal: make `install.sh` and `setup.sh` work correctly on macOS.
 | 1 | Fix `sed -i` in `install.sh` — use cross-platform `sed_inplace` wrapper for BSD/GNU compatibility | Done |
 | 2 | Fix `sed -i` in `scripts/test-install.sh` — same `sed_inplace` wrapper for all 9 `sed -i` calls | Done |
 | 3 | Add macOS (`macos-latest`) job to CI workflow — run install tests on both Ubuntu and macOS | Done |
+| 4 | Fix symlink resolution in `ScriptDir` — `os.Executable()` returns the symlink path on macOS, so `filepath.EvalSymlinks` is needed to find the real binary directory containing Dockerfile and runtime files | Done |
 
 ---
 
