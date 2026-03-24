@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.12.1] - 2026-03-24
+
+### Fixed
+- macOS install: portable `sed -i` for BSD/GNU compatibility.
+- macOS install: resolve symlink in `ScriptDir` to find runtime files.
+- macOS install: handle empty `FORWARD_ARGS` on bash 3.2.
+
+### Added
+- Install test for no-flags invocation covering bash 3.2.
+
 ## [0.12.0] - 2026-03-22
 
 ### Added
