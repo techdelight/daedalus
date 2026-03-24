@@ -3,3 +3,6 @@
 .claude/
 /daedalus
 agentenv
+node_modules/
+test-results/
+playwright-report/
