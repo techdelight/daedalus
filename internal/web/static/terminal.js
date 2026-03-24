@@ -138,7 +138,7 @@ function connectTerminal(projectName) {
     }
 
     function onMobileKeydown(e) {
-        if (e.ctrlKey && e.key === 'Enter') {
+        if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
             sendMobileInput();
         }
