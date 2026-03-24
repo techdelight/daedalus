@@ -41,7 +41,10 @@
         <div id="terminal-view">
             <div class="terminal-header">
                 <span class="project-name" id="terminal-project-name"></span>
-                <button class="btn btn-back" onclick="showProjectList()">Back</button>
+                <div class="terminal-header-actions">
+                    <button class="btn btn-copy" id="mobile-copy-btn">Copy</button>
+                    <button class="btn btn-back" onclick="showProjectList()">Back</button>
+                </div>
             </div>
             <div id="terminal-container"></div>
             <div id="mobile-input-area">

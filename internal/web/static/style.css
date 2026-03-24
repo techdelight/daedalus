@@ -218,6 +218,11 @@ tbody td {
     color: #bb9af7;
 }
 
+.terminal-header-actions {
+    display: flex;
+    gap: 8px;
+}
+
 .terminal-header .btn-back {
     border-color: #565f89;
     color: #565f89;
@@ -226,6 +231,16 @@ tbody td {
 .terminal-header .btn-back:hover {
     color: #c0caf5;
     border-color: #c0caf5;
+}
+
+.terminal-header .btn-copy {
+    display: none;
+    border-color: #9ece6a;
+    color: #9ece6a;
+}
+
+.terminal-header .btn-copy:hover {
+    background: rgba(158, 206, 106, 0.1);
 }
 
 #terminal-container {
@@ -317,6 +332,10 @@ tbody td {
     /* Terminal adjustments */
     #terminal-container {
         min-height: 0;
+    }
+
+    .terminal-header .btn-copy {
+        display: inline-block;
     }
 
     /* Mobile input area */

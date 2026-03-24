@@ -119,6 +119,27 @@ function connectTerminal(projectName) {
 
     window.addEventListener('resize', onWindowResize);
 
+    // Mobile copy button
+    var mobileCopyBtn = document.getElementById('mobile-copy-btn');
+
+    function onMobileCopy() {
+        if (!term) return;
+        var text = term.hasSelection() ? term.getSelection() : '';
+        if (!text) {
+            term.selectAll();
+            text = term.getSelection();
+            term.clearSelection();
+        }
+        if (!text) return;
+        navigator.clipboard.writeText(text).then(function() {
+            mobileCopyBtn.textContent = 'Copied!';
+            setTimeout(function() { mobileCopyBtn.textContent = 'Copy'; }, 1500);
+        });
+    }
+
+    mobileCopyBtn.addEventListener('touchend', function(e) { e.preventDefault(); onMobileCopy(); });
+    mobileCopyBtn.addEventListener('click', onMobileCopy);
+
     // Mobile input wiring
     var mobileInput = document.getElementById('mobile-input');
     var mobileSendBtn = document.getElementById('mobile-send-btn');
@@ -169,6 +190,8 @@ function connectTerminal(projectName) {
     // Store cleanup function for disconnectTerminal
     cleanupListeners = function() {
         window.removeEventListener('resize', onWindowResize);
+        mobileCopyBtn.removeEventListener('touchend', onMobileCopy);
+        mobileCopyBtn.removeEventListener('click', onMobileCopy);
         mobileSendBtn.removeEventListener('touchend', onMobileSendTouch);
         mobileSendBtn.removeEventListener('click', onMobileSendClick);
         mobileInput.removeEventListener('keydown', onMobileKeydown);
