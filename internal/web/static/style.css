@@ -232,3 +232,125 @@ tbody td {
     flex: 1;
     background: #1a1b26;
 }
+
+#mobile-input-area {
+    display: none;
+}
+
+/* --- Mobile / Tablet --- */
+
+@media (max-width: 768px) {
+    /* Fix mobile 100vh — on real phones, 100vh includes the browser
+       chrome (URL bar, bottom nav), pushing the mobile input area
+       off-screen.  100dvh matches the actual visible viewport. */
+    body,
+    #app,
+    #terminal-view {
+        height: -webkit-fill-available;
+        height: 100dvh;
+    }
+
+    /* Card layout for project list */
+    thead {
+        display: none;
+    }
+
+    tbody td:nth-child(3),
+    tbody td:nth-child(4) {
+        display: none;
+    }
+
+    tbody {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        padding: 8px 12px;
+    }
+
+    tbody tr {
+        display: flex;
+        flex-wrap: wrap;
+        border: 1px solid #292e42;
+        border-radius: 8px;
+        padding: 12px;
+        background: #16161e;
+        border-bottom: none;
+    }
+
+    tbody tr:hover {
+        background: #1e2030;
+    }
+
+    tbody td {
+        padding: 0;
+    }
+
+    tbody td:nth-child(1) {
+        flex: 1;
+        font-size: 15px;
+        font-weight: 600;
+    }
+
+    tbody td:nth-child(2) {
+        flex-shrink: 0;
+    }
+
+    tbody td:nth-child(5) {
+        width: 100%;
+        margin-top: 8px;
+    }
+
+    tbody td:nth-child(5) .btn {
+        padding: 8px 16px;
+        font-size: 14px;
+    }
+
+    /* Reduced padding */
+    header {
+        padding: 12px;
+    }
+
+    .status-msg {
+        padding: 8px 12px;
+    }
+
+    /* Terminal adjustments */
+    #terminal-container {
+        min-height: 0;
+    }
+
+    /* Mobile input area */
+    #mobile-input-area {
+        display: flex;
+        align-items: flex-end;
+        gap: 8px;
+        padding: 8px 12px;
+        background: #16161e;
+        border-top: 1px solid #292e42;
+    }
+
+    #mobile-input-area textarea {
+        flex: 1;
+        min-height: 40px;
+        max-height: 120px;
+        background: #1a1b26;
+        color: #c0caf5;
+        border: 1px solid #292e42;
+        border-radius: 6px;
+        padding: 8px;
+        font-family: inherit;
+        font-size: 14px;
+        resize: none;
+    }
+
+    #mobile-input-area .btn-send {
+        padding: 8px 16px;
+        border: 1px solid #7aa2f7;
+        color: #7aa2f7;
+        height: 40px;
+    }
+
+    #mobile-input-area .btn-send:hover {
+        background: rgba(122, 162, 247, 0.1);
+    }
+}

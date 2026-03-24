@@ -30,12 +30,12 @@
 | ~~24~~ | ~~Copilot CLI support — add GitHub Copilot CLI as an alternative coding agent alongside Claude Code. Allow selecting the agent per project via `--agent copilot` or `daedalus config <name> --set agent=copilot`. Install Copilot CLI in the container, configure entrypoint to launch the selected agent, and adapt session management for Copilot's CLI interface~~ |
 | 25 | Webdev container — move Node.js out of the regular `dev` stage into a dedicated `webdev` build target for web/frontend projects. Keeps the default dev image lean |
 | ~~26~~ | ~~Mobile-friendly web UI — scrollable terminal output (replace tmux Ctrl+B PgUp/PgDown with native scroll), multi-line input (Enter inserts newline, separate submit button/shortcut), simplified project overview (name, online status, attach/kill/start action buttons)~~ |
-| 28 | Active project filter — add a toggle/filter to the Web UI and TUI that shows only running projects. Useful when the project list grows large and the user wants to focus on what is currently active |
 | 27 | Decouple tooling from agent runner images — keep base agent containers minimal and let the agent install additional tools at runtime. Provide container snapshotting so customized environments persist across restarts. Key challenge: when the base image is upgraded, how do we replay tool installations? Options: (a) maintain a declarative tool registry (tool name + version + install method) that a provisioner re-applies on new base images — portable but subjective per tool; (b) record raw install commands as a replayable script — simple but fragile across base image changes; (c) hybrid approach with a registry of well-known tools (apt, pip, npm) plus an escape hatch for arbitrary commands. Needs design spike to evaluate trade-offs |
+| 28 | Active project filter — add a toggle/filter to the Web UI and TUI that shows only running projects. Useful when the project list grows large and the user wants to focus on what is currently active |
 
 ## Current Sprint
 
-### Sprint 18: Fix macOS Installation (v0.13.1)
+### Sprint 18: Fix macOS Installation (v0.12.1)
 
 Goal: make `install.sh` and `setup.sh` work correctly on macOS.
 
@@ -47,12 +47,6 @@ Goal: make `install.sh` and `setup.sh` work correctly on macOS.
 | 4 | Fix symlink resolution in `ScriptDir` — `os.Executable()` returns the symlink path on macOS, so `filepath.EvalSymlinks` is needed to find the real binary directory containing Dockerfile and runtime files | Done |
 | 5 | Fix empty array expansion in `install.sh` — `"${FORWARD_ARGS[@]}"` fails with `set -u` on macOS bash 3.2 when no flags are passed; use `${FORWARD_ARGS[@]+"${FORWARD_ARGS[@]}"}` | Done |
 
----
-
-## Parked: Sprint UI
-
-Sprints 12–17 developed on `dev-ui` branch.
-
 ### Sprint 17: Mobile-Friendly Web UI (v0.13.0)
 
 Goal: make the web dashboard usable on phones and tablets — scrollable terminal, mobile input area, card-based project list.
@@ -62,6 +56,7 @@ Goal: make the web dashboard usable on phones and tablets — scrollable termina
 | 1 | Scrollable terminal — increase xterm.js scrollback to 10 000 lines | Done |
 | 2 | Multi-line mobile input — textarea + Send button below terminal, Ctrl+Enter submits, xterm.js stdin disabled on mobile | Done |
 | 3 | Card-based project list on mobile — hide Target/Last Used columns, flex card layout, larger touch targets | Done |
+
 ### Sprint 16: Copilot CLI Support (v0.11.0)
 
 Goal: agent abstraction so projects can use either Claude Code or Copilot CLI, selectable via `--agent copilot` or per-project default.

@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-03-22
+
+### Added
+- Mobile-friendly web UI — the dashboard is now usable on phones and tablets.
+- Scrollable terminal output with 10 000-line scrollback buffer (touch-scroll works natively in xterm.js v5).
+- Multi-line mobile input area below the terminal — textarea with Send button; Enter inserts newlines, Ctrl+Enter or Send button submits to the PTY. xterm.js stdin is disabled on mobile so the on-screen keyboard targets the textarea.
+- Card-based project list on mobile — hides Target and Last Used columns, wraps each project as a card with larger touch targets for action buttons.
+- JavaScript test suite for mobile terminal input (`internal/web/testdata/terminal_test.html`) — 16 tests covering send, keyboard shortcuts, `disableStdin`, focus prevention, event listener leak, and cleanup.
+
+### Fixed
+- Mobile terminal input not working — xterm.js's internal helper textarea was still focusable with `disableStdin: true`, stealing on-screen keyboard focus from the mobile input area. Tapping the terminal opened the keyboard but all typed characters were silently dropped. Fix: disable the xterm helper textarea on mobile and re-enable on resize back to desktop.
+- Mobile input area hidden on real phones — `100vh` includes the browser chrome (URL bar, bottom navigation) on mobile browsers, pushing the input area off the visible viewport. Fix: override to `100dvh` (dynamic viewport height) on mobile with `-webkit-fill-available` fallback.
+
 ## [0.12.1] - 2026-03-24
 
 ### Fixed

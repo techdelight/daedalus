@@ -5,6 +5,11 @@
 let term = null;
 let ws = null;
 let fitAddon = null;
+let cleanupListeners = null;
+
+function isMobileView() {
+    return window.matchMedia('(max-width: 768px)').matches;
+}
 
 function connectTerminal(projectName) {
     const container = document.getElementById('terminal-container');
@@ -13,6 +18,7 @@ function connectTerminal(projectName) {
     term = new Terminal({
         cursorBlink: true,
         fontSize: 14,
+        scrollback: 10000,
         fontFamily: "'SF Mono', 'Monaco', 'Inconsolata', 'Fira Code', monospace",
         theme: {
             background: '#1a1b26',
@@ -43,6 +49,7 @@ function connectTerminal(projectName) {
 
     term.open(container);
     fitAddon.fit();
+    requestAnimationFrame(function() { if (fitAddon) fitAddon.fit(); });
 
     // Connect WebSocket
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -93,14 +100,77 @@ function connectTerminal(projectName) {
         }
     });
 
-    window.addEventListener('resize', function() {
+    // Named handlers for cleanup
+    function applyMobileMode(mobile) {
+        term.options.disableStdin = mobile;
+        if (term.textarea) {
+            term.textarea.disabled = mobile;
+        }
+    }
+
+    function onWindowResize() {
         if (fitAddon) {
             fitAddon.fit();
         }
-    });
+        if (term) {
+            applyMobileMode(isMobileView());
+        }
+    }
+
+    window.addEventListener('resize', onWindowResize);
+
+    // Mobile input wiring
+    var mobileInput = document.getElementById('mobile-input');
+    var mobileSendBtn = document.getElementById('mobile-send-btn');
+
+    function sendMobileInput() {
+        var text = mobileInput.value;
+        if (text.length === 0) return;
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(new TextEncoder().encode(text + '\n'));
+        }
+        mobileInput.value = '';
+        mobileInput.style.height = 'auto';
+    }
+
+    function onMobileSendClick() {
+        sendMobileInput();
+    }
+
+    function onMobileKeydown(e) {
+        if (e.ctrlKey && e.key === 'Enter') {
+            e.preventDefault();
+            sendMobileInput();
+        }
+    }
+
+    function onMobileInput() {
+        this.style.height = 'auto';
+        this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+    }
+
+    mobileSendBtn.addEventListener('click', onMobileSendClick);
+    mobileInput.addEventListener('keydown', onMobileKeydown);
+    mobileInput.addEventListener('input', onMobileInput);
+
+    if (isMobileView()) {
+        applyMobileMode(true);
+    }
+
+    // Store cleanup function for disconnectTerminal
+    cleanupListeners = function() {
+        window.removeEventListener('resize', onWindowResize);
+        mobileSendBtn.removeEventListener('click', onMobileSendClick);
+        mobileInput.removeEventListener('keydown', onMobileKeydown);
+        mobileInput.removeEventListener('input', onMobileInput);
+    };
 }
 
 function disconnectTerminal() {
+    if (cleanupListeners) {
+        cleanupListeners();
+        cleanupListeners = null;
+    }
     if (ws) {
         ws.close();
         ws = null;
@@ -110,4 +180,10 @@ function disconnectTerminal() {
         term = null;
     }
     fitAddon = null;
+
+    var mobileInput = document.getElementById('mobile-input');
+    if (mobileInput) {
+        mobileInput.value = '';
+        mobileInput.style.height = 'auto';
+    }
 }
