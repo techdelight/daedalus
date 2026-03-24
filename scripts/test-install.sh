@@ -372,9 +372,32 @@ WORK_DIR="$MOCK_RELEASE" bash "$SETUP_SH" --prefix "$TEST_PREFIX_DIR" --uninstal
 assert_dir_not_exists "prefix directory removed" "$TEST_PREFIX_DIR"
 
 # --------------------------------------------------------------------------
-# Test 7: Root rejection
+# Test 7: Install with no flags (empty FORWARD_ARGS)
 # --------------------------------------------------------------------------
-echo "Test 7: Root rejection"
+echo "Test 7: Install with no flags"
+
+# On bash 3.2 (macOS), "${arr[@]}" on an empty array fails under set -u.
+# This test verifies the installer handles zero flags correctly.
+TEST_PREFIX_NOFLAGS="$TMPDIR_ROOT/test7-prefix"
+create_mock_release "0.8.0"
+create_patched_installer "v0.8.0" "$MOCK_RELEASE" "$PATCHED_INSTALLER"
+
+# Patch HOME so the symlink goes into our temp dir, not the real home
+set +e
+HOME="$TMPDIR_ROOT/fakehome" bash "$PATCHED_INSTALLER" > /dev/null 2>&1
+exit_code=$?
+set -e
+
+assert_exit_code "exits with code 0" 0 "$exit_code"
+assert_file_exists "binary exists at default prefix" "$TMPDIR_ROOT/fakehome/.local/share/daedalus/daedalus"
+
+# Clean up
+rm -rf "$TMPDIR_ROOT/fakehome"
+
+# --------------------------------------------------------------------------
+# Test 8: Root rejection
+# --------------------------------------------------------------------------
+echo "Test 8: Root rejection"
 
 if [ "$(id -u)" -eq 0 ]; then
     echo "  SKIP: running as root, cannot test root rejection"
