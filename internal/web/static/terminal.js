@@ -128,7 +128,9 @@ function connectTerminal(projectName) {
         if (text.length === 0) return;
         if (ws && ws.readyState === WebSocket.OPEN) {
             ws.send(new TextEncoder().encode(text));
-            ws.send(new TextEncoder().encode('\r'));
+            setTimeout(function() {
+                ws.send(new TextEncoder().encode('\r'));
+            }, 50);
         }
         mobileInput.value = '';
         mobileInput.style.height = 'auto';
