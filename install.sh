@@ -116,7 +116,7 @@ if [[ "$UNINSTALL" == true ]]; then
     chmod 755 "$WORK_DIR/setup.sh"
 
     export WORK_DIR
-    exec "$WORK_DIR/setup.sh" "${FORWARD_ARGS[@]}"
+    exec "$WORK_DIR/setup.sh" ${FORWARD_ARGS[@]+"${FORWARD_ARGS[@]}"}
 fi
 
 # ── Prerequisite checks ──────────────────────────────────────────────────────
@@ -209,4 +209,4 @@ echo "  Downloaded 2 binaries, setup.sh, and ${#RUNTIME_FILES[@]} runtime files.
 
 # ── Hand off to setup.sh ─────────────────────────────────────────────────────
 export WORK_DIR
-exec "$WORK_DIR/setup.sh" "${FORWARD_ARGS[@]}"
+exec "$WORK_DIR/setup.sh" ${FORWARD_ARGS[@]+"${FORWARD_ARGS[@]}"}

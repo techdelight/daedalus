@@ -45,6 +45,7 @@ Goal: make `install.sh` and `setup.sh` work correctly on macOS.
 | 2 | Fix `sed -i` in `scripts/test-install.sh` — same `sed_inplace` wrapper for all 9 `sed -i` calls | Done |
 | 3 | Add macOS (`macos-latest`) job to CI workflow — run install tests on both Ubuntu and macOS | Done |
 | 4 | Fix symlink resolution in `ScriptDir` — `os.Executable()` returns the symlink path on macOS, so `filepath.EvalSymlinks` is needed to find the real binary directory containing Dockerfile and runtime files | Done |
+| 5 | Fix empty array expansion in `install.sh` — `"${FORWARD_ARGS[@]}"` fails with `set -u` on macOS bash 3.2 when no flags are passed; use `${FORWARD_ARGS[@]+"${FORWARD_ARGS[@]}"}` | Done |
 
 ---
 
