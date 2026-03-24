@@ -67,6 +67,11 @@ func (ws *WebServer) HandleRenameProject(w http.ResponseWriter, r *http.Request)
 	ws.handleRenameProject(w, r)
 }
 
+// HandleSendEnter is the exported handler for POST /api/projects/{name}/enter.
+func (ws *WebServer) HandleSendEnter(w http.ResponseWriter, r *http.Request) {
+	ws.handleSendEnter(w, r)
+}
+
 // renameRequest is the JSON body for the rename endpoint.
 type renameRequest struct {
 	NewName string `json:"newName"`
@@ -103,6 +108,7 @@ func Run(cfg *core.Config) error {
 	mux.HandleFunc("POST /api/projects/{name}/start", ws.handleStartProject)
 	mux.HandleFunc("POST /api/projects/{name}/stop", ws.handleStopProject)
 	mux.HandleFunc("POST /api/projects/{name}/rename", ws.handleRenameProject)
+	mux.HandleFunc("POST /api/projects/{name}/enter", ws.handleSendEnter)
 	mux.HandleFunc("GET /api/projects/{name}/terminal", ws.handleTerminal)
 
 	// Serve static files (embedded in binary)
@@ -263,6 +269,35 @@ func (ws *WebServer) handleStopProject(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "stopped", "project": name})
+}
+
+// handleSendEnter sends an Enter keypress to a project's tmux session.
+func (ws *WebServer) handleSendEnter(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+
+	_, found, err := ws.registry.GetProject(name)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if !found {
+		http.Error(w, fmt.Sprintf("project %q not found", name), http.StatusNotFound)
+		return
+	}
+
+	sess := session.NewSession(ws.executor, "claude-"+name)
+	if !sess.Exists() {
+		http.Error(w, fmt.Sprintf("no tmux session for project %q", name), http.StatusNotFound)
+		return
+	}
+
+	if err := ws.executor.Run("tmux", "send-keys", "-t", "claude-"+name, "Enter"); err != nil {
+		http.Error(w, fmt.Sprintf("sending Enter to tmux: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
 // handleRenameProject renames a project.

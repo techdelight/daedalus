@@ -306,6 +306,79 @@ func TestHandleStopProject_Error(t *testing.T) {
 	}
 }
 
+func TestHandleSendEnter_Success(t *testing.T) {
+	ws, mock := setupWebTest(t)
+	if err := ws.registry.AddProject("alpha", "/path/alpha", "dev"); err != nil {
+		t.Fatal(err)
+	}
+	// tmux has-session succeeds (session exists)
+	mock.Results["tmux"] = executor.MockResult{Output: ""}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/projects/{name}/enter", ws.handleSendEnter)
+	req := httptest.NewRequest("POST", "/api/projects/alpha/enter", nil)
+	rec := httptest.NewRecorder()
+
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var resp map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("cannot decode response: %v", err)
+	}
+	if resp["status"] != "ok" {
+		t.Errorf("status = %q, want %q", resp["status"], "ok")
+	}
+
+	// Verify tmux send-keys was called with correct args.
+	var found bool
+	for _, c := range mock.FindCalls("tmux") {
+		if len(c.Args) >= 4 && c.Args[0] == "send-keys" && c.Args[1] == "-t" && c.Args[2] == "claude-alpha" && c.Args[3] == "Enter" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected tmux send-keys -t claude-alpha Enter call; got calls: %v", mock.FindCalls("tmux"))
+	}
+}
+
+func TestHandleSendEnter_NotFound(t *testing.T) {
+	ws, _ := setupWebTest(t)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/projects/{name}/enter", ws.handleSendEnter)
+	req := httptest.NewRequest("POST", "/api/projects/nonexistent/enter", nil)
+	rec := httptest.NewRecorder()
+
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
+	}
+}
+
+func TestHandleSendEnter_NoSession(t *testing.T) {
+	ws, mock := setupWebTest(t)
+	if err := ws.registry.AddProject("alpha", "/path/alpha", "dev"); err != nil {
+		t.Fatal(err)
+	}
+	mock.Results["tmux"] = executor.MockResult{Err: fmt.Errorf("no session")}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/projects/{name}/enter", ws.handleSendEnter)
+	req := httptest.NewRequest("POST", "/api/projects/alpha/enter", nil)
+	rec := httptest.NewRecorder()
+
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusNotFound, rec.Body.String())
+	}
+}
+
 func TestHandleRenameProject_Success(t *testing.T) {
 	ws, mock := setupWebTest(t)
 	if err := ws.registry.AddProject("old-app", "/path/old", "dev"); err != nil {
