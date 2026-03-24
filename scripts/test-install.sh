@@ -9,6 +9,15 @@
 
 set -euo pipefail
 
+# ── Portable sed -i (BSD vs GNU) ──────────────────────────────────────────
+sed_inplace() {
+    if sed --version >/dev/null 2>&1; then
+        sed -i "$@"
+    else
+        sed -i '' "$@"
+    fi
+}
+
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 INSTALL_SH="$REPO_ROOT/install.sh"
@@ -189,26 +198,26 @@ create_patched_installer() {
     # Original lines:
     #   RELEASE_JSON="$(curl -fsSL "$GITHUB_API")"
     #   TAG="$(echo "$RELEASE_JSON" | grep '"tag_name"' | ...)"
-    sed -i 's|^RELEASE_JSON=.*|TAG="'"$version_tag"'"|' "$dest"
-    sed -i 's|^TAG=.*grep.*|# patched: TAG already set above|' "$dest"
+    sed_inplace 's|^RELEASE_JSON=.*|TAG="'"$version_tag"'"|' "$dest"
+    sed_inplace 's|^TAG=.*grep.*|# patched: TAG already set above|' "$dest"
 
     # Remove the empty-tag check (TAG is always set now)
-    sed -i 's|^if \[\[ -z "\$TAG" \]\];|if false;|' "$dest"
+    sed_inplace 's|^if \[\[ -z "\$TAG" \]\];|if false;|' "$dest"
 
     # Remove "Fetching latest release" echo (cosmetic)
-    sed -i 's|echo "Fetching latest release..."|# patched: no fetch needed|' "$dest"
+    sed_inplace 's|echo "Fetching latest release..."|# patched: no fetch needed|' "$dest"
 
     # Replace binary download with local copy.
-    sed -i 's|curl -fsSL -o "\$WORK_DIR/daedalus" .*|cp "'"$mock_dir"'/'"$BINARY_NAME"'" "$WORK_DIR/daedalus"|' "$dest"
+    sed_inplace 's|curl -fsSL -o "\$WORK_DIR/daedalus" .*|cp "'"$mock_dir"'/'"$BINARY_NAME"'" "$WORK_DIR/daedalus"|' "$dest"
 
     # Replace MCP binary download with local copy.
-    sed -i 's|curl -fsSL -o "\$WORK_DIR/skill-catalog-mcp" .*|cp "'"$mock_dir"'/'"$MCP_BINARY_NAME"'" "$WORK_DIR/skill-catalog-mcp"|' "$dest"
+    sed_inplace 's|curl -fsSL -o "\$WORK_DIR/skill-catalog-mcp" .*|cp "'"$mock_dir"'/'"$MCP_BINARY_NAME"'" "$WORK_DIR/skill-catalog-mcp"|' "$dest"
 
     # Replace setup.sh download with local copy.
-    sed -i 's|curl -fsSL -o "\$WORK_DIR/setup.sh" .*|cp "'"$mock_dir"'/setup.sh" "$WORK_DIR/setup.sh"|' "$dest"
+    sed_inplace 's|curl -fsSL -o "\$WORK_DIR/setup.sh" .*|cp "'"$mock_dir"'/setup.sh" "$WORK_DIR/setup.sh"|' "$dest"
 
     # Replace runtime file downloads with local copies.
-    sed -i 's|curl -fsSL -o "\$WORK_DIR/\$f" .*|cp "'"$mock_dir"'/$f" "$WORK_DIR/$f"|' "$dest"
+    sed_inplace 's|curl -fsSL -o "\$WORK_DIR/\$f" .*|cp "'"$mock_dir"'/$f" "$WORK_DIR/$f"|' "$dest"
 
     chmod +x "$dest"
 }
@@ -376,7 +385,7 @@ else
     # Test root rejection in setup.sh (where the check lives)
     # Patch setup.sh to fake EUID=0
     cp "$SETUP_SH" "$TMPDIR_ROOT/setup-root-test.sh"
-    sed -i 's|\$EUID -eq 0|0 -eq 0|' "$TMPDIR_ROOT/setup-root-test.sh"
+    sed_inplace 's|\$EUID -eq 0|0 -eq 0|' "$TMPDIR_ROOT/setup-root-test.sh"
     chmod +x "$TMPDIR_ROOT/setup-root-test.sh"
 
     set +e

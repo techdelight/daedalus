@@ -9,6 +9,15 @@ RELEASE_TAG="__RELEASE_TAG__"
 
 GITHUB_REPO="https://api.github.com/repos/techdelight/daedalus/releases"
 
+# ── Portable sed -i (BSD vs GNU) ────────────────────────────────────────────
+sed_inplace() {
+    if sed --version >/dev/null 2>&1; then
+        sed -i "$@"
+    else
+        sed -i '' "$@"
+    fi
+}
+
 # ── Runtime files to download alongside binaries ─────────────────────────────
 RUNTIME_FILES=(
     claude.json
@@ -194,7 +203,7 @@ done
 
 # Patch version into downloaded config.json for setup.sh
 NEW_VERSION="${TAG#v}"
-sed -i "s/\"version\": *\"\"/\"version\": \"$NEW_VERSION\"/" "$WORK_DIR/config.json"
+sed_inplace "s/\"version\": *\"\"/\"version\": \"$NEW_VERSION\"/" "$WORK_DIR/config.json"
 
 echo "  Downloaded 2 binaries, setup.sh, and ${#RUNTIME_FILES[@]} runtime files."
 

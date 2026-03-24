@@ -33,3 +33,18 @@ jobs:
 
       - name: Build binary
         run: go build -o daedalus ./cmd/daedalus
+
+  install-test:
+    name: Install Script Tests
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run install tests
+        run: bash scripts/test-install.sh
