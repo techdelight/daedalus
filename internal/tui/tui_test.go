@@ -1021,6 +1021,165 @@ func TestView_ConfirmMode(t *testing.T) {
 	}
 }
 
+func TestFKey_TogglesFilterActive(t *testing.T) {
+	m := tuiModel{
+		projects: []projectRow{
+			{name: "running-app", running: true},
+			{name: "stopped-app", running: false},
+		},
+		cursor: 0,
+	}
+
+	newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("f")})
+	updated := newM.(tuiModel)
+	if !updated.filterActive {
+		t.Error("filterActive = false, want true after f")
+	}
+
+	newM, _ = updated.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("f")})
+	updated = newM.(tuiModel)
+	if updated.filterActive {
+		t.Error("filterActive = true, want false after second f")
+	}
+}
+
+func TestFilteredProjects_ReturnsOnlyRunning(t *testing.T) {
+	m := tuiModel{
+		projects: []projectRow{
+			{name: "a", running: true},
+			{name: "b", running: false},
+			{name: "c", running: true},
+		},
+		filterActive: true,
+	}
+
+	fp := m.filteredProjects()
+	if len(fp) != 2 {
+		t.Fatalf("filteredProjects() returned %d items, want 2", len(fp))
+	}
+	if fp[0].name != "a" || fp[1].name != "c" {
+		t.Errorf("filteredProjects() = [%s, %s], want [a, c]", fp[0].name, fp[1].name)
+	}
+}
+
+func TestFilteredProjects_ReturnsAll_WhenInactive(t *testing.T) {
+	m := tuiModel{
+		projects: []projectRow{
+			{name: "a", running: true},
+			{name: "b", running: false},
+		},
+		filterActive: false,
+	}
+
+	fp := m.filteredProjects()
+	if len(fp) != 2 {
+		t.Fatalf("filteredProjects() returned %d items, want 2", len(fp))
+	}
+}
+
+func TestFilter_CursorClamped_WhenFilterReducesList(t *testing.T) {
+	m := tuiModel{
+		projects: []projectRow{
+			{name: "a", running: false},
+			{name: "b", running: false},
+			{name: "c", running: true},
+		},
+		cursor: 2, // pointing at "c"
+	}
+
+	// Toggle filter on — only "c" (running) remains, so cursor should be 0
+	newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("f")})
+	updated := newM.(tuiModel)
+	if updated.cursor != 0 {
+		t.Errorf("cursor = %d, want 0 (clamped to filtered list)", updated.cursor)
+	}
+}
+
+func TestFilter_CursorClamped_WhenFilteredEmpty(t *testing.T) {
+	m := tuiModel{
+		projects: []projectRow{
+			{name: "a", running: false},
+			{name: "b", running: false},
+		},
+		cursor: 1,
+	}
+
+	newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("f")})
+	updated := newM.(tuiModel)
+	if updated.cursor != 0 {
+		t.Errorf("cursor = %d, want 0 (clamped when filtered list is empty)", updated.cursor)
+	}
+}
+
+func TestFilter_NavigationBounds_RespectsFilteredList(t *testing.T) {
+	m := tuiModel{
+		projects: []projectRow{
+			{name: "a", running: true},
+			{name: "b", running: false},
+			{name: "c", running: true},
+		},
+		filterActive: true,
+		cursor:       0,
+	}
+
+	// Move down — filtered list has 2 items (a, c), so max cursor is 1
+	newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	updated := newM.(tuiModel)
+	if updated.cursor != 1 {
+		t.Errorf("cursor = %d, want 1", updated.cursor)
+	}
+
+	// Move down again — should stay at 1
+	newM, _ = updated.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	updated = newM.(tuiModel)
+	if updated.cursor != 1 {
+		t.Errorf("cursor = %d, want 1 (should not exceed filtered list)", updated.cursor)
+	}
+}
+
+func TestView_ShowsActiveOnlyIndicator(t *testing.T) {
+	m := tuiModel{
+		filterActive: true,
+		projects:     []projectRow{{name: "a", running: true}},
+	}
+	view := stripAnsi(m.View())
+	if !containsString(view, "(active only)") {
+		t.Errorf("expected '(active only)' in view, got:\n%s", view)
+	}
+}
+
+func TestView_NoActiveOnlyIndicator_WhenFilterOff(t *testing.T) {
+	m := tuiModel{
+		filterActive: false,
+		projects:     []projectRow{{name: "a", running: true}},
+	}
+	view := stripAnsi(m.View())
+	if containsString(view, "(active only)") {
+		t.Errorf("unexpected '(active only)' in view when filter is off")
+	}
+}
+
+func TestView_ShowsNoRunningProjects_WhenFilteredEmpty(t *testing.T) {
+	m := tuiModel{
+		filterActive: true,
+		projects:     []projectRow{{name: "a", running: false}},
+	}
+	view := stripAnsi(m.View())
+	if !containsString(view, "No running projects.") {
+		t.Errorf("expected 'No running projects.' in view, got:\n%s", view)
+	}
+}
+
+func TestView_HelpBarContainsFilter(t *testing.T) {
+	m := tuiModel{
+		projects: []projectRow{{name: "a"}},
+	}
+	view := stripAnsi(m.View())
+	if !containsString(view, "[f]ilter") {
+		t.Errorf("expected '[f]ilter' in help bar, got:\n%s", view)
+	}
+}
+
 func stripAnsi(s string) string {
 	result := make([]byte, 0, len(s))
 	i := 0

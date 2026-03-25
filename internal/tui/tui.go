@@ -111,6 +111,20 @@ type tuiModel struct {
 	createDirIdx   int      // cursor within directory listing
 	creatingDir    bool     // sub-mode: typing new dir name
 	createNewDir   string   // new directory name input
+	filterActive   bool     // show only running projects
+}
+
+func (m tuiModel) filteredProjects() []projectRow {
+	if !m.filterActive {
+		return m.projects
+	}
+	var fp []projectRow
+	for _, p := range m.projects {
+		if p.running {
+			fp = append(fp, p)
+		}
+	}
+	return fp
 }
 
 // --- tea.Model interface ---
@@ -138,8 +152,9 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.projects = msg.projects
 		m.err = msg.dockerErr
-		if m.cursor >= len(m.projects) {
-			m.cursor = len(m.projects) - 1
+		fp := m.filteredProjects()
+		if m.cursor >= len(fp) {
+			m.cursor = len(fp) - 1
 		}
 		if m.cursor < 0 {
 			m.cursor = 0
@@ -164,11 +179,13 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
+		fp := m.filteredProjects()
+
 		// When in confirm-delete mode, only accept y/Enter/n/Esc
 		if m.confirming {
 			switch msg.String() {
 			case "y", "enter":
-				p := m.projects[m.cursor]
+				p := fp[m.cursor]
 				m.confirming = false
 				m.statusMsg = fmt.Sprintf("Removing %s...", p.name)
 				return m, removeProject(m.registry, p.name)
@@ -188,7 +205,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if name == "" {
 					return m, nil
 				}
-				p := m.projects[m.cursor]
+				p := fp[m.cursor]
 				if p.running {
 					m.statusMsg = fmt.Sprintf("%s is running — stop it before renaming", p.name)
 					m.renaming = false
@@ -224,7 +241,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 
 		case "j", "down":
-			if m.cursor < len(m.projects)-1 {
+			if m.cursor < len(fp)-1 {
 				m.cursor++
 			}
 			clampScroll(&m)
@@ -236,18 +253,18 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			clampScroll(&m)
 
 		case "s":
-			if len(m.projects) == 0 {
+			if len(fp) == 0 {
 				return m, nil
 			}
-			p := m.projects[m.cursor]
+			p := fp[m.cursor]
 			m.statusMsg = fmt.Sprintf("Starting %s...", p.name)
 			return m, startProject(m.cfg, m.executor, m.registry, m.docker, p)
 
 		case "a":
-			if len(m.projects) == 0 {
+			if len(fp) == 0 {
 				return m, nil
 			}
-			p := m.projects[m.cursor]
+			p := fp[m.cursor]
 			if !p.running {
 				m.statusMsg = fmt.Sprintf("%s is not running", p.name)
 				return m, nil
@@ -255,10 +272,10 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, attachToSession(m.executor, p.name)
 
 		case "x":
-			if len(m.projects) == 0 {
+			if len(fp) == 0 {
 				return m, nil
 			}
-			p := m.projects[m.cursor]
+			p := fp[m.cursor]
 			if !p.running {
 				m.statusMsg = fmt.Sprintf("%s is not running", p.name)
 				return m, nil
@@ -276,11 +293,20 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.createName = ""
 			m.statusMsg = ""
 			return m, nil
+
+		case "f":
+			m.filterActive = !m.filterActive
+			fp = m.filteredProjects()
+			if m.cursor >= len(fp) {
+				m.cursor = max(len(fp)-1, 0)
+			}
+			m.scrollOffset = 0
+			clampScroll(&m)
 		}
 
 		// F2 enters rename mode
 		if msg.Type == tea.KeyF2 {
-			if len(m.projects) == 0 {
+			if len(fp) == 0 {
 				return m, nil
 			}
 			m.renaming = true
@@ -290,10 +316,10 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Del enters confirm-delete mode
 		if msg.Type == tea.KeyDelete {
-			if len(m.projects) == 0 {
+			if len(fp) == 0 {
 				return m, nil
 			}
-			p := m.projects[m.cursor]
+			p := fp[m.cursor]
 			if p.running {
 				m.statusMsg = fmt.Sprintf("%s is running — stop it before removing", p.name)
 				return m, nil
@@ -315,9 +341,10 @@ func (m tuiModel) visibleRows() int {
 	if m.termHeight <= chromeLines {
 		return 1
 	}
+	fp := m.filteredProjects()
 	capacity := m.termHeight - chromeLines
-	if capacity > len(m.projects) {
-		return len(m.projects)
+	if capacity > len(fp) {
+		return len(fp)
 	}
 	return capacity
 }
@@ -335,8 +362,14 @@ func clampScroll(m *tuiModel) {
 func (m tuiModel) View() string {
 	var b strings.Builder
 
+	fp := m.filteredProjects()
+
 	b.WriteString("\n")
-	b.WriteString(titleStyle.Render("Daedalus [" + core.ReadVersion() + "]"))
+	title := "Daedalus [" + core.ReadVersion() + "]"
+	if m.filterActive {
+		title += " (active only)"
+	}
+	b.WriteString(titleStyle.Render(title))
 	b.WriteString("\n\n")
 
 	if m.err != nil {
@@ -344,8 +377,12 @@ func (m tuiModel) View() string {
 		b.WriteString("\n\n")
 	}
 
-	if len(m.projects) == 0 && m.err == nil {
-		b.WriteString(normalStyle.Render("  No registered projects."))
+	if len(fp) == 0 && m.err == nil {
+		if m.filterActive {
+			b.WriteString(normalStyle.Render("  No running projects."))
+		} else {
+			b.WriteString(normalStyle.Render("  No registered projects."))
+		}
 		b.WriteString("\n\n")
 	} else {
 		header := fmt.Sprintf("  %-20s %-12s %-10s %-8s %s", "PROJECT", "STATUS", "TARGET", "SESSIONS", "LAST USED")
@@ -356,20 +393,20 @@ func (m tuiModel) View() string {
 
 		visRows := m.visibleRows()
 		end := m.scrollOffset + visRows
-		if end > len(m.projects) {
-			end = len(m.projects)
+		if end > len(fp) {
+			end = len(fp)
 		}
-		showScrollbar := len(m.projects) > visRows
+		showScrollbar := len(fp) > visRows
 		trackHeight := visRows
 
 		// Compute scrollbar thumb position and size
 		var thumbStart, thumbEnd int
 		if showScrollbar && trackHeight > 0 {
-			thumbSize := trackHeight * visRows / len(m.projects)
+			thumbSize := trackHeight * visRows / len(fp)
 			if thumbSize < 1 {
 				thumbSize = 1
 			}
-			thumbStart = trackHeight * m.scrollOffset / len(m.projects)
+			thumbStart = trackHeight * m.scrollOffset / len(fp)
 			thumbEnd = thumbStart + thumbSize
 			if thumbEnd > trackHeight {
 				thumbEnd = trackHeight
@@ -377,7 +414,7 @@ func (m tuiModel) View() string {
 		}
 
 		for i := m.scrollOffset; i < end; i++ {
-			p := m.projects[i]
+			p := fp[i]
 			cursor := "  "
 			if i == m.cursor {
 				cursor = "> "
@@ -429,16 +466,16 @@ func (m tuiModel) View() string {
 
 	if m.creating {
 		b.WriteString(m.viewCreate())
-	} else if m.confirming && m.cursor >= 0 && m.cursor < len(m.projects) {
-		prompt := fmt.Sprintf("  Remove %q? ", m.projects[m.cursor].name)
+	} else if m.confirming && m.cursor >= 0 && m.cursor < len(fp) {
+		prompt := fmt.Sprintf("  Remove %q? ", fp[m.cursor].name)
 		b.WriteString(statusMsgStyle.Render(prompt))
 		b.WriteString(helpStyle.Render("  (y to confirm, esc to cancel)"))
-	} else if m.renaming && m.cursor >= 0 && m.cursor < len(m.projects) {
-		prompt := fmt.Sprintf("  Rename %q to: %s", m.projects[m.cursor].name, m.renameInput)
+	} else if m.renaming && m.cursor >= 0 && m.cursor < len(fp) {
+		prompt := fmt.Sprintf("  Rename %q to: %s", fp[m.cursor].name, m.renameInput)
 		b.WriteString(statusMsgStyle.Render(prompt))
 		b.WriteString(helpStyle.Render("  (enter to confirm, esc to cancel)"))
 	} else {
-		b.WriteString(helpStyle.Render("  [n]ew  [s]tart  [a]ttach  [x] kill  [del] remove  [r]efresh  [F2] rename  [q]uit"))
+		b.WriteString(helpStyle.Render("  [n]ew  [s]tart  [a]ttach  [x] kill  [del] remove  [f]ilter  [r]efresh  [F2] rename  [q]uit"))
 	}
 	b.WriteString("\n")
 

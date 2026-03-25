@@ -14,6 +14,7 @@
         <div id="project-view">
             <header>
                 <h1>Daedalus</h1>
+                <button class="btn btn-filter" id="filter-active-btn" onclick="toggleFilter()">Active Only</button>
                 <span class="status" id="refresh-status"></span>
             </header>
             <div id="status-msg" class="status-msg"></div>
@@ -67,6 +68,25 @@
     <script src="/static/terminal.js"></script>
     <script>
         let refreshTimer = null;
+        let filterActive = localStorage.getItem('daedalus-filter-active') === 'true';
+
+        function toggleFilter() {
+            filterActive = !filterActive;
+            localStorage.setItem('daedalus-filter-active', filterActive);
+            updateFilterButton();
+            fetchProjects();
+        }
+
+        function updateFilterButton() {
+            const btn = document.getElementById('filter-active-btn');
+            if (filterActive) {
+                btn.classList.add('active');
+                btn.textContent = 'Active Only';
+            } else {
+                btn.classList.remove('active');
+                btn.textContent = 'Active Only';
+            }
+        }
 
         async function fetchProjects() {
             try {
@@ -84,8 +104,13 @@
             const tbody = document.getElementById('project-tbody');
             const empty = document.getElementById('empty-state');
 
+            if (filterActive) {
+                projects = projects.filter(p => p.running);
+            }
+
             if (projects.length === 0) {
                 tbody.innerHTML = '';
+                empty.textContent = filterActive ? 'No running projects.' : 'No registered projects.';
                 empty.style.display = 'block';
                 return;
             }
@@ -226,6 +251,7 @@
         }
 
         // Initial load
+        updateFilterButton();
         fetchProjects();
         refreshTimer = setInterval(fetchProjects, 5000);
     </script>

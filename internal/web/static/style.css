@@ -148,6 +148,21 @@ tbody td {
     border-color: #414868;
 }
 
+.btn-filter {
+    border-color: #bb9af7;
+    color: #bb9af7;
+}
+
+.btn-filter:hover {
+    background: rgba(187, 154, 247, 0.1);
+}
+
+.btn-filter.active {
+    background: rgba(187, 154, 247, 0.15);
+    border-color: #bb9af7;
+    color: #bb9af7;
+}
+
 .btn-start {
     border-color: #9ece6a;
     color: #9ece6a;
