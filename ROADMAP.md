@@ -31,9 +31,19 @@
 | 25 | Webdev container — move Node.js out of the regular `dev` stage into a dedicated `webdev` build target for web/frontend projects. Keeps the default dev image lean |
 | ~~26~~ | ~~Mobile-friendly web UI — scrollable terminal output (replace tmux Ctrl+B PgUp/PgDown with native scroll), multi-line input (Enter inserts newline, separate submit button/shortcut), simplified project overview (name, online status, attach/kill/start action buttons)~~ |
 | 27 | Decouple tooling from agent runner images — keep base agent containers minimal and let the agent install additional tools at runtime. Provide container snapshotting so customized environments persist across restarts. Key challenge: when the base image is upgraded, how do we replay tool installations? Options: (a) maintain a declarative tool registry (tool name + version + install method) that a provisioner re-applies on new base images — portable but subjective per tool; (b) record raw install commands as a replayable script — simple but fragile across base image changes; (c) hybrid approach with a registry of well-known tools (apt, pip, npm) plus an escape hatch for arbitrary commands. Needs design spike to evaluate trade-offs |
-| 28 | Active project filter — add a toggle/filter to the Web UI and TUI that shows only running projects. Useful when the project list grows large and the user wants to focus on what is currently active |
+| ~~28~~ | ~~Active project filter — add a toggle/filter to the Web UI and TUI that shows only running projects. Useful when the project list grows large and the user wants to focus on what is currently active~~ |
 
 ## Current Sprint
+
+### Sprint 20: Active Project Filter (v0.15.0)
+
+Goal: add a toggle/filter to the Web UI and TUI that shows only running projects, helping users focus when the project list grows large.
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | Web UI — filter toggle button in the project list header, filters table to running projects only | |
+| 2 | TUI — keybinding to toggle active-only filter, update project list rendering | |
+| 3 | Persist filter preference in session (not across restarts) | |
 
 ### Sprint 19: Mobile Select Mode (v0.14.0)
 
