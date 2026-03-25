@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-03-25
+
+### Added
+- Mobile Select mode — replaces the Copy button with a Select toggle that overlays the terminal buffer as plain selectable HTML text, enabling native mobile text selection via long-press. Tap "Done" to dismiss the overlay and return to the live terminal.
+
+### Changed
+- Mobile Copy button removed in favour of Select mode, which gives users fine-grained native text selection instead of copying the entire buffer.
+
 ## [0.13.0] - 2026-03-22
 
 ### Added

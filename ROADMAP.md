@@ -35,17 +35,14 @@
 
 ## Current Sprint
 
-### Sprint 18: Fix macOS Installation (v0.12.1)
+### Sprint 19: Mobile Select Mode (v0.14.0)
 
-Goal: make `install.sh` and `setup.sh` work correctly on macOS.
+Goal: enable native text selection on mobile terminals by overlaying the xterm.js buffer as plain selectable HTML.
 
 | # | Item | Status |
 |---|------|--------|
-| 1 | Fix `sed -i` in `install.sh` — use cross-platform `sed_inplace` wrapper for BSD/GNU compatibility | Done |
-| 2 | Fix `sed -i` in `scripts/test-install.sh` — same `sed_inplace` wrapper for all 9 `sed -i` calls | Done |
-| 3 | Add macOS (`macos-latest`) job to CI workflow — run install tests on both Ubuntu and macOS | Done |
-| 4 | Fix symlink resolution in `ScriptDir` — `os.Executable()` returns the symlink path on macOS, so `filepath.EvalSymlinks` is needed to find the real binary directory containing Dockerfile and runtime files | Done |
-| 5 | Fix empty array expansion in `install.sh` — `"${FORWARD_ARGS[@]}"` fails with `set -u` on macOS bash 3.2 when no flags are passed; use `${FORWARD_ARGS[@]+"${FORWARD_ARGS[@]}"}` | Done |
+| 1 | Replace Copy button with Select toggle — overlay terminal buffer as selectable `<pre>` text, Done button to dismiss | Done |
+| 2 | Force `user-select` and `touch-callout` for real mobile browser compatibility | Done |
 
 ### Sprint 17: Mobile-Friendly Web UI (v0.13.0)
 
@@ -56,6 +53,7 @@ Goal: make the web dashboard usable on phones and tablets — scrollable termina
 | 1 | Scrollable terminal — increase xterm.js scrollback to 10 000 lines | Done |
 | 2 | Multi-line mobile input — textarea + Send button below terminal, Ctrl+Enter submits, xterm.js stdin disabled on mobile | Done |
 | 3 | Card-based project list on mobile — hide Target/Last Used columns, flex card layout, larger touch targets | Done |
+| 4 | Playwright test suite for the web frontend | |
 
 ### Sprint 16: Copilot CLI Support (v0.11.0)
 
@@ -126,6 +124,18 @@ Goal: improve the build workflow, add diagnostic tooling, and set up release doc
 ---
 
 ## Sprint History
+
+### Sprint 18: Fix macOS Installation (v0.12.1)
+
+Delivered 2026-03-24. Portable macOS install support for bash 3.2.
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | Fix `sed -i` in `install.sh` — use cross-platform `sed_inplace` wrapper for BSD/GNU compatibility | Done |
+| 2 | Fix `sed -i` in `scripts/test-install.sh` — same `sed_inplace` wrapper for all 9 `sed -i` calls | Done |
+| 3 | Add macOS (`macos-latest`) job to CI workflow — run install tests on both Ubuntu and macOS | Done |
+| 4 | Fix symlink resolution in `ScriptDir` — `os.Executable()` returns the symlink path on macOS, so `filepath.EvalSymlinks` is needed to find the real binary directory containing Dockerfile and runtime files | Done |
+| 5 | Fix empty array expansion in `install.sh` — `"${FORWARD_ARGS[@]}"` fails with `set -u` on macOS bash 3.2 when no flags are passed; use `${FORWARD_ARGS[@]+"${FORWARD_ARGS[@]}"}` | Done |
 
 ### Sprint 11: UX & Installer Polish (v1.2.0)
 
