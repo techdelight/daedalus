@@ -41,9 +41,9 @@ Goal: add a toggle/filter to the Web UI and TUI that shows only running projects
 
 | # | Item | Status |
 |---|------|--------|
-| 1 | Web UI — filter toggle button in the project list header, filters table to running projects only | |
-| 2 | Web UI — persist filter state in `localStorage` so it survives page reloads | |
-| 3 | TUI — keybinding to toggle active-only filter, update project list rendering | |
+| 1 | Web UI — filter toggle button in the project list header, filters table to running projects only | Done |
+| 2 | Web UI — persist filter state in `localStorage` so it survives page reloads | Done |
+| 3 | TUI — keybinding to toggle active-only filter, update project list rendering | Done |
 
 ### Sprint 19: Mobile Select Mode (v0.14.0)
 

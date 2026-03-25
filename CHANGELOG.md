@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-03-25
+
+### Added
+- Active project filter — Web UI "Active Only" button and TUI `[f]` keybinding toggle the project list to show only running projects. Helps users focus when the project list grows large.
+- Web UI filter state persisted in `localStorage` so it survives page reloads.
+- TUI title shows "(active only)" indicator when filter is active.
+- Contextual empty-state messages: "No running projects." when filtered, "No registered projects." when unfiltered.
+
 ## [0.14.0] - 2026-03-25
 
 ### Added
