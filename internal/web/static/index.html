@@ -42,9 +42,15 @@
             <div class="terminal-header">
                 <span class="project-name" id="terminal-project-name"></span>
                 <div class="terminal-header-actions">
-                    <button class="btn btn-copy" id="mobile-copy-btn">Copy</button>
+                    <button class="btn btn-select" id="mobile-select-btn">Select</button>
                     <button class="btn btn-back" onclick="showProjectList()">Back</button>
                 </div>
+            </div>
+            <div id="select-overlay">
+                <div class="select-overlay-header">
+                    <button class="btn btn-done" id="select-done-btn">Done</button>
+                </div>
+                <pre id="select-overlay-text"></pre>
             </div>
             <div id="terminal-container"></div>
             <div id="mobile-input-area">

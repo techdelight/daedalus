@@ -119,26 +119,54 @@ function connectTerminal(projectName) {
 
     window.addEventListener('resize', onWindowResize);
 
-    // Mobile copy button
-    var mobileCopyBtn = document.getElementById('mobile-copy-btn');
+    // Mobile select mode
+    var mobileSelectBtn = document.getElementById('mobile-select-btn');
+    var selectOverlay = document.getElementById('select-overlay');
+    var selectOverlayText = document.getElementById('select-overlay-text');
+    var selectDoneBtn = document.getElementById('select-done-btn');
 
-    function onMobileCopy() {
-        if (!term) return;
-        var text = term.hasSelection() ? term.getSelection() : '';
-        if (!text) {
-            term.selectAll();
-            text = term.getSelection();
-            term.clearSelection();
+    function getBufferText() {
+        if (!term) return '';
+        var buf = term.buffer.active;
+        var lines = [];
+        for (var i = 0; i < buf.length; i++) {
+            var line = buf.getLine(i);
+            if (line) lines.push(line.translateToString());
         }
-        if (!text) return;
-        navigator.clipboard.writeText(text).then(function() {
-            mobileCopyBtn.textContent = 'Copied!';
-            setTimeout(function() { mobileCopyBtn.textContent = 'Copy'; }, 1500);
-        });
+        // Trim trailing empty lines
+        while (lines.length > 0 && lines[lines.length - 1].trim() === '') {
+            lines.pop();
+        }
+        return lines.join('\n');
     }
 
-    mobileCopyBtn.addEventListener('touchend', function(e) { e.preventDefault(); onMobileCopy(); });
-    mobileCopyBtn.addEventListener('click', onMobileCopy);
+    function enterSelectMode() {
+        selectOverlayText.textContent = getBufferText();
+        selectOverlay.classList.add('active');
+        mobileSelectBtn.classList.add('active');
+    }
+
+    function exitSelectMode() {
+        selectOverlay.classList.remove('active');
+        mobileSelectBtn.classList.remove('active');
+        selectOverlayText.textContent = '';
+    }
+
+    function toggleSelectMode() {
+        if (selectOverlay.classList.contains('active')) {
+            exitSelectMode();
+        } else {
+            enterSelectMode();
+        }
+    }
+
+    function onSelectTouch(e) { e.preventDefault(); toggleSelectMode(); }
+    function onDoneTouch(e) { e.preventDefault(); exitSelectMode(); }
+
+    mobileSelectBtn.addEventListener('touchend', onSelectTouch);
+    mobileSelectBtn.addEventListener('click', toggleSelectMode);
+    selectDoneBtn.addEventListener('touchend', onDoneTouch);
+    selectDoneBtn.addEventListener('click', exitSelectMode);
 
     // Mobile input wiring
     var mobileInput = document.getElementById('mobile-input');
@@ -190,8 +218,11 @@ function connectTerminal(projectName) {
     // Store cleanup function for disconnectTerminal
     cleanupListeners = function() {
         window.removeEventListener('resize', onWindowResize);
-        mobileCopyBtn.removeEventListener('touchend', onMobileCopy);
-        mobileCopyBtn.removeEventListener('click', onMobileCopy);
+        exitSelectMode();
+        mobileSelectBtn.removeEventListener('touchend', onSelectTouch);
+        mobileSelectBtn.removeEventListener('click', toggleSelectMode);
+        selectDoneBtn.removeEventListener('touchend', onDoneTouch);
+        selectDoneBtn.removeEventListener('click', exitSelectMode);
         mobileSendBtn.removeEventListener('touchend', onMobileSendTouch);
         mobileSendBtn.removeEventListener('click', onMobileSendClick);
         mobileInput.removeEventListener('keydown', onMobileKeydown);
