@@ -27,7 +27,8 @@ func ShellQuote(s string) string {
 // BuildAgentArgs constructs agent CLI arguments from config, using the
 // agent profile to determine which flags to emit.
 func BuildAgentArgs(cfg *Config) []string {
-	profile, _ := LookupAgent(ResolveAgentName(cfg))
+	overlay, _ := LookupAgent(ResolveAgentName(cfg), nil)
+	profile := overlay.Profile
 	var args []string
 	if cfg.Debug && profile.DebugFlag != "" {
 		args = append(args, profile.DebugFlag)
@@ -48,9 +49,19 @@ func BuildClaudeArgs(cfg *Config) []string {
 	return BuildAgentArgs(cfg)
 }
 
+// OverlayPaths holds host paths to files that should be mounted into the
+// container for a user-defined agent overlay. The caller is responsible for
+// writing the files before calling BuildExtraArgs.
+type OverlayPaths struct {
+	ClaudeMdPath  string            // host path to CLAUDE.md (mounted read-only)
+	SettingsPath  string            // host path to settings.json (mounted read-only)
+	Env           map[string]string // extra environment variables
+}
+
 // BuildExtraArgs returns extra docker compose run flags derived from the config.
 // displayArgs should come from platform.DisplayArgs when cfg.Display is true.
-func BuildExtraArgs(cfg *Config, displayArgs []string) []string {
+// overlay may be nil when no agent overlay is active.
+func BuildExtraArgs(cfg *Config, displayArgs []string, overlay *OverlayPaths) []string {
 	var args []string
 
 	// Always mount the shared skill catalog
@@ -61,6 +72,18 @@ func BuildExtraArgs(cfg *Config, displayArgs []string) []string {
 	}
 	if cfg.Display {
 		args = append(args, displayArgs...)
+	}
+
+	if overlay != nil {
+		if overlay.ClaudeMdPath != "" {
+			args = append(args, "-v", overlay.ClaudeMdPath+":/workspace/.claude/CLAUDE.md:ro")
+		}
+		if overlay.SettingsPath != "" {
+			args = append(args, "-v", overlay.SettingsPath+":/workspace/.claude/settings.json:ro")
+		}
+		for k, v := range overlay.Env {
+			args = append(args, "-e", k+"="+v)
+		}
 	}
 	return args
 }

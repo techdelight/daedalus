@@ -10,15 +10,10 @@ import (
 	"strings"
 
 	"github.com/techdelight/daedalus/core"
+	"github.com/techdelight/daedalus/internal/agents"
 	"github.com/techdelight/daedalus/internal/color"
 	"github.com/techdelight/daedalus/internal/platform"
 )
-
-// validAgents is the set of accepted --agent values.
-var validAgents = map[string]bool{
-	"claude":  true,
-	"copilot": true,
-}
 
 // IsHeadless returns true if running without interactive input.
 func IsHeadless(cfg *core.Config) bool {
@@ -128,12 +123,9 @@ func ParseArgs(args []string) (*core.Config, error) {
 			hostOverride = true
 		case "--agent":
 			if i+1 >= len(args) {
-				return nil, fmt.Errorf("--agent requires an agent name (claude, copilot)")
+				return nil, fmt.Errorf("--agent requires an agent name")
 			}
 			i++
-			if !validAgents[args[i]] {
-				return nil, fmt.Errorf("unknown agent %q — valid agents: claude, copilot", args[i])
-			}
 			cfg.Agent = args[i]
 		default:
 			positional = append(positional, args[i])
@@ -169,6 +161,13 @@ func ParseArgs(args []string) (*core.Config, error) {
 	}
 	if cfg.LogFile == "" {
 		cfg.LogFile = filepath.Join(cfg.DataDir, "daedalus.log")
+	}
+
+	// Validate --agent against built-in + user-defined names (needs DataDir)
+	if cfg.Agent != "" {
+		if err := validateAgentName(cfg.Agent, cfg.AgentsDir()); err != nil {
+			return nil, err
+		}
 	}
 
 	// Handle "remove" subcommand — before the positional switch to allow
@@ -216,6 +215,13 @@ func ParseArgs(args []string) (*core.Config, error) {
 		return cfg, nil
 	}
 
+	// Handle "agents" subcommand (e.g., daedalus agents list)
+	if len(positional) > 0 && positional[0] == "agents" {
+		cfg.Subcommand = "agents"
+		cfg.AgentsArgs = positional[1:]
+		return cfg, nil
+	}
+
 	// Handle positional args
 	switch len(positional) {
 	case 0:
@@ -251,4 +257,24 @@ func ParseArgs(args []string) (*core.Config, error) {
 
 	core.NormalizeAgentTarget(cfg)
 	return cfg, nil
+}
+
+// validateAgentName checks whether name is a valid agent — either built-in
+// or a user-defined config in the agents directory.
+func validateAgentName(name, agentsDir string) error {
+	if core.IsBuiltinAgent(name) {
+		return nil
+	}
+	store := agents.New(agentsDir)
+	if _, err := store.Read(name); err == nil {
+		return nil
+	}
+	// List user-defined names for error message
+	var userNames []string
+	configs, _ := store.List()
+	for _, c := range configs {
+		userNames = append(userNames, c.Name)
+	}
+	validNames := core.ValidAgentNames(userNames...)
+	return fmt.Errorf("unknown agent %q — valid agents: %s", name, strings.Join(validNames, ", "))
 }

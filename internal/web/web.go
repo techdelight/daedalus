@@ -228,7 +228,7 @@ func (ws *WebServer) handleStartProject(w http.ResponseWriter, r *http.Request) 
 			os.Getenv("XDG_RUNTIME_DIR"),
 		)
 	}
-	extraArgs := core.BuildExtraArgs(projCfg, displayArgs)
+	extraArgs := core.BuildExtraArgs(projCfg, displayArgs, nil)
 
 	claudeArgs := core.BuildAgentArgs(projCfg)
 	dockerCmd := ws.docker.ComposeRunCommand(projCfg.ContainerName(), claudeArgs, extraArgs)

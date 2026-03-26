@@ -3,12 +3,14 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/techdelight/daedalus/core"
+	"github.com/techdelight/daedalus/internal/agents"
 	"github.com/techdelight/daedalus/internal/color"
 	"github.com/techdelight/daedalus/internal/registry"
 )
@@ -968,5 +970,355 @@ func TestHandleDirConflict_TouchProjectError(t *testing.T) {
 	err := handleDirConflict(cfg, reg, "existing-app")
 	if err == nil {
 		t.Fatal("expected error for headless dir conflict, got nil")
+	}
+}
+
+// --- Agent configuration tests ---
+
+func TestListAgents_Empty(t *testing.T) {
+	dir := t.TempDir()
+	agentsDir := filepath.Join(dir, "agents")
+	os.MkdirAll(agentsDir, 0755)
+	store := agents.New(agentsDir)
+
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	err := listAgents(store)
+
+	w.Close()
+	var buf [4096]byte
+	n, _ := r.Read(buf[:])
+	os.Stdout = old
+
+	if err != nil {
+		t.Fatalf("listAgents failed: %v", err)
+	}
+	output := string(buf[:n])
+	// Should show built-in agents even with no user configs
+	if !strings.Contains(output, "claude") {
+		t.Error("output should contain built-in 'claude'")
+	}
+	if !strings.Contains(output, "copilot") {
+		t.Error("output should contain built-in 'copilot'")
+	}
+}
+
+func TestListAgents_WithUserDefined(t *testing.T) {
+	dir := t.TempDir()
+	agentsDir := filepath.Join(dir, "agents")
+	os.MkdirAll(agentsDir, 0755)
+	store := agents.New(agentsDir)
+
+	cfg := core.AgentConfig{
+		Name:        "reviewer",
+		Description: "Code review specialist",
+		BaseAgent:   "claude",
+	}
+	if err := store.Create(cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	err := listAgents(store)
+
+	w.Close()
+	var buf [4096]byte
+	n, _ := r.Read(buf[:])
+	os.Stdout = old
+
+	if err != nil {
+		t.Fatalf("listAgents failed: %v", err)
+	}
+	output := string(buf[:n])
+	if !strings.Contains(output, "reviewer") {
+		t.Error("output should contain 'reviewer'")
+	}
+	if !strings.Contains(output, "Code review specialist") {
+		t.Error("output should contain description")
+	}
+}
+
+func TestShowAgent_BuiltIn(t *testing.T) {
+	dir := t.TempDir()
+	store := agents.New(dir)
+
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	err := showAgent(store, "claude")
+
+	w.Close()
+	var buf [4096]byte
+	n, _ := r.Read(buf[:])
+	os.Stdout = old
+
+	if err != nil {
+		t.Fatalf("showAgent(claude) failed: %v", err)
+	}
+	output := string(buf[:n])
+	if !strings.Contains(output, "built-in") {
+		t.Error("output should mention built-in")
+	}
+	if !strings.Contains(output, "/opt/claude/bin/claude") {
+		t.Error("output should show binary path")
+	}
+}
+
+func TestShowAgent_UserDefined(t *testing.T) {
+	dir := t.TempDir()
+	agentsDir := filepath.Join(dir, "agents")
+	os.MkdirAll(agentsDir, 0755)
+	store := agents.New(agentsDir)
+
+	cfg := core.AgentConfig{
+		Name:      "reviewer",
+		BaseAgent: "claude",
+		ClaudeMd:  "You review code.",
+	}
+	store.Create(cfg)
+
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	err := showAgent(store, "reviewer")
+
+	w.Close()
+	var buf [4096]byte
+	n, _ := r.Read(buf[:])
+	os.Stdout = old
+
+	if err != nil {
+		t.Fatalf("showAgent(reviewer) failed: %v", err)
+	}
+	output := string(buf[:n])
+
+	var result core.AgentConfig
+	if err := json.Unmarshal([]byte(output), &result); err != nil {
+		t.Fatalf("output is not valid JSON: %v\noutput: %s", err, output)
+	}
+	if result.Name != "reviewer" {
+		t.Errorf("Name = %q, want %q", result.Name, "reviewer")
+	}
+}
+
+func TestShowAgent_NotFound(t *testing.T) {
+	dir := t.TempDir()
+	store := agents.New(dir)
+
+	err := showAgent(store, "nonexistent")
+	if err == nil {
+		t.Fatal("showAgent(nonexistent) = nil, want error")
+	}
+}
+
+func TestRemoveAgent_Success(t *testing.T) {
+	dir := t.TempDir()
+	agentsDir := filepath.Join(dir, "agents")
+	os.MkdirAll(agentsDir, 0755)
+	store := agents.New(agentsDir)
+
+	cfg := core.AgentConfig{Name: "reviewer", BaseAgent: "claude"}
+	store.Create(cfg)
+
+	old := os.Stdout
+	_, w, _ := os.Pipe()
+	os.Stdout = w
+
+	err := removeAgent(store, "reviewer")
+
+	w.Close()
+	os.Stdout = old
+
+	if err != nil {
+		t.Fatalf("removeAgent failed: %v", err)
+	}
+
+	// Verify it's gone
+	if _, err := store.Read("reviewer"); err == nil {
+		t.Error("agent should be removed but Read succeeded")
+	}
+}
+
+func TestRemoveAgent_BuiltIn(t *testing.T) {
+	dir := t.TempDir()
+	store := agents.New(dir)
+
+	err := removeAgent(store, "claude")
+	if err == nil {
+		t.Fatal("removeAgent(claude) = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "cannot remove built-in") {
+		t.Errorf("error = %q, want mention of 'cannot remove built-in'", err)
+	}
+}
+
+func TestRemoveAgent_NotFound(t *testing.T) {
+	dir := t.TempDir()
+	store := agents.New(dir)
+
+	err := removeAgent(store, "nonexistent")
+	if err == nil {
+		t.Fatal("removeAgent(nonexistent) = nil, want error")
+	}
+}
+
+func TestManageAgents_UnknownSubcommand(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &core.Config{
+		DataDir:    dir,
+		AgentsArgs: []string{"invalid"},
+	}
+
+	err := manageAgents(cfg)
+	if err == nil {
+		t.Fatal("expected error for unknown subcommand")
+	}
+	if !strings.Contains(err.Error(), "unknown agents command") {
+		t.Errorf("error = %q, want mention of 'unknown agents command'", err)
+	}
+}
+
+func TestManageAgents_ShowMissingName(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &core.Config{
+		DataDir:    dir,
+		AgentsArgs: []string{"show"},
+	}
+
+	err := manageAgents(cfg)
+	if err == nil {
+		t.Fatal("expected error for missing name")
+	}
+	if !strings.Contains(err.Error(), "usage") {
+		t.Errorf("error = %q, want usage hint", err)
+	}
+}
+
+func TestManageAgents_CreateMissingName(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &core.Config{
+		DataDir:    dir,
+		AgentsArgs: []string{"create"},
+	}
+
+	err := manageAgents(cfg)
+	if err == nil {
+		t.Fatal("expected error for missing name")
+	}
+}
+
+func TestManageAgents_RemoveMissingName(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &core.Config{
+		DataDir:    dir,
+		AgentsArgs: []string{"remove"},
+	}
+
+	err := manageAgents(cfg)
+	if err == nil {
+		t.Fatal("expected error for missing name")
+	}
+}
+
+func TestResolveAgentOverlay_BuiltIn(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &core.Config{
+		DataDir:     dir,
+		Agent:       "claude",
+		ProjectName: "test",
+	}
+	overlay, err := resolveAgentOverlay(cfg)
+	if err != nil {
+		t.Fatalf("resolveAgentOverlay failed: %v", err)
+	}
+	if overlay != nil {
+		t.Error("overlay should be nil for built-in agent")
+	}
+}
+
+func TestResolveAgentOverlay_UserDefined(t *testing.T) {
+	dir := t.TempDir()
+	agentsDir := filepath.Join(dir, "agents")
+	os.MkdirAll(agentsDir, 0755)
+	projectCache := filepath.Join(dir, "test")
+	os.MkdirAll(projectCache, 0755)
+
+	store := agents.New(agentsDir)
+	store.Create(core.AgentConfig{
+		Name:      "reviewer",
+		BaseAgent: "claude",
+		ClaudeMd:  "You are a reviewer.",
+		Env:       map[string]string{"MODE": "review"},
+		Settings:  json.RawMessage(`{"permissions":{"allow":["Read"]}}`),
+	})
+
+	cfg := &core.Config{
+		DataDir:     dir,
+		Agent:       "reviewer",
+		ProjectName: "test",
+	}
+	overlay, err := resolveAgentOverlay(cfg)
+	if err != nil {
+		t.Fatalf("resolveAgentOverlay failed: %v", err)
+	}
+	if overlay == nil {
+		t.Fatal("overlay should not be nil for user-defined agent")
+	}
+	if overlay.ClaudeMdPath == "" {
+		t.Error("ClaudeMdPath should be set")
+	}
+	if overlay.SettingsPath == "" {
+		t.Error("SettingsPath should be set")
+	}
+	if overlay.Env["MODE"] != "review" {
+		t.Errorf("Env[MODE] = %q, want %q", overlay.Env["MODE"], "review")
+	}
+
+	// Verify files were written
+	data, err := os.ReadFile(overlay.ClaudeMdPath)
+	if err != nil {
+		t.Fatalf("reading CLAUDE.md: %v", err)
+	}
+	if string(data) != "You are a reviewer." {
+		t.Errorf("CLAUDE.md content = %q, want %q", string(data), "You are a reviewer.")
+	}
+}
+
+func TestResolveAgentOverlay_NotFound(t *testing.T) {
+	dir := t.TempDir()
+	projectCache := filepath.Join(dir, "test")
+	os.MkdirAll(projectCache, 0755)
+
+	cfg := &core.Config{
+		DataDir:     dir,
+		Agent:       "nonexistent",
+		ProjectName: "test",
+	}
+	_, err := resolveAgentOverlay(cfg)
+	if err == nil {
+		t.Fatal("expected error for nonexistent agent")
+	}
+}
+
+func TestResolveAgentOverlay_DefaultAgent(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &core.Config{
+		DataDir:     dir,
+		ProjectName: "test",
+		// Agent is empty — defaults to claude
+	}
+	overlay, err := resolveAgentOverlay(cfg)
+	if err != nil {
+		t.Fatalf("resolveAgentOverlay failed: %v", err)
+	}
+	if overlay != nil {
+		t.Error("overlay should be nil for default agent")
 	}
 }

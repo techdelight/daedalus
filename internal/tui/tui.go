@@ -769,7 +769,7 @@ func startProject(cfg *core.Config, exec executor.Executor, reg *registry.Regist
 				os.Getenv("XDG_RUNTIME_DIR"),
 			)
 		}
-		extraArgs := core.BuildExtraArgs(projCfg, displayArgs)
+		extraArgs := core.BuildExtraArgs(projCfg, displayArgs, nil)
 
 		claudeArgs := core.BuildAgentArgs(projCfg)
 		dockerCmd := docker.ComposeRunCommand(projCfg.ContainerName(), claudeArgs, extraArgs)

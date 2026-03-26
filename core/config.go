@@ -32,8 +32,9 @@ type Config struct {
 	CompletionShell string   // shell name for "completion" subcommand
 	RenameOldName   string   // old project name for "rename" subcommand
 	RenameNewName   string   // new project name for "rename" subcommand
-	Agent           string   // agent name: "claude" (default) or "copilot"
+	Agent           string   // agent name: "claude" (default), "copilot", or user-defined
 	SkillsArgs      []string // positional args for "skills" subcommand
+	AgentsArgs      []string // positional args for "agents" subcommand
 	TargetOverride  bool     // true when --target was explicitly passed
 	WebAddr         string   // host:port for web UI server
 	WSL2Detected    bool     // true when WSL2 was auto-detected and host defaulted to 0.0.0.0

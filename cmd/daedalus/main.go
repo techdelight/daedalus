@@ -4,6 +4,7 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/techdelight/daedalus/core"
+	"github.com/techdelight/daedalus/internal/agents"
 	"github.com/techdelight/daedalus/internal/catalog"
 	"github.com/techdelight/daedalus/internal/color"
 	"github.com/techdelight/daedalus/internal/completions"
@@ -89,6 +91,9 @@ func run(args []string) error {
 	case "skills":
 		logging.Info("subcommand: skills")
 		return manageSkills(cfg)
+	case "agents":
+		logging.Info("subcommand: agents")
+		return manageAgents(cfg)
 	}
 
 	// --- Normal project flow ---
@@ -291,7 +296,11 @@ func launchProject(cfg *core.Config, d *docker.Docker, reg *registry.Registry, s
 			fmt.Fprintln(os.Stderr, color.Yellow("Warning:")+" "+w)
 		}
 	}
-	extraArgs := core.BuildExtraArgs(cfg, displayArgs)
+	overlay, err := resolveAgentOverlay(cfg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, color.Yellow("Warning:")+" agent overlay: %v\n", err)
+	}
+	extraArgs := core.BuildExtraArgs(cfg, displayArgs, overlay)
 
 	if useTmux {
 		dockerCmd := d.ComposeRunCommand(cfg.ContainerName(), claudeArgs, extraArgs)
@@ -673,6 +682,7 @@ func printUsage() {
 	fmt.Println("       daedalus tui")
 	fmt.Println("       daedalus web [--port PORT] [--host HOST]")
 	fmt.Println("       daedalus skills [add <file> | remove <name> | show <name>]")
+	fmt.Println("       daedalus agents [list | show <name> | create <name> | remove <name>]")
 	fmt.Println("       daedalus completion <bash|zsh|fish>")
 	fmt.Println("       daedalus --help")
 	fmt.Println()
@@ -688,6 +698,7 @@ func printUsage() {
 	fmt.Println("  tui                           Interactive dashboard for managing projects")
 	fmt.Println("  web                           Web UI dashboard (default: localhost:3000, auto-detects WSL2)")
 	fmt.Println("  skills                        List, add, remove, or show skills in the shared catalog")
+	fmt.Println("  agents                        List, show, create, or remove named agent configurations")
 	fmt.Println("  completion <shell>            Print shell completion script (bash, zsh, fish)")
 	fmt.Println()
 	fmt.Println(color.Bold("Flags:"))
@@ -700,7 +711,7 @@ func printUsage() {
 	fmt.Println("  --dind             Mount Docker socket (WARNING: grants host Docker access)")
 	fmt.Println("  --display          Forward host display (X11/Wayland) into the container")
 	fmt.Println("  --force            Force deletion in non-interactive mode (e.g. prune)")
-	fmt.Println("  --agent <name>     AI agent: claude (default) or copilot")
+	fmt.Println("  --agent <name>     AI agent: claude (default), copilot, or user-defined")
 	fmt.Println("  --container-log    Log container output to <data-dir>/<project>/container.log")
 	fmt.Println("  --no-color         Disable colored output (also honors NO_COLOR env var)")
 	fmt.Println("  --port <port>      Port for web UI (default: 3000)")
@@ -911,6 +922,206 @@ func removeProjects(cfg *core.Config) error {
 	for _, name := range removed {
 		fmt.Printf("%s '%s'.\n", color.Green("Removed"), name)
 	}
+	return nil
+}
+
+// resolveAgentOverlay checks if the current agent is a user-defined config
+// and, if so, writes the overlay files to the cache directory and returns
+// the paths for container volume mounts. Returns nil for built-in agents.
+func resolveAgentOverlay(cfg *core.Config) (*core.OverlayPaths, error) {
+	agentName := core.ResolveAgentName(cfg)
+	if core.IsBuiltinAgent(agentName) {
+		return nil, nil
+	}
+	store := agents.New(cfg.AgentsDir())
+	agentCfg, err := store.Read(agentName)
+	if err != nil {
+		return nil, fmt.Errorf("reading agent config %q: %w", agentName, err)
+	}
+
+	overlayDir := filepath.Join(cfg.CacheDir(), "agent-overlay")
+	if err := os.MkdirAll(overlayDir, 0755); err != nil {
+		return nil, fmt.Errorf("creating overlay directory: %w", err)
+	}
+
+	var paths core.OverlayPaths
+	if agentCfg.ClaudeMd != "" {
+		p := filepath.Join(overlayDir, "CLAUDE.md")
+		if err := os.WriteFile(p, []byte(agentCfg.ClaudeMd), 0644); err != nil {
+			return nil, fmt.Errorf("writing CLAUDE.md overlay: %w", err)
+		}
+		paths.ClaudeMdPath = p
+	}
+	if len(agentCfg.Settings) > 0 {
+		p := filepath.Join(overlayDir, "settings.json")
+		if err := os.WriteFile(p, agentCfg.Settings, 0644); err != nil {
+			return nil, fmt.Errorf("writing settings.json overlay: %w", err)
+		}
+		paths.SettingsPath = p
+	}
+	if len(agentCfg.Env) > 0 {
+		paths.Env = agentCfg.Env
+	}
+
+	logging.Info("resolved agent overlay for " + agentName + " (base: " + agentCfg.BaseAgent + ")")
+	return &paths, nil
+}
+
+// manageAgents handles the "agents" subcommand for managing user-defined
+// agent configurations.
+func manageAgents(cfg *core.Config) error {
+	store := agents.New(cfg.AgentsDir())
+	args := cfg.AgentsArgs
+
+	if len(args) == 0 || args[0] == "list" {
+		return listAgents(store)
+	}
+
+	switch args[0] {
+	case "show":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: daedalus agents show <name>")
+		}
+		return showAgent(store, args[1])
+	case "create":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: daedalus agents create <name>")
+		}
+		return createAgent(cfg, store, args[1])
+	case "remove":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: daedalus agents remove <name>")
+		}
+		return removeAgent(store, args[1])
+	default:
+		return fmt.Errorf("unknown agents command %q\n%s available: list, show, create, remove", args[0], color.Cyan("Hint:"))
+	}
+}
+
+// listAgents prints all agent configurations (built-in + user-defined).
+func listAgents(store *agents.Store) error {
+	configs, err := store.List()
+	if err != nil {
+		return fmt.Errorf("listing agents: %w", err)
+	}
+
+	nameW := 4
+	baseW := 4
+	for _, name := range core.BuiltinAgentNames() {
+		if len(name) > nameW {
+			nameW = len(name)
+		}
+	}
+	for _, c := range configs {
+		if len(c.Name) > nameW {
+			nameW = len(c.Name)
+		}
+		if len(c.BaseAgent) > baseW {
+			baseW = len(c.BaseAgent)
+		}
+	}
+
+	fmt.Printf("%-*s  %-*s  %s\n", nameW, color.Bold("NAME"), baseW, color.Bold("BASE"), color.Bold("DESCRIPTION"))
+	fmt.Printf("%-*s  %-*s  %s\n", nameW, strings.Repeat("-", nameW), baseW, strings.Repeat("-", baseW), "-----------")
+	for _, name := range core.BuiltinAgentNames() {
+		fmt.Printf("%-*s  %-*s  %s\n", nameW, name, baseW, "(built-in)", "Built-in agent")
+	}
+	for _, c := range configs {
+		fmt.Printf("%-*s  %-*s  %s\n", nameW, c.Name, baseW, c.BaseAgent, c.Description)
+	}
+	return nil
+}
+
+// showAgent prints the full JSON configuration for a named agent.
+func showAgent(store *agents.Store, name string) error {
+	if core.IsBuiltinAgent(name) {
+		profile, _ := core.LookupBuiltinAgent(name)
+		fmt.Printf("%s %s (built-in)\n", color.Bold("Agent:"), name)
+		fmt.Printf("%s %s\n", color.Bold("Binary:"), profile.BinaryPath)
+		return nil
+	}
+	cfg, err := store.Read(name)
+	if err != nil {
+		return fmt.Errorf("reading agent: %w", err)
+	}
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return fmt.Errorf("formatting agent config: %w", err)
+	}
+	fmt.Println(string(data))
+	return nil
+}
+
+// createAgent interactively creates a new agent configuration.
+func createAgent(cfg *core.Config, store *agents.Store, name string) error {
+	if err := core.ValidateAgentConfigName(name); err != nil {
+		return err
+	}
+
+	scanner := bufio.NewScanner(os.Stdin)
+
+	// Prompt for base agent
+	fmt.Printf("Base agent (claude, copilot) [claude]: ")
+	baseAgent := "claude"
+	if scanner.Scan() {
+		if text := strings.TrimSpace(scanner.Text()); text != "" {
+			baseAgent = text
+		}
+	}
+	if !core.IsBuiltinAgent(baseAgent) {
+		return fmt.Errorf("base agent must be a built-in agent (claude, copilot), got %q", baseAgent)
+	}
+
+	// Prompt for description
+	fmt.Printf("Description: ")
+	var description string
+	if scanner.Scan() {
+		description = strings.TrimSpace(scanner.Text())
+	}
+
+	// Prompt for CLAUDE.md content (inline or file path)
+	fmt.Printf("CLAUDE.md content (enter text, or @filepath to read from file, or empty to skip):\n> ")
+	var claudeMd string
+	if scanner.Scan() {
+		text := strings.TrimSpace(scanner.Text())
+		if strings.HasPrefix(text, "@") {
+			path := strings.TrimPrefix(text, "@")
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return fmt.Errorf("reading CLAUDE.md file: %w", err)
+			}
+			claudeMd = string(data)
+		} else {
+			claudeMd = text
+		}
+	}
+
+	agentCfg := core.AgentConfig{
+		Name:        name,
+		Description: description,
+		BaseAgent:   baseAgent,
+		ClaudeMd:    claudeMd,
+	}
+
+	if err := os.MkdirAll(cfg.AgentsDir(), 0755); err != nil {
+		return fmt.Errorf("creating agents directory: %w", err)
+	}
+	if err := store.Create(agentCfg); err != nil {
+		return fmt.Errorf("creating agent: %w", err)
+	}
+	fmt.Printf("%s agent '%s' created (base: %s).\n", color.Green("OK:"), name, baseAgent)
+	return nil
+}
+
+// removeAgent deletes a user-defined agent configuration.
+func removeAgent(store *agents.Store, name string) error {
+	if core.IsBuiltinAgent(name) {
+		return fmt.Errorf("cannot remove built-in agent %q", name)
+	}
+	if err := store.Remove(name); err != nil {
+		return fmt.Errorf("removing agent: %w", err)
+	}
+	fmt.Printf("%s agent '%s' removed.\n", color.Green("OK:"), name)
 	return nil
 }
 

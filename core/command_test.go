@@ -171,7 +171,7 @@ func TestBuildTmuxCommand_QuotesDockerArgs(t *testing.T) {
 
 func TestBuildExtraArgs_AlwaysMountsSkills(t *testing.T) {
 	cfg := &Config{DataDir: "/data/daedalus"}
-	args := BuildExtraArgs(cfg, nil)
+	args := BuildExtraArgs(cfg, nil, nil)
 	if len(args) < 2 {
 		t.Fatalf("args = %v, want at least 2 elements for skills mount", args)
 	}
@@ -186,13 +186,83 @@ func TestBuildExtraArgs_AlwaysMountsSkills(t *testing.T) {
 
 func TestBuildExtraArgs_WithDinD(t *testing.T) {
 	cfg := &Config{DataDir: "/data", DinD: true}
-	args := BuildExtraArgs(cfg, nil)
+	args := BuildExtraArgs(cfg, nil, nil)
 	// Should have skills mount (2 args) + DinD mount (2 args)
 	if len(args) != 4 {
 		t.Fatalf("args = %v, want 4 elements", args)
 	}
 	if args[2] != "-v" || args[3] != "/var/run/docker.sock:/var/run/docker.sock" {
 		t.Errorf("DinD mount not found, got: %v", args[2:])
+	}
+}
+
+func TestBuildExtraArgs_WithOverlay_ClaudeMd(t *testing.T) {
+	cfg := &Config{DataDir: "/data"}
+	overlay := &OverlayPaths{ClaudeMdPath: "/tmp/overlay/CLAUDE.md"}
+	args := BuildExtraArgs(cfg, nil, overlay)
+	// skills mount (2) + CLAUDE.md mount (2)
+	if len(args) != 4 {
+		t.Fatalf("args = %v, want 4 elements", args)
+	}
+	if args[2] != "-v" {
+		t.Errorf("args[2] = %q, want %q", args[2], "-v")
+	}
+	want := "/tmp/overlay/CLAUDE.md:/workspace/.claude/CLAUDE.md:ro"
+	if args[3] != want {
+		t.Errorf("args[3] = %q, want %q", args[3], want)
+	}
+}
+
+func TestBuildExtraArgs_WithOverlay_Settings(t *testing.T) {
+	cfg := &Config{DataDir: "/data"}
+	overlay := &OverlayPaths{SettingsPath: "/tmp/overlay/settings.json"}
+	args := BuildExtraArgs(cfg, nil, overlay)
+	// skills mount (2) + settings mount (2)
+	if len(args) != 4 {
+		t.Fatalf("args = %v, want 4 elements", args)
+	}
+	want := "/tmp/overlay/settings.json:/workspace/.claude/settings.json:ro"
+	if args[3] != want {
+		t.Errorf("args[3] = %q, want %q", args[3], want)
+	}
+}
+
+func TestBuildExtraArgs_WithOverlay_Env(t *testing.T) {
+	cfg := &Config{DataDir: "/data"}
+	overlay := &OverlayPaths{Env: map[string]string{"FOO": "bar"}}
+	args := BuildExtraArgs(cfg, nil, overlay)
+	// skills mount (2) + env (2)
+	if len(args) != 4 {
+		t.Fatalf("args = %v, want 4 elements", args)
+	}
+	if args[2] != "-e" {
+		t.Errorf("args[2] = %q, want %q", args[2], "-e")
+	}
+	if args[3] != "FOO=bar" {
+		t.Errorf("args[3] = %q, want %q", args[3], "FOO=bar")
+	}
+}
+
+func TestBuildExtraArgs_WithOverlay_Full(t *testing.T) {
+	cfg := &Config{DataDir: "/data"}
+	overlay := &OverlayPaths{
+		ClaudeMdPath: "/tmp/CLAUDE.md",
+		SettingsPath: "/tmp/settings.json",
+		Env:          map[string]string{"KEY": "val"},
+	}
+	args := BuildExtraArgs(cfg, nil, overlay)
+	// skills (2) + claudemd (2) + settings (2) + env (2) = 8
+	if len(args) != 8 {
+		t.Fatalf("args = %v, want 8 elements", args)
+	}
+}
+
+func TestBuildExtraArgs_NilOverlay(t *testing.T) {
+	cfg := &Config{DataDir: "/data"}
+	args := BuildExtraArgs(cfg, nil, nil)
+	// Only skills mount
+	if len(args) != 2 {
+		t.Fatalf("args = %v, want 2 elements", args)
 	}
 }
 

@@ -4,7 +4,7 @@
 
 | # | Item |
 |---|------|
-| 1 | Agent mode (`--agent`) — start Claude Code as a specific agent by passing a named agent configuration, enabling purpose-built personas and tool sets per project |
+| ~~1~~ | ~~Agent mode (`--agent`) — start Claude Code as a specific agent by passing a named agent configuration, enabling purpose-built personas and tool sets per project~~ |
 | 2 | Authentication for Web UI — add token-based login to protect the dashboard when exposed on a network |
 | 3 | Session cookie with configurable expiry |
 | 4 | `--auth` / `--no-auth` flag for `daedalus web` (default: auth enabled) |
@@ -32,8 +32,22 @@
 | ~~26~~ | ~~Mobile-friendly web UI — scrollable terminal output (replace tmux Ctrl+B PgUp/PgDown with native scroll), multi-line input (Enter inserts newline, separate submit button/shortcut), simplified project overview (name, online status, attach/kill/start action buttons)~~ |
 | 27 | Decouple tooling from agent runner images — keep base agent containers minimal and let the agent install additional tools at runtime. Provide container snapshotting so customized environments persist across restarts. Key challenge: when the base image is upgraded, how do we replay tool installations? Options: (a) maintain a declarative tool registry (tool name + version + install method) that a provisioner re-applies on new base images — portable but subjective per tool; (b) record raw install commands as a replayable script — simple but fragile across base image changes; (c) hybrid approach with a registry of well-known tools (apt, pip, npm) plus an escape hatch for arbitrary commands. Needs design spike to evaluate trade-offs |
 | ~~28~~ | ~~Active project filter — add a toggle/filter to the Web UI and TUI that shows only running projects. Useful when the project list grows large and the user wants to focus on what is currently active~~ |
+| 29 | Mobile WebSocket stability — investigate and fix regular disconnects on mobile web clients (possible causes: browser background tab throttling, network switches between Wi-Fi and cellular, WebSocket ping/pong timeout tuning, reconnect logic) |
 
 ## Current Sprint
+
+### Sprint 21: Agent Mode — Named Configurations (v0.16.0)
+
+Goal: allow users to define named agent configurations (personas) that layer custom system prompts and tool-permission overrides on top of a built-in base agent, selectable via `--agent <name>`.
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | `core/agentconfig.go` — `AgentConfig` type, `AgentsDir()`, `ValidateAgentConfigName()` with tests | Done |
+| 2 | `internal/agents` package — Store with List/Read/Create/Update/Remove, unit tests | Done |
+| 3 | Extend `core/agent.go` — `LookupAgent` resolves user-defined configs, `ValidAgentNames` includes them, update all callers | Done |
+| 4 | `core/command.go` — `BuildExtraArgs` injects custom CLAUDE.md and settings mounts for agent overlays | Done |
+| 5 | `internal/config` — dynamic `--agent` validation against built-in + user-defined names | Done |
+| 6 | `daedalus agents` CLI subcommand — list, show, create, remove with help text and shell completions | Done |
 
 ### Sprint 20: Active Project Filter (v0.15.0)
 

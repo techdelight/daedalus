@@ -11,7 +11,10 @@ import (
 )
 
 func TestBashCompletion_ContainsSubcommands(t *testing.T) {
-	if !strings.Contains(bashCompletion, "list prune remove rename config tui web completion") {
+	if !strings.Contains(bashCompletion, "skills agents") {
+		t.Error("bash completion missing skills/agents subcommands")
+	}
+	if !strings.Contains(bashCompletion, "list prune remove rename config tui web completion skills agents") {
 		t.Error("bash completion missing subcommands")
 	}
 	if !strings.Contains(bashCompletion, "complete -F _daedalus daedalus") {
@@ -129,5 +132,56 @@ func TestGenerate_EmptyShell(t *testing.T) {
 	err := Generate(cfg)
 	if err == nil {
 		t.Fatal("expected error for empty shell, got nil")
+	}
+}
+
+func TestBashCompletion_AgentsSubcommand(t *testing.T) {
+	if !strings.Contains(bashCompletion, "agents)") {
+		t.Error("bash completion missing agents case")
+	}
+	if !strings.Contains(bashCompletion, "list show create remove") {
+		t.Error("bash completion missing agents subcommands")
+	}
+}
+
+func TestZshCompletion_AgentsSubcommand(t *testing.T) {
+	if !strings.Contains(zshCompletion, "'agents:Manage named agent configurations'") {
+		t.Error("zsh completion missing agents subcommand description")
+	}
+	if !strings.Contains(zshCompletion, "agents)") {
+		t.Error("zsh completion missing agents case")
+	}
+}
+
+func TestFishCompletion_AgentsSubcommand(t *testing.T) {
+	if !strings.Contains(fishCompletion, "'agents'") {
+		t.Error("fish completion missing agents subcommand")
+	}
+	if !strings.Contains(fishCompletion, "__fish_seen_subcommand_from agents") {
+		t.Error("fish completion missing agents subcommand completions")
+	}
+}
+
+func TestBashCompletion_SkillsSubcommand(t *testing.T) {
+	if !strings.Contains(bashCompletion, "skills)") {
+		t.Error("bash completion missing skills case")
+	}
+	if !strings.Contains(bashCompletion, "add remove show") {
+		t.Error("bash completion missing skills subcommands")
+	}
+}
+
+func TestZshCompletion_SkillsSubcommand(t *testing.T) {
+	if !strings.Contains(zshCompletion, "'skills:Manage shared skill catalog'") {
+		t.Error("zsh completion missing skills subcommand description")
+	}
+}
+
+func TestFishCompletion_SkillsSubcommand(t *testing.T) {
+	if !strings.Contains(fishCompletion, "'skills'") {
+		t.Error("fish completion missing skills subcommand")
+	}
+	if !strings.Contains(fishCompletion, "__fish_seen_subcommand_from skills") {
+		t.Error("fish completion missing skills subcommand completions")
 	}
 }

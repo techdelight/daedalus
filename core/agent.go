@@ -42,7 +42,25 @@ var agentProfiles = map[string]AgentProfile{
 
 // LookupAgent returns the agent profile for the given name and whether
 // the name was valid. Unknown names return the Claude profile and false.
-func LookupAgent(name string) (AgentProfile, bool) {
+// If userConfig is non-nil and name is not a built-in, it resolves the
+// base agent from the user config and returns an AgentOverlay.
+func LookupAgent(name string, userConfig *AgentConfig) (AgentOverlay, bool) {
+	if p, ok := agentProfiles[name]; ok {
+		return AgentOverlay{Profile: p, Overlay: nil}, true
+	}
+	if userConfig != nil && userConfig.Name == name {
+		base, ok := agentProfiles[userConfig.BaseAgent]
+		if !ok {
+			base = agentProfiles["claude"]
+		}
+		return AgentOverlay{Profile: base, Overlay: userConfig}, ok || true
+	}
+	return AgentOverlay{Profile: agentProfiles["claude"]}, false
+}
+
+// LookupBuiltinAgent returns the built-in agent profile for the given name.
+// Unknown names return the Claude profile and false.
+func LookupBuiltinAgent(name string) (AgentProfile, bool) {
 	p, ok := agentProfiles[name]
 	if !ok {
 		return agentProfiles["claude"], false
@@ -50,9 +68,12 @@ func LookupAgent(name string) (AgentProfile, bool) {
 	return p, true
 }
 
-// ValidAgentNames returns the list of supported agent names.
-func ValidAgentNames() []string {
-	return []string{"claude", "copilot"}
+// ValidAgentNames returns the list of supported agent names, including
+// any user-defined names provided.
+func ValidAgentNames(userDefined ...string) []string {
+	names := []string{"claude", "copilot"}
+	names = append(names, userDefined...)
+	return names
 }
 
 // ResolveAgentName returns the effective agent name from the config,

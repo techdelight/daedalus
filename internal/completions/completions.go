@@ -30,7 +30,7 @@ _daedalus() {
     local cur prev words cword
     _init_completion || return
 
-    local subcommands="list prune remove rename config tui web completion"
+    local subcommands="list prune remove rename config tui web completion skills agents"
     local flags="--build --target --resume -p --no-tmux --debug --dind --display --force --port --host --no-color --agent --help -h"
 
     # Complete subcommands and flags for the first argument
@@ -52,6 +52,12 @@ _daedalus() {
             ;;
         web)
             COMPREPLY=($(compgen -W "--port --host ${flags}" -- "${cur}"))
+            ;;
+        skills)
+            COMPREPLY=($(compgen -W "add remove show" -- "${cur}"))
+            ;;
+        agents)
+            COMPREPLY=($(compgen -W "list show create remove" -- "${cur}"))
             ;;
         *)
             COMPREPLY=($(compgen -W "${flags}" -- "${cur}"))
@@ -78,6 +84,8 @@ _daedalus() {
         'tui:Interactive dashboard for managing projects'
         'web:Web UI dashboard'
         'completion:Print shell completion script'
+        'skills:Manage shared skill catalog'
+        'agents:Manage named agent configurations'
     )
 
     flags=(
@@ -120,6 +128,12 @@ _daedalus() {
                     _describe -t projects 'project' projects
                     _describe -t flags 'flag' flags
                     ;;
+                skills)
+                    _values 'action' add remove show
+                    ;;
+                agents)
+                    _values 'action' list show create remove
+                    ;;
                 *)
                     _describe -t flags 'flag' flags
                     ;;
@@ -143,6 +157,8 @@ complete -c daedalus -n '__fish_use_subcommand' -a 'config' -d 'View or edit per
 complete -c daedalus -n '__fish_use_subcommand' -a 'tui' -d 'Interactive dashboard for managing projects'
 complete -c daedalus -n '__fish_use_subcommand' -a 'web' -d 'Web UI dashboard'
 complete -c daedalus -n '__fish_use_subcommand' -a 'completion' -d 'Print shell completion script'
+complete -c daedalus -n '__fish_use_subcommand' -a 'skills' -d 'Manage shared skill catalog'
+complete -c daedalus -n '__fish_use_subcommand' -a 'agents' -d 'Manage named agent configurations'
 
 # Global flags
 complete -c daedalus -l build -d 'Force rebuild the Docker image'
@@ -165,6 +181,12 @@ complete -c daedalus -l unset -d 'Remove a default flag' -r
 
 # Completion subcommand
 complete -c daedalus -n '__fish_seen_subcommand_from completion' -a 'bash zsh fish'
+
+# Skills subcommand
+complete -c daedalus -n '__fish_seen_subcommand_from skills' -a 'add remove show'
+
+# Agents subcommand
+complete -c daedalus -n '__fish_seen_subcommand_from agents' -a 'list show create remove'
 
 # Dynamic project names for remove and config
 complete -c daedalus -n '__fish_seen_subcommand_from remove rename config' -a '(daedalus list 2>/dev/null | tail -n +3 | string match -r "^\S+")'
