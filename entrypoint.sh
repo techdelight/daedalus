@@ -10,7 +10,7 @@ case "$RUNNER" in
         mkdir -p "$CLAUDE_CONFIG_DIR"
 
         # Ensure skills directory exists for skill catalog
-        mkdir -p "$HOME/.claude/skills"
+        mkdir -p /workspace/.claude/skills
 
         # Seed config files on first run
         if [ ! -f "$CLAUDE_CONFIG_DIR/.claude.json" ]; then

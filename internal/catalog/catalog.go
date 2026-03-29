@@ -15,7 +15,7 @@ type Skill struct {
 	Description string `json:"description"`
 }
 
-// Catalog provides operations on the shared skill catalog and per-user
+// Catalog provides operations on the shared skill catalog and per-project
 // installed skills. All methods are safe for concurrent use from MCP handlers
 // because each operation is a single filesystem call sequence.
 type Catalog struct {
@@ -37,7 +37,7 @@ func (c *Catalog) List() ([]Skill, error) {
 	return listSkillsIn(c.catalogDir)
 }
 
-// ListInstalled returns all skills installed in the user's skills directory.
+// ListInstalled returns all skills installed in the project's skills directory.
 func (c *Catalog) ListInstalled() ([]Skill, error) {
 	return listSkillsIn(c.skillsDir)
 }
@@ -55,7 +55,7 @@ func (c *Catalog) Read(name string) (string, error) {
 	return string(data), nil
 }
 
-// Install copies a skill from the catalog to the user's skills directory.
+// Install copies a skill from the catalog to the project's skills directory.
 func (c *Catalog) Install(name string) error {
 	if err := validateName(name); err != nil {
 		return err
@@ -76,7 +76,7 @@ func (c *Catalog) Install(name string) error {
 	return nil
 }
 
-// Uninstall removes a skill from the user's skills directory.
+// Uninstall removes a skill from the project's skills directory.
 func (c *Catalog) Uninstall(name string) error {
 	if err := validateName(name); err != nil {
 		return err

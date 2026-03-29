@@ -422,14 +422,14 @@ daedalus skills remove commit      # Remove a skill from the catalog
 |---|---|
 | `list_skills` | List all skills in the shared catalog |
 | `read_skill` | Read the full content of a skill |
-| `install_skill` | Install a skill into `~/.claude/skills/` |
-| `uninstall_skill` | Remove a skill from `~/.claude/skills/` |
+| `install_skill` | Install a skill into `.claude/skills/` |
+| `uninstall_skill` | Remove a skill from `.claude/skills/` |
 | `create_skill` | Publish a new skill to the shared catalog |
 | `update_skill` | Update an existing skill in the catalog |
 | `remove_skill` | Delete a skill from the catalog |
 | `list_installed` | List skills installed in the current project |
 
-Installing a skill copies it from the catalog to `~/.claude/skills/`, where Claude Code automatically discovers it as a user-wide skill. The catalog is seeded with starter skills (`commit.md`, `review.md`) on first run.
+Installing a skill copies it from the catalog to the project's `.claude/skills/` directory, where Claude Code automatically discovers it. The catalog is seeded with starter skills (`commit.md`, `review.md`) on first run.
 
 ## Persona Configurations
 
