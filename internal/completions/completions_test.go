@@ -214,14 +214,14 @@ func TestZshCompletion_PersonaFlag(t *testing.T) {
 }
 
 func TestFishCompletion_RunnerFlag(t *testing.T) {
-	if !strings.Contains(fishCompletion, "--runner") {
-		t.Error("fish completion missing --runner flag")
+	if !strings.Contains(fishCompletion, "-l runner") {
+		t.Error("fish completion missing runner flag")
 	}
 }
 
 func TestFishCompletion_PersonaFlag(t *testing.T) {
-	if !strings.Contains(fishCompletion, "--persona") {
-		t.Error("fish completion missing --persona flag")
+	if !strings.Contains(fishCompletion, "-l persona") {
+		t.Error("fish completion missing persona flag")
 	}
 }
 
