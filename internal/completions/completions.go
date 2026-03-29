@@ -30,8 +30,8 @@ _daedalus() {
     local cur prev words cword
     _init_completion || return
 
-    local subcommands="list prune remove rename config tui web completion"
-    local flags="--build --target --resume -p --no-tmux --debug --dind --display --force --port --host --no-color --agent --help -h"
+    local subcommands="list prune remove rename config tui web completion skills runners personas"
+    local flags="--build --target --resume -p --no-tmux --debug --dind --display --force --port --host --no-color --runner --persona --help -h"
 
     # Complete subcommands and flags for the first argument
     if [[ ${cword} -eq 1 ]]; then
@@ -52,6 +52,15 @@ _daedalus() {
             ;;
         web)
             COMPREPLY=($(compgen -W "--port --host ${flags}" -- "${cur}"))
+            ;;
+        skills)
+            COMPREPLY=($(compgen -W "add remove show" -- "${cur}"))
+            ;;
+        runners)
+            COMPREPLY=($(compgen -W "list show" -- "${cur}"))
+            ;;
+        personas)
+            COMPREPLY=($(compgen -W "list show create remove" -- "${cur}"))
             ;;
         *)
             COMPREPLY=($(compgen -W "${flags}" -- "${cur}"))
@@ -78,6 +87,9 @@ _daedalus() {
         'tui:Interactive dashboard for managing projects'
         'web:Web UI dashboard'
         'completion:Print shell completion script'
+        'skills:Manage shared skill catalog'
+        'runners:List or show built-in runner profiles'
+        'personas:Manage named persona configurations'
     )
 
     flags=(
@@ -95,7 +107,8 @@ _daedalus() {
         '--host[Host for web UI]:host:'
         '--help[Show help message]'
         '-h[Show help message]'
-        '--agent[AI agent to use]:agent:(claude copilot)'
+        '--runner[AI runner to use]:runner:(claude copilot)'
+        '--persona[Persona configuration to use]:persona:'
         '--set[Set a default flag]:key=value:'
         '--unset[Remove a default flag]:key:'
     )
@@ -120,6 +133,15 @@ _daedalus() {
                     _describe -t projects 'project' projects
                     _describe -t flags 'flag' flags
                     ;;
+                skills)
+                    _values 'action' add remove show
+                    ;;
+                runners)
+                    _values 'action' list show
+                    ;;
+                personas)
+                    _values 'action' list show create remove
+                    ;;
                 *)
                     _describe -t flags 'flag' flags
                     ;;
@@ -143,6 +165,9 @@ complete -c daedalus -n '__fish_use_subcommand' -a 'config' -d 'View or edit per
 complete -c daedalus -n '__fish_use_subcommand' -a 'tui' -d 'Interactive dashboard for managing projects'
 complete -c daedalus -n '__fish_use_subcommand' -a 'web' -d 'Web UI dashboard'
 complete -c daedalus -n '__fish_use_subcommand' -a 'completion' -d 'Print shell completion script'
+complete -c daedalus -n '__fish_use_subcommand' -a 'skills' -d 'Manage shared skill catalog'
+complete -c daedalus -n '__fish_use_subcommand' -a 'runners' -d 'List or show built-in runner profiles'
+complete -c daedalus -n '__fish_use_subcommand' -a 'personas' -d 'Manage named persona configurations'
 
 # Global flags
 complete -c daedalus -l build -d 'Force rebuild the Docker image'
@@ -159,12 +184,22 @@ complete -c daedalus -l port -d 'Port for web UI' -r
 complete -c daedalus -l host -d 'Host for web UI' -r
 complete -c daedalus -l help -d 'Show help message'
 complete -c daedalus -s h -d 'Show help message'
-complete -c daedalus -l agent -d 'AI agent to use' -r -a 'claude copilot'
+complete -c daedalus -l runner -d 'AI runner to use' -r -a 'claude copilot'
+complete -c daedalus -l persona -d 'Persona configuration to use' -r
 complete -c daedalus -l set -d 'Set a default flag (key=value)' -r
 complete -c daedalus -l unset -d 'Remove a default flag' -r
 
 # Completion subcommand
 complete -c daedalus -n '__fish_seen_subcommand_from completion' -a 'bash zsh fish'
+
+# Skills subcommand
+complete -c daedalus -n '__fish_seen_subcommand_from skills' -a 'add remove show'
+
+# Runners subcommand
+complete -c daedalus -n '__fish_seen_subcommand_from runners' -a 'list show'
+
+# Personas subcommand
+complete -c daedalus -n '__fish_seen_subcommand_from personas' -a 'list show create remove'
 
 # Dynamic project names for remove and config
 complete -c daedalus -n '__fish_seen_subcommand_from remove rename config' -a '(daedalus list 2>/dev/null | tail -n +3 | string match -r "^\S+")'

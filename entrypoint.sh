@@ -1,16 +1,16 @@
 #!/bin/bash
 set -e
 
-AGENT="${AGENT:-claude}"
+RUNNER="${RUNNER:-claude}"
 DEFAULTS_DIR="/opt/claude/defaults"
 
-case "$AGENT" in
+case "$RUNNER" in
     claude)
         # Ensure config directory exists
         mkdir -p "$CLAUDE_CONFIG_DIR"
 
-        # Ensure commands directory exists for skill catalog
-        mkdir -p "$HOME/.claude/commands"
+        # Ensure skills directory exists for skill catalog
+        mkdir -p /workspace/.claude/skills
 
         # Seed config files on first run
         if [ ! -f "$CLAUDE_CONFIG_DIR/.claude.json" ]; then
@@ -25,7 +25,7 @@ case "$AGENT" in
         exec /usr/local/bin/copilot --allow-all "$@"
         ;;
     *)
-        echo "Unknown agent: $AGENT" >&2
+        echo "Unknown runner: $RUNNER" >&2
         exit 1
         ;;
 esac

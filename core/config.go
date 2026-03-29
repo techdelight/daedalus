@@ -32,8 +32,11 @@ type Config struct {
 	CompletionShell string   // shell name for "completion" subcommand
 	RenameOldName   string   // old project name for "rename" subcommand
 	RenameNewName   string   // new project name for "rename" subcommand
-	Agent           string   // agent name: "claude" (default) or "copilot"
+	Runner          string   // runner name: "claude" (default), "copilot"
+	Persona         string   // persona name: user-defined persona configuration
 	SkillsArgs      []string // positional args for "skills" subcommand
+	PersonasArgs    []string // positional args for "personas" subcommand
+	RunnersArgs     []string // positional args for "runners" subcommand
 	TargetOverride  bool     // true when --target was explicitly passed
 	WebAddr         string   // host:port for web UI server
 	WSL2Detected    bool     // true when WSL2 was auto-detected and host defaulted to 0.0.0.0
@@ -42,23 +45,23 @@ type Config struct {
 }
 
 // Image returns the full Docker image tag.
-// For non-claude agents, "claude-runner" in the prefix is replaced with
-// "<agent>-runner" (e.g. "techdelight/copilot-runner:dev").
+// For non-claude runners, "claude-runner" in the prefix is replaced with
+// "<runner>-runner" (e.g. "techdelight/copilot-runner:dev").
 func (c *Config) Image() string {
 	prefix := c.ImagePrefix
-	agent := ResolveAgentName(c)
-	if agent != "claude" {
-		prefix = strings.Replace(prefix, "claude-runner", agent+"-runner", 1)
+	runner := ResolveRunnerName(c)
+	if runner != "claude" {
+		prefix = strings.Replace(prefix, "claude-runner", runner+"-runner", 1)
 	}
 	return prefix + ":" + c.Target
 }
 
-// BuildTarget returns the Dockerfile stage name for the current agent and
-// target. Non-claude agents use prefixed stages (e.g. "copilot-dev").
+// BuildTarget returns the Dockerfile stage name for the current runner and
+// target. Non-claude runners use prefixed stages (e.g. "copilot-dev").
 func (c *Config) BuildTarget() string {
-	agent := ResolveAgentName(c)
-	if agent != "claude" {
-		return agent + "-" + c.Target
+	runner := ResolveRunnerName(c)
+	if runner != "claude" {
+		return runner + "-" + c.Target
 	}
 	return c.Target
 }
@@ -110,23 +113,23 @@ func ApplyRegistryEntry(cfg *Config, entry ProjectEntry) {
 		cfg.Target = entry.Target
 	}
 	applyDefaultFlags(cfg, entry.DefaultFlags)
-	NormalizeAgentTarget(cfg)
+	NormalizeRunnerTarget(cfg)
 }
 
-// NormalizeAgentTarget detects agent-prefixed targets like "copilot-dev" and
-// splits them into Agent="copilot" and Target="dev". Only applies when Agent
+// NormalizeRunnerTarget detects runner-prefixed targets like "copilot-dev" and
+// splits them into Runner="copilot" and Target="dev". Only applies when Runner
 // is not already explicitly set.
-func NormalizeAgentTarget(cfg *Config) {
-	if cfg.Agent != "" {
+func NormalizeRunnerTarget(cfg *Config) {
+	if cfg.Runner != "" {
 		return
 	}
-	for _, name := range ValidAgentNames() {
+	for _, name := range ValidRunnerNames() {
 		if name == "claude" {
 			continue
 		}
 		prefix := name + "-"
 		if strings.HasPrefix(cfg.Target, prefix) {
-			cfg.Agent = name
+			cfg.Runner = name
 			cfg.Target = strings.TrimPrefix(cfg.Target, prefix)
 			return
 		}
@@ -154,9 +157,18 @@ func applyDefaultFlags(cfg *Config, flags map[string]string) {
 			if !cfg.NoTmux {
 				cfg.NoTmux = val == "true"
 			}
+		case "runner":
+			if cfg.Runner == "" {
+				cfg.Runner = val
+			}
+		case "persona":
+			if cfg.Persona == "" {
+				cfg.Persona = val
+			}
 		case "agent":
-			if cfg.Agent == "" {
-				cfg.Agent = val
+			// Legacy fallback: map "agent" to Runner for backward compat
+			if cfg.Runner == "" {
+				cfg.Runner = val
 			}
 		}
 	}

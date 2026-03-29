@@ -11,14 +11,9 @@ import (
 
 	"github.com/techdelight/daedalus/core"
 	"github.com/techdelight/daedalus/internal/color"
+	"github.com/techdelight/daedalus/internal/personas"
 	"github.com/techdelight/daedalus/internal/platform"
 )
-
-// validAgents is the set of accepted --agent values.
-var validAgents = map[string]bool{
-	"claude":  true,
-	"copilot": true,
-}
 
 // IsHeadless returns true if running without interactive input.
 func IsHeadless(cfg *core.Config) bool {
@@ -126,15 +121,25 @@ func ParseArgs(args []string) (*core.Config, error) {
 				return nil, fmt.Errorf("--host requires a non-empty address")
 			}
 			hostOverride = true
-		case "--agent":
+		case "--runner":
 			if i+1 >= len(args) {
-				return nil, fmt.Errorf("--agent requires an agent name (claude, copilot)")
+				return nil, fmt.Errorf("--runner requires a runner name")
 			}
 			i++
-			if !validAgents[args[i]] {
-				return nil, fmt.Errorf("unknown agent %q — valid agents: claude, copilot", args[i])
+			cfg.Runner = args[i]
+		case "--persona":
+			if i+1 >= len(args) {
+				return nil, fmt.Errorf("--persona requires a persona name")
 			}
-			cfg.Agent = args[i]
+			i++
+			cfg.Persona = args[i]
+		case "--agent":
+			// Legacy: --agent maps to --runner for backward compat
+			if i+1 >= len(args) {
+				return nil, fmt.Errorf("--agent requires a name")
+			}
+			i++
+			cfg.Runner = args[i]
 		default:
 			positional = append(positional, args[i])
 		}
@@ -169,6 +174,20 @@ func ParseArgs(args []string) (*core.Config, error) {
 	}
 	if cfg.LogFile == "" {
 		cfg.LogFile = filepath.Join(cfg.DataDir, "daedalus.log")
+	}
+
+	// Validate --runner against built-in names
+	if cfg.Runner != "" {
+		if err := validateRunnerName(cfg.Runner); err != nil {
+			return nil, err
+		}
+	}
+
+	// Validate --persona against user-defined personas
+	if cfg.Persona != "" {
+		if err := validatePersonaName(cfg.Persona, cfg.PersonasDir()); err != nil {
+			return nil, err
+		}
 	}
 
 	// Handle "remove" subcommand — before the positional switch to allow
@@ -216,6 +235,20 @@ func ParseArgs(args []string) (*core.Config, error) {
 		return cfg, nil
 	}
 
+	// Handle "personas" subcommand (e.g., daedalus personas list)
+	if len(positional) > 0 && positional[0] == "personas" {
+		cfg.Subcommand = "personas"
+		cfg.PersonasArgs = positional[1:]
+		return cfg, nil
+	}
+
+	// Handle "runners" subcommand (e.g., daedalus runners list)
+	if len(positional) > 0 && positional[0] == "runners" {
+		cfg.Subcommand = "runners"
+		cfg.RunnersArgs = positional[1:]
+		return cfg, nil
+	}
+
 	// Handle positional args
 	switch len(positional) {
 	case 0:
@@ -249,6 +282,27 @@ func ParseArgs(args []string) (*core.Config, error) {
 		return nil, fmt.Errorf("too many arguments (expected at most 2, got %d)\n%s run 'daedalus --help' for usage", len(positional), color.Cyan("Hint:"))
 	}
 
-	core.NormalizeAgentTarget(cfg)
+	core.NormalizeRunnerTarget(cfg)
 	return cfg, nil
+}
+
+// validateRunnerName checks whether name is a valid built-in runner.
+func validateRunnerName(name string) error {
+	if core.IsBuiltinRunner(name) {
+		return nil
+	}
+	return fmt.Errorf("unknown runner %q — valid runners: %s", name, strings.Join(core.ValidRunnerNames(), ", "))
+}
+
+// validatePersonaName checks whether name is a user-defined persona in the
+// personas directory.
+func validatePersonaName(name, personasDir string) error {
+	if core.IsBuiltinRunner(name) {
+		return fmt.Errorf("invalid persona %q — %q is a built-in runner, use --runner instead", name, name)
+	}
+	store := personas.New(personasDir)
+	if _, err := store.Read(name); err == nil {
+		return nil
+	}
+	return fmt.Errorf("unknown persona %q — use 'daedalus personas list' to see available personas", name)
 }

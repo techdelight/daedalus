@@ -14,10 +14,10 @@ import (
 
 func main() {
 	catalogDir := flag.String("catalog-dir", "/opt/skills", "directory containing the shared skill catalog")
-	commandsDir := flag.String("commands-dir", "/home/claude/.claude/commands", "directory for installed per-project commands")
+	skillsDir := flag.String("skills-dir", "/workspace/.claude/skills", "directory for installed per-project skills")
 	flag.Parse()
 
-	cat := catalog.New(*catalogDir, *commandsDir)
+	cat := catalog.New(*catalogDir, *skillsDir)
 	server := newServer(cat)
 
 	if err := server.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
@@ -61,7 +61,7 @@ func registerTools(server *mcp.Server, cat *catalog.Catalog) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "install_skill",
-		Description: "Install a skill from the catalog into the project's commands directory",
+		Description: "Install a skill from the catalog into the project's skills directory",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, input NameInput) (*mcp.CallToolResult, StatusOutput, error) {
 		if err := cat.Install(input.Name); err != nil {
 			return errResult(err), StatusOutput{}, nil
@@ -71,7 +71,7 @@ func registerTools(server *mcp.Server, cat *catalog.Catalog) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "uninstall_skill",
-		Description: "Remove a skill from the project's commands directory",
+		Description: "Remove a skill from the project's skills directory",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, input NameInput) (*mcp.CallToolResult, StatusOutput, error) {
 		if err := cat.Uninstall(input.Name); err != nil {
 			return errResult(err), StatusOutput{}, nil
@@ -111,7 +111,7 @@ func registerTools(server *mcp.Server, cat *catalog.Catalog) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "list_installed",
-		Description: "List skills currently installed in the project's commands directory",
+		Description: "List skills currently installed in the project's skills directory",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, input struct{}) (*mcp.CallToolResult, []catalog.Skill, error) {
 		skills, err := cat.ListInstalled()
 		if err != nil {

@@ -11,7 +11,10 @@ import (
 )
 
 func TestBashCompletion_ContainsSubcommands(t *testing.T) {
-	if !strings.Contains(bashCompletion, "list prune remove rename config tui web completion") {
+	if !strings.Contains(bashCompletion, "skills runners personas") {
+		t.Error("bash completion missing skills/runners/personas subcommands")
+	}
+	if !strings.Contains(bashCompletion, "list prune remove rename config tui web completion skills runners personas") {
 		t.Error("bash completion missing subcommands")
 	}
 	if !strings.Contains(bashCompletion, "complete -F _daedalus daedalus") {
@@ -129,5 +132,119 @@ func TestGenerate_EmptyShell(t *testing.T) {
 	err := Generate(cfg)
 	if err == nil {
 		t.Fatal("expected error for empty shell, got nil")
+	}
+}
+
+func TestBashCompletion_RunnersSubcommand(t *testing.T) {
+	if !strings.Contains(bashCompletion, "runners)") {
+		t.Error("bash completion missing runners case")
+	}
+	if !strings.Contains(bashCompletion, `"list show"`) {
+		t.Error("bash completion missing runners subcommands")
+	}
+}
+
+func TestZshCompletion_RunnersSubcommand(t *testing.T) {
+	if !strings.Contains(zshCompletion, "'runners:List or show built-in runner profiles'") {
+		t.Error("zsh completion missing runners subcommand description")
+	}
+	if !strings.Contains(zshCompletion, "runners)") {
+		t.Error("zsh completion missing runners case")
+	}
+}
+
+func TestFishCompletion_RunnersSubcommand(t *testing.T) {
+	if !strings.Contains(fishCompletion, "'runners'") {
+		t.Error("fish completion missing runners subcommand")
+	}
+	if !strings.Contains(fishCompletion, "__fish_seen_subcommand_from runners") {
+		t.Error("fish completion missing runners subcommand completions")
+	}
+}
+
+func TestBashCompletion_PersonasSubcommand(t *testing.T) {
+	if !strings.Contains(bashCompletion, "personas)") {
+		t.Error("bash completion missing personas case")
+	}
+	if !strings.Contains(bashCompletion, "list show create remove") {
+		t.Error("bash completion missing personas subcommands")
+	}
+}
+
+func TestZshCompletion_PersonasSubcommand(t *testing.T) {
+	if !strings.Contains(zshCompletion, "'personas:Manage named persona configurations'") {
+		t.Error("zsh completion missing personas subcommand description")
+	}
+	if !strings.Contains(zshCompletion, "personas)") {
+		t.Error("zsh completion missing personas case")
+	}
+}
+
+func TestFishCompletion_PersonasSubcommand(t *testing.T) {
+	if !strings.Contains(fishCompletion, "'personas'") {
+		t.Error("fish completion missing personas subcommand")
+	}
+	if !strings.Contains(fishCompletion, "__fish_seen_subcommand_from personas") {
+		t.Error("fish completion missing personas subcommand completions")
+	}
+}
+
+func TestBashCompletion_RunnerFlag(t *testing.T) {
+	if !strings.Contains(bashCompletion, "--runner") {
+		t.Error("bash completion missing --runner flag")
+	}
+}
+
+func TestBashCompletion_PersonaFlag(t *testing.T) {
+	if !strings.Contains(bashCompletion, "--persona") {
+		t.Error("bash completion missing --persona flag")
+	}
+}
+
+func TestZshCompletion_RunnerFlag(t *testing.T) {
+	if !strings.Contains(zshCompletion, "--runner") {
+		t.Error("zsh completion missing --runner flag")
+	}
+}
+
+func TestZshCompletion_PersonaFlag(t *testing.T) {
+	if !strings.Contains(zshCompletion, "--persona") {
+		t.Error("zsh completion missing --persona flag")
+	}
+}
+
+func TestFishCompletion_RunnerFlag(t *testing.T) {
+	if !strings.Contains(fishCompletion, "-l runner") {
+		t.Error("fish completion missing runner flag")
+	}
+}
+
+func TestFishCompletion_PersonaFlag(t *testing.T) {
+	if !strings.Contains(fishCompletion, "-l persona") {
+		t.Error("fish completion missing persona flag")
+	}
+}
+
+func TestBashCompletion_SkillsSubcommand(t *testing.T) {
+	if !strings.Contains(bashCompletion, "skills)") {
+		t.Error("bash completion missing skills case")
+	}
+	if !strings.Contains(bashCompletion, "add remove show") {
+		t.Error("bash completion missing skills subcommands")
+	}
+}
+
+func TestZshCompletion_SkillsSubcommand(t *testing.T) {
+	if !strings.Contains(zshCompletion, "'skills:Manage shared skill catalog'") {
+		t.Error("zsh completion missing skills subcommand description")
+	}
+}
+
+func TestFishCompletion_SkillsSubcommand(t *testing.T) {
+	if !strings.Contains(fishCompletion, "'skills'") {
+		t.Error("fish completion missing skills subcommand")
+	}
+	if !strings.Contains(fishCompletion, "__fish_seen_subcommand_from skills") {
+		t.Error("fish completion missing skills subcommand completions")
 	}
 }

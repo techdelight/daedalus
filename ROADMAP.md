@@ -4,7 +4,7 @@
 
 | # | Item |
 |---|------|
-| 1 | Agent mode (`--agent`) — start Claude Code as a specific agent by passing a named agent configuration, enabling purpose-built personas and tool sets per project |
+| ~~1~~ | ~~Agent mode (`--agent`) — start Claude Code as a specific agent by passing a named agent configuration, enabling purpose-built personas and tool sets per project~~ |
 | 2 | Authentication for Web UI — add token-based login to protect the dashboard when exposed on a network |
 | 3 | Session cookie with configurable expiry |
 | 4 | `--auth` / `--no-auth` flag for `daedalus web` (default: auth enabled) |
@@ -32,8 +32,37 @@
 | ~~26~~ | ~~Mobile-friendly web UI — scrollable terminal output (replace tmux Ctrl+B PgUp/PgDown with native scroll), multi-line input (Enter inserts newline, separate submit button/shortcut), simplified project overview (name, online status, attach/kill/start action buttons)~~ |
 | 27 | Decouple tooling from agent runner images — keep base agent containers minimal and let the agent install additional tools at runtime. Provide container snapshotting so customized environments persist across restarts. Key challenge: when the base image is upgraded, how do we replay tool installations? Options: (a) maintain a declarative tool registry (tool name + version + install method) that a provisioner re-applies on new base images — portable but subjective per tool; (b) record raw install commands as a replayable script — simple but fragile across base image changes; (c) hybrid approach with a registry of well-known tools (apt, pip, npm) plus an escape hatch for arbitrary commands. Needs design spike to evaluate trade-offs |
 | ~~28~~ | ~~Active project filter — add a toggle/filter to the Web UI and TUI that shows only running projects. Useful when the project list grows large and the user wants to focus on what is currently active~~ |
+| 29 | Mobile WebSocket stability — investigate and fix regular disconnects on mobile web clients (possible causes: browser background tab throttling, network switches between Wi-Fi and cellular, WebSocket ping/pong timeout tuning, reconnect logic) |
 
 ## Current Sprint
+
+### Sprint 22: Runner/Persona Polish & Skill Fix (v0.17.0)
+
+Goal: clean up the runner/persona split — add `daedalus runners` subcommand, separate `personas list` from runners, store persona details in companion `.md` files, fix skill installation path, and harden validation and test coverage.
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | `daedalus runners` subcommand — list and show built-in runner profiles with shell completions | Done |
+| 2 | `personas list` shows only user-defined personas, `personas show` rejects built-in names | Done |
+| 3 | Persona `.md` companion file — store CLAUDE.md content alongside `.json` config | Done |
+| 4 | Fix `resolvePersonaOverlay` — use `cfg.Persona`, set `cfg.Runner` from `BaseRunner` | Done |
+| 5 | `--runner` strict validation (builtins only), `--persona` validation (rejects builtins, checks store) | Done |
+| 6 | Skill install target: `~/.claude/commands/` → `/workspace/.claude/skills/` | Done |
+| 7 | Dev release workflow fix — replace `softprops/action-gh-release` with `gh release create` | Done |
+
+### Sprint 21: Personas & Runner/Persona Split (v0.16.0)
+
+Goal: allow users to define named persona configurations that layer custom system prompts and tool-permission overrides on top of a built-in runner, selectable via `--persona <name>`. Split the overloaded "agent" concept into **runner** (claude/copilot binary) and **persona** (user-defined overlay).
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | `core/persona.go` — `PersonaConfig` type, `PersonasDir()`, `ValidatePersonaName()` with tests | Done |
+| 2 | `internal/personas` package — Store with List/Read/Create/Update/Remove, unit tests | Done |
+| 3 | `core/runner.go` — `LookupRunner` resolves personas to base runner, `ValidRunnerNames` for builtins, update all callers | Done |
+| 4 | `core/command.go` — `BuildExtraArgs` injects custom CLAUDE.md and settings mounts for persona overlays | Done |
+| 5 | `internal/config` — `--runner` and `--persona` flags with independent validation, legacy `--agent` alias | Done |
+| 6 | `daedalus personas` CLI subcommand — list, show, create, remove with help text and shell completions | Done |
+| 7 | Rename across codebase — `AGENT` env → `RUNNER`, docker-compose, entrypoint, Dockerfile, all docs | Done |
 
 ### Sprint 20: Active Project Filter (v0.15.0)
 

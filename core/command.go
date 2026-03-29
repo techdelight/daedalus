@@ -24,10 +24,11 @@ func ShellQuote(s string) string {
 	return "'" + escaped + "'"
 }
 
-// BuildAgentArgs constructs agent CLI arguments from config, using the
-// agent profile to determine which flags to emit.
-func BuildAgentArgs(cfg *Config) []string {
-	profile, _ := LookupAgent(ResolveAgentName(cfg))
+// BuildRunnerArgs constructs runner CLI arguments from config, using the
+// runner profile to determine which flags to emit.
+func BuildRunnerArgs(cfg *Config) []string {
+	overlay, _ := LookupRunner(ResolveRunnerName(cfg), nil)
+	profile := overlay.Runner
 	var args []string
 	if cfg.Debug && profile.DebugFlag != "" {
 		args = append(args, profile.DebugFlag)
@@ -43,14 +44,24 @@ func BuildAgentArgs(cfg *Config) []string {
 }
 
 // BuildClaudeArgs constructs the Claude CLI arguments from config.
-// Deprecated: use BuildAgentArgs instead.
+// Deprecated: use BuildRunnerArgs instead.
 func BuildClaudeArgs(cfg *Config) []string {
-	return BuildAgentArgs(cfg)
+	return BuildRunnerArgs(cfg)
+}
+
+// OverlayPaths holds host paths to files that should be mounted into the
+// container for a user-defined persona overlay. The caller is responsible for
+// writing the files before calling BuildExtraArgs.
+type OverlayPaths struct {
+	ClaudeMdPath  string            // host path to CLAUDE.md (mounted read-only)
+	SettingsPath  string            // host path to settings.json (mounted read-only)
+	Env           map[string]string // extra environment variables
 }
 
 // BuildExtraArgs returns extra docker compose run flags derived from the config.
 // displayArgs should come from platform.DisplayArgs when cfg.Display is true.
-func BuildExtraArgs(cfg *Config, displayArgs []string) []string {
+// overlay may be nil when no persona overlay is active.
+func BuildExtraArgs(cfg *Config, displayArgs []string, overlay *OverlayPaths) []string {
 	var args []string
 
 	// Always mount the shared skill catalog
@@ -61,6 +72,18 @@ func BuildExtraArgs(cfg *Config, displayArgs []string) []string {
 	}
 	if cfg.Display {
 		args = append(args, displayArgs...)
+	}
+
+	if overlay != nil {
+		if overlay.ClaudeMdPath != "" {
+			args = append(args, "-v", overlay.ClaudeMdPath+":/workspace/.claude/CLAUDE.md:ro")
+		}
+		if overlay.SettingsPath != "" {
+			args = append(args, "-v", overlay.SettingsPath+":/workspace/.claude/settings.json:ro")
+		}
+		for k, v := range overlay.Env {
+			args = append(args, "-e", k+"="+v)
+		}
 	}
 	return args
 }
@@ -74,7 +97,7 @@ func BuildTmuxCommand(cfg *Config, dockerCmd []string) string {
 		"CACHE_DIR":    cfg.CacheDir(),
 		"TARGET":       cfg.Target,
 		"IMAGE":        cfg.Image(),
-		"AGENT":        ResolveAgentName(cfg),
+		"RUNNER":       ResolveRunnerName(cfg),
 	})
 
 	quoted := make([]string, len(dockerCmd))

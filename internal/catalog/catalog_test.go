@@ -9,17 +9,17 @@ import (
 	"testing"
 )
 
-func setupDirs(t *testing.T) (catalogDir, commandsDir string) {
+func setupDirs(t *testing.T) (catalogDir, skillsDir string) {
 	t.Helper()
 	catalogDir = filepath.Join(t.TempDir(), "skills")
-	commandsDir = filepath.Join(t.TempDir(), "commands")
+	skillsDir = filepath.Join(t.TempDir(), "skills")
 	if err := os.MkdirAll(catalogDir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(commandsDir, 0755); err != nil {
+	if err := os.MkdirAll(skillsDir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	return catalogDir, commandsDir
+	return catalogDir, skillsDir
 }
 
 func writeSkill(t *testing.T, dir, name, content string) {
@@ -30,8 +30,8 @@ func writeSkill(t *testing.T, dir, name, content string) {
 }
 
 func TestList_Empty(t *testing.T) {
-	catDir, cmdDir := setupDirs(t)
-	c := New(catDir, cmdDir)
+	catDir, sklDir := setupDirs(t)
+	c := New(catDir, sklDir)
 
 	skills, err := c.List()
 	if err != nil {
@@ -43,10 +43,10 @@ func TestList_Empty(t *testing.T) {
 }
 
 func TestList_WithSkills(t *testing.T) {
-	catDir, cmdDir := setupDirs(t)
+	catDir, sklDir := setupDirs(t)
 	writeSkill(t, catDir, "commit", "# Commit Helper\nHelps with commits.")
 	writeSkill(t, catDir, "review", "# Code Review\nReviews code.")
-	c := New(catDir, cmdDir)
+	c := New(catDir, sklDir)
 
 	skills, err := c.List()
 	if err != nil {
@@ -67,11 +67,11 @@ func TestList_WithSkills(t *testing.T) {
 }
 
 func TestList_IgnoresNonMarkdown(t *testing.T) {
-	catDir, cmdDir := setupDirs(t)
+	catDir, sklDir := setupDirs(t)
 	writeSkill(t, catDir, "valid", "# Valid skill")
 	os.WriteFile(filepath.Join(catDir, "notes.txt"), []byte("not a skill"), 0644)
 	os.Mkdir(filepath.Join(catDir, "subdir"), 0755)
-	c := New(catDir, cmdDir)
+	c := New(catDir, sklDir)
 
 	skills, err := c.List()
 	if err != nil {
@@ -83,7 +83,7 @@ func TestList_IgnoresNonMarkdown(t *testing.T) {
 }
 
 func TestList_MissingDir(t *testing.T) {
-	c := New("/nonexistent/catalog", "/nonexistent/commands")
+	c := New("/nonexistent/catalog", "/nonexistent/skills")
 	skills, err := c.List()
 	if err != nil {
 		t.Fatalf("List() error = %v, want nil for missing dir", err)
@@ -94,9 +94,9 @@ func TestList_MissingDir(t *testing.T) {
 }
 
 func TestRead(t *testing.T) {
-	catDir, cmdDir := setupDirs(t)
+	catDir, sklDir := setupDirs(t)
 	writeSkill(t, catDir, "commit", "# Commit\nDo a commit.")
-	c := New(catDir, cmdDir)
+	c := New(catDir, sklDir)
 
 	content, err := c.Read("commit")
 	if err != nil {
@@ -108,8 +108,8 @@ func TestRead(t *testing.T) {
 }
 
 func TestRead_NotFound(t *testing.T) {
-	catDir, cmdDir := setupDirs(t)
-	c := New(catDir, cmdDir)
+	catDir, sklDir := setupDirs(t)
+	c := New(catDir, sklDir)
 
 	_, err := c.Read("nonexistent")
 	if err == nil {
@@ -118,16 +118,16 @@ func TestRead_NotFound(t *testing.T) {
 }
 
 func TestInstall(t *testing.T) {
-	catDir, cmdDir := setupDirs(t)
+	catDir, sklDir := setupDirs(t)
 	writeSkill(t, catDir, "commit", "# Commit\nDo a commit.")
-	c := New(catDir, cmdDir)
+	c := New(catDir, sklDir)
 
 	if err := c.Install("commit"); err != nil {
 		t.Fatalf("Install() error = %v", err)
 	}
 
 	// Verify the file was copied
-	data, err := os.ReadFile(filepath.Join(cmdDir, "commit.md"))
+	data, err := os.ReadFile(filepath.Join(sklDir, "commit.md"))
 	if err != nil {
 		t.Fatalf("installed file not found: %v", err)
 	}
@@ -136,24 +136,24 @@ func TestInstall(t *testing.T) {
 	}
 }
 
-func TestInstall_CreatesCommandsDir(t *testing.T) {
+func TestInstall_CreatesSkillsDir(t *testing.T) {
 	catDir, _ := setupDirs(t)
-	cmdDir := filepath.Join(t.TempDir(), "new", "commands")
+	sklDir := filepath.Join(t.TempDir(), "new", "skills")
 	writeSkill(t, catDir, "commit", "# Commit")
-	c := New(catDir, cmdDir)
+	c := New(catDir, sklDir)
 
 	if err := c.Install("commit"); err != nil {
 		t.Fatalf("Install() error = %v", err)
 	}
 
-	if _, err := os.Stat(filepath.Join(cmdDir, "commit.md")); err != nil {
+	if _, err := os.Stat(filepath.Join(sklDir, "commit.md")); err != nil {
 		t.Errorf("installed file not found: %v", err)
 	}
 }
 
 func TestInstall_NotInCatalog(t *testing.T) {
-	catDir, cmdDir := setupDirs(t)
-	c := New(catDir, cmdDir)
+	catDir, sklDir := setupDirs(t)
+	c := New(catDir, sklDir)
 
 	err := c.Install("nonexistent")
 	if err == nil {
@@ -162,22 +162,22 @@ func TestInstall_NotInCatalog(t *testing.T) {
 }
 
 func TestUninstall(t *testing.T) {
-	catDir, cmdDir := setupDirs(t)
-	writeSkill(t, cmdDir, "commit", "# Commit")
-	c := New(catDir, cmdDir)
+	catDir, sklDir := setupDirs(t)
+	writeSkill(t, sklDir, "commit", "# Commit")
+	c := New(catDir, sklDir)
 
 	if err := c.Uninstall("commit"); err != nil {
 		t.Fatalf("Uninstall() error = %v", err)
 	}
 
-	if _, err := os.Stat(filepath.Join(cmdDir, "commit.md")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(sklDir, "commit.md")); !os.IsNotExist(err) {
 		t.Error("Uninstall() did not remove the file")
 	}
 }
 
 func TestUninstall_NotInstalled(t *testing.T) {
-	catDir, cmdDir := setupDirs(t)
-	c := New(catDir, cmdDir)
+	catDir, sklDir := setupDirs(t)
+	c := New(catDir, sklDir)
 
 	err := c.Uninstall("nonexistent")
 	if err == nil {
@@ -186,8 +186,8 @@ func TestUninstall_NotInstalled(t *testing.T) {
 }
 
 func TestCreate(t *testing.T) {
-	catDir, cmdDir := setupDirs(t)
-	c := New(catDir, cmdDir)
+	catDir, sklDir := setupDirs(t)
+	c := New(catDir, sklDir)
 
 	if err := c.Create("new-skill", "# New Skill\nDoes something."); err != nil {
 		t.Fatalf("Create() error = %v", err)
@@ -203,9 +203,9 @@ func TestCreate(t *testing.T) {
 }
 
 func TestCreate_AlreadyExists(t *testing.T) {
-	catDir, cmdDir := setupDirs(t)
+	catDir, sklDir := setupDirs(t)
 	writeSkill(t, catDir, "existing", "# Existing")
-	c := New(catDir, cmdDir)
+	c := New(catDir, sklDir)
 
 	err := c.Create("existing", "# New content")
 	if err == nil {
@@ -217,9 +217,9 @@ func TestCreate_AlreadyExists(t *testing.T) {
 }
 
 func TestUpdate(t *testing.T) {
-	catDir, cmdDir := setupDirs(t)
+	catDir, sklDir := setupDirs(t)
 	writeSkill(t, catDir, "commit", "# Old content")
-	c := New(catDir, cmdDir)
+	c := New(catDir, sklDir)
 
 	if err := c.Update("commit", "# New content"); err != nil {
 		t.Fatalf("Update() error = %v", err)
@@ -235,8 +235,8 @@ func TestUpdate(t *testing.T) {
 }
 
 func TestUpdate_NotFound(t *testing.T) {
-	catDir, cmdDir := setupDirs(t)
-	c := New(catDir, cmdDir)
+	catDir, sklDir := setupDirs(t)
+	c := New(catDir, sklDir)
 
 	err := c.Update("nonexistent", "# Content")
 	if err == nil {
@@ -248,9 +248,9 @@ func TestUpdate_NotFound(t *testing.T) {
 }
 
 func TestRemove(t *testing.T) {
-	catDir, cmdDir := setupDirs(t)
+	catDir, sklDir := setupDirs(t)
 	writeSkill(t, catDir, "commit", "# Commit")
-	c := New(catDir, cmdDir)
+	c := New(catDir, sklDir)
 
 	if err := c.Remove("commit"); err != nil {
 		t.Fatalf("Remove() error = %v", err)
@@ -262,8 +262,8 @@ func TestRemove(t *testing.T) {
 }
 
 func TestRemove_NotFound(t *testing.T) {
-	catDir, cmdDir := setupDirs(t)
-	c := New(catDir, cmdDir)
+	catDir, sklDir := setupDirs(t)
+	c := New(catDir, sklDir)
 
 	err := c.Remove("nonexistent")
 	if err == nil {
@@ -272,10 +272,10 @@ func TestRemove_NotFound(t *testing.T) {
 }
 
 func TestListInstalled(t *testing.T) {
-	catDir, cmdDir := setupDirs(t)
-	writeSkill(t, cmdDir, "commit", "# Commit Helper")
-	writeSkill(t, cmdDir, "review", "# Code Review")
-	c := New(catDir, cmdDir)
+	catDir, sklDir := setupDirs(t)
+	writeSkill(t, sklDir, "commit", "# Commit Helper")
+	writeSkill(t, sklDir, "review", "# Code Review")
+	c := New(catDir, sklDir)
 
 	skills, err := c.ListInstalled()
 	if err != nil {

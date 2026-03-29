@@ -99,29 +99,32 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release delete dev --yes --cleanup-tag 2>/dev/null || true
+          sleep 2
 
       - name: Create dev pre-release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: dev
-          name: "Dev Build (${{ github.event.head_commit.timestamp && format('{0}', github.event.head_commit.timestamp) || 'manual' }})"
-          prerelease: true
-          make_latest: false
-          target_commitish: ${{ github.sha }}
-          body: |
-            ## Rolling Dev Build
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create dev \
+            --title "Dev Build (${{ github.event.head_commit.timestamp || 'manual' }})" \
+            --prerelease \
+            --target "${{ github.sha }}" \
+            --notes "$(cat <<'EOF'
+          ## Rolling Dev Build
 
-            This is an **automated pre-release** built from the latest `development` branch.
-            It may be unstable — use a [stable release](https://github.com/techdelight/daedalus/releases/latest) for production.
+          This is an **automated pre-release** built from the latest `development` branch.
+          It may be unstable — use a [stable release](https://github.com/techdelight/daedalus/releases/latest) for production.
 
-            **Commit:** ${{ github.sha }}
-            **Compare:** [Changes since last release](https://github.com/techdelight/daedalus/compare/...development)
+          **Commit:** ${{ github.sha }}
+          **Compare:** [Changes since last release](https://github.com/techdelight/daedalus/compare/...development)
 
-            ### Install
+          ### Install
 
-            ```bash
-            curl -fsSL https://github.com/techdelight/daedalus/releases/download/dev/install.sh | bash
-            ```
+          ```bash
+          curl -fsSL https://github.com/techdelight/daedalus/releases/download/dev/install.sh | bash
+          ```
 
-            This downloads the dev binary, runtime files, and creates a PATH symlink. See `install.sh --help` for options.
-          files: release-assets/*
+          This downloads the dev binary, runtime files, and creates a PATH symlink. See `install.sh --help` for options.
+          EOF
+          )" \
+            release-assets/*

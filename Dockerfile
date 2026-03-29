@@ -113,7 +113,7 @@ USER root
 RUN mv /home/claude/.local/bin/copilot /usr/local/bin/copilot
 
 USER claude
-ENV AGENT="copilot"
+ENV RUNNER="copilot"
 
 # ── Stage 6: copilot-dev ────────────────────────────────────────────────────
 # Copilot with full development environment: Go, Python 3, JDK, Maven, Kotlin.

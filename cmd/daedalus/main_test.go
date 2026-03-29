@@ -3,12 +3,14 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/techdelight/daedalus/core"
+	"github.com/techdelight/daedalus/internal/personas"
 	"github.com/techdelight/daedalus/internal/color"
 	"github.com/techdelight/daedalus/internal/registry"
 )
@@ -733,7 +735,7 @@ func TestCollectBuildSpecs(t *testing.T) {
 				ImagePrefix:    "techdelight/claude-runner",
 				Target:         tc.target,
 				TargetOverride: tc.targetOverride,
-				Agent:          tc.agent,
+				Runner:         tc.agent,
 			}
 
 			got := collectBuildSpecs(cfg, tc.entries)
@@ -968,5 +970,503 @@ func TestHandleDirConflict_TouchProjectError(t *testing.T) {
 	err := handleDirConflict(cfg, reg, "existing-app")
 	if err == nil {
 		t.Fatal("expected error for headless dir conflict, got nil")
+	}
+}
+
+// --- Runner tests ---
+
+func TestListRunners(t *testing.T) {
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	err := listRunners()
+
+	w.Close()
+	var buf [4096]byte
+	n, _ := r.Read(buf[:])
+	os.Stdout = old
+
+	if err != nil {
+		t.Fatalf("listRunners failed: %v", err)
+	}
+	output := string(buf[:n])
+	if !strings.Contains(output, "claude") {
+		t.Error("output should contain 'claude'")
+	}
+	if !strings.Contains(output, "copilot") {
+		t.Error("output should contain 'copilot'")
+	}
+}
+
+func TestShowRunner_Claude(t *testing.T) {
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	err := showRunner("claude")
+
+	w.Close()
+	var buf [4096]byte
+	n, _ := r.Read(buf[:])
+	os.Stdout = old
+
+	if err != nil {
+		t.Fatalf("showRunner(claude) failed: %v", err)
+	}
+	output := string(buf[:n])
+	if !strings.Contains(output, "/opt/claude/bin/claude") {
+		t.Error("output should show binary path")
+	}
+}
+
+func TestShowRunner_Copilot(t *testing.T) {
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	err := showRunner("copilot")
+
+	w.Close()
+	var buf [4096]byte
+	n, _ := r.Read(buf[:])
+	os.Stdout = old
+
+	if err != nil {
+		t.Fatalf("showRunner(copilot) failed: %v", err)
+	}
+	output := string(buf[:n])
+	if !strings.Contains(output, "copilot") {
+		t.Error("output should contain 'copilot'")
+	}
+}
+
+func TestShowRunner_Unknown(t *testing.T) {
+	err := showRunner("gpt")
+	if err == nil {
+		t.Fatal("expected error for unknown runner")
+	}
+	if !strings.Contains(err.Error(), "unknown runner") {
+		t.Errorf("error = %q, want mention of 'unknown runner'", err)
+	}
+}
+
+func TestManageRunners_UnknownSubcommand(t *testing.T) {
+	cfg := &core.Config{RunnersArgs: []string{"create"}}
+	err := manageRunners(cfg)
+	if err == nil {
+		t.Fatal("expected error for unknown subcommand")
+	}
+	if !strings.Contains(err.Error(), "unknown runners command") {
+		t.Errorf("error = %q, want mention of 'unknown runners command'", err)
+	}
+}
+
+func TestManageRunners_ShowMissingName(t *testing.T) {
+	cfg := &core.Config{RunnersArgs: []string{"show"}}
+	err := manageRunners(cfg)
+	if err == nil {
+		t.Fatal("expected error for show without name")
+	}
+	if !strings.Contains(err.Error(), "usage:") {
+		t.Errorf("error = %q, want usage hint", err)
+	}
+}
+
+// --- Persona configuration tests ---
+
+func TestListPersonas_Empty(t *testing.T) {
+	dir := t.TempDir()
+	personasDir := filepath.Join(dir, "personas")
+	os.MkdirAll(personasDir, 0755)
+	store := personas.New(personasDir)
+
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	err := listPersonas(store)
+
+	w.Close()
+	var buf [4096]byte
+	n, _ := r.Read(buf[:])
+	os.Stdout = old
+
+	if err != nil {
+		t.Fatalf("listPersonas failed: %v", err)
+	}
+	output := string(buf[:n])
+	if !strings.Contains(output, "No personas defined") {
+		t.Error("output should show empty-state message")
+	}
+	// Should NOT list built-in runners
+	if strings.Contains(output, "claude") {
+		t.Error("output should not contain built-in runners")
+	}
+}
+
+func TestListPersonas_WithUserDefined(t *testing.T) {
+	dir := t.TempDir()
+	personasDir := filepath.Join(dir, "personas")
+	os.MkdirAll(personasDir, 0755)
+	store := personas.New(personasDir)
+
+	cfg := core.PersonaConfig{
+		Name:        "reviewer",
+		Description: "Code review specialist",
+		BaseRunner:  "claude",
+	}
+	if err := store.Create(cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	err := listPersonas(store)
+
+	w.Close()
+	var buf [4096]byte
+	n, _ := r.Read(buf[:])
+	os.Stdout = old
+
+	if err != nil {
+		t.Fatalf("listPersonas failed: %v", err)
+	}
+	output := string(buf[:n])
+	if !strings.Contains(output, "reviewer") {
+		t.Error("output should contain 'reviewer'")
+	}
+	if !strings.Contains(output, "Code review specialist") {
+		t.Error("output should contain description")
+	}
+}
+
+func TestShowPersona_BuiltIn_ReturnsError(t *testing.T) {
+	dir := t.TempDir()
+	store := personas.New(dir)
+
+	err := showPersona(store, "claude")
+	if err == nil {
+		t.Fatal("expected error for built-in runner name")
+	}
+	if !strings.Contains(err.Error(), "built-in runner") {
+		t.Errorf("error = %q, want mention of 'built-in runner'", err)
+	}
+}
+
+func TestShowPersona_UserDefined(t *testing.T) {
+	dir := t.TempDir()
+	personasDir := filepath.Join(dir, "personas")
+	os.MkdirAll(personasDir, 0755)
+	store := personas.New(personasDir)
+
+	cfg := core.PersonaConfig{
+		Name:       "reviewer",
+		BaseRunner: "claude",
+		ClaudeMd:   "You review code.",
+	}
+	store.Create(cfg)
+
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	err := showPersona(store, "reviewer")
+
+	w.Close()
+	var buf [4096]byte
+	n, _ := r.Read(buf[:])
+	os.Stdout = old
+
+	if err != nil {
+		t.Fatalf("showPersona(reviewer) failed: %v", err)
+	}
+	output := string(buf[:n])
+
+	var result core.PersonaConfig
+	if err := json.Unmarshal([]byte(output), &result); err != nil {
+		t.Fatalf("output is not valid JSON: %v\noutput: %s", err, output)
+	}
+	if result.Name != "reviewer" {
+		t.Errorf("Name = %q, want %q", result.Name, "reviewer")
+	}
+}
+
+func TestShowPersona_NotFound(t *testing.T) {
+	dir := t.TempDir()
+	store := personas.New(dir)
+
+	err := showPersona(store, "nonexistent")
+	if err == nil {
+		t.Fatal("showPersona(nonexistent) = nil, want error")
+	}
+}
+
+func TestRemovePersona_Success(t *testing.T) {
+	dir := t.TempDir()
+	personasDir := filepath.Join(dir, "personas")
+	os.MkdirAll(personasDir, 0755)
+	store := personas.New(personasDir)
+
+	cfg := core.PersonaConfig{Name: "reviewer", BaseRunner: "claude"}
+	store.Create(cfg)
+
+	old := os.Stdout
+	_, w, _ := os.Pipe()
+	os.Stdout = w
+
+	err := removePersona(store, "reviewer")
+
+	w.Close()
+	os.Stdout = old
+
+	if err != nil {
+		t.Fatalf("removePersona failed: %v", err)
+	}
+
+	// Verify it's gone
+	if _, err := store.Read("reviewer"); err == nil {
+		t.Error("persona should be removed but Read succeeded")
+	}
+}
+
+func TestRemovePersona_BuiltIn(t *testing.T) {
+	dir := t.TempDir()
+	store := personas.New(dir)
+
+	err := removePersona(store, "claude")
+	if err == nil {
+		t.Fatal("removePersona(claude) = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "cannot remove built-in") {
+		t.Errorf("error = %q, want mention of 'cannot remove built-in'", err)
+	}
+}
+
+func TestRemovePersona_NotFound(t *testing.T) {
+	dir := t.TempDir()
+	store := personas.New(dir)
+
+	err := removePersona(store, "nonexistent")
+	if err == nil {
+		t.Fatal("removePersona(nonexistent) = nil, want error")
+	}
+}
+
+func TestManagePersonas_UnknownSubcommand(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &core.Config{
+		DataDir:      dir,
+		PersonasArgs: []string{"invalid"},
+	}
+
+	err := managePersonas(cfg)
+	if err == nil {
+		t.Fatal("expected error for unknown subcommand")
+	}
+	if !strings.Contains(err.Error(), "unknown personas command") {
+		t.Errorf("error = %q, want mention of 'unknown personas command'", err)
+	}
+}
+
+func TestManagePersonas_ShowMissingName(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &core.Config{
+		DataDir:      dir,
+		PersonasArgs: []string{"show"},
+	}
+
+	err := managePersonas(cfg)
+	if err == nil {
+		t.Fatal("expected error for missing name")
+	}
+	if !strings.Contains(err.Error(), "usage") {
+		t.Errorf("error = %q, want usage hint", err)
+	}
+}
+
+func TestManagePersonas_CreateMissingName(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &core.Config{
+		DataDir:      dir,
+		PersonasArgs: []string{"create"},
+	}
+
+	err := managePersonas(cfg)
+	if err == nil {
+		t.Fatal("expected error for missing name")
+	}
+}
+
+func TestManagePersonas_RemoveMissingName(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &core.Config{
+		DataDir:      dir,
+		PersonasArgs: []string{"remove"},
+	}
+
+	err := managePersonas(cfg)
+	if err == nil {
+		t.Fatal("expected error for missing name")
+	}
+}
+
+func TestResolvePersonaOverlay_NoPersona(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &core.Config{
+		DataDir:     dir,
+		Runner:      "claude",
+		ProjectName: "test",
+	}
+	overlay, err := resolvePersonaOverlay(cfg)
+	if err != nil {
+		t.Fatalf("resolvePersonaOverlay failed: %v", err)
+	}
+	if overlay != nil {
+		t.Error("overlay should be nil when no persona is set")
+	}
+}
+
+func TestResolvePersonaOverlay_UserDefined(t *testing.T) {
+	dir := t.TempDir()
+	personasDir := filepath.Join(dir, "personas")
+	os.MkdirAll(personasDir, 0755)
+	projectCache := filepath.Join(dir, "test")
+	os.MkdirAll(projectCache, 0755)
+
+	store := personas.New(personasDir)
+	store.Create(core.PersonaConfig{
+		Name:       "reviewer",
+		BaseRunner: "claude",
+		ClaudeMd:   "You are a reviewer.",
+		Env:        map[string]string{"MODE": "review"},
+		Settings:   json.RawMessage(`{"permissions":{"allow":["Read"]}}`),
+	})
+
+	cfg := &core.Config{
+		DataDir:     dir,
+		Persona:     "reviewer",
+		ProjectName: "test",
+	}
+	overlay, err := resolvePersonaOverlay(cfg)
+	if err != nil {
+		t.Fatalf("resolvePersonaOverlay failed: %v", err)
+	}
+	if overlay == nil {
+		t.Fatal("overlay should not be nil for user-defined persona")
+	}
+	if overlay.ClaudeMdPath == "" {
+		t.Error("ClaudeMdPath should be set")
+	}
+	if overlay.SettingsPath == "" {
+		t.Error("SettingsPath should be set")
+	}
+	if overlay.Env["MODE"] != "review" {
+		t.Errorf("Env[MODE] = %q, want %q", overlay.Env["MODE"], "review")
+	}
+	// resolvePersonaOverlay should set Runner from persona's BaseRunner
+	if cfg.Runner != "claude" {
+		t.Errorf("Runner = %q, want %q (should be set from persona's BaseRunner)", cfg.Runner, "claude")
+	}
+
+	// Verify files were written
+	data, err := os.ReadFile(overlay.ClaudeMdPath)
+	if err != nil {
+		t.Fatalf("reading CLAUDE.md: %v", err)
+	}
+	if string(data) != "You are a reviewer." {
+		t.Errorf("CLAUDE.md content = %q, want %q", string(data), "You are a reviewer.")
+	}
+}
+
+func TestResolvePersonaOverlay_SetsRunnerFromPersona(t *testing.T) {
+	dir := t.TempDir()
+	personasDir := filepath.Join(dir, "personas")
+	os.MkdirAll(personasDir, 0755)
+	projectCache := filepath.Join(dir, "test")
+	os.MkdirAll(projectCache, 0755)
+
+	store := personas.New(personasDir)
+	store.Create(core.PersonaConfig{
+		Name:       "copilot-reviewer",
+		BaseRunner: "copilot",
+		ClaudeMd:   "Review with copilot.",
+	})
+
+	cfg := &core.Config{
+		DataDir:     dir,
+		Persona:     "copilot-reviewer",
+		ProjectName: "test",
+	}
+	_, err := resolvePersonaOverlay(cfg)
+	if err != nil {
+		t.Fatalf("resolvePersonaOverlay failed: %v", err)
+	}
+	if cfg.Runner != "copilot" {
+		t.Errorf("Runner = %q, want %q (from persona's BaseRunner)", cfg.Runner, "copilot")
+	}
+}
+
+func TestResolvePersonaOverlay_ExplicitRunnerNotOverwritten(t *testing.T) {
+	dir := t.TempDir()
+	personasDir := filepath.Join(dir, "personas")
+	os.MkdirAll(personasDir, 0755)
+	projectCache := filepath.Join(dir, "test")
+	os.MkdirAll(projectCache, 0755)
+
+	store := personas.New(personasDir)
+	store.Create(core.PersonaConfig{
+		Name:       "reviewer",
+		BaseRunner: "copilot",
+		ClaudeMd:   "Review.",
+	})
+
+	cfg := &core.Config{
+		DataDir:     dir,
+		Runner:      "claude",
+		Persona:     "reviewer",
+		ProjectName: "test",
+	}
+	_, err := resolvePersonaOverlay(cfg)
+	if err != nil {
+		t.Fatalf("resolvePersonaOverlay failed: %v", err)
+	}
+	// Explicit --runner should not be overwritten by persona's BaseRunner
+	if cfg.Runner != "claude" {
+		t.Errorf("Runner = %q, want %q (explicit runner should win)", cfg.Runner, "claude")
+	}
+}
+
+func TestResolvePersonaOverlay_NotFound(t *testing.T) {
+	dir := t.TempDir()
+	projectCache := filepath.Join(dir, "test")
+	os.MkdirAll(projectCache, 0755)
+
+	cfg := &core.Config{
+		DataDir:     dir,
+		Persona:     "nonexistent",
+		ProjectName: "test",
+	}
+	_, err := resolvePersonaOverlay(cfg)
+	if err == nil {
+		t.Fatal("expected error for nonexistent persona")
+	}
+}
+
+func TestResolvePersonaOverlay_EmptyPersona(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &core.Config{
+		DataDir:     dir,
+		ProjectName: "test",
+		// Both Runner and Persona empty — no overlay
+	}
+	overlay, err := resolvePersonaOverlay(cfg)
+	if err != nil {
+		t.Fatalf("resolvePersonaOverlay failed: %v", err)
+	}
+	if overlay != nil {
+		t.Error("overlay should be nil when persona is empty")
 	}
 }

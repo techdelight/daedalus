@@ -4,6 +4,49 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-03-29
+
+### Added
+- `daedalus runners` CLI subcommand — `list` (shows built-in runners with binary paths), `show <name>` (prints runner profile details).
+- Shell completions for `runners` subcommand in bash, zsh, and fish.
+
+### Changed
+- Persona CLAUDE.md content is now stored in a companion `<name>.md` file alongside the `<name>.json` config, instead of being embedded in JSON. Easier to edit and version.
+- Skill installation target changed from `~/.claude/commands/` to `/workspace/.claude/skills/` — the correct project-scoped location where Claude Code discovers skills.
+- `daedalus personas list` now shows only user-defined personas, not built-in runners.
+- `daedalus personas show <builtin>` now returns an error instead of printing runner details — use `daedalus runners show` instead.
+
+### Fixed
+- `resolvePersonaOverlay` now uses `cfg.Persona` instead of `cfg.Runner` to look up persona configurations. Previously the persona name was never read, so overlays were silently skipped.
+- `resolvePersonaOverlay` now sets `cfg.Runner` from the persona's `BaseRunner` when no explicit `--runner` is given, ensuring the correct binary and Docker image are used.
+- `--runner` flag now strictly accepts only built-in runner names (`claude`, `copilot`). Previously it also accepted persona names, blurring the runner/persona boundary.
+- `--persona` flag now validated at parse time — rejects built-in runner names (use `--runner` instead) and nonexistent persona names.
+- `collectDefaultFlags` now saves the `persona` key alongside `runner` for per-project defaults.
+- Dev release workflow: replaced `softprops/action-gh-release` with `gh release create` to fix silent release creation failures.
+
+## [0.16.0] - 2026-03-26
+
+### Added
+- **Named persona configurations** — users can define custom personas that layer system prompts, tool permissions, and environment variables on top of a built-in runner (Claude, Copilot). Configs stored as JSON in `<data-dir>/personas/`.
+- `daedalus personas` CLI subcommand — `list` (shows built-in runners + user-defined personas), `show <name>` (prints full config), `create <name>` (interactive setup), `remove <name>` (deletes config).
+- `--persona <name>` flag to select a user-defined persona.
+- `--runner <name>` flag to select the runtime binary (`claude` or `copilot`), replacing the overloaded `--agent` flag.
+- `core/persona.go` — `PersonaConfig` struct, `PersonaOverlay` struct, `PersonasDir()` method, `ValidatePersonaName()`.
+- `core/runner.go` — `RunnerProfile` struct, `LookupRunner()`, `LookupBuiltinRunner()`, `ValidRunnerNames()`, `ResolveRunnerName()`, `IsBuiltinRunner()`, `BuiltinRunnerNames()`.
+- `internal/personas` package — `Store` with `List`, `Read`, `Create`, `Update`, `Remove` operations for persona CRUD.
+- `OverlayPaths` struct in `core/command.go` for injecting custom CLAUDE.md, settings.json, and environment variables into containers via volume mounts.
+- Shell completions for `personas` subcommand and `--runner`/`--persona` flags in bash, zsh, and fish.
+- Legacy `--agent` flag accepted as deprecated alias for `--runner`.
+- Auto-migration of `<data-dir>/agents/` directory to `<data-dir>/personas/`.
+
+### Changed
+- **Terminology split**: "agent" is now two distinct concepts — **runner** (claude/copilot binary) and **persona** (user-defined configuration overlay).
+- `BuildAgentArgs()` renamed to `BuildRunnerArgs()` (`BuildClaudeArgs()` kept as deprecated alias).
+- `AGENT` environment variable renamed to `RUNNER` in docker-compose.yml, entrypoint.sh, and Dockerfile.
+- `Config.Agent` field split into `Config.Runner` and `Config.Persona`.
+- `config.json` field `"agent"` renamed to `"runner"` (legacy `"agent"` key still accepted).
+- Help text updated with `personas` subcommand and `--runner`/`--persona` documentation.
+
 ## [0.15.0] - 2026-03-25
 
 ### Added

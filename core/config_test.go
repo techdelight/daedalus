@@ -16,8 +16,8 @@ func TestConfig_Image(t *testing.T) {
 	}
 }
 
-func TestConfig_Image_CopilotAgent(t *testing.T) {
-	cfg := &Config{ImagePrefix: "techdelight/claude-runner", Target: "dev", Agent: "copilot"}
+func TestConfig_Image_CopilotRunner(t *testing.T) {
+	cfg := &Config{ImagePrefix: "techdelight/claude-runner", Target: "dev", Runner: "copilot"}
 	got := cfg.Image()
 	want := "techdelight/copilot-runner:dev"
 	if got != want {
@@ -25,8 +25,8 @@ func TestConfig_Image_CopilotAgent(t *testing.T) {
 	}
 }
 
-func TestConfig_Image_CustomPrefix_CopilotAgent(t *testing.T) {
-	cfg := &Config{ImagePrefix: "custom/my-image", Target: "dev", Agent: "copilot"}
+func TestConfig_Image_CustomPrefix_CopilotRunner(t *testing.T) {
+	cfg := &Config{ImagePrefix: "custom/my-image", Target: "dev", Runner: "copilot"}
 	got := cfg.Image()
 	// Custom prefix without "claude-runner" stays unchanged
 	want := "custom/my-image:dev"
@@ -43,8 +43,8 @@ func TestConfig_BuildTarget(t *testing.T) {
 	}
 }
 
-func TestConfig_BuildTarget_CopilotAgent(t *testing.T) {
-	cfg := &Config{Target: "dev", Agent: "copilot"}
+func TestConfig_BuildTarget_CopilotRunner(t *testing.T) {
+	cfg := &Config{Target: "dev", Runner: "copilot"}
 	got := cfg.BuildTarget()
 	if got != "copilot-dev" {
 		t.Errorf("BuildTarget() = %q, want %q", got, "copilot-dev")
@@ -224,7 +224,37 @@ func TestApplyRegistryEntry_DisplayFlag(t *testing.T) {
 	}
 }
 
-func TestApplyRegistryEntry_AgentDefaultFlag(t *testing.T) {
+func TestApplyRegistryEntry_RunnerDefaultFlag(t *testing.T) {
+	cfg := &Config{Target: "dev"}
+	entry := ProjectEntry{
+		Directory:    "/tmp/test",
+		Target:       "dev",
+		DefaultFlags: map[string]string{"runner": "copilot"},
+	}
+
+	ApplyRegistryEntry(cfg, entry)
+
+	if cfg.Runner != "copilot" {
+		t.Errorf("Runner = %q, want %q", cfg.Runner, "copilot")
+	}
+}
+
+func TestApplyRegistryEntry_RunnerCLIOverridesDefault(t *testing.T) {
+	cfg := &Config{Target: "dev", Runner: "claude"}
+	entry := ProjectEntry{
+		Directory:    "/tmp/test",
+		Target:       "dev",
+		DefaultFlags: map[string]string{"runner": "copilot"},
+	}
+
+	ApplyRegistryEntry(cfg, entry)
+
+	if cfg.Runner != "claude" {
+		t.Errorf("Runner = %q, want %q (CLI should win)", cfg.Runner, "claude")
+	}
+}
+
+func TestApplyRegistryEntry_LegacyAgentDefaultFlag(t *testing.T) {
 	cfg := &Config{Target: "dev"}
 	entry := ProjectEntry{
 		Directory:    "/tmp/test",
@@ -234,79 +264,112 @@ func TestApplyRegistryEntry_AgentDefaultFlag(t *testing.T) {
 
 	ApplyRegistryEntry(cfg, entry)
 
-	if cfg.Agent != "copilot" {
-		t.Errorf("Agent = %q, want %q", cfg.Agent, "copilot")
+	if cfg.Runner != "copilot" {
+		t.Errorf("Runner = %q, want %q (legacy agent flag should map to Runner)", cfg.Runner, "copilot")
 	}
 }
 
-func TestApplyRegistryEntry_AgentCLIOverridesDefault(t *testing.T) {
-	cfg := &Config{Target: "dev", Agent: "claude"}
+func TestApplyRegistryEntry_PersonaDefaultFlag(t *testing.T) {
+	cfg := &Config{Target: "dev"}
 	entry := ProjectEntry{
 		Directory:    "/tmp/test",
 		Target:       "dev",
-		DefaultFlags: map[string]string{"agent": "copilot"},
+		DefaultFlags: map[string]string{"persona": "reviewer"},
 	}
 
 	ApplyRegistryEntry(cfg, entry)
 
-	if cfg.Agent != "claude" {
-		t.Errorf("Agent = %q, want %q (CLI should win)", cfg.Agent, "claude")
+	if cfg.Persona != "reviewer" {
+		t.Errorf("Persona = %q, want %q", cfg.Persona, "reviewer")
 	}
 }
 
-func TestNormalizeAgentTarget_CopilotDev(t *testing.T) {
+func TestApplyRegistryEntry_PersonaCLIOverridesDefault(t *testing.T) {
+	cfg := &Config{Target: "dev", Persona: "tester"}
+	entry := ProjectEntry{
+		Directory:    "/tmp/test",
+		Target:       "dev",
+		DefaultFlags: map[string]string{"persona": "reviewer"},
+	}
+
+	ApplyRegistryEntry(cfg, entry)
+
+	if cfg.Persona != "tester" {
+		t.Errorf("Persona = %q, want %q (CLI should win)", cfg.Persona, "tester")
+	}
+}
+
+func TestApplyRegistryEntry_RunnerAndPersonaDefaults(t *testing.T) {
+	cfg := &Config{Target: "dev"}
+	entry := ProjectEntry{
+		Directory:    "/tmp/test",
+		Target:       "dev",
+		DefaultFlags: map[string]string{"runner": "copilot", "persona": "reviewer"},
+	}
+
+	ApplyRegistryEntry(cfg, entry)
+
+	if cfg.Runner != "copilot" {
+		t.Errorf("Runner = %q, want %q", cfg.Runner, "copilot")
+	}
+	if cfg.Persona != "reviewer" {
+		t.Errorf("Persona = %q, want %q", cfg.Persona, "reviewer")
+	}
+}
+
+func TestNormalizeRunnerTarget_CopilotDev(t *testing.T) {
 	cfg := &Config{Target: "copilot-dev"}
-	NormalizeAgentTarget(cfg)
-	if cfg.Agent != "copilot" {
-		t.Errorf("Agent = %q, want %q", cfg.Agent, "copilot")
+	NormalizeRunnerTarget(cfg)
+	if cfg.Runner != "copilot" {
+		t.Errorf("Runner = %q, want %q", cfg.Runner, "copilot")
 	}
 	if cfg.Target != "dev" {
 		t.Errorf("Target = %q, want %q", cfg.Target, "dev")
 	}
 }
 
-func TestNormalizeAgentTarget_CopilotBase(t *testing.T) {
+func TestNormalizeRunnerTarget_CopilotBase(t *testing.T) {
 	cfg := &Config{Target: "copilot-base"}
-	NormalizeAgentTarget(cfg)
-	if cfg.Agent != "copilot" {
-		t.Errorf("Agent = %q, want %q", cfg.Agent, "copilot")
+	NormalizeRunnerTarget(cfg)
+	if cfg.Runner != "copilot" {
+		t.Errorf("Runner = %q, want %q", cfg.Runner, "copilot")
 	}
 	if cfg.Target != "base" {
 		t.Errorf("Target = %q, want %q", cfg.Target, "base")
 	}
 }
 
-func TestNormalizeAgentTarget_PlainTarget(t *testing.T) {
+func TestNormalizeRunnerTarget_PlainTarget(t *testing.T) {
 	cfg := &Config{Target: "dev"}
-	NormalizeAgentTarget(cfg)
-	if cfg.Agent != "" {
-		t.Errorf("Agent = %q, want empty", cfg.Agent)
+	NormalizeRunnerTarget(cfg)
+	if cfg.Runner != "" {
+		t.Errorf("Runner = %q, want empty", cfg.Runner)
 	}
 	if cfg.Target != "dev" {
 		t.Errorf("Target = %q, want %q", cfg.Target, "dev")
 	}
 }
 
-func TestNormalizeAgentTarget_ExplicitAgentNotOverwritten(t *testing.T) {
-	cfg := &Config{Target: "copilot-dev", Agent: "claude"}
-	NormalizeAgentTarget(cfg)
-	if cfg.Agent != "claude" {
-		t.Errorf("Agent = %q, want %q (explicit should win)", cfg.Agent, "claude")
+func TestNormalizeRunnerTarget_ExplicitRunnerNotOverwritten(t *testing.T) {
+	cfg := &Config{Target: "copilot-dev", Runner: "claude"}
+	NormalizeRunnerTarget(cfg)
+	if cfg.Runner != "claude" {
+		t.Errorf("Runner = %q, want %q (explicit should win)", cfg.Runner, "claude")
 	}
 	if cfg.Target != "copilot-dev" {
-		t.Errorf("Target = %q, want %q (should not be modified when agent is explicit)", cfg.Target, "copilot-dev")
+		t.Errorf("Target = %q, want %q (should not be modified when runner is explicit)", cfg.Target, "copilot-dev")
 	}
 }
 
-func TestApplyRegistryEntry_NormalizesAgentTarget(t *testing.T) {
+func TestApplyRegistryEntry_NormalizesRunnerTarget(t *testing.T) {
 	cfg := &Config{ImagePrefix: "techdelight/claude-runner"}
 	entry := ProjectEntry{
 		Directory: "/tmp/test",
 		Target:    "copilot-dev",
 	}
 	ApplyRegistryEntry(cfg, entry)
-	if cfg.Agent != "copilot" {
-		t.Errorf("Agent = %q, want %q", cfg.Agent, "copilot")
+	if cfg.Runner != "copilot" {
+		t.Errorf("Runner = %q, want %q", cfg.Runner, "copilot")
 	}
 	if cfg.Target != "dev" {
 		t.Errorf("Target = %q, want %q", cfg.Target, "dev")

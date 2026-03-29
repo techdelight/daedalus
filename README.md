@@ -84,6 +84,8 @@ daedalus prune
 daedalus remove <name> [name...]
 daedalus config <name> [--set key=value] [--unset key]
 daedalus skills [add <file> | remove <name> | show <name>]
+daedalus runners [list | show <name>]
+daedalus personas [list | show <name> | create <name> | remove <name>]
 daedalus tui
 daedalus web [--port PORT] [--host HOST]
 daedalus completion <bash|zsh|fish>
@@ -101,6 +103,8 @@ daedalus --help
 | `remove <name> [name...]` | Remove named projects from the registry |
 | `config <name>` | View or edit per-project default flags |
 | `skills` | List, add, remove, or show skills in the shared catalog |
+| `runners` | List or show built-in runner profiles (`claude`, `copilot`) |
+| `personas` | List, show, create, or remove named persona configurations |
 | `tui` | Interactive dashboard for managing projects |
 | `web` | Web UI dashboard (default: `localhost:3000`) |
 | `completion <shell>` | Print shell completion script (bash, zsh, fish) |
@@ -117,7 +121,8 @@ daedalus --help
 | `--no-tmux` | Run without tmux session wrapping |
 | `--debug` | Enable Claude Code debug mode |
 | `--dind` | Mount Docker socket (WARNING: grants host Docker access) |
-| `--agent <name>` | AI agent to use: `claude` (default) or `copilot` |
+| `--runner <name>` | AI runner: `claude` (default) or `copilot` |
+| `--persona <name>` | Named persona configuration to use |
 | `--display` | Forward host X11/Wayland display into the container for GUI apps |
 | `--force` | Force deletion in non-interactive mode (e.g. prune, remove) |
 | `--no-color` | Disable colored output (also honors `NO_COLOR` env var) |
@@ -167,10 +172,16 @@ daedalus list
 daedalus --display my-app /path/to/project
 
 # Use Copilot CLI instead of Claude Code
-daedalus --agent copilot my-app /path/to/project
+daedalus --runner copilot my-app /path/to/project
 
-# Set Copilot as the default agent for a project
-daedalus config my-app --set agent=copilot
+# Create a custom persona configuration (interactive)
+daedalus personas create reviewer
+
+# Use a custom persona
+daedalus --persona reviewer my-app /path/to/project
+
+# Set Copilot as the default runner for a project
+daedalus config my-app --set runner=copilot
 
 # Per-project configuration
 daedalus config my-app --set display=true
@@ -341,7 +352,7 @@ A default `config.json` is installed next to the binary. The installer automatic
   "no-tmux": false,
   "image-prefix": "custom/claude-runner",
   "log-file": "/mnt/data/daedalus/daedalus.log",
-  "agent": "claude"
+  "runner": "claude"
 }
 ```
 
@@ -354,7 +365,7 @@ All fields are optional. The file itself is optional — Daedalus works without 
 | `no-tmux` | bool | Run without tmux session wrapping |
 | `image-prefix` | string | Docker image prefix (default: `techdelight/claude-runner`). For copilot agent, `claude-runner` is automatically replaced with `copilot-runner`. |
 | `log-file` | string | Path to the runtime log file (default: `<data-dir>/daedalus.log`) |
-| `agent` | string | Default AI agent: `claude` (default) or `copilot` |
+| `runner` | string | Default AI runner: `claude` (default), `copilot`, or a user-defined persona name |
 
 ## MCP Servers
 
@@ -394,7 +405,7 @@ Daedalus supports [MCP servers](https://modelcontextprotocol.io/) configured in 
 
 ## Skill Catalog
 
-Daedalus includes a shared skill catalog — a directory of Claude Code slash commands (`.md` files) that are available to all projects. Skills are stored at `<data-dir>/skills/` on the host and mounted read-write into every container at `/opt/skills`.
+Daedalus includes a shared skill catalog — a directory of Claude Code skill files (`.md`) that are available to all projects. Skills are stored at `<data-dir>/skills/` on the host and mounted read-write into every container at `/opt/skills`.
 
 **From the host CLI:**
 
@@ -411,14 +422,75 @@ daedalus skills remove commit      # Remove a skill from the catalog
 |---|---|
 | `list_skills` | List all skills in the shared catalog |
 | `read_skill` | Read the full content of a skill |
-| `install_skill` | Install a skill into the project's `~/.claude/commands/` |
-| `uninstall_skill` | Remove a skill from the project's commands |
+| `install_skill` | Install a skill into `.claude/skills/` |
+| `uninstall_skill` | Remove a skill from `.claude/skills/` |
 | `create_skill` | Publish a new skill to the shared catalog |
 | `update_skill` | Update an existing skill in the catalog |
 | `remove_skill` | Delete a skill from the catalog |
 | `list_installed` | List skills installed in the current project |
 
-Installing a skill copies it from the catalog to the project's `~/.claude/commands/` directory, making it available as a slash command (e.g., `/commit`). The catalog is seeded with starter skills (`commit.md`, `review.md`) on first run.
+Installing a skill copies it from the catalog to the project's `.claude/skills/` directory, where Claude Code automatically discovers it. The catalog is seeded with starter skills (`commit.md`, `review.md`) on first run.
+
+## Persona Configurations
+
+Named persona configurations let you define custom personas that layer system prompts, tool permissions, and environment variables on top of a built-in runner (`claude` or `copilot`). Configs are stored as JSON in `<data-dir>/personas/`.
+
+**Managing personas:**
+
+```bash
+daedalus personas                    # List all user-defined personas
+daedalus personas create reviewer    # Create a new persona config (interactive)
+daedalus personas show reviewer      # Print the full JSON config
+daedalus personas remove reviewer    # Delete a persona config
+```
+
+**Using a custom persona:**
+
+```bash
+# One-time use
+daedalus --persona reviewer my-app /path/to/project
+
+# Set as project default
+daedalus config my-app --set persona=reviewer
+```
+
+**File layout:**
+
+Each persona is stored as a pair of files in `<data-dir>/personas/`:
+
+```
+personas/
+  reviewer.json    # config (name, baseRunner, settings, env)
+  reviewer.md      # CLAUDE.md content injected into the container
+```
+
+**JSON config (`reviewer.json`):**
+
+```json
+{
+  "name": "reviewer",
+  "description": "Code review specialist",
+  "baseRunner": "claude",
+  "settings": { "permissions": { "allow": ["Read", "Glob", "Grep"] } },
+  "env": { "REVIEW_MODE": "strict" }
+}
+```
+
+**Markdown file (`reviewer.md`):**
+
+```markdown
+You are a code reviewer. Focus on bugs, security, and readability.
+```
+
+| Field | Location | Description |
+|---|---|---|
+| `name` | `.json` | Unique name (must not collide with built-in runners) |
+| `baseRunner` | `.json` | Built-in runner binary to use: `claude` or `copilot` |
+| `settings` | `.json` | Override for `.claude/settings.json` tool permissions (optional) |
+| `env` | `.json` | Extra environment variables passed to the container (optional) |
+| CLAUDE.md content | `.md` | Custom system prompt injected into the container (optional) |
+
+When a user-defined persona is selected, Daedalus writes the overlay files to a temp directory and mounts them read-only into the container. The base runner binary runs as normal — the persona is purely file-based.
 
 ## Sharing Skills Across Projects
 

@@ -159,6 +159,18 @@ func writeCommands(b *strings.Builder) {
 		"Print a shell completion script to stdout. Source the output in your shell profile.")
 
 	writeCommand(b,
+		"\\fBskills\\fR [\\fBadd\\fR \\fIfile\\fR | \\fBremove\\fR \\fIname\\fR | \\fBshow\\fR \\fIname\\fR]",
+		"List, add, remove, or show skills in the shared skill catalog.")
+
+	writeCommand(b,
+		"\\fBrunners\\fR [\\fBlist\\fR | \\fBshow\\fR \\fIname\\fR]",
+		"List or show built-in runner profiles (claude, copilot).")
+
+	writeCommand(b,
+		"\\fBpersonas\\fR [\\fBlist\\fR | \\fBshow\\fR \\fIname\\fR | \\fBcreate\\fR \\fIname\\fR | \\fBremove\\fR \\fIname\\fR]",
+		"List, show, create, or remove named persona configurations.")
+
+	writeCommand(b,
 		"\\fB\\-\\-help\\fR, \\fB\\-h\\fR",
 		"Show the usage message and exit.")
 }
@@ -198,8 +210,11 @@ func writeOptions(b *strings.Builder) {
 	writeOption(b, "\\fB\\-\\-display\\fR",
 		"Forward the host X11 or Wayland display into the container, allowing GUI applications to render on the host screen. Requires a running display server on the host.")
 
-	writeOption(b, "\\fB\\-\\-agent\\fR \\fIname\\fR",
-		"AI agent to use inside the container. Accepted values: \\fBclaude\\fR (default), \\fBcopilot\\fR. Can also be set per-project via \\fBdaedalus config <name> \\-\\-set agent=copilot\\fR.")
+	writeOption(b, "\\fB\\-\\-runner\\fR \\fIname\\fR",
+		"AI runner to use inside the container. Accepted values: \\fBclaude\\fR (default), \\fBcopilot\\fR. Can also be set per-project via \\fBdaedalus config <name> \\-\\-set runner=copilot\\fR.")
+
+	writeOption(b, "\\fB\\-\\-persona\\fR \\fIname\\fR",
+		"Named persona configuration to use. User-defined personas layer system prompts and tool permissions on top of a built-in runner.")
 
 	writeOption(b, "\\fB\\-\\-force\\fR",
 		"Force deletion in non-interactive mode for \\fBprune\\fR and \\fBremove\\fR commands.")
@@ -259,8 +274,8 @@ func writeConfiguration(b *strings.Builder) {
 	b.WriteString("\\fBimage-prefix\\fR (string)\n")
 	b.WriteString("Docker image prefix. Default: techdelight/claude-runner.\n")
 	b.WriteString(".TP\n")
-	b.WriteString("\\fBagent\\fR (string)\n")
-	b.WriteString("Default AI agent: claude (default) or copilot.\n")
+	b.WriteString("\\fBrunner\\fR (string)\n")
+	b.WriteString("Default AI runner: claude (default) or copilot.\n")
 }
 
 // writeExamples writes the EXAMPLES section.
@@ -334,7 +349,7 @@ func writeExamples(b *strings.Builder) {
 	b.WriteString(".PP\n")
 	b.WriteString(".RS\n")
 	b.WriteString(".nf\n")
-	b.WriteString("daedalus \\-\\-agent copilot my\\-app /path/to/project\n")
+	b.WriteString("daedalus \\-\\-runner copilot my\\-app /path/to/project\n")
 	b.WriteString(".fi\n")
 	b.WriteString(".RE\n")
 

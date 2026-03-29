@@ -6,7 +6,7 @@ services:
       - "${PROJECT_DIR}:/workspace"
       - "${CACHE_DIR}:/home/claude"
     environment:
-      - AGENT=${AGENT:-claude}
+      - RUNNER=${RUNNER:-claude}
     security_opt:
       - no-new-privileges:true
     cap_drop:
