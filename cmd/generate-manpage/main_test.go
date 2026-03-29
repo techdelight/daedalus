@@ -118,7 +118,7 @@ func TestGenerateManpage_ContainsAllFlags(t *testing.T) {
 		"\\-\\-debug",
 		"\\-\\-dind",
 		"\\-\\-display",
-		"\\-\\-agent",
+		"\\-\\-runner",
 		"\\-\\-force",
 		"\\-\\-no\\-color",
 		"\\-\\-port",
@@ -165,7 +165,7 @@ func TestGenerateManpage_ContainsConfigFields(t *testing.T) {
 		"debug",
 		"no-tmux",
 		"image-prefix",
-		"agent",
+		"runner",
 	}
 
 	// Act

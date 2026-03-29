@@ -1,6 +1,6 @@
 // Copyright (C) 2026 Techdelight BV
 
-package agents
+package personas
 
 import (
 	"os"
@@ -12,7 +12,7 @@ import (
 
 func testStore(t *testing.T) *Store {
 	t.Helper()
-	dir := filepath.Join(t.TempDir(), "agents")
+	dir := filepath.Join(t.TempDir(), "personas")
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -21,10 +21,10 @@ func testStore(t *testing.T) *Store {
 
 func TestCreate_And_Read(t *testing.T) {
 	s := testStore(t)
-	cfg := core.AgentConfig{
+	cfg := core.PersonaConfig{
 		Name:        "reviewer",
 		Description: "Code review specialist",
-		BaseAgent:   "claude",
+		BaseRunner:  "claude",
 		ClaudeMd:    "You are a code reviewer.",
 	}
 	if err := s.Create(cfg); err != nil {
@@ -37,8 +37,8 @@ func TestCreate_And_Read(t *testing.T) {
 	if got.Name != "reviewer" {
 		t.Errorf("Name = %q, want %q", got.Name, "reviewer")
 	}
-	if got.BaseAgent != "claude" {
-		t.Errorf("BaseAgent = %q, want %q", got.BaseAgent, "claude")
+	if got.BaseRunner != "claude" {
+		t.Errorf("BaseRunner = %q, want %q", got.BaseRunner, "claude")
 	}
 	if got.ClaudeMd != "You are a code reviewer." {
 		t.Errorf("ClaudeMd = %q, want %q", got.ClaudeMd, "You are a code reviewer.")
@@ -47,7 +47,7 @@ func TestCreate_And_Read(t *testing.T) {
 
 func TestCreate_DuplicateName(t *testing.T) {
 	s := testStore(t)
-	cfg := core.AgentConfig{Name: "reviewer", BaseAgent: "claude"}
+	cfg := core.PersonaConfig{Name: "reviewer", BaseRunner: "claude"}
 	if err := s.Create(cfg); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -58,7 +58,7 @@ func TestCreate_DuplicateName(t *testing.T) {
 
 func TestCreate_RejectsBuiltinName(t *testing.T) {
 	s := testStore(t)
-	cfg := core.AgentConfig{Name: "claude", BaseAgent: "claude"}
+	cfg := core.PersonaConfig{Name: "claude", BaseRunner: "claude"}
 	if err := s.Create(cfg); err == nil {
 		t.Fatal("Create(claude): want error, got nil")
 	}
@@ -66,7 +66,7 @@ func TestCreate_RejectsBuiltinName(t *testing.T) {
 
 func TestCreate_RejectsInvalidName(t *testing.T) {
 	s := testStore(t)
-	cfg := core.AgentConfig{Name: "-bad", BaseAgent: "claude"}
+	cfg := core.PersonaConfig{Name: "-bad", BaseRunner: "claude"}
 	if err := s.Create(cfg); err == nil {
 		t.Fatal("Create(-bad): want error, got nil")
 	}
@@ -74,7 +74,7 @@ func TestCreate_RejectsInvalidName(t *testing.T) {
 
 func TestUpdate(t *testing.T) {
 	s := testStore(t)
-	cfg := core.AgentConfig{Name: "reviewer", BaseAgent: "claude", Description: "v1"}
+	cfg := core.PersonaConfig{Name: "reviewer", BaseRunner: "claude", Description: "v1"}
 	if err := s.Create(cfg); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -93,7 +93,7 @@ func TestUpdate(t *testing.T) {
 
 func TestUpdate_NotFound(t *testing.T) {
 	s := testStore(t)
-	cfg := core.AgentConfig{Name: "nonexistent", BaseAgent: "claude"}
+	cfg := core.PersonaConfig{Name: "nonexistent", BaseRunner: "claude"}
 	if err := s.Update(cfg); err == nil {
 		t.Fatal("Update nonexistent: want error, got nil")
 	}
@@ -101,7 +101,7 @@ func TestUpdate_NotFound(t *testing.T) {
 
 func TestRemove(t *testing.T) {
 	s := testStore(t)
-	cfg := core.AgentConfig{Name: "reviewer", BaseAgent: "claude"}
+	cfg := core.PersonaConfig{Name: "reviewer", BaseRunner: "claude"}
 	if err := s.Create(cfg); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -134,7 +134,7 @@ func TestList_Empty(t *testing.T) {
 func TestList_WithConfigs(t *testing.T) {
 	s := testStore(t)
 	for _, name := range []string{"alpha", "beta"} {
-		cfg := core.AgentConfig{Name: name, BaseAgent: "claude"}
+		cfg := core.PersonaConfig{Name: name, BaseRunner: "claude"}
 		if err := s.Create(cfg); err != nil {
 			t.Fatalf("Create(%s): %v", name, err)
 		}
@@ -169,11 +169,11 @@ func TestRead_NotFound(t *testing.T) {
 
 func TestCreate_WithEnvAndSettings(t *testing.T) {
 	s := testStore(t)
-	cfg := core.AgentConfig{
-		Name:      "custom",
-		BaseAgent: "copilot",
-		Env:       map[string]string{"FOO": "bar"},
-		Settings:  []byte(`{"permissions":{"allow":["Read"]}}`),
+	cfg := core.PersonaConfig{
+		Name:       "custom",
+		BaseRunner: "copilot",
+		Env:        map[string]string{"FOO": "bar"},
+		Settings:   []byte(`{"permissions":{"allow":["Read"]}}`),
 	}
 	if err := s.Create(cfg); err != nil {
 		t.Fatalf("Create: %v", err)
@@ -187,5 +187,36 @@ func TestCreate_WithEnvAndSettings(t *testing.T) {
 	}
 	if got.Settings == nil {
 		t.Error("Settings = nil, want non-nil")
+	}
+}
+
+func TestMigrateAgentsDir(t *testing.T) {
+	base := t.TempDir()
+	agentsDir := filepath.Join(base, "agents")
+	personasDir := filepath.Join(base, "personas")
+
+	// Create old agents dir with a file
+	os.MkdirAll(agentsDir, 0755)
+	os.WriteFile(filepath.Join(agentsDir, "reviewer.json"),
+		[]byte(`{"name":"reviewer","baseRunner":"claude"}`), 0644)
+
+	// New() should migrate
+	store := New(personasDir)
+
+	// The old dir should be gone, new dir should exist
+	if _, err := os.Stat(agentsDir); !os.IsNotExist(err) {
+		t.Error("agents directory should have been renamed")
+	}
+	if _, err := os.Stat(personasDir); err != nil {
+		t.Fatalf("personas directory should exist after migration: %v", err)
+	}
+
+	// Should be able to read the migrated config
+	cfg, err := store.Read("reviewer")
+	if err != nil {
+		t.Fatalf("Read migrated config: %v", err)
+	}
+	if cfg.Name != "reviewer" {
+		t.Errorf("Name = %q, want %q", cfg.Name, "reviewer")
 	}
 }

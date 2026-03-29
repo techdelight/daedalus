@@ -117,19 +117,27 @@ func TestApplyAppConfig_LogFile_CLIWins(t *testing.T) {
 	}
 }
 
-func TestApplyAppConfig_Agent_Applied(t *testing.T) {
+func TestApplyAppConfig_Runner_Applied(t *testing.T) {
 	cfg := &Config{ImagePrefix: "techdelight/claude-runner"}
-	ApplyAppConfig(cfg, AppConfig{Agent: strPtr("copilot")})
-	if cfg.Agent != "copilot" {
-		t.Errorf("Agent = %q, want %q", cfg.Agent, "copilot")
+	ApplyAppConfig(cfg, AppConfig{Runner: strPtr("copilot")})
+	if cfg.Runner != "copilot" {
+		t.Errorf("Runner = %q, want %q", cfg.Runner, "copilot")
 	}
 }
 
-func TestApplyAppConfig_Agent_CLIWins(t *testing.T) {
-	cfg := &Config{Agent: "claude", ImagePrefix: "techdelight/claude-runner"}
+func TestApplyAppConfig_Runner_CLIWins(t *testing.T) {
+	cfg := &Config{Runner: "claude", ImagePrefix: "techdelight/claude-runner"}
+	ApplyAppConfig(cfg, AppConfig{Runner: strPtr("copilot")})
+	if cfg.Runner != "claude" {
+		t.Errorf("Runner = %q, want %q (CLI should win)", cfg.Runner, "claude")
+	}
+}
+
+func TestApplyAppConfig_LegacyAgent_MapsToRunner(t *testing.T) {
+	cfg := &Config{ImagePrefix: "techdelight/claude-runner"}
 	ApplyAppConfig(cfg, AppConfig{Agent: strPtr("copilot")})
-	if cfg.Agent != "claude" {
-		t.Errorf("Agent = %q, want %q (CLI should win)", cfg.Agent, "claude")
+	if cfg.Runner != "copilot" {
+		t.Errorf("Runner = %q, want %q (legacy Agent should map to Runner)", cfg.Runner, "copilot")
 	}
 }
 

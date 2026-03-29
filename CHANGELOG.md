@@ -7,20 +7,25 @@ All notable changes to this project will be documented in this file.
 ## [0.16.0] - 2026-03-26
 
 ### Added
-- **Named agent configurations** — users can define custom agent personas that layer system prompts, tool permissions, and environment variables on top of built-in agents (Claude, Copilot). Configs stored as JSON in `<data-dir>/agents/`.
-- `daedalus agents` CLI subcommand — `list` (shows built-in + user-defined agents), `show <name>` (prints full config), `create <name>` (interactive setup), `remove <name>` (deletes config).
-- `--agent <name>` now accepts user-defined agent names alongside built-in `claude` and `copilot`.
-- `core/agentconfig.go` — `AgentConfig` struct, `AgentOverlay` struct, `AgentsDir()` method, `ValidateAgentConfigName()`, `IsBuiltinAgent()`, `BuiltinAgentNames()`.
-- `internal/agents` package — `Store` with `List`, `Read`, `Create`, `Update`, `Remove` operations for agent config CRUD.
+- **Named persona configurations** — users can define custom personas that layer system prompts, tool permissions, and environment variables on top of a built-in runner (Claude, Copilot). Configs stored as JSON in `<data-dir>/personas/`.
+- `daedalus personas` CLI subcommand — `list` (shows built-in runners + user-defined personas), `show <name>` (prints full config), `create <name>` (interactive setup), `remove <name>` (deletes config).
+- `--persona <name>` flag to select a user-defined persona.
+- `--runner <name>` flag to select the runtime binary (`claude` or `copilot`), replacing the overloaded `--agent` flag.
+- `core/persona.go` — `PersonaConfig` struct, `PersonaOverlay` struct, `PersonasDir()` method, `ValidatePersonaName()`.
+- `core/runner.go` — `RunnerProfile` struct, `LookupRunner()`, `LookupBuiltinRunner()`, `ValidRunnerNames()`, `ResolveRunnerName()`, `IsBuiltinRunner()`, `BuiltinRunnerNames()`.
+- `internal/personas` package — `Store` with `List`, `Read`, `Create`, `Update`, `Remove` operations for persona CRUD.
 - `OverlayPaths` struct in `core/command.go` for injecting custom CLAUDE.md, settings.json, and environment variables into containers via volume mounts.
-- Shell completions for `agents` subcommand in bash, zsh, and fish.
+- Shell completions for `personas` subcommand and `--runner`/`--persona` flags in bash, zsh, and fish.
+- Legacy `--agent` flag accepted as deprecated alias for `--runner`.
+- Auto-migration of `<data-dir>/agents/` directory to `<data-dir>/personas/`.
 
 ### Changed
-- `LookupAgent()` now accepts an optional `*AgentConfig` parameter to resolve user-defined agents to their base profile with overlay.
-- `ValidAgentNames()` now accepts variadic user-defined names to include alongside built-in agents.
-- `BuildExtraArgs()` accepts an optional `*OverlayPaths` parameter for agent overlay volume mounts.
-- `--agent` validation is now dynamic — checks built-in names and user-defined configs in `<data-dir>/agents/`.
-- Help text updated with `agents` subcommand and user-defined agent documentation.
+- **Terminology split**: "agent" is now two distinct concepts — **runner** (claude/copilot binary) and **persona** (user-defined configuration overlay).
+- `BuildAgentArgs()` renamed to `BuildRunnerArgs()` (`BuildClaudeArgs()` kept as deprecated alias).
+- `AGENT` environment variable renamed to `RUNNER` in docker-compose.yml, entrypoint.sh, and Dockerfile.
+- `Config.Agent` field split into `Config.Runner` and `Config.Persona`.
+- `config.json` field `"agent"` renamed to `"runner"` (legacy `"agent"` key still accepted).
+- Help text updated with `personas` subcommand and `--runner`/`--persona` documentation.
 
 ## [0.15.0] - 2026-03-25
 

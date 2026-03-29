@@ -1,10 +1,10 @@
 #!/bin/bash
 set -e
 
-AGENT="${AGENT:-claude}"
+RUNNER="${RUNNER:-claude}"
 DEFAULTS_DIR="/opt/claude/defaults"
 
-case "$AGENT" in
+case "$RUNNER" in
     claude)
         # Ensure config directory exists
         mkdir -p "$CLAUDE_CONFIG_DIR"
@@ -25,7 +25,7 @@ case "$AGENT" in
         exec /usr/local/bin/copilot --allow-all "$@"
         ;;
     *)
-        echo "Unknown agent: $AGENT" >&2
+        echo "Unknown runner: $RUNNER" >&2
         exit 1
         ;;
 esac

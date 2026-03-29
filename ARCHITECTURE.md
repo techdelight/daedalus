@@ -14,10 +14,10 @@ Contains types, command builders, and helpers with no side effects.
 |---|---|
 | `config.go` | `Config` struct, `Image()`, `ContainerName()`, `TmuxSession()`, `CacheDir()`, `SkillsDir()`, `UseTmux()`, `ApplyRegistryEntry()` |
 | `appconfig.go` | `AppConfig` struct, `ApplyAppConfig()` |
-| `agent.go` | `AgentProfile` struct, `LookupAgent()`, `LookupBuiltinAgent()`, `ValidAgentNames()`, `ResolveAgentName()` |
-| `agentconfig.go` | `AgentConfig`, `AgentOverlay` structs, `AgentsDir()`, `ValidateAgentConfigName()`, `IsBuiltinAgent()`, `BuiltinAgentNames()` |
+| `runner.go` | `RunnerProfile` struct, `LookupRunner()`, `LookupBuiltinRunner()`, `ValidRunnerNames()`, `ResolveRunnerName()` |
+| `persona.go` | `PersonaConfig`, `PersonaOverlay` structs, `PersonasDir()`, `ValidatePersonaName()`, `IsBuiltinRunner()`, `BuiltinRunnerNames()` |
 | `project.go` | `RegistryData`, `ProjectEntry`, `SessionRecord`, `ProjectInfo` types |
-| `command.go` | `BuildAgentArgs()`, `BuildClaudeArgs()` (deprecated alias), `BuildTmuxCommand()`, `BuildEnvExports()`, `ShellQuote()`, `BuildExtraArgs()`, `OverlayPaths` |
+| `command.go` | `BuildRunnerArgs()`, `BuildClaudeArgs()` (deprecated alias), `BuildTmuxCommand()`, `BuildEnvExports()`, `ShellQuote()`, `BuildExtraArgs()`, `OverlayPaths` |
 | `skills.go` | `StarterSkills()` — embedded starter skill files via `go:embed` |
 | `time.go` | `NowUTC()`, `ParseUTC()`, `RelativeTime()` |
 
@@ -25,7 +25,7 @@ Contains types, command builders, and helpers with no side effects.
 
 | File | Responsibility |
 |---|---|
-| `main.go` | `main()`, `run()` dispatcher, project resolution, subcommand handlers (`list`, `prune`, `remove`, `config`, `skills`, `agents`) |
+| `main.go` | `main()`, `run()` dispatcher, project resolution, subcommand handlers (`list`, `prune`, `remove`, `config`, `skills`, `personas`) |
 
 ### `cmd/skill-catalog-mcp/` — Skill Catalog MCP Server
 
@@ -55,7 +55,7 @@ All side effects (filesystem, shell, network) live here behind interfaces.
 | `web` | `Run()`, `WebServer` | REST API + WebSocket terminal relay, embedded static assets |
 | `logging` | `Init()`, `Close()`, `Info()`, `Error()`, `Debug()` | Thread-safe file logging with timestamp and level prefixes |
 | `completions` | `Generate()` | bash/zsh/fish shell completion scripts |
-| `agents` | `Store`, `New()`, `List()`, `Read()`, `Create()`, `Update()`, `Remove()` | User-defined agent configuration CRUD (JSON files) |
+| `personas` | `Store`, `New()`, `List()`, `Read()`, `Create()`, `Update()`, `Remove()` | User-defined persona configuration CRUD (JSON files) |
 | `catalog` | `Catalog`, `New()`, `List()`, `Read()`, `Install()`, `Uninstall()`, `Create()`, `Update()`, `Remove()`, `ListInstalled()` | Shared skill catalog operations (filesystem I/O) |
 | `platform` | `IsWSL2()`, `WSL2IPAddress()`, `DisplayArgs()` | Platform detection (WSL2) and display forwarding argument resolution |
 
@@ -65,10 +65,10 @@ All side effects (filesystem, shell, network) live here behind interfaces.
 executor  (leaf)
 color     (leaf)
 logging   (leaf)
-agents    → core
+personas  → core
 catalog   (leaf)
   ↑
-config    → core, color, agents
+config    → core, color, personas
 registry  → core
 docker    → core, executor
 session   → executor
@@ -76,7 +76,7 @@ completions → core
 tui       → core, executor, registry, docker, session
 web       → core, executor, registry, docker, session
   ↑
-cmd/daedalus → all of the above + catalog + agents
+cmd/daedalus → all of the above + catalog + personas
 cmd/skill-catalog-mcp → catalog (standalone MCP server, uses modelcontextprotocol/go-sdk)
 cmd/generate-manpage → (standalone, reads VERSION file only)
 ```

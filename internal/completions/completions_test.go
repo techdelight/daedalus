@@ -11,10 +11,10 @@ import (
 )
 
 func TestBashCompletion_ContainsSubcommands(t *testing.T) {
-	if !strings.Contains(bashCompletion, "skills agents") {
-		t.Error("bash completion missing skills/agents subcommands")
+	if !strings.Contains(bashCompletion, "skills personas") {
+		t.Error("bash completion missing skills/personas subcommands")
 	}
-	if !strings.Contains(bashCompletion, "list prune remove rename config tui web completion skills agents") {
+	if !strings.Contains(bashCompletion, "list prune remove rename config tui web completion skills personas") {
 		t.Error("bash completion missing subcommands")
 	}
 	if !strings.Contains(bashCompletion, "complete -F _daedalus daedalus") {
@@ -135,30 +135,30 @@ func TestGenerate_EmptyShell(t *testing.T) {
 	}
 }
 
-func TestBashCompletion_AgentsSubcommand(t *testing.T) {
-	if !strings.Contains(bashCompletion, "agents)") {
-		t.Error("bash completion missing agents case")
+func TestBashCompletion_PersonasSubcommand(t *testing.T) {
+	if !strings.Contains(bashCompletion, "personas)") {
+		t.Error("bash completion missing personas case")
 	}
 	if !strings.Contains(bashCompletion, "list show create remove") {
-		t.Error("bash completion missing agents subcommands")
+		t.Error("bash completion missing personas subcommands")
 	}
 }
 
-func TestZshCompletion_AgentsSubcommand(t *testing.T) {
-	if !strings.Contains(zshCompletion, "'agents:Manage named agent configurations'") {
-		t.Error("zsh completion missing agents subcommand description")
+func TestZshCompletion_PersonasSubcommand(t *testing.T) {
+	if !strings.Contains(zshCompletion, "'personas:Manage named persona configurations'") {
+		t.Error("zsh completion missing personas subcommand description")
 	}
-	if !strings.Contains(zshCompletion, "agents)") {
-		t.Error("zsh completion missing agents case")
+	if !strings.Contains(zshCompletion, "personas)") {
+		t.Error("zsh completion missing personas case")
 	}
 }
 
-func TestFishCompletion_AgentsSubcommand(t *testing.T) {
-	if !strings.Contains(fishCompletion, "'agents'") {
-		t.Error("fish completion missing agents subcommand")
+func TestFishCompletion_PersonasSubcommand(t *testing.T) {
+	if !strings.Contains(fishCompletion, "'personas'") {
+		t.Error("fish completion missing personas subcommand")
 	}
-	if !strings.Contains(fishCompletion, "__fish_seen_subcommand_from agents") {
-		t.Error("fish completion missing agents subcommand completions")
+	if !strings.Contains(fishCompletion, "__fish_seen_subcommand_from personas") {
+		t.Error("fish completion missing personas subcommand completions")
 	}
 }
 

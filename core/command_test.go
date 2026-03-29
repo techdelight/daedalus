@@ -51,17 +51,17 @@ func TestBuildClaudeArgs_WithPrompt(t *testing.T) {
 	}
 }
 
-func TestBuildAgentArgs_Copilot_NoFlags(t *testing.T) {
-	cfg := &Config{Agent: "copilot"}
-	args := BuildAgentArgs(cfg)
+func TestBuildRunnerArgs_Copilot_NoFlags(t *testing.T) {
+	cfg := &Config{Runner: "copilot"}
+	args := BuildRunnerArgs(cfg)
 	if len(args) != 0 {
 		t.Errorf("args = %v, want empty slice", args)
 	}
 }
 
-func TestBuildAgentArgs_Copilot_WithPrompt(t *testing.T) {
-	cfg := &Config{Agent: "copilot", Prompt: "fix bugs"}
-	args := BuildAgentArgs(cfg)
+func TestBuildRunnerArgs_Copilot_WithPrompt(t *testing.T) {
+	cfg := &Config{Runner: "copilot", Prompt: "fix bugs"}
+	args := BuildRunnerArgs(cfg)
 	// copilot has no prompt prefix, just -p
 	expected := []string{"-p", "fix bugs"}
 	if len(args) != len(expected) {
@@ -74,18 +74,18 @@ func TestBuildAgentArgs_Copilot_WithPrompt(t *testing.T) {
 	}
 }
 
-func TestBuildAgentArgs_Copilot_DebugIgnored(t *testing.T) {
-	cfg := &Config{Agent: "copilot", Debug: true}
-	args := BuildAgentArgs(cfg)
+func TestBuildRunnerArgs_Copilot_DebugIgnored(t *testing.T) {
+	cfg := &Config{Runner: "copilot", Debug: true}
+	args := BuildRunnerArgs(cfg)
 	// copilot has no debug flag, so nothing emitted
 	if len(args) != 0 {
 		t.Errorf("args = %v, want empty (copilot has no debug flag)", args)
 	}
 }
 
-func TestBuildAgentArgs_Copilot_WithResume(t *testing.T) {
-	cfg := &Config{Agent: "copilot", Resume: "sess-42"}
-	args := BuildAgentArgs(cfg)
+func TestBuildRunnerArgs_Copilot_WithResume(t *testing.T) {
+	cfg := &Config{Runner: "copilot", Resume: "sess-42"}
+	args := BuildRunnerArgs(cfg)
 	expected := []string{"--resume", "sess-42"}
 	if len(args) != len(expected) {
 		t.Fatalf("len = %d, want %d", len(args), len(expected))
@@ -97,10 +97,10 @@ func TestBuildAgentArgs_Copilot_WithResume(t *testing.T) {
 	}
 }
 
-func TestBuildAgentArgs_Claude_DefaultBehavior(t *testing.T) {
-	// No Agent field set — should behave exactly like original BuildClaudeArgs
+func TestBuildRunnerArgs_Claude_DefaultBehavior(t *testing.T) {
+	// No Runner field set — should behave exactly like original BuildClaudeArgs
 	cfg := &Config{Debug: true, Prompt: "fix bugs"}
-	args := BuildAgentArgs(cfg)
+	args := BuildRunnerArgs(cfg)
 	expected := []string{"--debug", "--print", "--verbose", "-p", "fix bugs"}
 	if len(args) != len(expected) {
 		t.Fatalf("len = %d, want %d; args = %v", len(args), len(expected), args)
@@ -112,26 +112,26 @@ func TestBuildAgentArgs_Claude_DefaultBehavior(t *testing.T) {
 	}
 }
 
-func TestBuildTmuxCommand_IncludesAgentEnv(t *testing.T) {
+func TestBuildTmuxCommand_IncludesRunnerEnv(t *testing.T) {
 	cfg := &Config{
 		ProjectName: "test",
 		ProjectDir:  "/tmp",
 		Target:      "dev",
-		Agent:       "copilot",
+		Runner:      "copilot",
 		ImagePrefix: "techdelight/claude-runner",
 	}
 	dockerCmd := []string{"docker", "compose", "run", "claude"}
 	result := BuildTmuxCommand(cfg, dockerCmd)
 
-	if !strings.Contains(result, "AGENT='copilot'") {
-		t.Errorf("tmux command should include AGENT='copilot', got: %s", result)
+	if !strings.Contains(result, "RUNNER='copilot'") {
+		t.Errorf("tmux command should include RUNNER='copilot', got: %s", result)
 	}
 	if !strings.Contains(result, "IMAGE='techdelight/copilot-runner:dev'") {
 		t.Errorf("tmux command should include copilot-runner IMAGE, got: %s", result)
 	}
 }
 
-func TestBuildTmuxCommand_DefaultAgentEnv(t *testing.T) {
+func TestBuildTmuxCommand_DefaultRunnerEnv(t *testing.T) {
 	cfg := &Config{
 		ProjectName: "test",
 		ProjectDir:  "/tmp",
@@ -140,8 +140,8 @@ func TestBuildTmuxCommand_DefaultAgentEnv(t *testing.T) {
 	dockerCmd := []string{"docker", "compose", "run", "claude"}
 	result := BuildTmuxCommand(cfg, dockerCmd)
 
-	if !strings.Contains(result, "AGENT='claude'") {
-		t.Errorf("tmux command should include AGENT='claude' by default, got: %s", result)
+	if !strings.Contains(result, "RUNNER='claude'") {
+		t.Errorf("tmux command should include RUNNER='claude' by default, got: %s", result)
 	}
 }
 

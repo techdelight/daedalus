@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/techdelight/daedalus/core"
-	"github.com/techdelight/daedalus/internal/agents"
+	"github.com/techdelight/daedalus/internal/personas"
 	"github.com/techdelight/daedalus/internal/color"
 	"github.com/techdelight/daedalus/internal/registry"
 )
@@ -735,7 +735,7 @@ func TestCollectBuildSpecs(t *testing.T) {
 				ImagePrefix:    "techdelight/claude-runner",
 				Target:         tc.target,
 				TargetOverride: tc.targetOverride,
-				Agent:          tc.agent,
+				Runner:         tc.agent,
 			}
 
 			got := collectBuildSpecs(cfg, tc.entries)
@@ -973,19 +973,19 @@ func TestHandleDirConflict_TouchProjectError(t *testing.T) {
 	}
 }
 
-// --- Agent configuration tests ---
+// --- Persona configuration tests ---
 
-func TestListAgents_Empty(t *testing.T) {
+func TestListPersonas_Empty(t *testing.T) {
 	dir := t.TempDir()
-	agentsDir := filepath.Join(dir, "agents")
-	os.MkdirAll(agentsDir, 0755)
-	store := agents.New(agentsDir)
+	personasDir := filepath.Join(dir, "personas")
+	os.MkdirAll(personasDir, 0755)
+	store := personas.New(personasDir)
 
 	old := os.Stdout
 	r, w, _ := os.Pipe()
 	os.Stdout = w
 
-	err := listAgents(store)
+	err := listPersonas(store)
 
 	w.Close()
 	var buf [4096]byte
@@ -993,10 +993,10 @@ func TestListAgents_Empty(t *testing.T) {
 	os.Stdout = old
 
 	if err != nil {
-		t.Fatalf("listAgents failed: %v", err)
+		t.Fatalf("listPersonas failed: %v", err)
 	}
 	output := string(buf[:n])
-	// Should show built-in agents even with no user configs
+	// Should show built-in runners even with no user configs
 	if !strings.Contains(output, "claude") {
 		t.Error("output should contain built-in 'claude'")
 	}
@@ -1005,16 +1005,16 @@ func TestListAgents_Empty(t *testing.T) {
 	}
 }
 
-func TestListAgents_WithUserDefined(t *testing.T) {
+func TestListPersonas_WithUserDefined(t *testing.T) {
 	dir := t.TempDir()
-	agentsDir := filepath.Join(dir, "agents")
-	os.MkdirAll(agentsDir, 0755)
-	store := agents.New(agentsDir)
+	personasDir := filepath.Join(dir, "personas")
+	os.MkdirAll(personasDir, 0755)
+	store := personas.New(personasDir)
 
-	cfg := core.AgentConfig{
+	cfg := core.PersonaConfig{
 		Name:        "reviewer",
 		Description: "Code review specialist",
-		BaseAgent:   "claude",
+		BaseRunner:  "claude",
 	}
 	if err := store.Create(cfg); err != nil {
 		t.Fatal(err)
@@ -1024,7 +1024,7 @@ func TestListAgents_WithUserDefined(t *testing.T) {
 	r, w, _ := os.Pipe()
 	os.Stdout = w
 
-	err := listAgents(store)
+	err := listPersonas(store)
 
 	w.Close()
 	var buf [4096]byte
@@ -1032,7 +1032,7 @@ func TestListAgents_WithUserDefined(t *testing.T) {
 	os.Stdout = old
 
 	if err != nil {
-		t.Fatalf("listAgents failed: %v", err)
+		t.Fatalf("listPersonas failed: %v", err)
 	}
 	output := string(buf[:n])
 	if !strings.Contains(output, "reviewer") {
@@ -1043,15 +1043,15 @@ func TestListAgents_WithUserDefined(t *testing.T) {
 	}
 }
 
-func TestShowAgent_BuiltIn(t *testing.T) {
+func TestShowPersona_BuiltIn(t *testing.T) {
 	dir := t.TempDir()
-	store := agents.New(dir)
+	store := personas.New(dir)
 
 	old := os.Stdout
 	r, w, _ := os.Pipe()
 	os.Stdout = w
 
-	err := showAgent(store, "claude")
+	err := showPersona(store, "claude")
 
 	w.Close()
 	var buf [4096]byte
@@ -1059,7 +1059,7 @@ func TestShowAgent_BuiltIn(t *testing.T) {
 	os.Stdout = old
 
 	if err != nil {
-		t.Fatalf("showAgent(claude) failed: %v", err)
+		t.Fatalf("showPersona(claude) failed: %v", err)
 	}
 	output := string(buf[:n])
 	if !strings.Contains(output, "built-in") {
@@ -1070,16 +1070,16 @@ func TestShowAgent_BuiltIn(t *testing.T) {
 	}
 }
 
-func TestShowAgent_UserDefined(t *testing.T) {
+func TestShowPersona_UserDefined(t *testing.T) {
 	dir := t.TempDir()
-	agentsDir := filepath.Join(dir, "agents")
-	os.MkdirAll(agentsDir, 0755)
-	store := agents.New(agentsDir)
+	personasDir := filepath.Join(dir, "personas")
+	os.MkdirAll(personasDir, 0755)
+	store := personas.New(personasDir)
 
-	cfg := core.AgentConfig{
-		Name:      "reviewer",
-		BaseAgent: "claude",
-		ClaudeMd:  "You review code.",
+	cfg := core.PersonaConfig{
+		Name:       "reviewer",
+		BaseRunner: "claude",
+		ClaudeMd:   "You review code.",
 	}
 	store.Create(cfg)
 
@@ -1087,7 +1087,7 @@ func TestShowAgent_UserDefined(t *testing.T) {
 	r, w, _ := os.Pipe()
 	os.Stdout = w
 
-	err := showAgent(store, "reviewer")
+	err := showPersona(store, "reviewer")
 
 	w.Close()
 	var buf [4096]byte
@@ -1095,11 +1095,11 @@ func TestShowAgent_UserDefined(t *testing.T) {
 	os.Stdout = old
 
 	if err != nil {
-		t.Fatalf("showAgent(reviewer) failed: %v", err)
+		t.Fatalf("showPersona(reviewer) failed: %v", err)
 	}
 	output := string(buf[:n])
 
-	var result core.AgentConfig
+	var result core.PersonaConfig
 	if err := json.Unmarshal([]byte(output), &result); err != nil {
 		t.Fatalf("output is not valid JSON: %v\noutput: %s", err, output)
 	}
@@ -1108,91 +1108,91 @@ func TestShowAgent_UserDefined(t *testing.T) {
 	}
 }
 
-func TestShowAgent_NotFound(t *testing.T) {
+func TestShowPersona_NotFound(t *testing.T) {
 	dir := t.TempDir()
-	store := agents.New(dir)
+	store := personas.New(dir)
 
-	err := showAgent(store, "nonexistent")
+	err := showPersona(store, "nonexistent")
 	if err == nil {
-		t.Fatal("showAgent(nonexistent) = nil, want error")
+		t.Fatal("showPersona(nonexistent) = nil, want error")
 	}
 }
 
-func TestRemoveAgent_Success(t *testing.T) {
+func TestRemovePersona_Success(t *testing.T) {
 	dir := t.TempDir()
-	agentsDir := filepath.Join(dir, "agents")
-	os.MkdirAll(agentsDir, 0755)
-	store := agents.New(agentsDir)
+	personasDir := filepath.Join(dir, "personas")
+	os.MkdirAll(personasDir, 0755)
+	store := personas.New(personasDir)
 
-	cfg := core.AgentConfig{Name: "reviewer", BaseAgent: "claude"}
+	cfg := core.PersonaConfig{Name: "reviewer", BaseRunner: "claude"}
 	store.Create(cfg)
 
 	old := os.Stdout
 	_, w, _ := os.Pipe()
 	os.Stdout = w
 
-	err := removeAgent(store, "reviewer")
+	err := removePersona(store, "reviewer")
 
 	w.Close()
 	os.Stdout = old
 
 	if err != nil {
-		t.Fatalf("removeAgent failed: %v", err)
+		t.Fatalf("removePersona failed: %v", err)
 	}
 
 	// Verify it's gone
 	if _, err := store.Read("reviewer"); err == nil {
-		t.Error("agent should be removed but Read succeeded")
+		t.Error("persona should be removed but Read succeeded")
 	}
 }
 
-func TestRemoveAgent_BuiltIn(t *testing.T) {
+func TestRemovePersona_BuiltIn(t *testing.T) {
 	dir := t.TempDir()
-	store := agents.New(dir)
+	store := personas.New(dir)
 
-	err := removeAgent(store, "claude")
+	err := removePersona(store, "claude")
 	if err == nil {
-		t.Fatal("removeAgent(claude) = nil, want error")
+		t.Fatal("removePersona(claude) = nil, want error")
 	}
 	if !strings.Contains(err.Error(), "cannot remove built-in") {
 		t.Errorf("error = %q, want mention of 'cannot remove built-in'", err)
 	}
 }
 
-func TestRemoveAgent_NotFound(t *testing.T) {
+func TestRemovePersona_NotFound(t *testing.T) {
 	dir := t.TempDir()
-	store := agents.New(dir)
+	store := personas.New(dir)
 
-	err := removeAgent(store, "nonexistent")
+	err := removePersona(store, "nonexistent")
 	if err == nil {
-		t.Fatal("removeAgent(nonexistent) = nil, want error")
+		t.Fatal("removePersona(nonexistent) = nil, want error")
 	}
 }
 
-func TestManageAgents_UnknownSubcommand(t *testing.T) {
+func TestManagePersonas_UnknownSubcommand(t *testing.T) {
 	dir := t.TempDir()
 	cfg := &core.Config{
-		DataDir:    dir,
-		AgentsArgs: []string{"invalid"},
+		DataDir:      dir,
+		PersonasArgs: []string{"invalid"},
 	}
 
-	err := manageAgents(cfg)
+	err := managePersonas(cfg)
 	if err == nil {
 		t.Fatal("expected error for unknown subcommand")
 	}
-	if !strings.Contains(err.Error(), "unknown agents command") {
-		t.Errorf("error = %q, want mention of 'unknown agents command'", err)
+	if !strings.Contains(err.Error(), "unknown personas command") {
+		t.Errorf("error = %q, want mention of 'unknown personas command'", err)
 	}
 }
 
-func TestManageAgents_ShowMissingName(t *testing.T) {
+func TestManagePersonas_ShowMissingName(t *testing.T) {
 	dir := t.TempDir()
 	cfg := &core.Config{
-		DataDir:    dir,
-		AgentsArgs: []string{"show"},
+		DataDir:      dir,
+		PersonasArgs: []string{"show"},
 	}
 
-	err := manageAgents(cfg)
+	err := managePersonas(cfg)
 	if err == nil {
 		t.Fatal("expected error for missing name")
 	}
@@ -1201,75 +1201,75 @@ func TestManageAgents_ShowMissingName(t *testing.T) {
 	}
 }
 
-func TestManageAgents_CreateMissingName(t *testing.T) {
+func TestManagePersonas_CreateMissingName(t *testing.T) {
 	dir := t.TempDir()
 	cfg := &core.Config{
-		DataDir:    dir,
-		AgentsArgs: []string{"create"},
+		DataDir:      dir,
+		PersonasArgs: []string{"create"},
 	}
 
-	err := manageAgents(cfg)
+	err := managePersonas(cfg)
 	if err == nil {
 		t.Fatal("expected error for missing name")
 	}
 }
 
-func TestManageAgents_RemoveMissingName(t *testing.T) {
+func TestManagePersonas_RemoveMissingName(t *testing.T) {
 	dir := t.TempDir()
 	cfg := &core.Config{
-		DataDir:    dir,
-		AgentsArgs: []string{"remove"},
+		DataDir:      dir,
+		PersonasArgs: []string{"remove"},
 	}
 
-	err := manageAgents(cfg)
+	err := managePersonas(cfg)
 	if err == nil {
 		t.Fatal("expected error for missing name")
 	}
 }
 
-func TestResolveAgentOverlay_BuiltIn(t *testing.T) {
+func TestResolvePersonaOverlay_BuiltIn(t *testing.T) {
 	dir := t.TempDir()
 	cfg := &core.Config{
 		DataDir:     dir,
-		Agent:       "claude",
+		Runner:      "claude",
 		ProjectName: "test",
 	}
-	overlay, err := resolveAgentOverlay(cfg)
+	overlay, err := resolvePersonaOverlay(cfg)
 	if err != nil {
-		t.Fatalf("resolveAgentOverlay failed: %v", err)
+		t.Fatalf("resolvePersonaOverlay failed: %v", err)
 	}
 	if overlay != nil {
-		t.Error("overlay should be nil for built-in agent")
+		t.Error("overlay should be nil for built-in runner")
 	}
 }
 
-func TestResolveAgentOverlay_UserDefined(t *testing.T) {
+func TestResolvePersonaOverlay_UserDefined(t *testing.T) {
 	dir := t.TempDir()
-	agentsDir := filepath.Join(dir, "agents")
-	os.MkdirAll(agentsDir, 0755)
+	personasDir := filepath.Join(dir, "personas")
+	os.MkdirAll(personasDir, 0755)
 	projectCache := filepath.Join(dir, "test")
 	os.MkdirAll(projectCache, 0755)
 
-	store := agents.New(agentsDir)
-	store.Create(core.AgentConfig{
-		Name:      "reviewer",
-		BaseAgent: "claude",
-		ClaudeMd:  "You are a reviewer.",
-		Env:       map[string]string{"MODE": "review"},
-		Settings:  json.RawMessage(`{"permissions":{"allow":["Read"]}}`),
+	store := personas.New(personasDir)
+	store.Create(core.PersonaConfig{
+		Name:       "reviewer",
+		BaseRunner: "claude",
+		ClaudeMd:   "You are a reviewer.",
+		Env:        map[string]string{"MODE": "review"},
+		Settings:   json.RawMessage(`{"permissions":{"allow":["Read"]}}`),
 	})
 
 	cfg := &core.Config{
 		DataDir:     dir,
-		Agent:       "reviewer",
+		Runner:      "reviewer",
 		ProjectName: "test",
 	}
-	overlay, err := resolveAgentOverlay(cfg)
+	overlay, err := resolvePersonaOverlay(cfg)
 	if err != nil {
-		t.Fatalf("resolveAgentOverlay failed: %v", err)
+		t.Fatalf("resolvePersonaOverlay failed: %v", err)
 	}
 	if overlay == nil {
-		t.Fatal("overlay should not be nil for user-defined agent")
+		t.Fatal("overlay should not be nil for user-defined persona")
 	}
 	if overlay.ClaudeMdPath == "" {
 		t.Error("ClaudeMdPath should be set")
@@ -1291,34 +1291,34 @@ func TestResolveAgentOverlay_UserDefined(t *testing.T) {
 	}
 }
 
-func TestResolveAgentOverlay_NotFound(t *testing.T) {
+func TestResolvePersonaOverlay_NotFound(t *testing.T) {
 	dir := t.TempDir()
 	projectCache := filepath.Join(dir, "test")
 	os.MkdirAll(projectCache, 0755)
 
 	cfg := &core.Config{
 		DataDir:     dir,
-		Agent:       "nonexistent",
+		Runner:      "nonexistent",
 		ProjectName: "test",
 	}
-	_, err := resolveAgentOverlay(cfg)
+	_, err := resolvePersonaOverlay(cfg)
 	if err == nil {
-		t.Fatal("expected error for nonexistent agent")
+		t.Fatal("expected error for nonexistent persona")
 	}
 }
 
-func TestResolveAgentOverlay_DefaultAgent(t *testing.T) {
+func TestResolvePersonaOverlay_DefaultRunner(t *testing.T) {
 	dir := t.TempDir()
 	cfg := &core.Config{
 		DataDir:     dir,
 		ProjectName: "test",
-		// Agent is empty — defaults to claude
+		// Runner is empty — defaults to claude
 	}
-	overlay, err := resolveAgentOverlay(cfg)
+	overlay, err := resolvePersonaOverlay(cfg)
 	if err != nil {
-		t.Fatalf("resolveAgentOverlay failed: %v", err)
+		t.Fatalf("resolvePersonaOverlay failed: %v", err)
 	}
 	if overlay != nil {
-		t.Error("overlay should be nil for default agent")
+		t.Error("overlay should be nil for default runner")
 	}
 }

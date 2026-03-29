@@ -11,7 +11,9 @@ type AppConfig struct {
 	NoTmux      *bool   `json:"no-tmux,omitempty"`
 	ImagePrefix *string `json:"image-prefix,omitempty"`
 	LogFile     *string `json:"log-file,omitempty"`
-	Agent       *string `json:"agent,omitempty"`
+	Runner      *string `json:"runner,omitempty"`
+	Persona     *string `json:"persona,omitempty"`
+	Agent       *string `json:"agent,omitempty"` // legacy: maps to Runner for backward compat
 }
 
 // ApplyAppConfig sets fields on cfg from app only when the cfg field is still
@@ -32,7 +34,14 @@ func ApplyAppConfig(cfg *Config, app AppConfig) {
 	if cfg.LogFile == "" && app.LogFile != nil {
 		cfg.LogFile = *app.LogFile
 	}
-	if cfg.Agent == "" && app.Agent != nil {
-		cfg.Agent = *app.Agent
+	if cfg.Runner == "" && app.Runner != nil {
+		cfg.Runner = *app.Runner
+	}
+	if cfg.Persona == "" && app.Persona != nil {
+		cfg.Persona = *app.Persona
+	}
+	// Legacy: "agent" in config.json maps to Runner for backward compat
+	if cfg.Runner == "" && app.Agent != nil {
+		cfg.Runner = *app.Agent
 	}
 }

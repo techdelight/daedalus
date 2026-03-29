@@ -36,18 +36,19 @@
 
 ## Current Sprint
 
-### Sprint 21: Agent Mode — Named Configurations (v0.16.0)
+### Sprint 21: Personas & Runner/Persona Split (v0.16.0)
 
-Goal: allow users to define named agent configurations (personas) that layer custom system prompts and tool-permission overrides on top of a built-in base agent, selectable via `--agent <name>`.
+Goal: allow users to define named persona configurations that layer custom system prompts and tool-permission overrides on top of a built-in runner, selectable via `--persona <name>`. Split the overloaded "agent" concept into **runner** (claude/copilot binary) and **persona** (user-defined overlay).
 
 | # | Item | Status |
 |---|------|--------|
-| 1 | `core/agentconfig.go` — `AgentConfig` type, `AgentsDir()`, `ValidateAgentConfigName()` with tests | Done |
-| 2 | `internal/agents` package — Store with List/Read/Create/Update/Remove, unit tests | Done |
-| 3 | Extend `core/agent.go` — `LookupAgent` resolves user-defined configs, `ValidAgentNames` includes them, update all callers | Done |
-| 4 | `core/command.go` — `BuildExtraArgs` injects custom CLAUDE.md and settings mounts for agent overlays | Done |
-| 5 | `internal/config` — dynamic `--agent` validation against built-in + user-defined names | Done |
-| 6 | `daedalus agents` CLI subcommand — list, show, create, remove with help text and shell completions | Done |
+| 1 | `core/persona.go` — `PersonaConfig` type, `PersonasDir()`, `ValidatePersonaName()` with tests | Done |
+| 2 | `internal/personas` package — Store with List/Read/Create/Update/Remove, unit tests | Done |
+| 3 | `core/runner.go` — `LookupRunner` resolves personas to base runner, `ValidRunnerNames` for builtins, update all callers | Done |
+| 4 | `core/command.go` — `BuildExtraArgs` injects custom CLAUDE.md and settings mounts for persona overlays | Done |
+| 5 | `internal/config` — `--runner` and `--persona` flags with independent validation, legacy `--agent` alias | Done |
+| 6 | `daedalus personas` CLI subcommand — list, show, create, remove with help text and shell completions | Done |
+| 7 | Rename across codebase — `AGENT` env → `RUNNER`, docker-compose, entrypoint, Dockerfile, all docs | Done |
 
 ### Sprint 20: Active Project Filter (v0.15.0)
 

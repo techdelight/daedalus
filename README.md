@@ -84,7 +84,7 @@ daedalus prune
 daedalus remove <name> [name...]
 daedalus config <name> [--set key=value] [--unset key]
 daedalus skills [add <file> | remove <name> | show <name>]
-daedalus agents [list | show <name> | create <name> | remove <name>]
+daedalus personas [list | show <name> | create <name> | remove <name>]
 daedalus tui
 daedalus web [--port PORT] [--host HOST]
 daedalus completion <bash|zsh|fish>
@@ -102,7 +102,7 @@ daedalus --help
 | `remove <name> [name...]` | Remove named projects from the registry |
 | `config <name>` | View or edit per-project default flags |
 | `skills` | List, add, remove, or show skills in the shared catalog |
-| `agents` | List, show, create, or remove named agent configurations |
+| `personas` | List, show, create, or remove named persona configurations |
 | `tui` | Interactive dashboard for managing projects |
 | `web` | Web UI dashboard (default: `localhost:3000`) |
 | `completion <shell>` | Print shell completion script (bash, zsh, fish) |
@@ -119,7 +119,8 @@ daedalus --help
 | `--no-tmux` | Run without tmux session wrapping |
 | `--debug` | Enable Claude Code debug mode |
 | `--dind` | Mount Docker socket (WARNING: grants host Docker access) |
-| `--agent <name>` | AI agent: `claude` (default), `copilot`, or a user-defined agent config |
+| `--runner <name>` | AI runner: `claude` (default), `copilot`, or a user-defined persona |
+| `--persona <name>` | Named persona configuration to use |
 | `--display` | Forward host X11/Wayland display into the container for GUI apps |
 | `--force` | Force deletion in non-interactive mode (e.g. prune, remove) |
 | `--no-color` | Disable colored output (also honors `NO_COLOR` env var) |
@@ -169,16 +170,16 @@ daedalus list
 daedalus --display my-app /path/to/project
 
 # Use Copilot CLI instead of Claude Code
-daedalus --agent copilot my-app /path/to/project
+daedalus --runner copilot my-app /path/to/project
 
-# Create a custom agent configuration (interactive)
-daedalus agents create reviewer
+# Create a custom persona configuration (interactive)
+daedalus personas create reviewer
 
-# Use a custom agent
-daedalus --agent reviewer my-app /path/to/project
+# Use a custom persona
+daedalus --runner reviewer my-app /path/to/project
 
-# Set Copilot as the default agent for a project
-daedalus config my-app --set agent=copilot
+# Set Copilot as the default runner for a project
+daedalus config my-app --set runner=copilot
 
 # Per-project configuration
 daedalus config my-app --set display=true
@@ -349,7 +350,7 @@ A default `config.json` is installed next to the binary. The installer automatic
   "no-tmux": false,
   "image-prefix": "custom/claude-runner",
   "log-file": "/mnt/data/daedalus/daedalus.log",
-  "agent": "claude"
+  "runner": "claude"
 }
 ```
 
@@ -362,7 +363,7 @@ All fields are optional. The file itself is optional — Daedalus works without 
 | `no-tmux` | bool | Run without tmux session wrapping |
 | `image-prefix` | string | Docker image prefix (default: `techdelight/claude-runner`). For copilot agent, `claude-runner` is automatically replaced with `copilot-runner`. |
 | `log-file` | string | Path to the runtime log file (default: `<data-dir>/daedalus.log`) |
-| `agent` | string | Default AI agent: `claude` (default), `copilot`, or a user-defined agent config name |
+| `runner` | string | Default AI runner: `claude` (default), `copilot`, or a user-defined persona name |
 
 ## MCP Servers
 
@@ -428,27 +429,27 @@ daedalus skills remove commit      # Remove a skill from the catalog
 
 Installing a skill copies it from the catalog to the project's `~/.claude/commands/` directory, making it available as a slash command (e.g., `/commit`). The catalog is seeded with starter skills (`commit.md`, `review.md`) on first run.
 
-## Agent Configurations
+## Persona Configurations
 
-Named agent configurations let you define custom personas that layer system prompts, tool permissions, and environment variables on top of a built-in agent (`claude` or `copilot`). Configs are stored as JSON in `<data-dir>/agents/`.
+Named persona configurations let you define custom personas that layer system prompts, tool permissions, and environment variables on top of a built-in runner (`claude` or `copilot`). Configs are stored as JSON in `<data-dir>/personas/`.
 
-**Managing agents:**
+**Managing personas:**
 
 ```bash
-daedalus agents                    # List all agents (built-in + user-defined)
-daedalus agents create reviewer    # Create a new agent config (interactive)
-daedalus agents show reviewer      # Print the full JSON config
-daedalus agents remove reviewer    # Delete an agent config
+daedalus personas                    # List all personas (built-in runners + user-defined)
+daedalus personas create reviewer    # Create a new persona config (interactive)
+daedalus personas show reviewer      # Print the full JSON config
+daedalus personas remove reviewer    # Delete a persona config
 ```
 
-**Using a custom agent:**
+**Using a custom persona:**
 
 ```bash
 # One-time use
-daedalus --agent reviewer my-app /path/to/project
+daedalus --runner reviewer my-app /path/to/project
 
 # Set as project default
-daedalus config my-app --set agent=reviewer
+daedalus config my-app --set runner=reviewer
 ```
 
 **Config schema:**
@@ -457,7 +458,7 @@ daedalus config my-app --set agent=reviewer
 {
   "name": "reviewer",
   "description": "Code review specialist",
-  "baseAgent": "claude",
+  "baseRunner": "claude",
   "claudeMd": "You are a code reviewer. Focus on bugs, security, and readability.",
   "settings": { "permissions": { "allow": ["Read", "Glob", "Grep"] } },
   "env": { "REVIEW_MODE": "strict" }
@@ -466,13 +467,13 @@ daedalus config my-app --set agent=reviewer
 
 | Field | Description |
 |---|---|
-| `name` | Unique name (must not collide with built-in agents) |
-| `baseAgent` | Built-in agent binary to use: `claude` or `copilot` |
+| `name` | Unique name (must not collide with built-in runners) |
+| `baseRunner` | Built-in runner binary to use: `claude` or `copilot` |
 | `claudeMd` | Custom CLAUDE.md content injected into the container |
 | `settings` | Override for `.claude/settings.json` tool permissions (optional) |
 | `env` | Extra environment variables passed to the container (optional) |
 
-When a user-defined agent is selected, Daedalus writes the overlay files to a temp directory and mounts them read-only into the container. The base agent binary runs as normal — the persona is purely file-based.
+When a user-defined persona is selected, Daedalus writes the overlay files to a temp directory and mounts them read-only into the container. The base runner binary runs as normal — the persona is purely file-based.
 
 ## Sharing Skills Across Projects
 

@@ -2,8 +2,8 @@
 
 package core
 
-// AgentProfile describes the CLI binary and flags for an AI agent.
-type AgentProfile struct {
+// RunnerProfile describes the CLI binary and flags for an AI runner.
+type RunnerProfile struct {
 	Name          string
 	BinaryPath    string
 	SkipPermsFlag string   // e.g. "--dangerously-skip-permissions"
@@ -15,7 +15,7 @@ type AgentProfile struct {
 	PromptFlag    string   // e.g. "-p"
 }
 
-var agentProfiles = map[string]AgentProfile{
+var runnerProfiles = map[string]RunnerProfile{
 	"claude": {
 		Name:          "claude",
 		BinaryPath:    "/opt/claude/bin/claude",
@@ -40,47 +40,44 @@ var agentProfiles = map[string]AgentProfile{
 	},
 }
 
-// LookupAgent returns the agent profile for the given name and whether
+// LookupRunner returns the runner profile for the given name and whether
 // the name was valid. Unknown names return the Claude profile and false.
 // If userConfig is non-nil and name is not a built-in, it resolves the
-// base agent from the user config and returns an AgentOverlay.
-func LookupAgent(name string, userConfig *AgentConfig) (AgentOverlay, bool) {
-	if p, ok := agentProfiles[name]; ok {
-		return AgentOverlay{Profile: p, Overlay: nil}, true
+// base runner from the user config and returns a PersonaOverlay.
+func LookupRunner(name string, userConfig *PersonaConfig) (PersonaOverlay, bool) {
+	if p, ok := runnerProfiles[name]; ok {
+		return PersonaOverlay{Runner: p, Persona: nil}, true
 	}
 	if userConfig != nil && userConfig.Name == name {
-		base, ok := agentProfiles[userConfig.BaseAgent]
+		base, ok := runnerProfiles[userConfig.BaseRunner]
 		if !ok {
-			base = agentProfiles["claude"]
+			base = runnerProfiles["claude"]
 		}
-		return AgentOverlay{Profile: base, Overlay: userConfig}, ok || true
+		return PersonaOverlay{Runner: base, Persona: userConfig}, ok || true
 	}
-	return AgentOverlay{Profile: agentProfiles["claude"]}, false
+	return PersonaOverlay{Runner: runnerProfiles["claude"]}, false
 }
 
-// LookupBuiltinAgent returns the built-in agent profile for the given name.
+// LookupBuiltinRunner returns the built-in runner profile for the given name.
 // Unknown names return the Claude profile and false.
-func LookupBuiltinAgent(name string) (AgentProfile, bool) {
-	p, ok := agentProfiles[name]
+func LookupBuiltinRunner(name string) (RunnerProfile, bool) {
+	p, ok := runnerProfiles[name]
 	if !ok {
-		return agentProfiles["claude"], false
+		return runnerProfiles["claude"], false
 	}
 	return p, true
 }
 
-// ValidAgentNames returns the list of supported agent names, including
-// any user-defined names provided.
-func ValidAgentNames(userDefined ...string) []string {
-	names := []string{"claude", "copilot"}
-	names = append(names, userDefined...)
-	return names
+// ValidRunnerNames returns the list of supported built-in runner names.
+func ValidRunnerNames() []string {
+	return []string{"claude", "copilot"}
 }
 
-// ResolveAgentName returns the effective agent name from the config,
+// ResolveRunnerName returns the effective runner name from the config,
 // defaulting to "claude" when unset.
-func ResolveAgentName(cfg *Config) string {
-	if cfg.Agent != "" {
-		return cfg.Agent
+func ResolveRunnerName(cfg *Config) string {
+	if cfg.Runner != "" {
+		return cfg.Runner
 	}
 	return "claude"
 }

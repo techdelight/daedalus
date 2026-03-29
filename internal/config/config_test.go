@@ -668,190 +668,200 @@ func TestParseArgs_BuildNoArgs_DataDirResolved(t *testing.T) {
 	}
 }
 
-func TestParseArgs_AgentFlag_Claude(t *testing.T) {
-	cfg, err := ParseArgs([]string{"--agent", "claude", "my-project"})
+func TestParseArgs_RunnerFlag_Claude(t *testing.T) {
+	cfg, err := ParseArgs([]string{"--runner", "claude", "my-project"})
 	if err != nil {
 		t.Fatalf("ParseArgs failed: %v", err)
 	}
-	if cfg.Agent != "claude" {
-		t.Errorf("Agent = %q, want %q", cfg.Agent, "claude")
+	if cfg.Runner != "claude" {
+		t.Errorf("Runner = %q, want %q", cfg.Runner, "claude")
 	}
 }
 
-func TestParseArgs_AgentFlag_Copilot(t *testing.T) {
-	cfg, err := ParseArgs([]string{"--agent", "copilot", "my-project"})
+func TestParseArgs_RunnerFlag_Copilot(t *testing.T) {
+	cfg, err := ParseArgs([]string{"--runner", "copilot", "my-project"})
 	if err != nil {
 		t.Fatalf("ParseArgs failed: %v", err)
 	}
-	if cfg.Agent != "copilot" {
-		t.Errorf("Agent = %q, want %q", cfg.Agent, "copilot")
+	if cfg.Runner != "copilot" {
+		t.Errorf("Runner = %q, want %q", cfg.Runner, "copilot")
 	}
 }
 
-func TestParseArgs_AgentFlag_Invalid(t *testing.T) {
-	_, err := ParseArgs([]string{"--agent", "gpt", "my-project"})
+func TestParseArgs_RunnerFlag_Invalid(t *testing.T) {
+	_, err := ParseArgs([]string{"--runner", "gpt", "my-project"})
 	if err == nil {
-		t.Fatal("expected error for --agent gpt")
+		t.Fatal("expected error for --runner gpt")
 	}
-	if !strings.Contains(err.Error(), "unknown agent") {
-		t.Errorf("error = %q, want mention of 'unknown agent'", err)
+	if !strings.Contains(err.Error(), "unknown runner") {
+		t.Errorf("error = %q, want mention of 'unknown runner'", err)
 	}
 }
 
-func TestParseArgs_AgentFlag_MissingValue(t *testing.T) {
-	_, err := ParseArgs([]string{"--agent"})
+func TestParseArgs_RunnerFlag_MissingValue(t *testing.T) {
+	_, err := ParseArgs([]string{"--runner"})
 	if err == nil {
-		t.Fatal("expected error for --agent without value")
+		t.Fatal("expected error for --runner without value")
 	}
-	if !strings.Contains(err.Error(), "requires an agent name") {
-		t.Errorf("error = %q, want mention of 'requires an agent name'", err)
+	if !strings.Contains(err.Error(), "requires a runner name") {
+		t.Errorf("error = %q, want mention of 'requires a runner name'", err)
 	}
 }
 
-func TestParseArgs_AgentFlag_Default(t *testing.T) {
+func TestParseArgs_RunnerFlag_Default(t *testing.T) {
 	cfg, err := ParseArgs([]string{"my-project"})
 	if err != nil {
 		t.Fatalf("ParseArgs failed: %v", err)
 	}
-	if cfg.Agent != "" {
-		t.Errorf("Agent = %q, want empty (default)", cfg.Agent)
+	if cfg.Runner != "" {
+		t.Errorf("Runner = %q, want empty (default)", cfg.Runner)
 	}
 }
 
-func TestParseArgs_AgentsSubcommand_NoArgs(t *testing.T) {
-	cfg, err := ParseArgs([]string{"agents"})
+func TestParseArgs_LegacyAgentFlag(t *testing.T) {
+	cfg, err := ParseArgs([]string{"--agent", "copilot", "my-project"})
 	if err != nil {
 		t.Fatalf("ParseArgs failed: %v", err)
 	}
-	if cfg.Subcommand != "agents" {
-		t.Errorf("Subcommand = %q, want %q", cfg.Subcommand, "agents")
-	}
-	if len(cfg.AgentsArgs) != 0 {
-		t.Errorf("AgentsArgs = %v, want empty", cfg.AgentsArgs)
+	if cfg.Runner != "copilot" {
+		t.Errorf("Runner = %q, want %q (legacy --agent should map to Runner)", cfg.Runner, "copilot")
 	}
 }
 
-func TestParseArgs_AgentsSubcommand_List(t *testing.T) {
-	cfg, err := ParseArgs([]string{"agents", "list"})
+func TestParseArgs_PersonasSubcommand_NoArgs(t *testing.T) {
+	cfg, err := ParseArgs([]string{"personas"})
 	if err != nil {
 		t.Fatalf("ParseArgs failed: %v", err)
 	}
-	if cfg.Subcommand != "agents" {
-		t.Errorf("Subcommand = %q, want %q", cfg.Subcommand, "agents")
+	if cfg.Subcommand != "personas" {
+		t.Errorf("Subcommand = %q, want %q", cfg.Subcommand, "personas")
 	}
-	if len(cfg.AgentsArgs) != 1 || cfg.AgentsArgs[0] != "list" {
-		t.Errorf("AgentsArgs = %v, want [list]", cfg.AgentsArgs)
+	if len(cfg.PersonasArgs) != 0 {
+		t.Errorf("PersonasArgs = %v, want empty", cfg.PersonasArgs)
 	}
 }
 
-func TestParseArgs_AgentsSubcommand_Create(t *testing.T) {
-	cfg, err := ParseArgs([]string{"agents", "create", "reviewer"})
+func TestParseArgs_PersonasSubcommand_List(t *testing.T) {
+	cfg, err := ParseArgs([]string{"personas", "list"})
 	if err != nil {
 		t.Fatalf("ParseArgs failed: %v", err)
 	}
-	if cfg.Subcommand != "agents" {
-		t.Errorf("Subcommand = %q, want %q", cfg.Subcommand, "agents")
+	if cfg.Subcommand != "personas" {
+		t.Errorf("Subcommand = %q, want %q", cfg.Subcommand, "personas")
 	}
-	if len(cfg.AgentsArgs) != 2 || cfg.AgentsArgs[0] != "create" || cfg.AgentsArgs[1] != "reviewer" {
-		t.Errorf("AgentsArgs = %v, want [create reviewer]", cfg.AgentsArgs)
+	if len(cfg.PersonasArgs) != 1 || cfg.PersonasArgs[0] != "list" {
+		t.Errorf("PersonasArgs = %v, want [list]", cfg.PersonasArgs)
 	}
 }
 
-func TestParseArgs_AgentsSubcommand_Show(t *testing.T) {
-	cfg, err := ParseArgs([]string{"agents", "show", "reviewer"})
+func TestParseArgs_PersonasSubcommand_Create(t *testing.T) {
+	cfg, err := ParseArgs([]string{"personas", "create", "reviewer"})
 	if err != nil {
 		t.Fatalf("ParseArgs failed: %v", err)
 	}
-	if cfg.Subcommand != "agents" {
-		t.Errorf("Subcommand = %q, want %q", cfg.Subcommand, "agents")
+	if cfg.Subcommand != "personas" {
+		t.Errorf("Subcommand = %q, want %q", cfg.Subcommand, "personas")
 	}
-	if len(cfg.AgentsArgs) != 2 || cfg.AgentsArgs[0] != "show" || cfg.AgentsArgs[1] != "reviewer" {
-		t.Errorf("AgentsArgs = %v, want [show reviewer]", cfg.AgentsArgs)
+	if len(cfg.PersonasArgs) != 2 || cfg.PersonasArgs[0] != "create" || cfg.PersonasArgs[1] != "reviewer" {
+		t.Errorf("PersonasArgs = %v, want [create reviewer]", cfg.PersonasArgs)
 	}
 }
 
-func TestParseArgs_AgentsSubcommand_Remove(t *testing.T) {
-	cfg, err := ParseArgs([]string{"agents", "remove", "reviewer"})
+func TestParseArgs_PersonasSubcommand_Show(t *testing.T) {
+	cfg, err := ParseArgs([]string{"personas", "show", "reviewer"})
 	if err != nil {
 		t.Fatalf("ParseArgs failed: %v", err)
 	}
-	if cfg.Subcommand != "agents" {
-		t.Errorf("Subcommand = %q, want %q", cfg.Subcommand, "agents")
+	if cfg.Subcommand != "personas" {
+		t.Errorf("Subcommand = %q, want %q", cfg.Subcommand, "personas")
 	}
-	if len(cfg.AgentsArgs) != 2 || cfg.AgentsArgs[0] != "remove" || cfg.AgentsArgs[1] != "reviewer" {
-		t.Errorf("AgentsArgs = %v, want [remove reviewer]", cfg.AgentsArgs)
+	if len(cfg.PersonasArgs) != 2 || cfg.PersonasArgs[0] != "show" || cfg.PersonasArgs[1] != "reviewer" {
+		t.Errorf("PersonasArgs = %v, want [show reviewer]", cfg.PersonasArgs)
 	}
 }
 
-func TestParseArgs_AgentFlag_UserDefined(t *testing.T) {
-	// Create a temp agents dir with a user-defined agent
+func TestParseArgs_PersonasSubcommand_Remove(t *testing.T) {
+	cfg, err := ParseArgs([]string{"personas", "remove", "reviewer"})
+	if err != nil {
+		t.Fatalf("ParseArgs failed: %v", err)
+	}
+	if cfg.Subcommand != "personas" {
+		t.Errorf("Subcommand = %q, want %q", cfg.Subcommand, "personas")
+	}
+	if len(cfg.PersonasArgs) != 2 || cfg.PersonasArgs[0] != "remove" || cfg.PersonasArgs[1] != "reviewer" {
+		t.Errorf("PersonasArgs = %v, want [remove reviewer]", cfg.PersonasArgs)
+	}
+}
+
+func TestParseArgs_RunnerFlag_UserDefined(t *testing.T) {
+	// Create a temp personas dir with a user-defined persona
 	tmp := t.TempDir()
 	t.Setenv("DAEDALUS_DATA_DIR", tmp)
-	agentsDir := filepath.Join(tmp, "agents")
-	if err := os.MkdirAll(agentsDir, 0755); err != nil {
+	personasDir := filepath.Join(tmp, "personas")
+	if err := os.MkdirAll(personasDir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(agentsDir, "reviewer.json"),
-		[]byte(`{"name":"reviewer","baseAgent":"claude"}`), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(personasDir, "reviewer.json"),
+		[]byte(`{"name":"reviewer","baseRunner":"claude"}`), 0644); err != nil {
 		t.Fatal(err)
 	}
-	cfg, err := ParseArgs([]string{"--agent", "reviewer", "my-project"})
+	cfg, err := ParseArgs([]string{"--runner", "reviewer", "my-project"})
 	if err != nil {
 		t.Fatalf("ParseArgs failed: %v", err)
 	}
-	if cfg.Agent != "reviewer" {
-		t.Errorf("Agent = %q, want %q", cfg.Agent, "reviewer")
+	if cfg.Runner != "reviewer" {
+		t.Errorf("Runner = %q, want %q", cfg.Runner, "reviewer")
 	}
 }
 
-func TestParseArgs_AgentFlag_InvalidUserDefined(t *testing.T) {
-	// No agents dir — user-defined name should fail
+func TestParseArgs_RunnerFlag_InvalidUserDefined(t *testing.T) {
+	// No personas dir — user-defined name should fail
 	tmp := t.TempDir()
 	t.Setenv("DAEDALUS_DATA_DIR", tmp)
-	_, err := ParseArgs([]string{"--agent", "nonexistent", "my-project"})
+	_, err := ParseArgs([]string{"--runner", "nonexistent", "my-project"})
 	if err == nil {
-		t.Fatal("expected error for --agent nonexistent")
+		t.Fatal("expected error for --runner nonexistent")
 	}
-	if !strings.Contains(err.Error(), "unknown agent") {
-		t.Errorf("error = %q, want mention of 'unknown agent'", err)
-	}
-}
-
-func TestValidateAgentName_BuiltIn(t *testing.T) {
-	tmp := t.TempDir()
-	if err := validateAgentName("claude", tmp); err != nil {
-		t.Errorf("validateAgentName(claude) = %v, want nil", err)
-	}
-	if err := validateAgentName("copilot", tmp); err != nil {
-		t.Errorf("validateAgentName(copilot) = %v, want nil", err)
+	if !strings.Contains(err.Error(), "unknown runner") {
+		t.Errorf("error = %q, want mention of 'unknown runner'", err)
 	}
 }
 
-func TestValidateAgentName_UserDefined(t *testing.T) {
+func TestValidateRunnerName_BuiltIn(t *testing.T) {
 	tmp := t.TempDir()
-	agentsDir := filepath.Join(tmp, "agents")
-	if err := os.MkdirAll(agentsDir, 0755); err != nil {
+	if err := validateRunnerName("claude", tmp); err != nil {
+		t.Errorf("validateRunnerName(claude) = %v, want nil", err)
+	}
+	if err := validateRunnerName("copilot", tmp); err != nil {
+		t.Errorf("validateRunnerName(copilot) = %v, want nil", err)
+	}
+}
+
+func TestValidateRunnerName_UserDefined(t *testing.T) {
+	tmp := t.TempDir()
+	personasDir := filepath.Join(tmp, "personas")
+	if err := os.MkdirAll(personasDir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(agentsDir, "tester.json"),
-		[]byte(`{"name":"tester","baseAgent":"claude"}`), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(personasDir, "tester.json"),
+		[]byte(`{"name":"tester","baseRunner":"claude"}`), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if err := validateAgentName("tester", agentsDir); err != nil {
-		t.Errorf("validateAgentName(tester) = %v, want nil", err)
+	if err := validateRunnerName("tester", personasDir); err != nil {
+		t.Errorf("validateRunnerName(tester) = %v, want nil", err)
 	}
 }
 
-func TestValidateAgentName_Unknown(t *testing.T) {
+func TestValidateRunnerName_Unknown(t *testing.T) {
 	tmp := t.TempDir()
-	err := validateAgentName("nonexistent", tmp)
+	err := validateRunnerName("nonexistent", tmp)
 	if err == nil {
-		t.Fatal("validateAgentName(nonexistent) = nil, want error")
+		t.Fatal("validateRunnerName(nonexistent) = nil, want error")
 	}
-	if !strings.Contains(err.Error(), "unknown agent") {
-		t.Errorf("error = %q, want mention of 'unknown agent'", err)
+	if !strings.Contains(err.Error(), "unknown runner") {
+		t.Errorf("error = %q, want mention of 'unknown runner'", err)
 	}
-	// Error should list valid agents
+	// Error should list valid runners
 	if !strings.Contains(err.Error(), "claude") {
 		t.Errorf("error = %q, want to list 'claude'", err)
 	}

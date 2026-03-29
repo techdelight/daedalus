@@ -13,7 +13,7 @@ import (
 	"strings"
 
 	"github.com/techdelight/daedalus/core"
-	"github.com/techdelight/daedalus/internal/agents"
+	"github.com/techdelight/daedalus/internal/personas"
 	"github.com/techdelight/daedalus/internal/catalog"
 	"github.com/techdelight/daedalus/internal/color"
 	"github.com/techdelight/daedalus/internal/completions"
@@ -91,9 +91,9 @@ func run(args []string) error {
 	case "skills":
 		logging.Info("subcommand: skills")
 		return manageSkills(cfg)
-	case "agents":
-		logging.Info("subcommand: agents")
-		return manageAgents(cfg)
+	case "personas":
+		logging.Info("subcommand: personas")
+		return managePersonas(cfg)
 	}
 
 	// --- Normal project flow ---
@@ -265,13 +265,13 @@ func launchProject(cfg *core.Config, d *docker.Docker, reg *registry.Registry, s
 		fmt.Fprintf(os.Stderr, color.Yellow("Warning:")+" failed to start session tracking: %v\n", sessionErr)
 	}
 
-	claudeArgs := core.BuildAgentArgs(cfg)
+	claudeArgs := core.BuildRunnerArgs(cfg)
 	composeEnv := map[string]string{
 		"PROJECT_DIR": cfg.ProjectDir,
 		"CACHE_DIR":   cfg.CacheDir(),
 		"TARGET":      cfg.Target,
 		"IMAGE":       cfg.Image(),
-		"AGENT":       core.ResolveAgentName(cfg),
+		"RUNNER":      core.ResolveRunnerName(cfg),
 	}
 
 	if cfg.DinD {
@@ -296,9 +296,9 @@ func launchProject(cfg *core.Config, d *docker.Docker, reg *registry.Registry, s
 			fmt.Fprintln(os.Stderr, color.Yellow("Warning:")+" "+w)
 		}
 	}
-	overlay, err := resolveAgentOverlay(cfg)
+	overlay, err := resolvePersonaOverlay(cfg)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, color.Yellow("Warning:")+" agent overlay: %v\n", err)
+		fmt.Fprintf(os.Stderr, color.Yellow("Warning:")+" persona overlay: %v\n", err)
 	}
 	extraArgs := core.BuildExtraArgs(cfg, displayArgs, overlay)
 
@@ -390,10 +390,14 @@ func collectBuildSpecs(cfg *core.Config, entries []core.ProjectInfo) []buildSpec
 	seen := make(map[string]bool)
 	var specs []buildSpec
 	for _, e := range entries {
+		runner := e.Entry.DefaultFlags["runner"]
+		if runner == "" {
+			runner = e.Entry.DefaultFlags["agent"] // legacy fallback
+		}
 		tmpCfg := &core.Config{
 			ImagePrefix: cfg.ImagePrefix,
 			Target:      e.Entry.Target,
-			Agent:       e.Entry.DefaultFlags["agent"],
+			Runner:      runner,
 		}
 		img := tmpCfg.Image()
 		if !seen[img] {
@@ -565,8 +569,8 @@ func collectDefaultFlags(cfg *core.Config) map[string]string {
 	if cfg.NoTmux {
 		flags["no-tmux"] = "true"
 	}
-	if cfg.Agent != "" {
-		flags["agent"] = cfg.Agent
+	if cfg.Runner != "" {
+		flags["runner"] = cfg.Runner
 	}
 	if len(flags) == 0 {
 		return nil
@@ -682,7 +686,7 @@ func printUsage() {
 	fmt.Println("       daedalus tui")
 	fmt.Println("       daedalus web [--port PORT] [--host HOST]")
 	fmt.Println("       daedalus skills [add <file> | remove <name> | show <name>]")
-	fmt.Println("       daedalus agents [list | show <name> | create <name> | remove <name>]")
+	fmt.Println("       daedalus personas [list | show <name> | create <name> | remove <name>]")
 	fmt.Println("       daedalus completion <bash|zsh|fish>")
 	fmt.Println("       daedalus --help")
 	fmt.Println()
@@ -698,7 +702,7 @@ func printUsage() {
 	fmt.Println("  tui                           Interactive dashboard for managing projects")
 	fmt.Println("  web                           Web UI dashboard (default: localhost:3000, auto-detects WSL2)")
 	fmt.Println("  skills                        List, add, remove, or show skills in the shared catalog")
-	fmt.Println("  agents                        List, show, create, or remove named agent configurations")
+	fmt.Println("  personas                      List, show, create, or remove named persona configurations")
 	fmt.Println("  completion <shell>            Print shell completion script (bash, zsh, fish)")
 	fmt.Println()
 	fmt.Println(color.Bold("Flags:"))
@@ -711,7 +715,8 @@ func printUsage() {
 	fmt.Println("  --dind             Mount Docker socket (WARNING: grants host Docker access)")
 	fmt.Println("  --display          Forward host display (X11/Wayland) into the container")
 	fmt.Println("  --force            Force deletion in non-interactive mode (e.g. prune)")
-	fmt.Println("  --agent <name>     AI agent: claude (default), copilot, or user-defined")
+	fmt.Println("  --runner <name>    AI runner: claude (default), copilot, or user-defined persona")
+	fmt.Println("  --persona <name>   Named persona configuration to use")
 	fmt.Println("  --container-log    Log container output to <data-dir>/<project>/container.log")
 	fmt.Println("  --no-color         Disable colored output (also honors NO_COLOR env var)")
 	fmt.Println("  --port <port>      Port for web UI (default: 3000)")
@@ -729,7 +734,7 @@ func printUsage() {
 	fmt.Println("  daedalus web --port 8080                Start web UI on port 8080")
 	fmt.Println("  daedalus rename my-app my-new-app        Rename a project")
 	fmt.Println("  daedalus config my-app --set dind=true  Set per-project default")
-	fmt.Println("  daedalus --agent copilot my-app          Use Copilot CLI instead of Claude")
+	fmt.Println("  daedalus --runner copilot my-app          Use Copilot CLI instead of Claude")
 	fmt.Println("  daedalus completion bash                Print bash completion script")
 }
 
@@ -925,89 +930,89 @@ func removeProjects(cfg *core.Config) error {
 	return nil
 }
 
-// resolveAgentOverlay checks if the current agent is a user-defined config
+// resolvePersonaOverlay checks if the current runner is a user-defined persona
 // and, if so, writes the overlay files to the cache directory and returns
-// the paths for container volume mounts. Returns nil for built-in agents.
-func resolveAgentOverlay(cfg *core.Config) (*core.OverlayPaths, error) {
-	agentName := core.ResolveAgentName(cfg)
-	if core.IsBuiltinAgent(agentName) {
+// the paths for container volume mounts. Returns nil for built-in runners.
+func resolvePersonaOverlay(cfg *core.Config) (*core.OverlayPaths, error) {
+	runnerName := core.ResolveRunnerName(cfg)
+	if core.IsBuiltinRunner(runnerName) {
 		return nil, nil
 	}
-	store := agents.New(cfg.AgentsDir())
-	agentCfg, err := store.Read(agentName)
+	store := personas.New(cfg.PersonasDir())
+	personaCfg, err := store.Read(runnerName)
 	if err != nil {
-		return nil, fmt.Errorf("reading agent config %q: %w", agentName, err)
+		return nil, fmt.Errorf("reading persona %q: %w", runnerName, err)
 	}
 
-	overlayDir := filepath.Join(cfg.CacheDir(), "agent-overlay")
+	overlayDir := filepath.Join(cfg.CacheDir(), "persona-overlay")
 	if err := os.MkdirAll(overlayDir, 0755); err != nil {
 		return nil, fmt.Errorf("creating overlay directory: %w", err)
 	}
 
 	var paths core.OverlayPaths
-	if agentCfg.ClaudeMd != "" {
+	if personaCfg.ClaudeMd != "" {
 		p := filepath.Join(overlayDir, "CLAUDE.md")
-		if err := os.WriteFile(p, []byte(agentCfg.ClaudeMd), 0644); err != nil {
+		if err := os.WriteFile(p, []byte(personaCfg.ClaudeMd), 0644); err != nil {
 			return nil, fmt.Errorf("writing CLAUDE.md overlay: %w", err)
 		}
 		paths.ClaudeMdPath = p
 	}
-	if len(agentCfg.Settings) > 0 {
+	if len(personaCfg.Settings) > 0 {
 		p := filepath.Join(overlayDir, "settings.json")
-		if err := os.WriteFile(p, agentCfg.Settings, 0644); err != nil {
+		if err := os.WriteFile(p, personaCfg.Settings, 0644); err != nil {
 			return nil, fmt.Errorf("writing settings.json overlay: %w", err)
 		}
 		paths.SettingsPath = p
 	}
-	if len(agentCfg.Env) > 0 {
-		paths.Env = agentCfg.Env
+	if len(personaCfg.Env) > 0 {
+		paths.Env = personaCfg.Env
 	}
 
-	logging.Info("resolved agent overlay for " + agentName + " (base: " + agentCfg.BaseAgent + ")")
+	logging.Info("resolved persona overlay for " + runnerName + " (base: " + personaCfg.BaseRunner + ")")
 	return &paths, nil
 }
 
-// manageAgents handles the "agents" subcommand for managing user-defined
-// agent configurations.
-func manageAgents(cfg *core.Config) error {
-	store := agents.New(cfg.AgentsDir())
-	args := cfg.AgentsArgs
+// managePersonas handles the "personas" subcommand for managing user-defined
+// persona configurations.
+func managePersonas(cfg *core.Config) error {
+	store := personas.New(cfg.PersonasDir())
+	args := cfg.PersonasArgs
 
 	if len(args) == 0 || args[0] == "list" {
-		return listAgents(store)
+		return listPersonas(store)
 	}
 
 	switch args[0] {
 	case "show":
 		if len(args) < 2 {
-			return fmt.Errorf("usage: daedalus agents show <name>")
+			return fmt.Errorf("usage: daedalus personas show <name>")
 		}
-		return showAgent(store, args[1])
+		return showPersona(store, args[1])
 	case "create":
 		if len(args) < 2 {
-			return fmt.Errorf("usage: daedalus agents create <name>")
+			return fmt.Errorf("usage: daedalus personas create <name>")
 		}
-		return createAgent(cfg, store, args[1])
+		return createPersona(cfg, store, args[1])
 	case "remove":
 		if len(args) < 2 {
-			return fmt.Errorf("usage: daedalus agents remove <name>")
+			return fmt.Errorf("usage: daedalus personas remove <name>")
 		}
-		return removeAgent(store, args[1])
+		return removePersona(store, args[1])
 	default:
-		return fmt.Errorf("unknown agents command %q\n%s available: list, show, create, remove", args[0], color.Cyan("Hint:"))
+		return fmt.Errorf("unknown personas command %q\n%s available: list, show, create, remove", args[0], color.Cyan("Hint:"))
 	}
 }
 
-// listAgents prints all agent configurations (built-in + user-defined).
-func listAgents(store *agents.Store) error {
+// listPersonas prints all persona configurations (built-in runners + user-defined).
+func listPersonas(store *personas.Store) error {
 	configs, err := store.List()
 	if err != nil {
-		return fmt.Errorf("listing agents: %w", err)
+		return fmt.Errorf("listing personas: %w", err)
 	}
 
 	nameW := 4
 	baseW := 4
-	for _, name := range core.BuiltinAgentNames() {
+	for _, name := range core.BuiltinRunnerNames() {
 		if len(name) > nameW {
 			nameW = len(name)
 		}
@@ -1016,60 +1021,60 @@ func listAgents(store *agents.Store) error {
 		if len(c.Name) > nameW {
 			nameW = len(c.Name)
 		}
-		if len(c.BaseAgent) > baseW {
-			baseW = len(c.BaseAgent)
+		if len(c.BaseRunner) > baseW {
+			baseW = len(c.BaseRunner)
 		}
 	}
 
 	fmt.Printf("%-*s  %-*s  %s\n", nameW, color.Bold("NAME"), baseW, color.Bold("BASE"), color.Bold("DESCRIPTION"))
 	fmt.Printf("%-*s  %-*s  %s\n", nameW, strings.Repeat("-", nameW), baseW, strings.Repeat("-", baseW), "-----------")
-	for _, name := range core.BuiltinAgentNames() {
-		fmt.Printf("%-*s  %-*s  %s\n", nameW, name, baseW, "(built-in)", "Built-in agent")
+	for _, name := range core.BuiltinRunnerNames() {
+		fmt.Printf("%-*s  %-*s  %s\n", nameW, name, baseW, "(built-in)", "Built-in runner")
 	}
 	for _, c := range configs {
-		fmt.Printf("%-*s  %-*s  %s\n", nameW, c.Name, baseW, c.BaseAgent, c.Description)
+		fmt.Printf("%-*s  %-*s  %s\n", nameW, c.Name, baseW, c.BaseRunner, c.Description)
 	}
 	return nil
 }
 
-// showAgent prints the full JSON configuration for a named agent.
-func showAgent(store *agents.Store, name string) error {
-	if core.IsBuiltinAgent(name) {
-		profile, _ := core.LookupBuiltinAgent(name)
-		fmt.Printf("%s %s (built-in)\n", color.Bold("Agent:"), name)
+// showPersona prints the full JSON configuration for a named persona.
+func showPersona(store *personas.Store, name string) error {
+	if core.IsBuiltinRunner(name) {
+		profile, _ := core.LookupBuiltinRunner(name)
+		fmt.Printf("%s %s (built-in)\n", color.Bold("Runner:"), name)
 		fmt.Printf("%s %s\n", color.Bold("Binary:"), profile.BinaryPath)
 		return nil
 	}
 	cfg, err := store.Read(name)
 	if err != nil {
-		return fmt.Errorf("reading agent: %w", err)
+		return fmt.Errorf("reading persona: %w", err)
 	}
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
-		return fmt.Errorf("formatting agent config: %w", err)
+		return fmt.Errorf("formatting persona config: %w", err)
 	}
 	fmt.Println(string(data))
 	return nil
 }
 
-// createAgent interactively creates a new agent configuration.
-func createAgent(cfg *core.Config, store *agents.Store, name string) error {
-	if err := core.ValidateAgentConfigName(name); err != nil {
+// createPersona interactively creates a new persona configuration.
+func createPersona(cfg *core.Config, store *personas.Store, name string) error {
+	if err := core.ValidatePersonaName(name); err != nil {
 		return err
 	}
 
 	scanner := bufio.NewScanner(os.Stdin)
 
-	// Prompt for base agent
-	fmt.Printf("Base agent (claude, copilot) [claude]: ")
-	baseAgent := "claude"
+	// Prompt for base runner
+	fmt.Printf("Base runner (claude, copilot) [claude]: ")
+	baseRunner := "claude"
 	if scanner.Scan() {
 		if text := strings.TrimSpace(scanner.Text()); text != "" {
-			baseAgent = text
+			baseRunner = text
 		}
 	}
-	if !core.IsBuiltinAgent(baseAgent) {
-		return fmt.Errorf("base agent must be a built-in agent (claude, copilot), got %q", baseAgent)
+	if !core.IsBuiltinRunner(baseRunner) {
+		return fmt.Errorf("base runner must be a built-in runner (claude, copilot), got %q", baseRunner)
 	}
 
 	// Prompt for description
@@ -1096,32 +1101,32 @@ func createAgent(cfg *core.Config, store *agents.Store, name string) error {
 		}
 	}
 
-	agentCfg := core.AgentConfig{
+	personaCfg := core.PersonaConfig{
 		Name:        name,
 		Description: description,
-		BaseAgent:   baseAgent,
+		BaseRunner:  baseRunner,
 		ClaudeMd:    claudeMd,
 	}
 
-	if err := os.MkdirAll(cfg.AgentsDir(), 0755); err != nil {
-		return fmt.Errorf("creating agents directory: %w", err)
+	if err := os.MkdirAll(cfg.PersonasDir(), 0755); err != nil {
+		return fmt.Errorf("creating personas directory: %w", err)
 	}
-	if err := store.Create(agentCfg); err != nil {
-		return fmt.Errorf("creating agent: %w", err)
+	if err := store.Create(personaCfg); err != nil {
+		return fmt.Errorf("creating persona: %w", err)
 	}
-	fmt.Printf("%s agent '%s' created (base: %s).\n", color.Green("OK:"), name, baseAgent)
+	fmt.Printf("%s persona '%s' created (base: %s).\n", color.Green("OK:"), name, baseRunner)
 	return nil
 }
 
-// removeAgent deletes a user-defined agent configuration.
-func removeAgent(store *agents.Store, name string) error {
-	if core.IsBuiltinAgent(name) {
-		return fmt.Errorf("cannot remove built-in agent %q", name)
+// removePersona deletes a user-defined persona configuration.
+func removePersona(store *personas.Store, name string) error {
+	if core.IsBuiltinRunner(name) {
+		return fmt.Errorf("cannot remove built-in runner %q", name)
 	}
 	if err := store.Remove(name); err != nil {
-		return fmt.Errorf("removing agent: %w", err)
+		return fmt.Errorf("removing persona: %w", err)
 	}
-	fmt.Printf("%s agent '%s' removed.\n", color.Green("OK:"), name)
+	fmt.Printf("%s persona '%s' removed.\n", color.Green("OK:"), name)
 	return nil
 }
 
