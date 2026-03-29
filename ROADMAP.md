@@ -36,6 +36,20 @@
 
 ## Current Sprint
 
+### Sprint 22: Runner/Persona Polish & Skill Fix (v0.17.0)
+
+Goal: clean up the runner/persona split — add `daedalus runners` subcommand, separate `personas list` from runners, store persona details in companion `.md` files, fix skill installation path, and harden validation and test coverage.
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | `daedalus runners` subcommand — list and show built-in runner profiles with shell completions | Done |
+| 2 | `personas list` shows only user-defined personas, `personas show` rejects built-in names | Done |
+| 3 | Persona `.md` companion file — store CLAUDE.md content alongside `.json` config | Done |
+| 4 | Fix `resolvePersonaOverlay` — use `cfg.Persona`, set `cfg.Runner` from `BaseRunner` | Done |
+| 5 | `--runner` strict validation (builtins only), `--persona` validation (rejects builtins, checks store) | Done |
+| 6 | Skill install target: `~/.claude/commands/` → `/workspace/.claude/skills/` | Done |
+| 7 | Dev release workflow fix — replace `softprops/action-gh-release` with `gh release create` | Done |
+
 ### Sprint 21: Personas & Runner/Persona Split (v0.16.0)
 
 Goal: allow users to define named persona configurations that layer custom system prompts and tool-permission overrides on top of a built-in runner, selectable via `--persona <name>`. Split the overloaded "agent" concept into **runner** (claude/copilot binary) and **persona** (user-defined overlay).

@@ -4,13 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-03-29
+
 ### Added
 - `daedalus runners` CLI subcommand — `list` (shows built-in runners with binary paths), `show <name>` (prints runner profile details).
 - Shell completions for `runners` subcommand in bash, zsh, and fish.
 
 ### Changed
-- Persona CLAUDE.md content is now stored in a companion `<name>.md` file alongside the `<name>.json` config, instead of being embedded in JSON. Easier to edit and version. Existing personas with inline `claudeMd` JSON fields are still read via the `.md` file on next write.
-- Skill installation target changed from `~/.claude/commands/` to `/workspace/.claude/skills/` — the correct project-scoped location where Claude Code discovers skills. Updated MCP server flag (`--skills-dir`), entrypoint, and all documentation.
+- Persona CLAUDE.md content is now stored in a companion `<name>.md` file alongside the `<name>.json` config, instead of being embedded in JSON. Easier to edit and version.
+- Skill installation target changed from `~/.claude/commands/` to `/workspace/.claude/skills/` — the correct project-scoped location where Claude Code discovers skills.
+- `daedalus personas list` now shows only user-defined personas, not built-in runners.
+- `daedalus personas show <builtin>` now returns an error instead of printing runner details — use `daedalus runners show` instead.
 
 ### Fixed
 - `resolvePersonaOverlay` now uses `cfg.Persona` instead of `cfg.Runner` to look up persona configurations. Previously the persona name was never read, so overlays were silently skipped.
@@ -18,6 +22,7 @@ All notable changes to this project will be documented in this file.
 - `--runner` flag now strictly accepts only built-in runner names (`claude`, `copilot`). Previously it also accepted persona names, blurring the runner/persona boundary.
 - `--persona` flag now validated at parse time — rejects built-in runner names (use `--runner` instead) and nonexistent persona names.
 - `collectDefaultFlags` now saves the `persona` key alongside `runner` for per-project defaults.
+- Dev release workflow: replaced `softprops/action-gh-release` with `gh release create` to fix silent release creation failures.
 
 ## [0.16.0] - 2026-03-26
 
