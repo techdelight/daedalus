@@ -269,6 +269,54 @@ func TestApplyRegistryEntry_LegacyAgentDefaultFlag(t *testing.T) {
 	}
 }
 
+func TestApplyRegistryEntry_PersonaDefaultFlag(t *testing.T) {
+	cfg := &Config{Target: "dev"}
+	entry := ProjectEntry{
+		Directory:    "/tmp/test",
+		Target:       "dev",
+		DefaultFlags: map[string]string{"persona": "reviewer"},
+	}
+
+	ApplyRegistryEntry(cfg, entry)
+
+	if cfg.Persona != "reviewer" {
+		t.Errorf("Persona = %q, want %q", cfg.Persona, "reviewer")
+	}
+}
+
+func TestApplyRegistryEntry_PersonaCLIOverridesDefault(t *testing.T) {
+	cfg := &Config{Target: "dev", Persona: "tester"}
+	entry := ProjectEntry{
+		Directory:    "/tmp/test",
+		Target:       "dev",
+		DefaultFlags: map[string]string{"persona": "reviewer"},
+	}
+
+	ApplyRegistryEntry(cfg, entry)
+
+	if cfg.Persona != "tester" {
+		t.Errorf("Persona = %q, want %q (CLI should win)", cfg.Persona, "tester")
+	}
+}
+
+func TestApplyRegistryEntry_RunnerAndPersonaDefaults(t *testing.T) {
+	cfg := &Config{Target: "dev"}
+	entry := ProjectEntry{
+		Directory:    "/tmp/test",
+		Target:       "dev",
+		DefaultFlags: map[string]string{"runner": "copilot", "persona": "reviewer"},
+	}
+
+	ApplyRegistryEntry(cfg, entry)
+
+	if cfg.Runner != "copilot" {
+		t.Errorf("Runner = %q, want %q", cfg.Runner, "copilot")
+	}
+	if cfg.Persona != "reviewer" {
+		t.Errorf("Persona = %q, want %q", cfg.Persona, "reviewer")
+	}
+}
+
 func TestNormalizeRunnerTarget_CopilotDev(t *testing.T) {
 	cfg := &Config{Target: "copilot-dev"}
 	NormalizeRunnerTarget(cfg)

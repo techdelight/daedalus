@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+- `resolvePersonaOverlay` now uses `cfg.Persona` instead of `cfg.Runner` to look up persona configurations. Previously the persona name was never read, so overlays were silently skipped.
+- `resolvePersonaOverlay` now sets `cfg.Runner` from the persona's `BaseRunner` when no explicit `--runner` is given, ensuring the correct binary and Docker image are used.
+- `--runner` flag now strictly accepts only built-in runner names (`claude`, `copilot`). Previously it also accepted persona names, blurring the runner/persona boundary.
+- `--persona` flag now validated at parse time — rejects built-in runner names (use `--runner` instead) and nonexistent persona names.
+- `collectDefaultFlags` now saves the `persona` key alongside `runner` for per-project defaults.
+
 ## [0.16.0] - 2026-03-26
 
 ### Added

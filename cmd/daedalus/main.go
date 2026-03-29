@@ -572,6 +572,9 @@ func collectDefaultFlags(cfg *core.Config) map[string]string {
 	if cfg.Runner != "" {
 		flags["runner"] = cfg.Runner
 	}
+	if cfg.Persona != "" {
+		flags["persona"] = cfg.Persona
+	}
 	if len(flags) == 0 {
 		return nil
 	}
@@ -715,7 +718,7 @@ func printUsage() {
 	fmt.Println("  --dind             Mount Docker socket (WARNING: grants host Docker access)")
 	fmt.Println("  --display          Forward host display (X11/Wayland) into the container")
 	fmt.Println("  --force            Force deletion in non-interactive mode (e.g. prune)")
-	fmt.Println("  --runner <name>    AI runner: claude (default), copilot, or user-defined persona")
+	fmt.Println("  --runner <name>    AI runner: claude (default) or copilot")
 	fmt.Println("  --persona <name>   Named persona configuration to use")
 	fmt.Println("  --container-log    Log container output to <data-dir>/<project>/container.log")
 	fmt.Println("  --no-color         Disable colored output (also honors NO_COLOR env var)")
@@ -930,18 +933,22 @@ func removeProjects(cfg *core.Config) error {
 	return nil
 }
 
-// resolvePersonaOverlay checks if the current runner is a user-defined persona
-// and, if so, writes the overlay files to the cache directory and returns
-// the paths for container volume mounts. Returns nil for built-in runners.
+// resolvePersonaOverlay checks if a persona is selected and, if so, writes
+// the overlay files to the cache directory and returns the paths for container
+// volume mounts. Also sets cfg.Runner to the persona's BaseRunner so the
+// correct binary and Docker image are used. Returns nil when no persona is set.
 func resolvePersonaOverlay(cfg *core.Config) (*core.OverlayPaths, error) {
-	runnerName := core.ResolveRunnerName(cfg)
-	if core.IsBuiltinRunner(runnerName) {
+	if cfg.Persona == "" {
 		return nil, nil
 	}
 	store := personas.New(cfg.PersonasDir())
-	personaCfg, err := store.Read(runnerName)
+	personaCfg, err := store.Read(cfg.Persona)
 	if err != nil {
-		return nil, fmt.Errorf("reading persona %q: %w", runnerName, err)
+		return nil, fmt.Errorf("reading persona %q: %w", cfg.Persona, err)
+	}
+	// Set the runner to the persona's base so the correct binary and image are used.
+	if cfg.Runner == "" {
+		cfg.Runner = personaCfg.BaseRunner
 	}
 
 	overlayDir := filepath.Join(cfg.CacheDir(), "persona-overlay")
@@ -968,7 +975,7 @@ func resolvePersonaOverlay(cfg *core.Config) (*core.OverlayPaths, error) {
 		paths.Env = personaCfg.Env
 	}
 
-	logging.Info("resolved persona overlay for " + runnerName + " (base: " + personaCfg.BaseRunner + ")")
+	logging.Info("resolved persona overlay for " + cfg.Persona + " (base: " + personaCfg.BaseRunner + ")")
 	return &paths, nil
 }
 

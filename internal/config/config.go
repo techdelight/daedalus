@@ -178,7 +178,14 @@ func ParseArgs(args []string) (*core.Config, error) {
 
 	// Validate --runner against built-in names
 	if cfg.Runner != "" {
-		if err := validateRunnerName(cfg.Runner, cfg.PersonasDir()); err != nil {
+		if err := validateRunnerName(cfg.Runner); err != nil {
+			return nil, err
+		}
+	}
+
+	// Validate --persona against user-defined personas
+	if cfg.Persona != "" {
+		if err := validatePersonaName(cfg.Persona, cfg.PersonasDir()); err != nil {
 			return nil, err
 		}
 	}
@@ -272,23 +279,23 @@ func ParseArgs(args []string) (*core.Config, error) {
 	return cfg, nil
 }
 
-// validateRunnerName checks whether name is a valid runner — either built-in
-// or a user-defined persona in the personas directory.
-func validateRunnerName(name, personasDir string) error {
+// validateRunnerName checks whether name is a valid built-in runner.
+func validateRunnerName(name string) error {
 	if core.IsBuiltinRunner(name) {
 		return nil
+	}
+	return fmt.Errorf("unknown runner %q — valid runners: %s", name, strings.Join(core.ValidRunnerNames(), ", "))
+}
+
+// validatePersonaName checks whether name is a user-defined persona in the
+// personas directory.
+func validatePersonaName(name, personasDir string) error {
+	if core.IsBuiltinRunner(name) {
+		return fmt.Errorf("invalid persona %q — %q is a built-in runner, use --runner instead", name, name)
 	}
 	store := personas.New(personasDir)
 	if _, err := store.Read(name); err == nil {
 		return nil
 	}
-	// List user-defined names for error message
-	var userNames []string
-	configs, _ := store.List()
-	for _, c := range configs {
-		userNames = append(userNames, c.Name)
-	}
-	validNames := core.ValidRunnerNames()
-	validNames = append(validNames, userNames...)
-	return fmt.Errorf("unknown runner %q — valid runners: %s", name, strings.Join(validNames, ", "))
+	return fmt.Errorf("unknown persona %q — use 'daedalus personas list' to see available personas", name)
 }

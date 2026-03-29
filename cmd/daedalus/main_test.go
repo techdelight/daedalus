@@ -1227,7 +1227,7 @@ func TestManagePersonas_RemoveMissingName(t *testing.T) {
 	}
 }
 
-func TestResolvePersonaOverlay_BuiltIn(t *testing.T) {
+func TestResolvePersonaOverlay_NoPersona(t *testing.T) {
 	dir := t.TempDir()
 	cfg := &core.Config{
 		DataDir:     dir,
@@ -1239,7 +1239,7 @@ func TestResolvePersonaOverlay_BuiltIn(t *testing.T) {
 		t.Fatalf("resolvePersonaOverlay failed: %v", err)
 	}
 	if overlay != nil {
-		t.Error("overlay should be nil for built-in runner")
+		t.Error("overlay should be nil when no persona is set")
 	}
 }
 
@@ -1261,7 +1261,7 @@ func TestResolvePersonaOverlay_UserDefined(t *testing.T) {
 
 	cfg := &core.Config{
 		DataDir:     dir,
-		Runner:      "reviewer",
+		Persona:     "reviewer",
 		ProjectName: "test",
 	}
 	overlay, err := resolvePersonaOverlay(cfg)
@@ -1280,6 +1280,10 @@ func TestResolvePersonaOverlay_UserDefined(t *testing.T) {
 	if overlay.Env["MODE"] != "review" {
 		t.Errorf("Env[MODE] = %q, want %q", overlay.Env["MODE"], "review")
 	}
+	// resolvePersonaOverlay should set Runner from persona's BaseRunner
+	if cfg.Runner != "claude" {
+		t.Errorf("Runner = %q, want %q (should be set from persona's BaseRunner)", cfg.Runner, "claude")
+	}
 
 	// Verify files were written
 	data, err := os.ReadFile(overlay.ClaudeMdPath)
@@ -1291,6 +1295,64 @@ func TestResolvePersonaOverlay_UserDefined(t *testing.T) {
 	}
 }
 
+func TestResolvePersonaOverlay_SetsRunnerFromPersona(t *testing.T) {
+	dir := t.TempDir()
+	personasDir := filepath.Join(dir, "personas")
+	os.MkdirAll(personasDir, 0755)
+	projectCache := filepath.Join(dir, "test")
+	os.MkdirAll(projectCache, 0755)
+
+	store := personas.New(personasDir)
+	store.Create(core.PersonaConfig{
+		Name:       "copilot-reviewer",
+		BaseRunner: "copilot",
+		ClaudeMd:   "Review with copilot.",
+	})
+
+	cfg := &core.Config{
+		DataDir:     dir,
+		Persona:     "copilot-reviewer",
+		ProjectName: "test",
+	}
+	_, err := resolvePersonaOverlay(cfg)
+	if err != nil {
+		t.Fatalf("resolvePersonaOverlay failed: %v", err)
+	}
+	if cfg.Runner != "copilot" {
+		t.Errorf("Runner = %q, want %q (from persona's BaseRunner)", cfg.Runner, "copilot")
+	}
+}
+
+func TestResolvePersonaOverlay_ExplicitRunnerNotOverwritten(t *testing.T) {
+	dir := t.TempDir()
+	personasDir := filepath.Join(dir, "personas")
+	os.MkdirAll(personasDir, 0755)
+	projectCache := filepath.Join(dir, "test")
+	os.MkdirAll(projectCache, 0755)
+
+	store := personas.New(personasDir)
+	store.Create(core.PersonaConfig{
+		Name:       "reviewer",
+		BaseRunner: "copilot",
+		ClaudeMd:   "Review.",
+	})
+
+	cfg := &core.Config{
+		DataDir:     dir,
+		Runner:      "claude",
+		Persona:     "reviewer",
+		ProjectName: "test",
+	}
+	_, err := resolvePersonaOverlay(cfg)
+	if err != nil {
+		t.Fatalf("resolvePersonaOverlay failed: %v", err)
+	}
+	// Explicit --runner should not be overwritten by persona's BaseRunner
+	if cfg.Runner != "claude" {
+		t.Errorf("Runner = %q, want %q (explicit runner should win)", cfg.Runner, "claude")
+	}
+}
+
 func TestResolvePersonaOverlay_NotFound(t *testing.T) {
 	dir := t.TempDir()
 	projectCache := filepath.Join(dir, "test")
@@ -1298,7 +1360,7 @@ func TestResolvePersonaOverlay_NotFound(t *testing.T) {
 
 	cfg := &core.Config{
 		DataDir:     dir,
-		Runner:      "nonexistent",
+		Persona:     "nonexistent",
 		ProjectName: "test",
 	}
 	_, err := resolvePersonaOverlay(cfg)
@@ -1307,18 +1369,18 @@ func TestResolvePersonaOverlay_NotFound(t *testing.T) {
 	}
 }
 
-func TestResolvePersonaOverlay_DefaultRunner(t *testing.T) {
+func TestResolvePersonaOverlay_EmptyPersona(t *testing.T) {
 	dir := t.TempDir()
 	cfg := &core.Config{
 		DataDir:     dir,
 		ProjectName: "test",
-		// Runner is empty — defaults to claude
+		// Both Runner and Persona empty — no overlay
 	}
 	overlay, err := resolvePersonaOverlay(cfg)
 	if err != nil {
 		t.Fatalf("resolvePersonaOverlay failed: %v", err)
 	}
 	if overlay != nil {
-		t.Error("overlay should be nil for default runner")
+		t.Error("overlay should be nil when persona is empty")
 	}
 }

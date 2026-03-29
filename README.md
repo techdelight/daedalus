@@ -119,7 +119,7 @@ daedalus --help
 | `--no-tmux` | Run without tmux session wrapping |
 | `--debug` | Enable Claude Code debug mode |
 | `--dind` | Mount Docker socket (WARNING: grants host Docker access) |
-| `--runner <name>` | AI runner: `claude` (default), `copilot`, or a user-defined persona |
+| `--runner <name>` | AI runner: `claude` (default) or `copilot` |
 | `--persona <name>` | Named persona configuration to use |
 | `--display` | Forward host X11/Wayland display into the container for GUI apps |
 | `--force` | Force deletion in non-interactive mode (e.g. prune, remove) |
@@ -176,7 +176,7 @@ daedalus --runner copilot my-app /path/to/project
 daedalus personas create reviewer
 
 # Use a custom persona
-daedalus --runner reviewer my-app /path/to/project
+daedalus --persona reviewer my-app /path/to/project
 
 # Set Copilot as the default runner for a project
 daedalus config my-app --set runner=copilot
@@ -446,10 +446,10 @@ daedalus personas remove reviewer    # Delete a persona config
 
 ```bash
 # One-time use
-daedalus --runner reviewer my-app /path/to/project
+daedalus --persona reviewer my-app /path/to/project
 
 # Set as project default
-daedalus config my-app --set runner=reviewer
+daedalus config my-app --set persona=reviewer
 ```
 
 **Config schema:**

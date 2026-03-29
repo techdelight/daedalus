@@ -162,6 +162,42 @@ func TestFishCompletion_PersonasSubcommand(t *testing.T) {
 	}
 }
 
+func TestBashCompletion_RunnerFlag(t *testing.T) {
+	if !strings.Contains(bashCompletion, "--runner") {
+		t.Error("bash completion missing --runner flag")
+	}
+}
+
+func TestBashCompletion_PersonaFlag(t *testing.T) {
+	if !strings.Contains(bashCompletion, "--persona") {
+		t.Error("bash completion missing --persona flag")
+	}
+}
+
+func TestZshCompletion_RunnerFlag(t *testing.T) {
+	if !strings.Contains(zshCompletion, "--runner") {
+		t.Error("zsh completion missing --runner flag")
+	}
+}
+
+func TestZshCompletion_PersonaFlag(t *testing.T) {
+	if !strings.Contains(zshCompletion, "--persona") {
+		t.Error("zsh completion missing --persona flag")
+	}
+}
+
+func TestFishCompletion_RunnerFlag(t *testing.T) {
+	if !strings.Contains(fishCompletion, "--runner") {
+		t.Error("fish completion missing --runner flag")
+	}
+}
+
+func TestFishCompletion_PersonaFlag(t *testing.T) {
+	if !strings.Contains(fishCompletion, "--persona") {
+		t.Error("fish completion missing --persona flag")
+	}
+}
+
 func TestBashCompletion_SkillsSubcommand(t *testing.T) {
 	if !strings.Contains(bashCompletion, "skills)") {
 		t.Error("bash completion missing skills case")

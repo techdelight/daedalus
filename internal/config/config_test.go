@@ -793,8 +793,8 @@ func TestParseArgs_PersonasSubcommand_Remove(t *testing.T) {
 	}
 }
 
-func TestParseArgs_RunnerFlag_UserDefined(t *testing.T) {
-	// Create a temp personas dir with a user-defined persona
+func TestParseArgs_RunnerFlag_RejectsPersonaName(t *testing.T) {
+	// --runner should only accept built-in names, not persona names
 	tmp := t.TempDir()
 	t.Setenv("DAEDALUS_DATA_DIR", tmp)
 	personasDir := filepath.Join(tmp, "personas")
@@ -805,39 +805,113 @@ func TestParseArgs_RunnerFlag_UserDefined(t *testing.T) {
 		[]byte(`{"name":"reviewer","baseRunner":"claude"}`), 0644); err != nil {
 		t.Fatal(err)
 	}
-	cfg, err := ParseArgs([]string{"--runner", "reviewer", "my-project"})
-	if err != nil {
-		t.Fatalf("ParseArgs failed: %v", err)
-	}
-	if cfg.Runner != "reviewer" {
-		t.Errorf("Runner = %q, want %q", cfg.Runner, "reviewer")
-	}
-}
-
-func TestParseArgs_RunnerFlag_InvalidUserDefined(t *testing.T) {
-	// No personas dir — user-defined name should fail
-	tmp := t.TempDir()
-	t.Setenv("DAEDALUS_DATA_DIR", tmp)
-	_, err := ParseArgs([]string{"--runner", "nonexistent", "my-project"})
+	_, err := ParseArgs([]string{"--runner", "reviewer", "my-project"})
 	if err == nil {
-		t.Fatal("expected error for --runner nonexistent")
+		t.Fatal("expected error — --runner should not accept persona names")
 	}
 	if !strings.Contains(err.Error(), "unknown runner") {
 		t.Errorf("error = %q, want mention of 'unknown runner'", err)
 	}
 }
 
-func TestValidateRunnerName_BuiltIn(t *testing.T) {
+func TestParseArgs_PersonaFlag_Valid(t *testing.T) {
 	tmp := t.TempDir()
-	if err := validateRunnerName("claude", tmp); err != nil {
+	t.Setenv("DAEDALUS_DATA_DIR", tmp)
+	personasDir := filepath.Join(tmp, "personas")
+	if err := os.MkdirAll(personasDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(personasDir, "reviewer.json"),
+		[]byte(`{"name":"reviewer","baseRunner":"claude"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := ParseArgs([]string{"--persona", "reviewer", "my-project"})
+	if err != nil {
+		t.Fatalf("ParseArgs failed: %v", err)
+	}
+	if cfg.Persona != "reviewer" {
+		t.Errorf("Persona = %q, want %q", cfg.Persona, "reviewer")
+	}
+}
+
+func TestParseArgs_PersonaFlag_Nonexistent(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("DAEDALUS_DATA_DIR", tmp)
+	_, err := ParseArgs([]string{"--persona", "nonexistent", "my-project"})
+	if err == nil {
+		t.Fatal("expected error for --persona nonexistent")
+	}
+	if !strings.Contains(err.Error(), "unknown persona") {
+		t.Errorf("error = %q, want mention of 'unknown persona'", err)
+	}
+}
+
+func TestParseArgs_PersonaFlag_RejectsBuiltin(t *testing.T) {
+	_, err := ParseArgs([]string{"--persona", "claude", "my-project"})
+	if err == nil {
+		t.Fatal("expected error — --persona should not accept built-in runner names")
+	}
+	if !strings.Contains(err.Error(), "built-in runner") {
+		t.Errorf("error = %q, want mention of 'built-in runner'", err)
+	}
+}
+
+func TestParseArgs_PersonaFlag_MissingValue(t *testing.T) {
+	_, err := ParseArgs([]string{"--persona"})
+	if err == nil {
+		t.Fatal("expected error for --persona without value")
+	}
+	if !strings.Contains(err.Error(), "requires a persona name") {
+		t.Errorf("error = %q, want mention of 'requires a persona name'", err)
+	}
+}
+
+func TestParseArgs_PersonaAndRunner_Combined(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("DAEDALUS_DATA_DIR", tmp)
+	personasDir := filepath.Join(tmp, "personas")
+	if err := os.MkdirAll(personasDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(personasDir, "reviewer.json"),
+		[]byte(`{"name":"reviewer","baseRunner":"copilot"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := ParseArgs([]string{"--runner", "claude", "--persona", "reviewer", "my-project"})
+	if err != nil {
+		t.Fatalf("ParseArgs failed: %v", err)
+	}
+	if cfg.Runner != "claude" {
+		t.Errorf("Runner = %q, want %q", cfg.Runner, "claude")
+	}
+	if cfg.Persona != "reviewer" {
+		t.Errorf("Persona = %q, want %q", cfg.Persona, "reviewer")
+	}
+}
+
+func TestValidateRunnerName_BuiltIn(t *testing.T) {
+	if err := validateRunnerName("claude"); err != nil {
 		t.Errorf("validateRunnerName(claude) = %v, want nil", err)
 	}
-	if err := validateRunnerName("copilot", tmp); err != nil {
+	if err := validateRunnerName("copilot"); err != nil {
 		t.Errorf("validateRunnerName(copilot) = %v, want nil", err)
 	}
 }
 
-func TestValidateRunnerName_UserDefined(t *testing.T) {
+func TestValidateRunnerName_Unknown(t *testing.T) {
+	err := validateRunnerName("gpt")
+	if err == nil {
+		t.Fatal("validateRunnerName(gpt) = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "unknown runner") {
+		t.Errorf("error = %q, want mention of 'unknown runner'", err)
+	}
+	if !strings.Contains(err.Error(), "claude") {
+		t.Errorf("error = %q, want to list 'claude'", err)
+	}
+}
+
+func TestValidatePersonaName_Valid(t *testing.T) {
 	tmp := t.TempDir()
 	personasDir := filepath.Join(tmp, "personas")
 	if err := os.MkdirAll(personasDir, 0755); err != nil {
@@ -847,22 +921,29 @@ func TestValidateRunnerName_UserDefined(t *testing.T) {
 		[]byte(`{"name":"tester","baseRunner":"claude"}`), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if err := validateRunnerName("tester", personasDir); err != nil {
-		t.Errorf("validateRunnerName(tester) = %v, want nil", err)
+	if err := validatePersonaName("tester", personasDir); err != nil {
+		t.Errorf("validatePersonaName(tester) = %v, want nil", err)
 	}
 }
 
-func TestValidateRunnerName_Unknown(t *testing.T) {
+func TestValidatePersonaName_Unknown(t *testing.T) {
 	tmp := t.TempDir()
-	err := validateRunnerName("nonexistent", tmp)
+	err := validatePersonaName("nonexistent", tmp)
 	if err == nil {
-		t.Fatal("validateRunnerName(nonexistent) = nil, want error")
+		t.Fatal("validatePersonaName(nonexistent) = nil, want error")
 	}
-	if !strings.Contains(err.Error(), "unknown runner") {
-		t.Errorf("error = %q, want mention of 'unknown runner'", err)
+	if !strings.Contains(err.Error(), "unknown persona") {
+		t.Errorf("error = %q, want mention of 'unknown persona'", err)
 	}
-	// Error should list valid runners
-	if !strings.Contains(err.Error(), "claude") {
-		t.Errorf("error = %q, want to list 'claude'", err)
+}
+
+func TestValidatePersonaName_RejectsBuiltin(t *testing.T) {
+	tmp := t.TempDir()
+	err := validatePersonaName("claude", tmp)
+	if err == nil {
+		t.Fatal("validatePersonaName(claude) = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "built-in runner") {
+		t.Errorf("error = %q, want mention of 'built-in runner'", err)
 	}
 }
