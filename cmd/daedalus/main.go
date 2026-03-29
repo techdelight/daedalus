@@ -743,6 +743,9 @@ func printUsage() {
 	fmt.Println("  daedalus rename my-app my-new-app        Rename a project")
 	fmt.Println("  daedalus config my-app --set dind=true  Set per-project default")
 	fmt.Println("  daedalus --runner copilot my-app          Use Copilot CLI instead of Claude")
+	fmt.Println("  daedalus runners                        List built-in runners")
+	fmt.Println("  daedalus personas create reviewer       Create a persona configuration")
+	fmt.Println("  daedalus --persona reviewer my-app       Use a custom persona")
 	fmt.Println("  daedalus completion bash                Print bash completion script")
 }
 
