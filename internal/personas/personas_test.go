@@ -5,6 +5,7 @@ package personas
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/techdelight/daedalus/core"
@@ -42,6 +43,101 @@ func TestCreate_And_Read(t *testing.T) {
 	}
 	if got.ClaudeMd != "You are a code reviewer." {
 		t.Errorf("ClaudeMd = %q, want %q", got.ClaudeMd, "You are a code reviewer.")
+	}
+}
+
+func TestCreate_WritesMarkdownFile(t *testing.T) {
+	s := testStore(t)
+	cfg := core.PersonaConfig{
+		Name:       "reviewer",
+		BaseRunner: "claude",
+		ClaudeMd:   "You are a code reviewer.",
+	}
+	if err := s.Create(cfg); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// Verify .md file exists with correct content
+	mdPath := filepath.Join(s.dir, "reviewer.md")
+	data, err := os.ReadFile(mdPath)
+	if err != nil {
+		t.Fatalf("reading .md file: %v", err)
+	}
+	if string(data) != "You are a code reviewer." {
+		t.Errorf("md content = %q, want %q", string(data), "You are a code reviewer.")
+	}
+
+	// Verify JSON does not contain claudeMd
+	jsonData, err := os.ReadFile(filepath.Join(s.dir, "reviewer.json"))
+	if err != nil {
+		t.Fatalf("reading .json file: %v", err)
+	}
+	if strings.Contains(string(jsonData), "claudeMd") {
+		t.Error("JSON should not contain claudeMd field")
+	}
+}
+
+func TestCreate_NoMarkdownWhenEmpty(t *testing.T) {
+	s := testStore(t)
+	cfg := core.PersonaConfig{
+		Name:       "simple",
+		BaseRunner: "claude",
+	}
+	if err := s.Create(cfg); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	mdPath := filepath.Join(s.dir, "simple.md")
+	if _, err := os.Stat(mdPath); !os.IsNotExist(err) {
+		t.Error(".md file should not exist when ClaudeMd is empty")
+	}
+
+	// Read should return empty ClaudeMd
+	got, err := s.Read("simple")
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if got.ClaudeMd != "" {
+		t.Errorf("ClaudeMd = %q, want empty", got.ClaudeMd)
+	}
+}
+
+func TestRemove_DeletesMarkdownFile(t *testing.T) {
+	s := testStore(t)
+	cfg := core.PersonaConfig{
+		Name:       "reviewer",
+		BaseRunner: "claude",
+		ClaudeMd:   "Review prompt.",
+	}
+	if err := s.Create(cfg); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := s.Remove("reviewer"); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+
+	mdPath := filepath.Join(s.dir, "reviewer.md")
+	if _, err := os.Stat(mdPath); !os.IsNotExist(err) {
+		t.Error(".md file should be deleted on Remove")
+	}
+}
+
+func TestUpdate_UpdatesMarkdownFile(t *testing.T) {
+	s := testStore(t)
+	cfg := core.PersonaConfig{Name: "reviewer", BaseRunner: "claude", ClaudeMd: "v1"}
+	if err := s.Create(cfg); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	cfg.ClaudeMd = "v2"
+	if err := s.Update(cfg); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	got, err := s.Read("reviewer")
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if got.ClaudeMd != "v2" {
+		t.Errorf("ClaudeMd = %q, want %q", got.ClaudeMd, "v2")
 	}
 }
 

@@ -14,7 +14,7 @@ type PersonaConfig struct {
 	Name        string            `json:"name"`
 	Description string            `json:"description"`
 	BaseRunner  string            `json:"baseRunner"`
-	ClaudeMd    string            `json:"claudeMd"`
+	ClaudeMd    string            `json:"-"` // stored in <name>.md alongside the JSON file
 	Settings    json.RawMessage   `json:"settings,omitempty"`
 	Env         map[string]string `json:"env,omitempty"`
 }

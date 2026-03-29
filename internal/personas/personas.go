@@ -66,6 +66,7 @@ func (s *Store) List() ([]core.PersonaConfig, error) {
 }
 
 // Read returns the persona configuration with the given name.
+// The ClaudeMd field is loaded from a companion <name>.md file if it exists.
 func (s *Store) Read(name string) (core.PersonaConfig, error) {
 	path := filepath.Join(s.dir, name+".json")
 	data, err := os.ReadFile(path)
@@ -75,6 +76,11 @@ func (s *Store) Read(name string) (core.PersonaConfig, error) {
 	var cfg core.PersonaConfig
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return core.PersonaConfig{}, fmt.Errorf("parsing persona %q: %w", name, err)
+	}
+	// Load companion markdown file
+	mdPath := filepath.Join(s.dir, name+".md")
+	if md, err := os.ReadFile(mdPath); err == nil {
+		cfg.ClaudeMd = string(md)
 	}
 	return cfg, nil
 }
@@ -104,17 +110,19 @@ func (s *Store) Update(cfg core.PersonaConfig) error {
 	return s.write(path, cfg)
 }
 
-// Remove deletes a persona configuration.
+// Remove deletes a persona configuration and its companion markdown file.
 func (s *Store) Remove(name string) error {
 	path := filepath.Join(s.dir, name+".json")
 	if err := os.Remove(path); err != nil {
 		return fmt.Errorf("removing persona %q: %w", name, err)
 	}
+	// Best-effort removal of companion markdown file
+	os.Remove(filepath.Join(s.dir, name+".md"))
 	return nil
 }
 
 // write marshals cfg to JSON and writes it to path, creating the directory
-// if needed.
+// if needed. The ClaudeMd content is written to a companion <name>.md file.
 func (s *Store) write(path string, cfg core.PersonaConfig) error {
 	if err := os.MkdirAll(s.dir, 0755); err != nil {
 		return fmt.Errorf("creating personas directory: %w", err)
@@ -126,6 +134,16 @@ func (s *Store) write(path string, cfg core.PersonaConfig) error {
 	data = append(data, '\n')
 	if err := os.WriteFile(path, data, 0644); err != nil {
 		return fmt.Errorf("writing persona %q: %w", cfg.Name, err)
+	}
+	// Write companion markdown file
+	mdPath := strings.TrimSuffix(path, ".json") + ".md"
+	if cfg.ClaudeMd != "" {
+		if err := os.WriteFile(mdPath, []byte(cfg.ClaudeMd), 0644); err != nil {
+			return fmt.Errorf("writing persona markdown %q: %w", cfg.Name, err)
+		}
+	} else {
+		// Remove stale markdown file if content is empty
+		os.Remove(mdPath)
 	}
 	return nil
 }

@@ -8,6 +8,9 @@ All notable changes to this project will be documented in this file.
 - `daedalus runners` CLI subcommand — `list` (shows built-in runners with binary paths), `show <name>` (prints runner profile details).
 - Shell completions for `runners` subcommand in bash, zsh, and fish.
 
+### Changed
+- Persona CLAUDE.md content is now stored in a companion `<name>.md` file alongside the `<name>.json` config, instead of being embedded in JSON. Easier to edit and version. Existing personas with inline `claudeMd` JSON fields are still read via the `.md` file on next write.
+
 ### Fixed
 - `resolvePersonaOverlay` now uses `cfg.Persona` instead of `cfg.Runner` to look up persona configurations. Previously the persona name was never read, so overlays were silently skipped.
 - `resolvePersonaOverlay` now sets `cfg.Runner` from the persona's `BaseRunner` when no explicit `--runner` is given, ensuring the correct binary and Docker image are used.
