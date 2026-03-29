@@ -1010,20 +1010,20 @@ func managePersonas(cfg *core.Config) error {
 	}
 }
 
-// listPersonas prints all persona configurations (built-in runners + user-defined).
+// listPersonas prints all user-defined persona configurations.
 func listPersonas(store *personas.Store) error {
 	configs, err := store.List()
 	if err != nil {
 		return fmt.Errorf("listing personas: %w", err)
 	}
 
+	if len(configs) == 0 {
+		fmt.Println("No personas defined. Use 'daedalus personas create <name>' to create one.")
+		return nil
+	}
+
 	nameW := 4
 	baseW := 4
-	for _, name := range core.BuiltinRunnerNames() {
-		if len(name) > nameW {
-			nameW = len(name)
-		}
-	}
 	for _, c := range configs {
 		if len(c.Name) > nameW {
 			nameW = len(c.Name)
@@ -1035,9 +1035,6 @@ func listPersonas(store *personas.Store) error {
 
 	fmt.Printf("%-*s  %-*s  %s\n", nameW, color.Bold("NAME"), baseW, color.Bold("BASE"), color.Bold("DESCRIPTION"))
 	fmt.Printf("%-*s  %-*s  %s\n", nameW, strings.Repeat("-", nameW), baseW, strings.Repeat("-", baseW), "-----------")
-	for _, name := range core.BuiltinRunnerNames() {
-		fmt.Printf("%-*s  %-*s  %s\n", nameW, name, baseW, "(built-in)", "Built-in runner")
-	}
 	for _, c := range configs {
 		fmt.Printf("%-*s  %-*s  %s\n", nameW, c.Name, baseW, c.BaseRunner, c.Description)
 	}
@@ -1047,10 +1044,7 @@ func listPersonas(store *personas.Store) error {
 // showPersona prints the full JSON configuration for a named persona.
 func showPersona(store *personas.Store, name string) error {
 	if core.IsBuiltinRunner(name) {
-		profile, _ := core.LookupBuiltinRunner(name)
-		fmt.Printf("%s %s (built-in)\n", color.Bold("Runner:"), name)
-		fmt.Printf("%s %s\n", color.Bold("Binary:"), profile.BinaryPath)
-		return nil
+		return fmt.Errorf("%q is a built-in runner, not a persona — use 'daedalus --runner %s' to select it", name, name)
 	}
 	cfg, err := store.Read(name)
 	if err != nil {

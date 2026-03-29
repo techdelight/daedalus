@@ -996,12 +996,12 @@ func TestListPersonas_Empty(t *testing.T) {
 		t.Fatalf("listPersonas failed: %v", err)
 	}
 	output := string(buf[:n])
-	// Should show built-in runners even with no user configs
-	if !strings.Contains(output, "claude") {
-		t.Error("output should contain built-in 'claude'")
+	if !strings.Contains(output, "No personas defined") {
+		t.Error("output should show empty-state message")
 	}
-	if !strings.Contains(output, "copilot") {
-		t.Error("output should contain built-in 'copilot'")
+	// Should NOT list built-in runners
+	if strings.Contains(output, "claude") {
+		t.Error("output should not contain built-in runners")
 	}
 }
 
@@ -1043,30 +1043,16 @@ func TestListPersonas_WithUserDefined(t *testing.T) {
 	}
 }
 
-func TestShowPersona_BuiltIn(t *testing.T) {
+func TestShowPersona_BuiltIn_ReturnsError(t *testing.T) {
 	dir := t.TempDir()
 	store := personas.New(dir)
 
-	old := os.Stdout
-	r, w, _ := os.Pipe()
-	os.Stdout = w
-
 	err := showPersona(store, "claude")
-
-	w.Close()
-	var buf [4096]byte
-	n, _ := r.Read(buf[:])
-	os.Stdout = old
-
-	if err != nil {
-		t.Fatalf("showPersona(claude) failed: %v", err)
+	if err == nil {
+		t.Fatal("expected error for built-in runner name")
 	}
-	output := string(buf[:n])
-	if !strings.Contains(output, "built-in") {
-		t.Error("output should mention built-in")
-	}
-	if !strings.Contains(output, "/opt/claude/bin/claude") {
-		t.Error("output should show binary path")
+	if !strings.Contains(err.Error(), "built-in runner") {
+		t.Errorf("error = %q, want mention of 'built-in runner'", err)
 	}
 }
 

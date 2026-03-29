@@ -436,7 +436,7 @@ Named persona configurations let you define custom personas that layer system pr
 **Managing personas:**
 
 ```bash
-daedalus personas                    # List all personas (built-in runners + user-defined)
+daedalus personas                    # List all user-defined personas
 daedalus personas create reviewer    # Create a new persona config (interactive)
 daedalus personas show reviewer      # Print the full JSON config
 daedalus personas remove reviewer    # Delete a persona config
