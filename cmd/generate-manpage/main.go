@@ -159,6 +159,18 @@ func writeCommands(b *strings.Builder) {
 		"Print a shell completion script to stdout. Source the output in your shell profile.")
 
 	writeCommand(b,
+		"\\fBskills\\fR [\\fBadd\\fR \\fIfile\\fR | \\fBremove\\fR \\fIname\\fR | \\fBshow\\fR \\fIname\\fR]",
+		"List, add, remove, or show skills in the shared skill catalog.")
+
+	writeCommand(b,
+		"\\fBrunners\\fR [\\fBlist\\fR | \\fBshow\\fR \\fIname\\fR]",
+		"List or show built-in runner profiles (claude, copilot).")
+
+	writeCommand(b,
+		"\\fBpersonas\\fR [\\fBlist\\fR | \\fBshow\\fR \\fIname\\fR | \\fBcreate\\fR \\fIname\\fR | \\fBremove\\fR \\fIname\\fR]",
+		"List, show, create, or remove named persona configurations.")
+
+	writeCommand(b,
 		"\\fB\\-\\-help\\fR, \\fB\\-h\\fR",
 		"Show the usage message and exit.")
 }

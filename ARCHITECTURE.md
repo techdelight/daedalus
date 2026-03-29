@@ -25,7 +25,7 @@ Contains types, command builders, and helpers with no side effects.
 
 | File | Responsibility |
 |---|---|
-| `main.go` | `main()`, `run()` dispatcher, project resolution, subcommand handlers (`list`, `prune`, `remove`, `config`, `skills`, `personas`) |
+| `main.go` | `main()`, `run()` dispatcher, project resolution, subcommand handlers (`list`, `prune`, `remove`, `config`, `skills`, `runners`, `personas`) |
 
 ### `cmd/skill-catalog-mcp/` — Skill Catalog MCP Server
 

@@ -135,6 +135,33 @@ func TestGenerate_EmptyShell(t *testing.T) {
 	}
 }
 
+func TestBashCompletion_RunnersSubcommand(t *testing.T) {
+	if !strings.Contains(bashCompletion, "runners)") {
+		t.Error("bash completion missing runners case")
+	}
+	if !strings.Contains(bashCompletion, `"list show"`) {
+		t.Error("bash completion missing runners subcommands")
+	}
+}
+
+func TestZshCompletion_RunnersSubcommand(t *testing.T) {
+	if !strings.Contains(zshCompletion, "'runners:List or show built-in runner profiles'") {
+		t.Error("zsh completion missing runners subcommand description")
+	}
+	if !strings.Contains(zshCompletion, "runners)") {
+		t.Error("zsh completion missing runners case")
+	}
+}
+
+func TestFishCompletion_RunnersSubcommand(t *testing.T) {
+	if !strings.Contains(fishCompletion, "'runners'") {
+		t.Error("fish completion missing runners subcommand")
+	}
+	if !strings.Contains(fishCompletion, "__fish_seen_subcommand_from runners") {
+		t.Error("fish completion missing runners subcommand completions")
+	}
+}
+
 func TestBashCompletion_PersonasSubcommand(t *testing.T) {
 	if !strings.Contains(bashCompletion, "personas)") {
 		t.Error("bash completion missing personas case")

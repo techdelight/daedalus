@@ -84,6 +84,7 @@ daedalus prune
 daedalus remove <name> [name...]
 daedalus config <name> [--set key=value] [--unset key]
 daedalus skills [add <file> | remove <name> | show <name>]
+daedalus runners [list | show <name>]
 daedalus personas [list | show <name> | create <name> | remove <name>]
 daedalus tui
 daedalus web [--port PORT] [--host HOST]
@@ -102,6 +103,7 @@ daedalus --help
 | `remove <name> [name...]` | Remove named projects from the registry |
 | `config <name>` | View or edit per-project default flags |
 | `skills` | List, add, remove, or show skills in the shared catalog |
+| `runners` | List or show built-in runner profiles (`claude`, `copilot`) |
 | `personas` | List, show, create, or remove named persona configurations |
 | `tui` | Interactive dashboard for managing projects |
 | `web` | Web UI dashboard (default: `localhost:3000`) |

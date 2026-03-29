@@ -242,6 +242,13 @@ func ParseArgs(args []string) (*core.Config, error) {
 		return cfg, nil
 	}
 
+	// Handle "runners" subcommand (e.g., daedalus runners list)
+	if len(positional) > 0 && positional[0] == "runners" {
+		cfg.Subcommand = "runners"
+		cfg.RunnersArgs = positional[1:]
+		return cfg, nil
+	}
+
 	// Handle positional args
 	switch len(positional) {
 	case 0:

@@ -94,6 +94,9 @@ func run(args []string) error {
 	case "personas":
 		logging.Info("subcommand: personas")
 		return managePersonas(cfg)
+	case "runners":
+		logging.Info("subcommand: runners")
+		return manageRunners(cfg)
 	}
 
 	// --- Normal project flow ---
@@ -689,6 +692,7 @@ func printUsage() {
 	fmt.Println("       daedalus tui")
 	fmt.Println("       daedalus web [--port PORT] [--host HOST]")
 	fmt.Println("       daedalus skills [add <file> | remove <name> | show <name>]")
+	fmt.Println("       daedalus runners [list | show <name>]")
 	fmt.Println("       daedalus personas [list | show <name> | create <name> | remove <name>]")
 	fmt.Println("       daedalus completion <bash|zsh|fish>")
 	fmt.Println("       daedalus --help")
@@ -705,6 +709,7 @@ func printUsage() {
 	fmt.Println("  tui                           Interactive dashboard for managing projects")
 	fmt.Println("  web                           Web UI dashboard (default: localhost:3000, auto-detects WSL2)")
 	fmt.Println("  skills                        List, add, remove, or show skills in the shared catalog")
+	fmt.Println("  runners                       List or show built-in runner profiles (claude, copilot)")
 	fmt.Println("  personas                      List, show, create, or remove named persona configurations")
 	fmt.Println("  completion <shell>            Print shell completion script (bash, zsh, fish)")
 	fmt.Println()
@@ -977,6 +982,60 @@ func resolvePersonaOverlay(cfg *core.Config) (*core.OverlayPaths, error) {
 
 	logging.Info("resolved persona overlay for " + cfg.Persona + " (base: " + personaCfg.BaseRunner + ")")
 	return &paths, nil
+}
+
+// manageRunners handles the "runners" subcommand for listing and showing
+// built-in runner profiles.
+func manageRunners(cfg *core.Config) error {
+	args := cfg.RunnersArgs
+
+	if len(args) == 0 || args[0] == "list" {
+		return listRunners()
+	}
+
+	switch args[0] {
+	case "show":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: daedalus runners show <name>")
+		}
+		return showRunner(args[1])
+	default:
+		return fmt.Errorf("unknown runners command %q\n%s available: list, show", args[0], color.Cyan("Hint:"))
+	}
+}
+
+// listRunners prints all built-in runner profiles.
+func listRunners() error {
+	nameW := 4
+	for _, name := range core.BuiltinRunnerNames() {
+		if len(name) > nameW {
+			nameW = len(name)
+		}
+	}
+	fmt.Printf("%-*s  %s\n", nameW, color.Bold("NAME"), color.Bold("BINARY"))
+	fmt.Printf("%-*s  %s\n", nameW, strings.Repeat("-", nameW), "------")
+	for _, name := range core.BuiltinRunnerNames() {
+		profile, _ := core.LookupBuiltinRunner(name)
+		fmt.Printf("%-*s  %s\n", nameW, name, profile.BinaryPath)
+	}
+	return nil
+}
+
+// showRunner prints the details of a built-in runner profile.
+func showRunner(name string) error {
+	if !core.IsBuiltinRunner(name) {
+		return fmt.Errorf("unknown runner %q — valid runners: %s", name, strings.Join(core.ValidRunnerNames(), ", "))
+	}
+	profile, _ := core.LookupBuiltinRunner(name)
+	fmt.Printf("%s %s\n", color.Bold("Name:"), profile.Name)
+	fmt.Printf("%s %s\n", color.Bold("Binary:"), profile.BinaryPath)
+	if profile.DebugFlag != "" {
+		fmt.Printf("%s %s\n", color.Bold("Debug flag:"), profile.DebugFlag)
+	}
+	if profile.ResumeFlag != "" {
+		fmt.Printf("%s %s\n", color.Bold("Resume flag:"), profile.ResumeFlag)
+	}
+	return nil
 }
 
 // managePersonas handles the "personas" subcommand for managing user-defined

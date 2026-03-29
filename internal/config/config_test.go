@@ -728,6 +728,32 @@ func TestParseArgs_LegacyAgentFlag(t *testing.T) {
 	}
 }
 
+func TestParseArgs_RunnersSubcommand_NoArgs(t *testing.T) {
+	cfg, err := ParseArgs([]string{"runners"})
+	if err != nil {
+		t.Fatalf("ParseArgs failed: %v", err)
+	}
+	if cfg.Subcommand != "runners" {
+		t.Errorf("Subcommand = %q, want %q", cfg.Subcommand, "runners")
+	}
+	if len(cfg.RunnersArgs) != 0 {
+		t.Errorf("RunnersArgs = %v, want empty", cfg.RunnersArgs)
+	}
+}
+
+func TestParseArgs_RunnersSubcommand_Show(t *testing.T) {
+	cfg, err := ParseArgs([]string{"runners", "show", "claude"})
+	if err != nil {
+		t.Fatalf("ParseArgs failed: %v", err)
+	}
+	if cfg.Subcommand != "runners" {
+		t.Errorf("Subcommand = %q, want %q", cfg.Subcommand, "runners")
+	}
+	if len(cfg.RunnersArgs) != 2 || cfg.RunnersArgs[0] != "show" || cfg.RunnersArgs[1] != "claude" {
+		t.Errorf("RunnersArgs = %v, want [show claude]", cfg.RunnersArgs)
+	}
+}
+
 func TestParseArgs_PersonasSubcommand_NoArgs(t *testing.T) {
 	cfg, err := ParseArgs([]string{"personas"})
 	if err != nil {

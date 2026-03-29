@@ -36,6 +36,7 @@ type Config struct {
 	Persona         string   // persona name: user-defined persona configuration
 	SkillsArgs      []string // positional args for "skills" subcommand
 	PersonasArgs    []string // positional args for "personas" subcommand
+	RunnersArgs     []string // positional args for "runners" subcommand
 	TargetOverride  bool     // true when --target was explicitly passed
 	WebAddr         string   // host:port for web UI server
 	WSL2Detected    bool     // true when WSL2 was auto-detected and host defaulted to 0.0.0.0

@@ -30,7 +30,7 @@ _daedalus() {
     local cur prev words cword
     _init_completion || return
 
-    local subcommands="list prune remove rename config tui web completion skills personas"
+    local subcommands="list prune remove rename config tui web completion skills runners personas"
     local flags="--build --target --resume -p --no-tmux --debug --dind --display --force --port --host --no-color --runner --persona --help -h"
 
     # Complete subcommands and flags for the first argument
@@ -55,6 +55,9 @@ _daedalus() {
             ;;
         skills)
             COMPREPLY=($(compgen -W "add remove show" -- "${cur}"))
+            ;;
+        runners)
+            COMPREPLY=($(compgen -W "list show" -- "${cur}"))
             ;;
         personas)
             COMPREPLY=($(compgen -W "list show create remove" -- "${cur}"))
@@ -85,6 +88,7 @@ _daedalus() {
         'web:Web UI dashboard'
         'completion:Print shell completion script'
         'skills:Manage shared skill catalog'
+        'runners:List or show built-in runner profiles'
         'personas:Manage named persona configurations'
     )
 
@@ -132,6 +136,9 @@ _daedalus() {
                 skills)
                     _values 'action' add remove show
                     ;;
+                runners)
+                    _values 'action' list show
+                    ;;
                 personas)
                     _values 'action' list show create remove
                     ;;
@@ -159,6 +166,7 @@ complete -c daedalus -n '__fish_use_subcommand' -a 'tui' -d 'Interactive dashboa
 complete -c daedalus -n '__fish_use_subcommand' -a 'web' -d 'Web UI dashboard'
 complete -c daedalus -n '__fish_use_subcommand' -a 'completion' -d 'Print shell completion script'
 complete -c daedalus -n '__fish_use_subcommand' -a 'skills' -d 'Manage shared skill catalog'
+complete -c daedalus -n '__fish_use_subcommand' -a 'runners' -d 'List or show built-in runner profiles'
 complete -c daedalus -n '__fish_use_subcommand' -a 'personas' -d 'Manage named persona configurations'
 
 # Global flags
@@ -186,6 +194,9 @@ complete -c daedalus -n '__fish_seen_subcommand_from completion' -a 'bash zsh fi
 
 # Skills subcommand
 complete -c daedalus -n '__fish_seen_subcommand_from skills' -a 'add remove show'
+
+# Runners subcommand
+complete -c daedalus -n '__fish_seen_subcommand_from runners' -a 'list show'
 
 # Personas subcommand
 complete -c daedalus -n '__fish_seen_subcommand_from personas' -a 'list show create remove'

@@ -973,6 +973,106 @@ func TestHandleDirConflict_TouchProjectError(t *testing.T) {
 	}
 }
 
+// --- Runner tests ---
+
+func TestListRunners(t *testing.T) {
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	err := listRunners()
+
+	w.Close()
+	var buf [4096]byte
+	n, _ := r.Read(buf[:])
+	os.Stdout = old
+
+	if err != nil {
+		t.Fatalf("listRunners failed: %v", err)
+	}
+	output := string(buf[:n])
+	if !strings.Contains(output, "claude") {
+		t.Error("output should contain 'claude'")
+	}
+	if !strings.Contains(output, "copilot") {
+		t.Error("output should contain 'copilot'")
+	}
+}
+
+func TestShowRunner_Claude(t *testing.T) {
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	err := showRunner("claude")
+
+	w.Close()
+	var buf [4096]byte
+	n, _ := r.Read(buf[:])
+	os.Stdout = old
+
+	if err != nil {
+		t.Fatalf("showRunner(claude) failed: %v", err)
+	}
+	output := string(buf[:n])
+	if !strings.Contains(output, "/opt/claude/bin/claude") {
+		t.Error("output should show binary path")
+	}
+}
+
+func TestShowRunner_Copilot(t *testing.T) {
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	err := showRunner("copilot")
+
+	w.Close()
+	var buf [4096]byte
+	n, _ := r.Read(buf[:])
+	os.Stdout = old
+
+	if err != nil {
+		t.Fatalf("showRunner(copilot) failed: %v", err)
+	}
+	output := string(buf[:n])
+	if !strings.Contains(output, "copilot") {
+		t.Error("output should contain 'copilot'")
+	}
+}
+
+func TestShowRunner_Unknown(t *testing.T) {
+	err := showRunner("gpt")
+	if err == nil {
+		t.Fatal("expected error for unknown runner")
+	}
+	if !strings.Contains(err.Error(), "unknown runner") {
+		t.Errorf("error = %q, want mention of 'unknown runner'", err)
+	}
+}
+
+func TestManageRunners_UnknownSubcommand(t *testing.T) {
+	cfg := &core.Config{RunnersArgs: []string{"create"}}
+	err := manageRunners(cfg)
+	if err == nil {
+		t.Fatal("expected error for unknown subcommand")
+	}
+	if !strings.Contains(err.Error(), "unknown runners command") {
+		t.Errorf("error = %q, want mention of 'unknown runners command'", err)
+	}
+}
+
+func TestManageRunners_ShowMissingName(t *testing.T) {
+	cfg := &core.Config{RunnersArgs: []string{"show"}}
+	err := manageRunners(cfg)
+	if err == nil {
+		t.Fatal("expected error for show without name")
+	}
+	if !strings.Contains(err.Error(), "usage:") {
+		t.Errorf("error = %q, want usage hint", err)
+	}
+}
+
 // --- Persona configuration tests ---
 
 func TestListPersonas_Empty(t *testing.T) {
