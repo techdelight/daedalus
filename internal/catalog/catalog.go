@@ -15,20 +15,20 @@ type Skill struct {
 	Description string `json:"description"`
 }
 
-// Catalog provides operations on the shared skill catalog and per-project
-// installed commands. All methods are safe for concurrent use from MCP handlers
+// Catalog provides operations on the shared skill catalog and per-user
+// installed skills. All methods are safe for concurrent use from MCP handlers
 // because each operation is a single filesystem call sequence.
 type Catalog struct {
-	catalogDir  string
-	commandsDir string
+	catalogDir string
+	skillsDir  string
 }
 
 // New creates a Catalog that reads skills from catalogDir and installs them
-// into commandsDir. Both directories must be absolute paths.
-func New(catalogDir, commandsDir string) *Catalog {
+// into skillsDir. Both directories must be absolute paths.
+func New(catalogDir, skillsDir string) *Catalog {
 	return &Catalog{
-		catalogDir:  catalogDir,
-		commandsDir: commandsDir,
+		catalogDir: catalogDir,
+		skillsDir:  skillsDir,
 	}
 }
 
@@ -37,9 +37,9 @@ func (c *Catalog) List() ([]Skill, error) {
 	return listSkillsIn(c.catalogDir)
 }
 
-// ListInstalled returns all skills installed in the commands directory.
+// ListInstalled returns all skills installed in the user's skills directory.
 func (c *Catalog) ListInstalled() ([]Skill, error) {
-	return listSkillsIn(c.commandsDir)
+	return listSkillsIn(c.skillsDir)
 }
 
 // Read returns the full content of a catalog skill.
@@ -55,20 +55,20 @@ func (c *Catalog) Read(name string) (string, error) {
 	return string(data), nil
 }
 
-// Install copies a skill from the catalog to the commands directory.
+// Install copies a skill from the catalog to the user's skills directory.
 func (c *Catalog) Install(name string) error {
 	if err := validateName(name); err != nil {
 		return err
 	}
 	src := filepath.Join(c.catalogDir, name+".md")
-	dst := filepath.Join(c.commandsDir, name+".md")
+	dst := filepath.Join(c.skillsDir, name+".md")
 
 	data, err := os.ReadFile(src)
 	if err != nil {
 		return fmt.Errorf("reading catalog skill %q: %w", name, err)
 	}
-	if err := os.MkdirAll(c.commandsDir, 0755); err != nil {
-		return fmt.Errorf("creating commands directory: %w", err)
+	if err := os.MkdirAll(c.skillsDir, 0755); err != nil {
+		return fmt.Errorf("creating skills directory: %w", err)
 	}
 	if err := os.WriteFile(dst, data, 0644); err != nil {
 		return fmt.Errorf("installing skill %q: %w", name, err)
@@ -76,12 +76,12 @@ func (c *Catalog) Install(name string) error {
 	return nil
 }
 
-// Uninstall removes a skill from the commands directory.
+// Uninstall removes a skill from the user's skills directory.
 func (c *Catalog) Uninstall(name string) error {
 	if err := validateName(name); err != nil {
 		return err
 	}
-	path := filepath.Join(c.commandsDir, name+".md")
+	path := filepath.Join(c.skillsDir, name+".md")
 	if err := os.Remove(path); err != nil {
 		return fmt.Errorf("uninstalling skill %q: %w", name, err)
 	}

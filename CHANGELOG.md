@@ -10,6 +10,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 - Persona CLAUDE.md content is now stored in a companion `<name>.md` file alongside the `<name>.json` config, instead of being embedded in JSON. Easier to edit and version. Existing personas with inline `claudeMd` JSON fields are still read via the `.md` file on next write.
+- Skill installation target changed from `~/.claude/commands/` to `~/.claude/skills/` — the correct location where Claude Code discovers user-wide skills. Updated MCP server flag (`--skills-dir`), entrypoint, and all documentation.
 
 ### Fixed
 - `resolvePersonaOverlay` now uses `cfg.Persona` instead of `cfg.Runner` to look up persona configurations. Previously the persona name was never read, so overlays were silently skipped.

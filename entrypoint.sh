@@ -9,8 +9,8 @@ case "$RUNNER" in
         # Ensure config directory exists
         mkdir -p "$CLAUDE_CONFIG_DIR"
 
-        # Ensure commands directory exists for skill catalog
-        mkdir -p "$HOME/.claude/commands"
+        # Ensure skills directory exists for skill catalog
+        mkdir -p "$HOME/.claude/skills"
 
         # Seed config files on first run
         if [ ! -f "$CLAUDE_CONFIG_DIR/.claude.json" ]; then

@@ -4,7 +4,7 @@
   "mcpServers": {
     "skill-catalog": {
       "command": "/usr/local/bin/skill-catalog-mcp",
-      "args": ["--catalog-dir", "/opt/skills", "--commands-dir", "/home/claude/.claude/commands"]
+      "args": ["--catalog-dir", "/opt/skills", "--skills-dir", "/home/claude/.claude/skills"]
     }
   }
 }
