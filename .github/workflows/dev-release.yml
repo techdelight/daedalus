@@ -63,6 +63,7 @@ jobs:
           VERSION="$(cat VERSION)-dev+$(git rev-parse --short HEAD)"
           go build -ldflags="-s -w -X github.com/techdelight/daedalus/core.Version=$VERSION" -o daedalus-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/daedalus
           go build -ldflags="-s -w" -o skill-catalog-mcp-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/skill-catalog-mcp
+          go build -ldflags="-s -w" -o project-mgmt-mcp-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/project-mgmt-mcp
 
       - name: Upload binary artifacts
         uses: actions/upload-artifact@v4
@@ -71,6 +72,7 @@ jobs:
           path: |
             daedalus-${{ matrix.goos }}-${{ matrix.goarch }}
             skill-catalog-mcp-${{ matrix.goos }}-${{ matrix.goarch }}
+            project-mgmt-mcp-${{ matrix.goos }}-${{ matrix.goarch }}
 
   publish:
     name: Create Dev Release
@@ -91,6 +93,7 @@ jobs:
           mkdir -p release-assets
           cp artifacts/binaries-*/daedalus-* release-assets/
           cp artifacts/binaries-*/skill-catalog-mcp-* release-assets/
+          cp artifacts/binaries-*/project-mgmt-mcp-* release-assets/
           cp claude.json install.sh setup.sh config.json docker-compose.yml Dockerfile entrypoint.sh settings.json logo.txt scripts/wsl2-network.bat release-assets/
           sed -i 's/RELEASE_TAG="__RELEASE_TAG__"/RELEASE_TAG="dev"/' release-assets/install.sh
 

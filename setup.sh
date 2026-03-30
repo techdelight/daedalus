@@ -101,6 +101,7 @@ if [[ "$UNINSTALL" == true ]]; then
     done
     rm -f "$PREFIX/daedalus"
     rm -f "$PREFIX/skill-catalog-mcp"
+    rm -f "$PREFIX/project-mgmt-mcp"
     rm -f "$PREFIX/setup.sh"
     echo "  Removed binaries and runtime files."
 
@@ -165,6 +166,8 @@ cp "$WORK_DIR/daedalus" "$PREFIX/daedalus"
 chmod 755 "$PREFIX/daedalus"
 cp "$WORK_DIR/skill-catalog-mcp" "$PREFIX/skill-catalog-mcp"
 chmod 755 "$PREFIX/skill-catalog-mcp"
+cp "$WORK_DIR/project-mgmt-mcp" "$PREFIX/project-mgmt-mcp"
+chmod 755 "$PREFIX/project-mgmt-mcp"
 
 # Copy setup.sh itself so users can run uninstall locally
 SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
@@ -205,7 +208,7 @@ cat > "$PREFIX/config.json" <<EOCFG
 }
 EOCFG
 
-echo "  Copied 2 binaries and $((${#RUNTIME_FILES[@]} - 1)) runtime files."
+echo "  Copied 3 binaries and $((${#RUNTIME_FILES[@]} - 1)) runtime files."
 echo "  Configuration: $PREFIX/config.json"
 
 # ── Symlink ──────────────────────────────────────────────────────────────────
