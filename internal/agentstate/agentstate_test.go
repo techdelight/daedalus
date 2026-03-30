@@ -53,3 +53,45 @@ func TestContainerObserver_Exited(t *testing.T) {
 		t.Errorf("expected StateStopped, got %q", state)
 	}
 }
+
+func TestStateConstants(t *testing.T) {
+	tests := []struct {
+		state State
+		want  string
+	}{
+		{StateUnknown, "unknown"},
+		{StateIdle, "idle"},
+		{StateRunning, "running"},
+		{StateStopped, "stopped"},
+		{StateError, "error"},
+	}
+	for _, tc := range tests {
+		if string(tc.state) != tc.want {
+			t.Errorf("State %v = %q, want %q", tc.state, string(tc.state), tc.want)
+		}
+	}
+}
+
+func TestContainerObserver_Paused(t *testing.T) {
+	mock := executor.NewMockExecutor()
+	mock.Results["docker"] = executor.MockResult{Output: "paused\n", Err: nil}
+	observer := NewContainerObserver(mock)
+
+	state := observer.GetState("claude-run-myproject")
+
+	if state != StateIdle {
+		t.Errorf("expected StateIdle for paused container, got %q", state)
+	}
+}
+
+func TestContainerObserver_UnknownStatus(t *testing.T) {
+	mock := executor.NewMockExecutor()
+	mock.Results["docker"] = executor.MockResult{Output: "restarting\n", Err: nil}
+	observer := NewContainerObserver(mock)
+
+	state := observer.GetState("claude-run-myproject")
+
+	if state != StateUnknown {
+		t.Errorf("expected StateUnknown for unrecognized status, got %q", state)
+	}
+}

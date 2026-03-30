@@ -1015,3 +1015,73 @@ func TestHandleAgentState_NotFound(t *testing.T) {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
 	}
 }
+
+func TestHandleForemanStatus_NoForeman(t *testing.T) {
+	ws, _ := setupWebTest(t)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/foreman/status", ws.handleForemanStatus)
+	req := httptest.NewRequest("GET", "/api/foreman/status", nil)
+	rec := httptest.NewRecorder()
+
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	var resp core.ForemanStatus
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("cannot decode response: %v", err)
+	}
+	if resp.State != core.ForemanIdle {
+		t.Errorf("state = %q, want %q", resp.State, core.ForemanIdle)
+	}
+	if resp.Message != "not configured" {
+		t.Errorf("message = %q, want %q", resp.Message, "not configured")
+	}
+}
+
+func TestHandleForemanStart_MissingBody(t *testing.T) {
+	ws, _ := setupWebTest(t)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/foreman/start", ws.handleForemanStart)
+	req := httptest.NewRequest("POST", "/api/foreman/start", strings.NewReader(`{}`))
+	rec := httptest.NewRecorder()
+
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+}
+
+func TestHandleForemanStart_InvalidJSON(t *testing.T) {
+	ws, _ := setupWebTest(t)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/foreman/start", ws.handleForemanStart)
+	req := httptest.NewRequest("POST", "/api/foreman/start", strings.NewReader(`not json`))
+	rec := httptest.NewRecorder()
+
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+func TestHandleForemanStop_NoForeman(t *testing.T) {
+	ws, _ := setupWebTest(t)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/foreman/stop", ws.handleForemanStop)
+	req := httptest.NewRequest("POST", "/api/foreman/stop", nil)
+	rec := httptest.NewRecorder()
+
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusConflict, rec.Body.String())
+	}
+}

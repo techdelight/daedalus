@@ -313,3 +313,35 @@ func TestForeman_AppendCascadeLog_Accumulates(t *testing.T) {
 		t.Errorf("CascadeLog[1].Message = %q, want %q", status.CascadeLog[1].Message, "second")
 	}
 }
+
+func TestDefaultObserver_GetState(t *testing.T) {
+	inner := &stubObserver{states: map[string]agentstate.State{
+		"claude-run-app": agentstate.StateRunning,
+	}}
+	obs := NewDefaultObserver(inner)
+
+	if got := obs.GetState("claude-run-app"); got != agentstate.StateRunning {
+		t.Errorf("GetState = %q, want %q", got, agentstate.StateRunning)
+	}
+	if got := obs.GetState("claude-run-missing"); got != agentstate.StateUnknown {
+		t.Errorf("GetState(missing) = %q, want %q", got, agentstate.StateUnknown)
+	}
+}
+
+func TestDefaultObserver_IsActive(t *testing.T) {
+	inner := &stubObserver{states: map[string]agentstate.State{
+		"claude-run-active":  agentstate.StateRunning,
+		"claude-run-stopped": agentstate.StateStopped,
+	}}
+	obs := NewDefaultObserver(inner)
+
+	if !obs.IsActive("claude-run-active") {
+		t.Error("IsActive(active) = false, want true")
+	}
+	if obs.IsActive("claude-run-stopped") {
+		t.Error("IsActive(stopped) = true, want false")
+	}
+	if obs.IsActive("claude-run-unknown") {
+		t.Error("IsActive(unknown) = true, want false")
+	}
+}

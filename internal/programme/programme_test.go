@@ -251,3 +251,37 @@ func TestAddDep_ProjectNotInProgramme(t *testing.T) {
 		t.Fatal("AddDep with missing project: want error, got nil")
 	}
 }
+
+func TestUpdate(t *testing.T) {
+	// Arrange
+	s := testStore(t)
+	p := core.Programme{Name: "myprg", Description: "original"}
+	if err := s.Create(p); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// Act
+	p.Description = "updated"
+	err := s.Update(p)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	got, err := s.Read("myprg")
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if got.Description != "updated" {
+		t.Errorf("Description = %q, want %q", got.Description, "updated")
+	}
+}
+
+func TestUpdate_NotFound(t *testing.T) {
+	s := testStore(t)
+
+	err := s.Update(core.Programme{Name: "nonexistent"})
+	if err == nil {
+		t.Fatal("Update nonexistent: want error, got nil")
+	}
+}
