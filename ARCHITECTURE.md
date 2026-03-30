@@ -33,6 +33,12 @@ Contains types, command builders, and helpers with no side effects.
 |---|---|
 | `main.go` | MCP server over stdio with 8 tools for skill catalog operations (list, read, install, uninstall, create, update, remove, list_installed) |
 
+### `cmd/project-mgmt-mcp/` — Project Management MCP Server
+
+| File | Responsibility |
+|---|---|
+| `main.go` | MCP server over stdio with 4 tools for project progress reporting (report_progress, set_vision, set_version, get_progress) |
+
 ### `cmd/generate-manpage/` — Man Page Generator
 
 | File | Responsibility |
@@ -57,6 +63,7 @@ All side effects (filesystem, shell, network) live here behind interfaces.
 | `completions` | `Generate()` | bash/zsh/fish shell completion scripts |
 | `personas` | `Store`, `New()`, `List()`, `Read()`, `Create()`, `Update()`, `Remove()` | User-defined persona configuration CRUD (JSON files) |
 | `catalog` | `Catalog`, `New()`, `List()`, `Read()`, `Install()`, `Uninstall()`, `Create()`, `Update()`, `Remove()`, `ListInstalled()` | Shared skill catalog operations (filesystem I/O) |
+| `progress` | `Data`, `Read()`, `Write()`, `Update()` | Project progress file I/O (`.daedalus/progress.json`) |
 | `platform` | `IsWSL2()`, `WSL2IPAddress()`, `DisplayArgs()` | Platform detection (WSL2) and display forwarding argument resolution |
 
 ### Dependency Graph (no cycles)
@@ -74,10 +81,11 @@ docker    → core, executor
 session   → executor
 completions → core
 tui       → core, executor, registry, docker, session
-web       → core, executor, registry, docker, session
+web       → core, executor, registry, docker, session, progress
   ↑
 cmd/daedalus → all of the above + catalog + personas
 cmd/skill-catalog-mcp → catalog (standalone MCP server, uses modelcontextprotocol/go-sdk)
+cmd/project-mgmt-mcp → progress (standalone MCP server, uses modelcontextprotocol/go-sdk)
 cmd/generate-manpage → (standalone, reads VERSION file only)
 ```
 
@@ -145,8 +153,11 @@ Host                          Container (claude-run-<name>)
 /path/to/project ──(rw)──►   /workspace
 .cache/<name>/ ──(rw)──►     /home/claude (persistent)
 .cache/skills/ ──(rw)──►     /opt/skills (shared skill catalog)
+<project>/.daedalus/ ──(rw)──► /workspace/.daedalus (progress data)
                               /usr/local/bin/skill-catalog-mcp (MCP server)
+                              /usr/local/bin/project-mgmt-mcp (MCP server)
                               Claude Code ⟷ MCP stdio ⟷ skill-catalog-mcp
+                              Claude Code ⟷ MCP stdio ⟷ project-mgmt-mcp
 ```
 
 Security: non-root user, all capabilities dropped, `no-new-privileges`.

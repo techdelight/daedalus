@@ -19,7 +19,7 @@
 | 11 | Homebrew installation (`brew install daedalus`) — add Homebrew tap, formula generator, and CI automation. See [docs/homebrew-plan.md](docs/homebrew-plan.md) for full plan |
 | 12 | WSL2 Web UI access — enable `daedalus web` to be reachable from the Windows host when running inside WSL2 (bind to `0.0.0.0` or WSL2 IP, port-forwarding guidance, auto-detect WSL2 environment) |
 | ~~13~~ | ~~Project management view in Web UI — per-project dashboard showing vision, version, time spent, and percentage complete~~ |
-| 14 | Project management MCP server — provide an MCP server inside each project container so Claude Code can report progress (vision, version, percentage complete, time spent) back to Daedalus |
+| ~~14~~ | ~~Project management MCP server — provide an MCP server inside each project container so Claude Code can report progress (vision, version, percentage complete, time spent) back to Daedalus~~ |
 | ~~15~~ | ~~Skill catalog — a browsable catalog of available skills that projects can select from and mount into their containers~~ |
 | 16 | ACP integration — use the Agent Client Protocol to communicate with the Claude Code CLI, enabling Daedalus to observe agent state (thinking, tool use, idle, error) in real time |
 | 17 | Roadmap in Web UI — display the project roadmap as a collapsible side panel on the right of the dashboard |
@@ -44,14 +44,14 @@ Goal: add a second MCP server (`project-mgmt-mcp`) inside each container so Clau
 
 | # | Item | Status |
 |---|------|--------|
-| 1 | `internal/progress/` package — pure progress file read/write operations with tests | |
-| 2 | `cmd/project-mgmt-mcp/main.go` — new MCP server binary with `report_progress`, `set_vision`, `set_version`, `get_progress` tools | |
-| 3 | `core/command.go` — mount `.daedalus/` directory into containers via `BuildExtraArgs` | |
-| 4 | `claude.json` — register `project-mgmt-mcp` MCP server entry | |
-| 5 | `Dockerfile` — copy `project-mgmt-mcp` binary into image, `entrypoint.sh` — ensure `.daedalus/` directory exists | |
-| 6 | `build.sh` — build `project-mgmt-mcp` binary alongside existing binaries | |
-| 7 | `internal/web/` — poll `.daedalus/progress.json` from host and feed into dashboard endpoint | |
-| 8 | Documentation — update ARCHITECTURE.md, CHANGELOG.md, VERSION, README.md | |
+| 1 | `internal/progress/` package — pure progress file read/write operations with tests | Done |
+| 2 | `cmd/project-mgmt-mcp/main.go` — new MCP server binary with `report_progress`, `set_vision`, `set_version`, `get_progress` tools | Done |
+| 3 | `core/command.go` — mount `.daedalus/` directory into containers via `BuildExtraArgs` | Done |
+| 4 | `claude.json` — register `project-mgmt-mcp` MCP server entry | Done |
+| 5 | `Dockerfile` — copy `project-mgmt-mcp` binary into image, `entrypoint.sh` — ensure `.daedalus/` directory exists | Done |
+| 6 | `build.sh` — build `project-mgmt-mcp` binary alongside existing binaries | Done |
+| 7 | `internal/web/` — poll `.daedalus/progress.json` from host and feed into dashboard endpoint | Done |
+| 8 | Documentation — update ARCHITECTURE.md, CHANGELOG.md, VERSION, README.md | Done |
 
 ### Sprint 23: Project Management View in Web UI (v0.18.0)
 

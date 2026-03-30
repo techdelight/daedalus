@@ -431,6 +431,23 @@ daedalus skills remove commit      # Remove a skill from the catalog
 
 Installing a skill copies it from the catalog to the project's `.claude/skills/` directory, where Claude Code automatically discovers it. The catalog is seeded with starter skills (`commit.md`, `review.md`) on first run.
 
+## Project Management
+
+Each container includes a `project-mgmt` MCP server that Claude Code can use to report project progress back to Daedalus.
+
+**Available MCP tools (inside the container):**
+
+| Tool | Description |
+|---|---|
+| `report_progress` | Set completion percentage (0-100) with optional status message |
+| `set_vision` | Set the project vision statement |
+| `set_version` | Set the project version string |
+| `get_progress` | Read current progress data |
+
+Progress data is stored in `.daedalus/progress.json` in the project directory, visible to both the container and the host. The Web UI dashboard reads this file to display real-time progress.
+
+Click any project name in the Web UI to see the project dashboard with progress bar, version, total session time, and vision.
+
 ## Persona Configurations
 
 Named persona configurations let you define custom personas that layer system prompts, tool permissions, and environment variables on top of a built-in runner (`claude` or `copilot`). Configs are stored as JSON in `<data-dir>/personas/`.

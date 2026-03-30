@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-03-30
+
+### Added
+- **Project management MCP server** (`project-mgmt-mcp`) — runs inside each container, providing 4 tools via MCP stdio: `report_progress` (set completion %), `set_vision`, `set_version`, `get_progress`. Claude Code can use these tools to report project status back to Daedalus in real time.
+- `internal/progress` package — read/write operations for `.daedalus/progress.json` files with partial-update semantics.
+- `.daedalus/` directory mounted into containers for progress data exchange between agent and host.
+- Dashboard endpoint now reads `.daedalus/progress.json` from the project directory, preferring real-time MCP-reported data over registry data.
+
+### Changed
+- `BuildExtraArgs` now mounts the project's `.daedalus/` directory into containers at `/workspace/.daedalus`.
+- `build.sh` now builds three binaries: `daedalus`, `skill-catalog-mcp`, and `project-mgmt-mcp`.
+- `claude.json` registers the `project-mgmt` MCP server alongside `skill-catalog`.
+- `entrypoint.sh` ensures `/workspace/.daedalus/` directory exists on container startup.
+- `Dockerfile` copies `project-mgmt-mcp` binary into the image.
+
 ## [0.18.0] - 2026-03-30
 
 ### Added
