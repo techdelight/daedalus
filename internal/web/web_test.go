@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/techdelight/daedalus/core"
+	"github.com/techdelight/daedalus/internal/agentstate"
 	"github.com/techdelight/daedalus/internal/docker"
 	"github.com/techdelight/daedalus/internal/executor"
 	"github.com/techdelight/daedalus/internal/progress"
@@ -46,6 +47,7 @@ func setupWebTest(t *testing.T) (*WebServer, *executor.MockExecutor) {
 		docker:   docker,
 		executor: mock,
 		cfg:      cfg,
+		observer: agentstate.NewContainerObserver(mock),
 	}
 	return ws, mock
 }

@@ -17,6 +17,7 @@ import (
 	"syscall"
 
 	"github.com/techdelight/daedalus/core"
+	"github.com/techdelight/daedalus/internal/agentstate"
 	"github.com/techdelight/daedalus/internal/color"
 	"github.com/techdelight/daedalus/internal/docker"
 	"github.com/techdelight/daedalus/internal/executor"
@@ -35,6 +36,7 @@ type WebServer struct {
 	docker   *docker.Docker
 	executor executor.Executor
 	cfg      *core.Config
+	observer agentstate.Observer
 }
 
 // NewWebServerForTest creates a WebServer with injected dependencies.
@@ -45,6 +47,7 @@ func NewWebServerForTest(reg *registry.Registry, d *docker.Docker, exec executor
 		docker:   d,
 		executor: exec,
 		cfg:      cfg,
+		observer: agentstate.NewContainerObserver(exec),
 	}
 }
 
@@ -81,6 +84,11 @@ func (ws *WebServer) HandleDashboard(w http.ResponseWriter, r *http.Request) {
 // HandleRoadmap is the exported handler for GET /api/projects/{name}/roadmap.
 func (ws *WebServer) HandleRoadmap(w http.ResponseWriter, r *http.Request) {
 	ws.handleRoadmap(w, r)
+}
+
+// HandleAgentState is the exported handler for GET /api/projects/{name}/state.
+func (ws *WebServer) HandleAgentState(w http.ResponseWriter, r *http.Request) {
+	ws.handleAgentState(w, r)
 }
 
 // renameRequest is the JSON body for the rename endpoint.
@@ -127,11 +135,14 @@ func Run(cfg *core.Config) error {
 	}
 	docker := docker.NewDocker(exec, filepath.Join(cfg.ScriptDir, "docker-compose.yml"))
 
+	observer := agentstate.NewContainerObserver(exec)
+
 	ws := &WebServer{
 		registry: reg,
 		docker:   docker,
 		executor: exec,
 		cfg:      cfg,
+		observer: observer,
 	}
 
 	mux := http.NewServeMux()
@@ -142,6 +153,7 @@ func Run(cfg *core.Config) error {
 	mux.HandleFunc("POST /api/projects/{name}/enter", ws.handleSendEnter)
 	mux.HandleFunc("GET /api/projects/{name}/dashboard", ws.handleDashboard)
 	mux.HandleFunc("GET /api/projects/{name}/roadmap", ws.handleRoadmap)
+	mux.HandleFunc("GET /api/projects/{name}/state", ws.handleAgentState)
 	mux.HandleFunc("GET /api/projects/{name}/terminal", ws.handleTerminal)
 
 	// Serve static files (embedded in binary)
@@ -482,6 +494,24 @@ type resizeMsg struct {
 	Type string `json:"type"`
 	Cols uint16 `json:"cols"`
 	Rows uint16 `json:"rows"`
+}
+
+// handleAgentState returns the agent state for a project.
+func (ws *WebServer) handleAgentState(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	_, found, err := ws.registry.GetProject(name)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if !found {
+		http.Error(w, fmt.Sprintf("project %q not found", name), http.StatusNotFound)
+		return
+	}
+	containerName := "claude-run-" + name
+	state := ws.observer.GetState(containerName)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"state": string(state)})
 }
 
 func (ws *WebServer) handleTerminal(w http.ResponseWriter, r *http.Request) {
