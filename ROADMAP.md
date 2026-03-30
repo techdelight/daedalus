@@ -38,6 +38,21 @@
 
 ## Current Sprint
 
+### Sprint 24: Project Management MCP Server (v0.19.0)
+
+Goal: add a second MCP server (`project-mgmt-mcp`) inside each container so Claude Code can report progress, set vision/version, and read sprint items. Daedalus reads progress via bind-mounted `.daedalus/progress.json`. Implements backlog item 14.
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | `internal/progress/` package — pure progress file read/write operations with tests | |
+| 2 | `cmd/project-mgmt-mcp/main.go` — new MCP server binary with `report_progress`, `set_vision`, `set_version`, `get_progress` tools | |
+| 3 | `core/command.go` — mount `.daedalus/` directory into containers via `BuildExtraArgs` | |
+| 4 | `claude.json` — register `project-mgmt-mcp` MCP server entry | |
+| 5 | `Dockerfile` — copy `project-mgmt-mcp` binary into image, `entrypoint.sh` — ensure `.daedalus/` directory exists | |
+| 6 | `build.sh` — build `project-mgmt-mcp` binary alongside existing binaries | |
+| 7 | `internal/web/` — poll `.daedalus/progress.json` from host and feed into dashboard endpoint | |
+| 8 | Documentation — update ARCHITECTURE.md, CHANGELOG.md, VERSION, README.md | |
+
 ### Sprint 23: Project Management View in Web UI (v0.18.0)
 
 Goal: per-project dashboard showing vision, version, time spent, and progress percentage — the foundation for the Foreman agent's reporting layer. Implements backlog item 13.
