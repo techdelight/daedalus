@@ -44,11 +44,11 @@ Goal: when an upstream project completes a sprint item, the Foreman propagates w
 
 | # | Item | Status |
 |---|------|--------|
-| 1 | `internal/foreman/cascade.go` — cascade logic via `DependencyGraph.Downstreams()`, cascade strategies (`auto`, `notify`, `manual`) | |
-| 2 | `core/programme.go` — add `Strategy` field to `DependencyEdge` | |
-| 3 | `internal/web/` — cascade event log in Foreman status API response | |
-| 4 | `daedalus programmes cascade <name> --dry-run` — preview cascade actions | |
-| 5 | Documentation — ARCHITECTURE, CHANGELOG, VERSION, README | |
+| 1 | `internal/foreman/cascade.go` — cascade logic via `DependencyGraph.Downstreams()`, cascade strategies (`auto`, `notify`, `manual`) | Done |
+| 2 | `core/programme.go` — add `Strategy` field to `DependencyEdge` | Done |
+| 3 | `internal/web/` — cascade event log in Foreman status API response | Done |
+| 4 | `daedalus programmes cascade <name> --dry-run` — preview cascade actions | Done |
+| 5 | Documentation — ARCHITECTURE, CHANGELOG, VERSION, README | Done |
 
 ### Sprint 29: The Foreman Agent — Core Loop (v0.24.0)
 
