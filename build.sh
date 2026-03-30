@@ -6,4 +6,5 @@ cd "$(dirname "$0")"
 VERSION=$(cat VERSION)
 docker run --rm -v "$PWD":/src -w /src golang:1.24-bookworm \
   sh -c "go build -buildvcs=false -ldflags '-X github.com/techdelight/daedalus/core.Version=$VERSION' -o daedalus ./cmd/daedalus && \
-         go build -buildvcs=false -o skill-catalog-mcp ./cmd/skill-catalog-mcp"
+         go build -buildvcs=false -o skill-catalog-mcp ./cmd/skill-catalog-mcp && \
+         go build -buildvcs=false -o project-mgmt-mcp ./cmd/project-mgmt-mcp"
