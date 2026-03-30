@@ -38,6 +38,18 @@
 
 ## Current Sprint
 
+### Sprint 30: Programme-Level Cascade Orchestration (v0.25.0)
+
+Goal: when an upstream project completes a sprint item, the Foreman propagates work to downstream projects via the dependency graph. Configurable cascade strategies per dependency edge.
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | `internal/foreman/cascade.go` — cascade logic via `DependencyGraph.Downstreams()`, cascade strategies (`auto`, `notify`, `manual`) | |
+| 2 | `core/programme.go` — add `Strategy` field to `DependencyEdge` | |
+| 3 | `internal/web/` — cascade event log in Foreman status API response | |
+| 4 | `daedalus programmes cascade <name> --dry-run` — preview cascade actions | |
+| 5 | Documentation — ARCHITECTURE, CHANGELOG, VERSION, README | |
+
 ### Sprint 29: The Foreman Agent — Core Loop (v0.24.0)
 
 Goal: Daedalus itself becomes an AI-driven project manager. The Foreman reads roadmaps, maintains a plan, monitors worker agents, and reports through the Web UI. Runs as a goroutine inside `daedalus web`.
