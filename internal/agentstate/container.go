@@ -24,7 +24,7 @@ func NewContainerObserver(exec executor.Executor) *ContainerObserver {
 func (o *ContainerObserver) GetState(containerName string) State {
 	output, err := o.exec.Output("docker", "inspect", "-f", "{{.State.Status}}", containerName)
 	if err != nil {
-		return StateStopped
+		return StateUnknown
 	}
 	status := strings.TrimSpace(output)
 	switch status {

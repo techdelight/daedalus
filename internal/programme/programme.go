@@ -40,7 +40,7 @@ func (s *Store) List() ([]core.Programme, error) {
 		name := strings.TrimSuffix(e.Name(), ".json")
 		p, err := s.Read(name)
 		if err != nil {
-			continue
+			return nil, fmt.Errorf("reading programme %q: %w", name, err)
 		}
 		progs = append(progs, p)
 	}

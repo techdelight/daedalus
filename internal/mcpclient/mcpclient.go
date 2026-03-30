@@ -3,6 +3,7 @@
 package mcpclient
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -66,9 +67,12 @@ type ProjectStatus struct {
 func (c *Client) GetProjectStatus(name, projectDir string) (ProjectStatus, error) {
 	prog, err := c.ReadProgress(projectDir)
 	if err != nil {
-		return ProjectStatus{Name: name}, nil // non-fatal
+		return ProjectStatus{Name: name}, fmt.Errorf("reading progress for %q: %w", name, err)
 	}
-	sprint, _ := c.GetCurrentSprint(projectDir)
+	sprint, err := c.GetCurrentSprint(projectDir)
+	if err != nil {
+		return ProjectStatus{Name: name}, fmt.Errorf("reading roadmap for %q: %w", name, err)
+	}
 	return ProjectStatus{
 		Name:           name,
 		ProgressPct:    prog.ProgressPct,

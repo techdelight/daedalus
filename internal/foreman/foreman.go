@@ -21,6 +21,7 @@ type Foreman struct {
 	plan       *core.ForemanPlan
 	message    string
 	cascadeLog []core.CascadeEventInfo
+	stopped    bool
 	stopCh     chan struct{}
 
 	programmes *programme.Store
@@ -50,15 +51,14 @@ func New(cfg core.ForemanConfig, programmes *programme.Store, reg *registry.Regi
 // Start begins the Foreman's main loop in a goroutine.
 func (f *Foreman) Start() error {
 	f.mu.Lock()
+	defer f.mu.Unlock()
 	if f.state != core.ForemanIdle && f.state != core.ForemanStopped {
-		f.mu.Unlock()
 		return fmt.Errorf("foreman is already running (state: %s)", f.state)
 	}
 	f.state = core.ForemanPlanning
 	f.message = "starting"
+	f.stopped = false
 	f.stopCh = make(chan struct{})
-	f.mu.Unlock()
-
 	go f.run()
 	return nil
 }
@@ -67,9 +67,10 @@ func (f *Foreman) Start() error {
 func (f *Foreman) Stop() {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.state == core.ForemanStopped || f.state == core.ForemanIdle {
+	if f.stopped || f.state == core.ForemanIdle {
 		return
 	}
+	f.stopped = true
 	close(f.stopCh)
 	f.state = core.ForemanStopped
 	f.message = "stopped"

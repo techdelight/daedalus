@@ -31,16 +31,18 @@ func (m *Monitor) UpdatePlan(plan *core.ForemanPlan) (*core.ForemanPlan, error) 
 	}
 
 	for _, fp := range plan.ActiveProjects {
-		entry, found, _ := m.registry.GetProject(fp.Name)
+		entry, found, err := m.registry.GetProject(fp.Name)
 		newFp := core.ForemanProject{
 			Name:       fp.Name,
 			AgentState: string(agentstate.StateUnknown),
 		}
 
-		if found {
-			status, _ := m.client.GetProjectStatus(fp.Name, entry.Directory)
-			newFp.ProgressPct = status.ProgressPct
-			newFp.CurrentSprint = status.CurrentSprint
+		if err == nil && found {
+			status, err := m.client.GetProjectStatus(fp.Name, entry.Directory)
+			if err == nil {
+				newFp.ProgressPct = status.ProgressPct
+				newFp.CurrentSprint = status.CurrentSprint
+			}
 
 			containerName := "claude-run-" + fp.Name
 			newFp.AgentState = string(m.observer.GetState(containerName))
@@ -49,22 +51,24 @@ func (m *Monitor) UpdatePlan(plan *core.ForemanPlan) (*core.ForemanPlan, error) 
 		updated.ActiveProjects = append(updated.ActiveProjects, newFp)
 	}
 
-	// Update summary
-	total := len(updated.ActiveProjects)
-	if total > 0 {
-		sumPct := 0
-		for _, proj := range updated.ActiveProjects {
-			sumPct += proj.ProgressPct
-		}
-		avgPct := sumPct / total
-		running := 0
-		for _, proj := range updated.ActiveProjects {
-			if proj.AgentState == string(agentstate.StateRunning) {
-				running++
-			}
-		}
-		updated.Summary = fmt.Sprintf("%d projects, %d%% avg progress, %d running", total, avgPct, running)
-	}
+	updated.Summary = buildSummary(updated.ActiveProjects)
 
 	return updated, nil
+}
+
+// buildSummary generates a human-readable summary from project statuses.
+func buildSummary(projects []core.ForemanProject) string {
+	total := len(projects)
+	if total == 0 {
+		return "no projects in programme"
+	}
+	sumPct := 0
+	running := 0
+	for _, p := range projects {
+		sumPct += p.ProgressPct
+		if p.AgentState == string(agentstate.StateRunning) {
+			running++
+		}
+	}
+	return fmt.Sprintf("%d projects, %d%% avg progress, %d running", total, sumPct/total, running)
 }

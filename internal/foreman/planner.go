@@ -35,31 +35,25 @@ func (p *Planner) BuildPlan(programmeName string) (*core.ForemanPlan, error) {
 	}
 
 	for _, projName := range prog.Projects {
-		entry, found, _ := p.registry.GetProject(projName)
+		entry, found, err := p.registry.GetProject(projName)
 		fp := core.ForemanProject{
 			Name:       projName,
 			AgentState: "unknown",
 		}
-		if found {
-			status, _ := p.client.GetProjectStatus(projName, entry.Directory)
-			fp.ProgressPct = status.ProgressPct
-			fp.CurrentSprint = status.CurrentSprint
+		if err != nil {
+			fp.AgentState = fmt.Sprintf("registry error: %v", err)
+		} else if found {
+			status, err := p.client.GetProjectStatus(projName, entry.Directory)
+			if err == nil {
+				fp.ProgressPct = status.ProgressPct
+				fp.CurrentSprint = status.CurrentSprint
+			}
+			// Non-fatal: project may not have progress data yet
 		}
 		plan.ActiveProjects = append(plan.ActiveProjects, fp)
 	}
 
-	// Build summary
-	total := len(plan.ActiveProjects)
-	if total == 0 {
-		plan.Summary = "no projects in programme"
-	} else {
-		sumPct := 0
-		for _, proj := range plan.ActiveProjects {
-			sumPct += proj.ProgressPct
-		}
-		avgPct := sumPct / total
-		plan.Summary = fmt.Sprintf("%d projects, %d%% average progress", total, avgPct)
-	}
+	plan.Summary = buildSummary(plan.ActiveProjects)
 
 	return plan, nil
 }

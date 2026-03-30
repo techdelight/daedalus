@@ -950,3 +950,68 @@ func TestWebServerStaticServing_Integration(t *testing.T) {
 		t.Fatalf("GET /static/terminal.js: status = %d, want %d", resp3.StatusCode, http.StatusOK)
 	}
 }
+
+func TestHandleAgentState_Running(t *testing.T) {
+	ws, mock := setupWebTest(t)
+	if err := ws.registry.AddProject("myapp", "/path/myapp", "dev"); err != nil {
+		t.Fatal(err)
+	}
+	mock.Results["docker"] = executor.MockResult{Output: "running\n"}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/projects/{name}/state", ws.handleAgentState)
+	req := httptest.NewRequest("GET", "/api/projects/myapp/state", nil)
+	rec := httptest.NewRecorder()
+
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var resp map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("cannot decode response: %v", err)
+	}
+	if resp["state"] != "running" {
+		t.Errorf("state = %q, want %q", resp["state"], "running")
+	}
+}
+
+func TestHandleAgentState_Stopped(t *testing.T) {
+	ws, mock := setupWebTest(t)
+	if err := ws.registry.AddProject("myapp", "/path/myapp", "dev"); err != nil {
+		t.Fatal(err)
+	}
+	mock.Results["docker"] = executor.MockResult{Output: "exited\n"}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/projects/{name}/state", ws.handleAgentState)
+	req := httptest.NewRequest("GET", "/api/projects/myapp/state", nil)
+	rec := httptest.NewRecorder()
+
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	var resp map[string]string
+	json.Unmarshal(rec.Body.Bytes(), &resp)
+	if resp["state"] != "stopped" {
+		t.Errorf("state = %q, want %q", resp["state"], "stopped")
+	}
+}
+
+func TestHandleAgentState_NotFound(t *testing.T) {
+	ws, _ := setupWebTest(t)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/projects/{name}/state", ws.handleAgentState)
+	req := httptest.NewRequest("GET", "/api/projects/nonexistent/state", nil)
+	rec := httptest.NewRecorder()
+
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
+	}
+}
