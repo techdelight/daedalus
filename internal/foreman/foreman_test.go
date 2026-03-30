@@ -173,8 +173,8 @@ func TestPlanner_BuildPlan(t *testing.T) {
 	if plan.ActiveProjects[1].Name != "svc-b" {
 		t.Errorf("ActiveProjects[1].Name = %q, want %q", plan.ActiveProjects[1].Name, "svc-b")
 	}
-	if plan.Summary != "2 projects, 0% average progress" {
-		t.Errorf("Summary = %q, want %q", plan.Summary, "2 projects, 0% average progress")
+	if plan.Summary != "2 projects, 0% avg progress, 0 running" {
+		t.Errorf("Summary = %q, want %q", plan.Summary, "2 projects, 0% avg progress, 0 running")
 	}
 }
 
