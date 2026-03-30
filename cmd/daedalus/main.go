@@ -133,6 +133,10 @@ func run(args []string) error {
 		return err
 	}
 
+	if err := docker.SetupProjectDirs(cfg); err != nil {
+		return err
+	}
+
 	if err := initSkillsCatalog(cfg); err != nil {
 		fmt.Fprintf(os.Stderr, "%s could not initialize skill catalog: %v\n", color.Yellow("Warning:"), err)
 	}
