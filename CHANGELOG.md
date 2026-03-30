@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-03-30
+
+### Added
+- **Roadmap parsing** — `ParseRoadmap()` in `core/roadmap.go` parses Daedalus-native ROADMAP.md files into structured `Sprint` and `SprintItem` data. Detects current vs historical sprints.
+- `GET /api/projects/{name}/roadmap` REST endpoint returning parsed sprint data from the project's ROADMAP.md.
+- **Roadmap panel in Web UI** — click "Show Roadmap" in the project dashboard to see all sprints with items, statuses, goals, and version tags. Current sprints are highlighted.
+- `get_roadmap` and `get_current_sprint` MCP tools in `project-mgmt-mcp` — agents can query the project's ROADMAP.md for sprint data.
+- `core/sprint.go` — `Sprint`, `SprintItem`, `SprintStatus` pure types.
+
 ## [0.20.0] - 2026-03-30
 
 ### Added

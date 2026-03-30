@@ -20,6 +20,8 @@ Contains types, command builders, and helpers with no side effects.
 | `command.go` | `BuildRunnerArgs()`, `BuildClaudeArgs()` (deprecated alias), `BuildTmuxCommand()`, `BuildEnvExports()`, `ShellQuote()`, `BuildExtraArgs()`, `OverlayPaths` |
 | `skills.go` | `StarterSkills()` — embedded starter skill files via `go:embed` |
 | `programme.go` | `Programme`, `DependencyEdge`, `DependencyGraph` types; `NewDependencyGraph()`, `TopologicalSort()`, `DetectCycles()`, `Downstreams()`, `Upstreams()`, `ValidateProgrammeName()` |
+| `sprint.go` | `Sprint`, `SprintItem`, `SprintStatus` types |
+| `roadmap.go` | `ParseRoadmap()` — parses Daedalus-native ROADMAP.md into `[]Sprint` |
 | `time.go` | `NowUTC()`, `ParseUTC()`, `RelativeTime()` |
 
 ### `cmd/daedalus/` — CLI Entry Point

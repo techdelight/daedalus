@@ -22,7 +22,7 @@
 | ~~14~~ | ~~Project management MCP server — provide an MCP server inside each project container so Claude Code can report progress (vision, version, percentage complete, time spent) back to Daedalus~~ |
 | ~~15~~ | ~~Skill catalog — a browsable catalog of available skills that projects can select from and mount into their containers~~ |
 | 16 | ACP integration — use the Agent Client Protocol to communicate with the Claude Code CLI, enabling Daedalus to observe agent state (thinking, tool use, idle, error) in real time |
-| 17 | Roadmap in Web UI — display the project roadmap as a collapsible side panel on the right of the dashboard |
+| ~~17~~ | ~~Roadmap in Web UI — display the project roadmap as a collapsible side panel on the right of the dashboard~~ |
 | 18 | Daedalus as MCP client — have Daedalus consume the Project Management MCP server to read roadmaps, construct and manage sprints, and trigger the agent to execute sprint items |
 | 19 | GitHub repo projects — start a project from a GitHub repo URL, cloning into a default project root directory |
 | ~~20~~ | ~~Browser tab title — set the Web UI tab title to include the name of the active project~~ |
@@ -44,11 +44,11 @@ Goal: Daedalus can read a ROADMAP.md file and parse it into structured sprint da
 
 | # | Item | Status |
 |---|------|--------|
-| 1 | `core/sprint.go` — `Sprint`, `SprintItem`, `SprintStatus` types (pure, zero I/O) | |
-| 2 | `core/roadmap.go` — `ParseRoadmap(markdown) ([]Sprint, error)` parser for Daedalus-native ROADMAP.md format | |
-| 3 | `internal/web/` — `GET /api/projects/{name}/roadmap` endpoint, collapsible side panel in Web UI | |
-| 4 | `cmd/project-mgmt-mcp/` — `get_roadmap` and `get_current_sprint` tools | |
-| 5 | Documentation — ARCHITECTURE, CHANGELOG, VERSION, README | |
+| 1 | `core/sprint.go` — `Sprint`, `SprintItem`, `SprintStatus` types (pure, zero I/O) | Done |
+| 2 | `core/roadmap.go` — `ParseRoadmap(markdown) ([]Sprint, error)` parser for Daedalus-native ROADMAP.md format | Done |
+| 3 | `internal/web/` — `GET /api/projects/{name}/roadmap` endpoint, collapsible side panel in Web UI | Done |
+| 4 | `cmd/project-mgmt-mcp/` — `get_roadmap` and `get_current_sprint` tools | Done |
+| 5 | Documentation — ARCHITECTURE, CHANGELOG, VERSION, README | Done |
 
 ### Sprint 25: Programme Data Model and CLI (v0.20.0)
 
