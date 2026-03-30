@@ -200,6 +200,38 @@ func TestDownstreams_NoEdges(t *testing.T) {
 	}
 }
 
+func TestDefaultStrategy(t *testing.T) {
+	tests := []struct {
+		name     string
+		strategy CascadeStrategy
+		want     CascadeStrategy
+	}{
+		{"empty returns notify", "", CascadeNotify},
+		{"auto returns auto", CascadeAuto, CascadeAuto},
+		{"manual returns manual", CascadeManual, CascadeManual},
+		{"notify returns notify", CascadeNotify, CascadeNotify},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Arrange
+			edge := DependencyEdge{
+				Upstream:   "A",
+				Downstream: "B",
+				Strategy:   tt.strategy,
+			}
+
+			// Act
+			got := edge.DefaultStrategy()
+
+			// Assert
+			if got != tt.want {
+				t.Errorf("DefaultStrategy() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestValidateProgrammeName(t *testing.T) {
 	tests := []struct {
 		name    string

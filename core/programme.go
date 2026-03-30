@@ -12,10 +12,28 @@ type Programme struct {
 	Deps        []DependencyEdge `json:"deps,omitempty"`
 }
 
+// CascadeStrategy controls how changes propagate across a dependency edge.
+type CascadeStrategy string
+
+const (
+	CascadeAuto   CascadeStrategy = "auto"   // Foreman decides and acts
+	CascadeNotify CascadeStrategy = "notify" // flag in Web UI, human approves
+	CascadeManual CascadeStrategy = "manual" // no automation
+)
+
 // DependencyEdge declares that Downstream depends on Upstream.
 type DependencyEdge struct {
-	Upstream   string `json:"upstream"`
-	Downstream string `json:"downstream"`
+	Upstream   string          `json:"upstream"`
+	Downstream string          `json:"downstream"`
+	Strategy   CascadeStrategy `json:"strategy,omitempty"` // default: notify
+}
+
+// DefaultStrategy returns the cascade strategy for an edge, defaulting to CascadeNotify.
+func (e DependencyEdge) DefaultStrategy() CascadeStrategy {
+	if e.Strategy == "" {
+		return CascadeNotify
+	}
+	return e.Strategy
 }
 
 // DependencyGraph provides graph operations over a programme's dependency edges.
