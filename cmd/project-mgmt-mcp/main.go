@@ -116,18 +116,18 @@ func registerTools(server *mcp.Server, projectDir string) {
 
 // ProgressInput is the input for the report_progress tool.
 type ProgressInput struct {
-	Pct     int    `json:"pct" jsonschema:"description=Completion percentage (0-100)"`
-	Message string `json:"message,omitempty" jsonschema:"description=Status message"`
+	Pct     int    `json:"pct" jsonschema:"Completion percentage (0-100)"`
+	Message string `json:"message,omitempty" jsonschema:"Status message"`
 }
 
 // VisionInput is the input for the set_vision tool.
 type VisionInput struct {
-	Vision string `json:"vision" jsonschema:"description=Project vision statement"`
+	Vision string `json:"vision" jsonschema:"Project vision statement"`
 }
 
 // VersionInput is the input for the set_version tool.
 type VersionInput struct {
-	Version string `json:"version" jsonschema:"description=Project version string"`
+	Version string `json:"version" jsonschema:"Project version string"`
 }
 
 // RoadmapOutput wraps parsed sprints for the MCP response.
