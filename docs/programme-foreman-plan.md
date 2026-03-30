@@ -1,5 +1,7 @@
 # Programme-Level Orchestration + Foreman Agent: Combined Implementation Plan
 
+**Status: DELIVERED** — All 8 sprints implemented (v0.18.0–v0.25.1), 2026-03-30.
+
 ## Overview
 
 This plan combines Musing 1 (Programme-Level Orchestration) and Musing 3 (The Foreman Agent) into a single phased roadmap. The core insight is that these two capabilities are symbiotic: the Foreman needs a dependency graph to make intelligent orchestration decisions, and the dependency graph needs an intelligent coordinator (the Foreman) to act on cascading changes. Early sprints deliver standalone value (project dashboards, MCP communication) while later sprints compose them into the full vision.

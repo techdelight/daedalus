@@ -450,7 +450,47 @@ Each container includes a `project-mgmt` MCP server that Claude Code can use to 
 
 Progress data is stored in `.daedalus/progress.json` in the project directory, visible to both the container and the host. The Web UI dashboard reads this file to display real-time progress.
 
-Click any project name in the Web UI to see the project dashboard with progress bar, version, total session time, and vision.
+Click any project name in the Web UI to see the project dashboard with progress bar, version, total session time, and vision. The dashboard also includes a "Show Roadmap" button to view parsed sprint data from the project's `ROADMAP.md`.
+
+**MCP roadmap tools (inside the container):**
+
+| Tool | Description |
+|---|---|
+| `get_roadmap` | Parse and return all sprints from the project's ROADMAP.md |
+| `get_current_sprint` | Return the current sprint only |
+
+## Programmes
+
+Programmes group multiple projects with dependency relationships for coordinated orchestration.
+
+```bash
+daedalus programmes                                    # List all programmes
+daedalus programmes create my-platform                 # Create a programme
+daedalus programmes add-project my-platform api        # Add a project
+daedalus programmes add-project my-platform frontend   # Add another project
+daedalus programmes add-dep my-platform api frontend   # Declare dependency
+daedalus programmes show my-platform                   # Show with status
+daedalus programmes cascade my-platform --dry-run      # Preview cascade
+daedalus programmes remove my-platform                 # Delete
+```
+
+Dependencies have cascade strategies: `auto` (Foreman acts), `notify` (human approves), `manual` (skip). Default: `notify`.
+
+## The Foreman
+
+The Foreman is an AI-driven project manager that runs inside `daedalus web`. It monitors a programme, reads roadmaps from member projects, tracks agent state, and reports through the Web UI.
+
+```bash
+# Start the web server (Foreman runs inside it)
+daedalus web
+
+# Manage via REST API
+# POST /api/foreman/start   — body: {"programme": "my-platform"}
+# POST /api/foreman/stop
+# GET  /api/foreman/status   — returns state, plan, cascade log
+```
+
+The Foreman status indicator appears in the Web UI header when active.
 
 ## Persona Configurations
 

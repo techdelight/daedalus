@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.25.1] - 2026-03-30
+
+### Fixed
+- Foreman `Start()` race condition — hold lock through goroutine launch to prevent TOCTOU between state check and `go f.run()`.
+- Foreman `Stop()` double-close panic — added guard flag to prevent closing `stopCh` twice.
+- `mcpclient.GetProjectStatus()` now propagates errors instead of silently returning partial data.
+- `agentstate.ContainerObserver` returns `StateUnknown` (not `StateStopped`) when Docker is unreachable, preventing false "stopped" reports.
+- Foreman planner and monitor now check registry and MCP client errors instead of silently ignoring them.
+- `programme.Store.List()` returns error on corrupt JSON files instead of silently skipping them.
+- Extracted shared `buildSummary()` function to eliminate duplication between planner and monitor.
+- Added missing tests: `DefaultObserver` (GetState, IsActive), Foreman web handlers (status, start, stop), `programme.Store.Update()`, `agentstate` state constants and additional container states.
+
 ## [0.25.0] - 2026-03-30
 
 ### Added

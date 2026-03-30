@@ -80,21 +80,24 @@ All side effects (filesystem, shell, network) live here behind interfaces.
 executor  (leaf)
 color     (leaf)
 logging   (leaf)
-personas  → core
+progress  (leaf)
 catalog   (leaf)
-  ↑
+personas  → core
 programme → core
+agentstate → executor
+mcpclient → core, progress
 config    → core, color, personas
 registry  → core
 docker    → core, executor
 session   → executor
 completions → core
+foreman   → core, agentstate, mcpclient, programme, registry
 tui       → core, executor, registry, docker, session
-web       → core, executor, registry, docker, session, progress
+web       → core, executor, registry, docker, session, progress, agentstate, foreman, mcpclient, programme
   ↑
-cmd/daedalus → all of the above + catalog + personas + programme
+cmd/daedalus → all of the above + catalog + personas + programme + foreman + mcpclient
 cmd/skill-catalog-mcp → catalog (standalone MCP server, uses modelcontextprotocol/go-sdk)
-cmd/project-mgmt-mcp → progress (standalone MCP server, uses modelcontextprotocol/go-sdk)
+cmd/project-mgmt-mcp → core, progress (standalone MCP server, uses modelcontextprotocol/go-sdk)
 cmd/generate-manpage → (standalone, reads VERSION file only)
 ```
 
