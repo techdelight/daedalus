@@ -11,9 +11,11 @@ case "$RUNNER" in
 
         # Ensure skills directory exists for skill catalog
         mkdir -p /workspace/.claude/skills
+        chown -R claude:claude /workspace/.claude/skills
 
         # Ensure .daedalus directory exists for project management MCP server
         mkdir -p /workspace/.daedalus
+        chown -R claude:claude /workspace/.daedalus
 
         # Seed config files on first run
         if [ ! -f "$CLAUDE_CONFIG_DIR/.claude.json" ]; then
