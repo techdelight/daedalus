@@ -38,6 +38,18 @@
 
 ## Current Sprint
 
+### Sprint 26: Roadmap Parsing and Sprint Decomposition (v0.21.0)
+
+Goal: Daedalus can read a ROADMAP.md file and parse it into structured sprint data. Adds a roadmap API endpoint and MCP tools for agents to query sprint status. Implements backlog item 17.
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | `core/sprint.go` — `Sprint`, `SprintItem`, `SprintStatus` types (pure, zero I/O) | |
+| 2 | `core/roadmap.go` — `ParseRoadmap(markdown) ([]Sprint, error)` parser for Daedalus-native ROADMAP.md format | |
+| 3 | `internal/web/` — `GET /api/projects/{name}/roadmap` endpoint, collapsible side panel in Web UI | |
+| 4 | `cmd/project-mgmt-mcp/` — `get_roadmap` and `get_current_sprint` tools | |
+| 5 | Documentation — ARCHITECTURE, CHANGELOG, VERSION, README | |
+
 ### Sprint 25: Programme Data Model and CLI (v0.20.0)
 
 Goal: declare multi-project programmes with dependency relationships. Users can model project topology even without the Foreman. Pure data model sprint — no orchestration yet.
