@@ -809,6 +809,48 @@ func TestRegistryMigrate_V1toV2(t *testing.T) {
 	}
 }
 
+func TestRegistryMigrate_V2toV3(t *testing.T) {
+	// Arrange
+	dir := t.TempDir()
+	regFile := filepath.Join(dir, "projects.json")
+
+	v2Data := core.RegistryData{
+		Version: 2,
+		Projects: map[string]core.ProjectEntry{
+			"app": {
+				Directory: "/tmp",
+				Target:    "dev",
+				Created:   "2026-01-01T00:00:00Z",
+				LastUsed:  "2026-01-01T00:00:00Z",
+			},
+		},
+	}
+	b, _ := json.MarshalIndent(v2Data, "", "  ")
+	os.WriteFile(regFile, append(b, '\n'), 0644)
+
+	// Act
+	reg := NewRegistry(regFile)
+	entry, found, err := reg.GetProject("app")
+
+	// Assert
+	if err != nil {
+		t.Fatalf("GetProject after migration failed: %v", err)
+	}
+	if !found {
+		t.Fatal("project not found after migration")
+	}
+	if entry.Directory != "/tmp" {
+		t.Errorf("directory = %q, want %q", entry.Directory, "/tmp")
+	}
+
+	raw, _ := os.ReadFile(regFile)
+	var ondisk core.RegistryData
+	json.Unmarshal(raw, &ondisk)
+	if ondisk.Version != core.CurrentRegistryVersion {
+		t.Errorf("on-disk version = %d, want %d", ondisk.Version, core.CurrentRegistryVersion)
+	}
+}
+
 func TestRegistryMigrate_AlreadyCurrent(t *testing.T) {
 	dir := t.TempDir()
 	regFile := filepath.Join(dir, "projects.json")
