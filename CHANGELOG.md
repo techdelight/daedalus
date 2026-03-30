@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-03-30
+
+### Added
+- `internal/mcpclient` package — host-side MCP client that reads project progress and roadmap data from bind-mounted files. Provides `ReadProgress()`, `ReadRoadmap()`, `GetCurrentSprint()`, and `GetProjectStatus()` methods.
+- `daedalus programmes show <name>` now displays aggregated member project status — progress percentage, version, and current sprint for each project in the programme.
+
+### Changed
+- `programmes show` output changed from raw JSON dump to a formatted display with programme header, dependency graph, and per-project status table.
+
 ## [0.21.0] - 2026-03-30
 
 ### Added

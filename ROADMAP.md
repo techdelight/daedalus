@@ -23,7 +23,7 @@
 | ~~15~~ | ~~Skill catalog — a browsable catalog of available skills that projects can select from and mount into their containers~~ |
 | 16 | ACP integration — use the Agent Client Protocol to communicate with the Claude Code CLI, enabling Daedalus to observe agent state (thinking, tool use, idle, error) in real time |
 | ~~17~~ | ~~Roadmap in Web UI — display the project roadmap as a collapsible side panel on the right of the dashboard~~ |
-| 18 | Daedalus as MCP client — have Daedalus consume the Project Management MCP server to read roadmaps, construct and manage sprints, and trigger the agent to execute sprint items |
+| ~~18~~ | ~~Daedalus as MCP client — have Daedalus consume the Project Management MCP server to read roadmaps, construct and manage sprints, and trigger the agent to execute sprint items~~ |
 | 19 | GitHub repo projects — start a project from a GitHub repo URL, cloning into a default project root directory |
 | ~~20~~ | ~~Browser tab title — set the Web UI tab title to include the name of the active project~~ |
 | 21 | Shared Maven `.m2` repository — mount a host-side `.m2/repository` into containers so dependencies are shared across projects. Investigate overlay/merge strategy: a stable global repo (read-only base) combined with a per-container local repo for builds/downloads/installs, so containers benefit from cached artifacts without polluting the shared cache |
@@ -44,10 +44,10 @@ Goal: Daedalus consumes the project-mgmt-mcp server from the host side via `dock
 
 | # | Item | Status |
 |---|------|--------|
-| 1 | `internal/mcpclient/` — MCP client package using go-sdk, transport via `docker exec` + stdio | |
-| 2 | High-level methods: `ReadProgress()`, `ReadRoadmap()`, `GetCurrentSprint()` | |
-| 3 | `daedalus programmes show <name>` — aggregate progress from all member projects via MCP client | |
-| 4 | Documentation — ARCHITECTURE, CHANGELOG, VERSION, README | |
+| 1 | `internal/mcpclient/` — MCP client package using go-sdk, transport via `docker exec` + stdio | Done |
+| 2 | High-level methods: `ReadProgress()`, `ReadRoadmap()`, `GetCurrentSprint()` | Done |
+| 3 | `daedalus programmes show <name>` — aggregate progress from all member projects via MCP client | Done |
+| 4 | Documentation — ARCHITECTURE, CHANGELOG, VERSION, README | Done |
 
 ### Sprint 26: Roadmap Parsing and Sprint Decomposition (v0.21.0)
 

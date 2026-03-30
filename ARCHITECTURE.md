@@ -68,6 +68,7 @@ All side effects (filesystem, shell, network) live here behind interfaces.
 | `catalog` | `Catalog`, `New()`, `List()`, `Read()`, `Install()`, `Uninstall()`, `Create()`, `Update()`, `Remove()`, `ListInstalled()` | Shared skill catalog operations (filesystem I/O) |
 | `progress` | `Data`, `Read()`, `Write()`, `Update()` | Project progress file I/O (`.daedalus/progress.json`) |
 | `programme` | `Store`, `New()`, `List()`, `Read()`, `Create()`, `Update()`, `Remove()`, `AddProject()`, `AddDep()` | Programme definition CRUD (JSON files) |
+| `mcpclient` | `Client`, `New()`, `ReadProgress()`, `ReadRoadmap()`, `GetCurrentSprint()`, `GetProjectStatus()` | Host-side MCP client for reading project state via bind mounts |
 | `platform` | `IsWSL2()`, `WSL2IPAddress()`, `DisplayArgs()` | Platform detection (WSL2) and display forwarding argument resolution |
 
 ### Dependency Graph (no cycles)
