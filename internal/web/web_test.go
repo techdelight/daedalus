@@ -17,6 +17,7 @@ import (
 	"github.com/techdelight/daedalus/core"
 	"github.com/techdelight/daedalus/internal/docker"
 	"github.com/techdelight/daedalus/internal/executor"
+	"github.com/techdelight/daedalus/internal/progress"
 	"github.com/techdelight/daedalus/internal/registry"
 
 	"github.com/gorilla/websocket"
@@ -570,6 +571,54 @@ func TestHandleDashboard_NotFound(t *testing.T) {
 	// Assert
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
+	}
+}
+
+func TestHandleDashboard_ReadsProgressFile(t *testing.T) {
+	// Arrange
+	ws, mock := setupWebTest(t)
+	projDir := t.TempDir()
+	if err := ws.registry.AddProject("prog-app", projDir, "dev"); err != nil {
+		t.Fatal(err)
+	}
+	// Set registry values that should be overridden by progress file.
+	if err := ws.registry.UpdateProjectProgress("prog-app", 10, "Old vision", "0.1.0"); err != nil {
+		t.Fatal(err)
+	}
+	// Write progress file with more current data.
+	if err := progress.Write(projDir, progress.Data{
+		ProgressPct:    75,
+		Vision:         "Test vision",
+		ProjectVersion: "2.0.0",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	mock.Results["docker"] = executor.MockResult{Output: ""}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/projects/{name}/dashboard", ws.handleDashboard)
+
+	// Act
+	req := httptest.NewRequest("GET", "/api/projects/prog-app/dashboard", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	// Assert
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var dash map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &dash); err != nil {
+		t.Fatalf("cannot decode response: %v", err)
+	}
+	if int(dash["progressPct"].(float64)) != 75 {
+		t.Errorf("progressPct = %v, want 75 (from progress file)", dash["progressPct"])
+	}
+	if dash["vision"] != "Test vision" {
+		t.Errorf("vision = %q, want %q (from progress file)", dash["vision"], "Test vision")
+	}
+	if dash["projectVersion"] != "2.0.0" {
+		t.Errorf("projectVersion = %q, want %q (from progress file)", dash["projectVersion"], "2.0.0")
 	}
 }
 

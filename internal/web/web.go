@@ -21,6 +21,7 @@ import (
 	"github.com/techdelight/daedalus/internal/docker"
 	"github.com/techdelight/daedalus/internal/executor"
 	"github.com/techdelight/daedalus/internal/platform"
+	"github.com/techdelight/daedalus/internal/progress"
 	"github.com/techdelight/daedalus/internal/registry"
 	"github.com/techdelight/daedalus/internal/session"
 
@@ -385,9 +386,29 @@ func (ws *WebServer) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Docker status check failed for %s: %v", name, err)
 	}
 
+	// Read progress data from .daedalus/progress.json in the project directory.
+	// This is written by the project-mgmt-mcp server inside the container
+	// and visible on the host via the bind mount.
+	progData, _ := progress.Read(entry.Directory)
+
 	totalTimeSec := 0
 	for _, s := range entry.Sessions {
 		totalTimeSec += s.Duration
+	}
+
+	progressPct := entry.ProgressPct
+	vision := entry.Vision
+	projectVersion := entry.ProjectVersion
+
+	// Prefer progress file data over registry data (more current)
+	if progData.ProgressPct > 0 {
+		progressPct = progData.ProgressPct
+	}
+	if progData.Vision != "" {
+		vision = progData.Vision
+	}
+	if progData.ProjectVersion != "" {
+		projectVersion = progData.ProjectVersion
 	}
 
 	dash := dashboardJSON{
@@ -395,9 +416,9 @@ func (ws *WebServer) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		Directory:      entry.Directory,
 		Target:         entry.Target,
 		Running:        running,
-		ProgressPct:    entry.ProgressPct,
-		Vision:         entry.Vision,
-		ProjectVersion: entry.ProjectVersion,
+		ProgressPct:    progressPct,
+		Vision:         vision,
+		ProjectVersion: projectVersion,
 		SessionCount:   len(entry.Sessions),
 		TotalTimeSec:   totalTimeSec,
 		LastUsed:       entry.LastUsed,
