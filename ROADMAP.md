@@ -38,6 +38,19 @@
 
 ## Current Sprint
 
+### Sprint 23: Project Management View in Web UI (v0.18.0)
+
+Goal: per-project dashboard showing vision, version, time spent, and progress percentage — the foundation for the Foreman agent's reporting layer. Implements backlog item 13.
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | `core/project.go` — add `ProgressPct`, `Vision`, `Version` fields to `ProjectEntry` with tests | |
+| 2 | `internal/registry/` — v2-to-v3 migration (new fields default to zero values) with migration test | |
+| 3 | `internal/registry/` — `UpdateProjectProgress(name, pct, vision, version)` method with tests | |
+| 4 | `internal/web/` — `GET /api/projects/{name}/dashboard` endpoint returning progress data with tests | |
+| 5 | `internal/web/static/` — project detail panel (click project row to see vision, version, total session time, progress bar) | |
+| 6 | Documentation — update ARCHITECTURE.md, CHANGELOG.md, VERSION, README.md | |
+
 ### Sprint 22: Runner/Persona Polish & Skill Fix (v0.17.0)
 
 Goal: clean up the runner/persona split — add `daedalus runners` subcommand, separate `personas list` from runners, store persona details in companion `.md` files, fix skill installation path, and harden validation and test coverage.
