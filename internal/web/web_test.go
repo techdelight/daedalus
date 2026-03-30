@@ -622,6 +622,125 @@ func TestHandleDashboard_ReadsProgressFile(t *testing.T) {
 	}
 }
 
+func TestHandleRoadmap_Success(t *testing.T) {
+	// Arrange
+	ws, _ := setupWebTest(t)
+	projDir := t.TempDir()
+	if err := ws.registry.AddProject("roadmap-app", projDir, "dev"); err != nil {
+		t.Fatal(err)
+	}
+	roadmapContent := `## Current Sprint
+
+### Sprint 5: Polish and Release (v1.0.0)
+
+Goal: Ship the first stable release.
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | Fix all bugs | Done |
+| 2 | Write docs | In Progress |
+
+## Future Sprints
+
+### Sprint 6: Extensions
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | Plugin system | |
+`
+	if err := os.WriteFile(filepath.Join(projDir, "ROADMAP.md"), []byte(roadmapContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/projects/{name}/roadmap", ws.handleRoadmap)
+
+	// Act
+	req := httptest.NewRequest("GET", "/api/projects/roadmap-app/roadmap", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	// Assert
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var resp roadmapJSON
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("cannot decode response: %v", err)
+	}
+	if len(resp.Sprints) != 2 {
+		t.Fatalf("got %d sprints, want 2", len(resp.Sprints))
+	}
+	if resp.Sprints[0].Number != 5 {
+		t.Errorf("sprint[0].Number = %d, want 5", resp.Sprints[0].Number)
+	}
+	if resp.Sprints[0].Title != "Polish and Release" {
+		t.Errorf("sprint[0].Title = %q, want %q", resp.Sprints[0].Title, "Polish and Release")
+	}
+	if resp.Sprints[0].Version != "1.0.0" {
+		t.Errorf("sprint[0].Version = %q, want %q", resp.Sprints[0].Version, "1.0.0")
+	}
+	if !resp.Sprints[0].IsCurrent {
+		t.Error("sprint[0].IsCurrent = false, want true")
+	}
+	if len(resp.Sprints[0].Items) != 2 {
+		t.Fatalf("sprint[0] has %d items, want 2", len(resp.Sprints[0].Items))
+	}
+	if resp.Sprints[0].Items[0].Status != "Done" {
+		t.Errorf("sprint[0].Items[0].Status = %q, want %q", resp.Sprints[0].Items[0].Status, "Done")
+	}
+	if resp.Sprints[1].IsCurrent {
+		t.Error("sprint[1].IsCurrent = true, want false")
+	}
+}
+
+func TestHandleRoadmap_NoFile(t *testing.T) {
+	// Arrange
+	ws, _ := setupWebTest(t)
+	projDir := t.TempDir()
+	if err := ws.registry.AddProject("empty-app", projDir, "dev"); err != nil {
+		t.Fatal(err)
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/projects/{name}/roadmap", ws.handleRoadmap)
+
+	// Act
+	req := httptest.NewRequest("GET", "/api/projects/empty-app/roadmap", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	// Assert
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var resp roadmapJSON
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("cannot decode response: %v", err)
+	}
+	if len(resp.Sprints) != 0 {
+		t.Errorf("got %d sprints, want 0", len(resp.Sprints))
+	}
+}
+
+func TestHandleRoadmap_NotFound(t *testing.T) {
+	// Arrange
+	ws, _ := setupWebTest(t)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/projects/{name}/roadmap", ws.handleRoadmap)
+
+	// Act
+	req := httptest.NewRequest("GET", "/api/projects/nonexistent/roadmap", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	// Assert
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
+	}
+}
+
 func TestHandleTerminal_NoSession(t *testing.T) {
 	ws, mock := setupWebTest(t)
 	if err := ws.registry.AddProject("myapp", "/path/myapp", "dev"); err != nil {

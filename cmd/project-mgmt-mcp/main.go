@@ -7,8 +7,10 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/techdelight/daedalus/core"
 	"github.com/techdelight/daedalus/internal/progress"
 )
 
@@ -75,6 +77,41 @@ func registerTools(server *mcp.Server, projectDir string) {
 		}
 		return nil, d, nil
 	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "get_roadmap",
+		Description: "Parse and return all sprints from the project's ROADMAP.md",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, input struct{}) (*mcp.CallToolResult, RoadmapOutput, error) {
+		content, err := os.ReadFile(filepath.Join(projectDir, "ROADMAP.md"))
+		if err != nil {
+			if os.IsNotExist(err) {
+				return nil, RoadmapOutput{Sprints: []core.Sprint{}}, nil
+			}
+			return errResult(err), RoadmapOutput{}, nil
+		}
+		sprints := core.ParseRoadmap(string(content))
+		return nil, RoadmapOutput{Sprints: sprints}, nil
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "get_current_sprint",
+		Description: "Return the current sprint from the project's ROADMAP.md",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, input struct{}) (*mcp.CallToolResult, *core.Sprint, error) {
+		content, err := os.ReadFile(filepath.Join(projectDir, "ROADMAP.md"))
+		if err != nil {
+			if os.IsNotExist(err) {
+				return nil, nil, nil
+			}
+			return errResult(err), nil, nil
+		}
+		sprints := core.ParseRoadmap(string(content))
+		for i := range sprints {
+			if sprints[i].IsCurrent {
+				return nil, &sprints[i], nil
+			}
+		}
+		return nil, nil, nil
+	})
 }
 
 // ProgressInput is the input for the report_progress tool.
@@ -91,6 +128,11 @@ type VisionInput struct {
 // VersionInput is the input for the set_version tool.
 type VersionInput struct {
 	Version string `json:"version" jsonschema:"description=Project version string"`
+}
+
+// RoadmapOutput wraps parsed sprints for the MCP response.
+type RoadmapOutput struct {
+	Sprints []core.Sprint `json:"sprints"`
 }
 
 // StatusOutput wraps a status message for the MCP response.

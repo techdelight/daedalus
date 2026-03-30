@@ -313,6 +313,103 @@ tbody td {
     text-decoration: underline;
 }
 
+/* --- Roadmap Panel --- */
+
+.roadmap-section {
+    padding: 0 24px 24px;
+}
+
+.btn-roadmap {
+    border-color: #e0af68;
+    color: #e0af68;
+    margin-bottom: 16px;
+}
+
+.btn-roadmap:hover {
+    background: rgba(224, 175, 104, 0.1);
+}
+
+.roadmap-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.sprint-card {
+    background: #16161e;
+    border: 1px solid #292e42;
+    border-radius: 8px;
+    padding: 16px;
+}
+
+.sprint-header-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 8px;
+}
+
+.sprint-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #c0caf5;
+}
+
+.sprint-version {
+    font-size: 12px;
+    color: #565f89;
+}
+
+.sprint-current {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: rgba(158, 206, 106, 0.15);
+    color: #9ece6a;
+}
+
+.sprint-goal {
+    font-size: 12px;
+    color: #565f89;
+    margin-bottom: 12px;
+    line-height: 1.5;
+}
+
+.sprint-items {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.sprint-item {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    font-size: 12px;
+    padding: 4px 0;
+}
+
+.sprint-item.item-done {
+    opacity: 0.5;
+}
+
+.item-num {
+    color: #565f89;
+    min-width: 24px;
+}
+
+.item-desc {
+    flex: 1;
+    color: #a9b1d6;
+}
+
+.item-status {
+    color: #9ece6a;
+    font-size: 11px;
+}
+
 /* --- Terminal View --- */
 
 #terminal-view {

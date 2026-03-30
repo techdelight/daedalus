@@ -78,6 +78,11 @@ func (ws *WebServer) HandleDashboard(w http.ResponseWriter, r *http.Request) {
 	ws.handleDashboard(w, r)
 }
 
+// HandleRoadmap is the exported handler for GET /api/projects/{name}/roadmap.
+func (ws *WebServer) HandleRoadmap(w http.ResponseWriter, r *http.Request) {
+	ws.handleRoadmap(w, r)
+}
+
 // renameRequest is the JSON body for the rename endpoint.
 type renameRequest struct {
 	NewName string `json:"newName"`
@@ -96,6 +101,11 @@ type dashboardJSON struct {
 	TotalTimeSec   int    `json:"totalTimeSec"`
 	LastUsed       string `json:"lastUsed"`
 	Created        string `json:"created"`
+}
+
+// roadmapJSON is the JSON response for the roadmap endpoint.
+type roadmapJSON struct {
+	Sprints []core.Sprint `json:"sprints"`
 }
 
 // projectJSON is the JSON representation of a project for the REST API.
@@ -131,6 +141,7 @@ func Run(cfg *core.Config) error {
 	mux.HandleFunc("POST /api/projects/{name}/rename", ws.handleRenameProject)
 	mux.HandleFunc("POST /api/projects/{name}/enter", ws.handleSendEnter)
 	mux.HandleFunc("GET /api/projects/{name}/dashboard", ws.handleDashboard)
+	mux.HandleFunc("GET /api/projects/{name}/roadmap", ws.handleRoadmap)
 	mux.HandleFunc("GET /api/projects/{name}/terminal", ws.handleTerminal)
 
 	// Serve static files (embedded in binary)
@@ -364,6 +375,38 @@ func (ws *WebServer) handleRenameProject(w http.ResponseWriter, r *http.Request)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "renamed", "oldName": name, "newName": req.NewName})
+}
+
+// handleRoadmap returns parsed roadmap sprints for a project.
+func (ws *WebServer) handleRoadmap(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+
+	entry, found, err := ws.registry.GetProject(name)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if !found {
+		http.Error(w, fmt.Sprintf("project %q not found", name), http.StatusNotFound)
+		return
+	}
+
+	roadmapPath := filepath.Join(entry.Directory, "ROADMAP.md")
+	data, err := os.ReadFile(roadmapPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(roadmapJSON{Sprints: []core.Sprint{}})
+			return
+		}
+		http.Error(w, fmt.Sprintf("reading roadmap: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	sprints := core.ParseRoadmap(string(data))
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(roadmapJSON{Sprints: sprints})
 }
 
 // handleDashboard returns dashboard data for a single project.

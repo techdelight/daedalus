@@ -69,6 +69,10 @@
                     <div class="dashboard-value dashboard-vision" id="dashboard-vision">&mdash;</div>
                 </div>
             </div>
+            <div class="roadmap-section">
+                <button class="btn btn-roadmap" onclick="toggleRoadmap(this)">Show Roadmap</button>
+                <div id="roadmap-panel" class="roadmap-panel" style="display:none"></div>
+            </div>
         </div>
 
         <!-- Terminal View -->
@@ -244,6 +248,46 @@
             // Show dashboard view
             document.getElementById('project-view').classList.add('hidden');
             document.getElementById('dashboard-view').classList.add('active');
+        }
+
+        async function toggleRoadmap(btn) {
+            const panel = document.getElementById('roadmap-panel');
+            if (panel.style.display !== 'none') {
+                panel.style.display = 'none';
+                btn.textContent = 'Show Roadmap';
+                return;
+            }
+            const name = document.getElementById('dashboard-project-name').textContent;
+            const resp = await fetch(`/api/projects/${encodeURIComponent(name)}/roadmap`);
+            if (!resp.ok) { setStatus('Error loading roadmap'); return; }
+            const data = await resp.json();
+            panel.innerHTML = renderRoadmap(data.sprints);
+            panel.style.display = 'block';
+            btn.textContent = 'Hide Roadmap';
+        }
+
+        function renderRoadmap(sprints) {
+            if (!sprints || sprints.length === 0) return '<p class="empty-state">No roadmap found.</p>';
+            return sprints.map(s => {
+                const badge = s.isCurrent ? '<span class="sprint-current">current</span>' : '';
+                const items = s.items.map(item => {
+                    const statusClass = item.status === 'Done' ? 'item-done' : '';
+                    return `<div class="sprint-item ${statusClass}">
+                        <span class="item-num">#${item.number}</span>
+                        <span class="item-desc">${escapeHtml(item.description)}</span>
+                        <span class="item-status">${item.status || 'pending'}</span>
+                    </div>`;
+                }).join('');
+                return `<div class="sprint-card">
+                    <div class="sprint-header-row">
+                        <span class="sprint-title">Sprint ${s.number}: ${escapeHtml(s.title)}</span>
+                        ${s.version ? `<span class="sprint-version">v${escapeHtml(s.version)}</span>` : ''}
+                        ${badge}
+                    </div>
+                    ${s.goal ? `<div class="sprint-goal">${escapeHtml(s.goal)}</div>` : ''}
+                    <div class="sprint-items">${items}</div>
+                </div>`;
+            }).join('');
         }
 
         function formatDuration(totalSec) {
