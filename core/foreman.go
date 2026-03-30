@@ -34,9 +34,18 @@ type ForemanProject struct {
 	AgentState    string  `json:"agentState"`
 }
 
+// CascadeEventInfo is a summary of a cascade event for API responses.
+type CascadeEventInfo struct {
+	Upstream   string `json:"upstream"`
+	Downstream string `json:"downstream"`
+	Action     string `json:"action"`
+	Message    string `json:"message"`
+}
+
 // ForemanStatus is a snapshot of the Foreman's state for API responses.
 type ForemanStatus struct {
-	State   ForemanState `json:"state"`
-	Plan    *ForemanPlan `json:"plan,omitempty"`
-	Message string       `json:"message,omitempty"`
+	State      ForemanState       `json:"state"`
+	Plan       *ForemanPlan       `json:"plan,omitempty"`
+	Message    string             `json:"message,omitempty"`
+	CascadeLog []CascadeEventInfo `json:"cascadeLog,omitempty"`
 }

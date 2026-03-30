@@ -13,17 +13,18 @@ import (
 	"strings"
 
 	"github.com/techdelight/daedalus/core"
-	"github.com/techdelight/daedalus/internal/personas"
-	"github.com/techdelight/daedalus/internal/programme"
 	"github.com/techdelight/daedalus/internal/catalog"
 	"github.com/techdelight/daedalus/internal/color"
 	"github.com/techdelight/daedalus/internal/completions"
 	"github.com/techdelight/daedalus/internal/config"
 	"github.com/techdelight/daedalus/internal/docker"
 	"github.com/techdelight/daedalus/internal/executor"
+	"github.com/techdelight/daedalus/internal/foreman"
 	"github.com/techdelight/daedalus/internal/logging"
 	"github.com/techdelight/daedalus/internal/mcpclient"
+	"github.com/techdelight/daedalus/internal/personas"
 	"github.com/techdelight/daedalus/internal/platform"
+	"github.com/techdelight/daedalus/internal/programme"
 	"github.com/techdelight/daedalus/internal/registry"
 	"github.com/techdelight/daedalus/internal/session"
 	"github.com/techdelight/daedalus/internal/tui"
@@ -1242,8 +1243,15 @@ func manageProgrammes(cfg *core.Config) error {
 			return fmt.Errorf("usage: daedalus programmes remove <name>")
 		}
 		return removeProgramme(store, args[1])
+	case "cascade":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: daedalus programmes cascade <programme> [--dry-run]")
+		}
+		progName := args[1]
+		dryRun := len(args) >= 3 && args[2] == "--dry-run"
+		return cascadeProgramme(store, progName, dryRun)
 	default:
-		return fmt.Errorf("unknown programmes command %q\n%s available: list, show, create, add-project, add-dep, remove", args[0], color.Cyan("Hint:"))
+		return fmt.Errorf("unknown programmes command %q\n%s available: list, show, create, add-project, add-dep, remove, cascade", args[0], color.Cyan("Hint:"))
 	}
 }
 
@@ -1360,6 +1368,50 @@ func removeProgramme(store *programme.Store, name string) error {
 		return fmt.Errorf("removing programme: %w", err)
 	}
 	fmt.Printf("%s programme '%s' removed.\n", color.Green("OK:"), name)
+	return nil
+}
+
+// cascadeProgramme evaluates cascade propagation for a programme and prints the results.
+func cascadeProgramme(store *programme.Store, name string, dryRun bool) error {
+	p, err := store.Read(name)
+	if err != nil {
+		return fmt.Errorf("reading programme: %w", err)
+	}
+
+	if len(p.Deps) == 0 {
+		fmt.Println("No dependencies defined — nothing to cascade.")
+		return nil
+	}
+
+	if dryRun {
+		fmt.Printf("%s Cascade dry-run for programme %q\n\n", color.Yellow("DRY RUN:"), name)
+	}
+
+	// Evaluate cascade for each project (simulate all completing)
+	seen := make(map[string]bool)
+	for _, proj := range p.Projects {
+		result := foreman.EvaluateCascade(p, proj, dryRun)
+		for _, event := range result.Events {
+			key := event.Upstream + "\u2192" + event.Downstream
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			actionColor := color.Green
+			if event.Action == "skip" {
+				actionColor = color.Dim
+			} else if event.Action == "notify" {
+				actionColor = color.Yellow
+			}
+			fmt.Printf("  %s  %s \u2192 %s  [%s]\n", actionColor(event.Action), event.Upstream, event.Downstream, string(event.Strategy))
+			fmt.Printf("         %s\n", event.Message)
+		}
+	}
+
+	if dryRun {
+		fmt.Printf("\n%s No changes made.\n", color.Yellow("DRY RUN:"))
+	}
+
 	return nil
 }
 

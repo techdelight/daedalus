@@ -72,3 +72,66 @@ func TestForemanStatus_WithPlan(t *testing.T) {
 		t.Errorf("ProgressPct = %d, want 50", status.Plan.ActiveProjects[0].ProgressPct)
 	}
 }
+
+func TestCascadeEventInfo_Fields(t *testing.T) {
+	// Arrange
+	event := CascadeEventInfo{
+		Upstream:   "svc-a",
+		Downstream: "svc-b",
+		Action:     "propagate",
+		Message:    "auto-propagate to svc-b",
+	}
+
+	// Assert
+	if event.Upstream != "svc-a" {
+		t.Errorf("Upstream = %q, want %q", event.Upstream, "svc-a")
+	}
+	if event.Downstream != "svc-b" {
+		t.Errorf("Downstream = %q, want %q", event.Downstream, "svc-b")
+	}
+	if event.Action != "propagate" {
+		t.Errorf("Action = %q, want %q", event.Action, "propagate")
+	}
+	if event.Message != "auto-propagate to svc-b" {
+		t.Errorf("Message = %q, want %q", event.Message, "auto-propagate to svc-b")
+	}
+}
+
+func TestForemanStatus_WithCascadeLog(t *testing.T) {
+	// Arrange
+	cascadeLog := []CascadeEventInfo{
+		{Upstream: "A", Downstream: "B", Action: "propagate", Message: "auto"},
+		{Upstream: "A", Downstream: "C", Action: "notify", Message: "notify"},
+	}
+
+	// Act
+	status := ForemanStatus{
+		State:      ForemanMonitoring,
+		Message:    "monitoring",
+		CascadeLog: cascadeLog,
+	}
+
+	// Assert
+	if len(status.CascadeLog) != 2 {
+		t.Fatalf("CascadeLog len = %d, want 2", len(status.CascadeLog))
+	}
+	if status.CascadeLog[0].Action != "propagate" {
+		t.Errorf("CascadeLog[0].Action = %q, want %q", status.CascadeLog[0].Action, "propagate")
+	}
+	if status.CascadeLog[1].Downstream != "C" {
+		t.Errorf("CascadeLog[1].Downstream = %q, want %q", status.CascadeLog[1].Downstream, "C")
+	}
+}
+
+func TestForemanStatus_CascadeLogOmitted(t *testing.T) {
+	// Arrange / Act
+	status := ForemanStatus{
+		State:   ForemanIdle,
+		Message: "idle",
+	}
+
+	// Assert
+	if status.CascadeLog != nil {
+		t.Errorf("CascadeLog should be nil when not set, got %v", status.CascadeLog)
+	}
+}

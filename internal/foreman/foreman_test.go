@@ -238,3 +238,78 @@ func TestMonitor_UpdatePlan(t *testing.T) {
 		t.Errorf("Summary = %q, want %q", updated.Summary, "1 projects, 0% avg progress, 1 running")
 	}
 }
+
+func TestForeman_Status_CascadeLogEmpty(t *testing.T) {
+	// Arrange
+	progStore, reg, client, observer := testDeps(t, "test-prog", []string{})
+	cfg := core.ForemanConfig{Programme: "test-prog"}
+	f := New(cfg, progStore, reg, client, observer)
+
+	// Act
+	status := f.Status()
+
+	// Assert
+	if status.CascadeLog != nil {
+		t.Errorf("CascadeLog should be nil when no events logged, got %v", status.CascadeLog)
+	}
+}
+
+func TestForeman_AppendCascadeLog(t *testing.T) {
+	// Arrange
+	progStore, reg, client, observer := testDeps(t, "test-prog", []string{})
+	cfg := core.ForemanConfig{Programme: "test-prog"}
+	f := New(cfg, progStore, reg, client, observer)
+
+	events := []core.CascadeEventInfo{
+		{Upstream: "A", Downstream: "B", Action: "propagate", Message: "auto-propagate"},
+		{Upstream: "A", Downstream: "C", Action: "notify", Message: "notify downstream"},
+	}
+
+	// Act
+	f.AppendCascadeLog(events)
+	status := f.Status()
+
+	// Assert
+	if len(status.CascadeLog) != 2 {
+		t.Fatalf("CascadeLog len = %d, want 2", len(status.CascadeLog))
+	}
+	if status.CascadeLog[0].Upstream != "A" {
+		t.Errorf("CascadeLog[0].Upstream = %q, want %q", status.CascadeLog[0].Upstream, "A")
+	}
+	if status.CascadeLog[0].Action != "propagate" {
+		t.Errorf("CascadeLog[0].Action = %q, want %q", status.CascadeLog[0].Action, "propagate")
+	}
+	if status.CascadeLog[1].Downstream != "C" {
+		t.Errorf("CascadeLog[1].Downstream = %q, want %q", status.CascadeLog[1].Downstream, "C")
+	}
+}
+
+func TestForeman_AppendCascadeLog_Accumulates(t *testing.T) {
+	// Arrange
+	progStore, reg, client, observer := testDeps(t, "test-prog", []string{})
+	cfg := core.ForemanConfig{Programme: "test-prog"}
+	f := New(cfg, progStore, reg, client, observer)
+
+	batch1 := []core.CascadeEventInfo{
+		{Upstream: "A", Downstream: "B", Action: "propagate", Message: "first"},
+	}
+	batch2 := []core.CascadeEventInfo{
+		{Upstream: "B", Downstream: "C", Action: "notify", Message: "second"},
+	}
+
+	// Act
+	f.AppendCascadeLog(batch1)
+	f.AppendCascadeLog(batch2)
+	status := f.Status()
+
+	// Assert
+	if len(status.CascadeLog) != 2 {
+		t.Fatalf("CascadeLog len = %d, want 2", len(status.CascadeLog))
+	}
+	if status.CascadeLog[0].Message != "first" {
+		t.Errorf("CascadeLog[0].Message = %q, want %q", status.CascadeLog[0].Message, "first")
+	}
+	if status.CascadeLog[1].Message != "second" {
+		t.Errorf("CascadeLog[1].Message = %q, want %q", status.CascadeLog[1].Message, "second")
+	}
+}

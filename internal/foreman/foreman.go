@@ -15,12 +15,13 @@ import (
 
 // Foreman is the AI-driven project manager that monitors programmes.
 type Foreman struct {
-	mu      sync.RWMutex
-	cfg     core.ForemanConfig
-	state   core.ForemanState
-	plan    *core.ForemanPlan
-	message string
-	stopCh  chan struct{}
+	mu         sync.RWMutex
+	cfg        core.ForemanConfig
+	state      core.ForemanState
+	plan       *core.ForemanPlan
+	message    string
+	cascadeLog []core.CascadeEventInfo
+	stopCh     chan struct{}
 
 	programmes *programme.Store
 	registry   *registry.Registry
@@ -79,10 +80,18 @@ func (f *Foreman) Status() core.ForemanStatus {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
 	return core.ForemanStatus{
-		State:   f.state,
-		Plan:    f.plan,
-		Message: f.message,
+		State:      f.state,
+		Plan:       f.plan,
+		Message:    f.message,
+		CascadeLog: f.cascadeLog,
 	}
+}
+
+// AppendCascadeLog adds cascade event summaries to the Foreman's log.
+func (f *Foreman) AppendCascadeLog(events []core.CascadeEventInfo) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.cascadeLog = append(f.cascadeLog, events...)
 }
 
 // run is the main loop.

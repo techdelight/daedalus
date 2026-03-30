@@ -63,7 +63,7 @@ _daedalus() {
             COMPREPLY=($(compgen -W "list show create remove" -- "${cur}"))
             ;;
         programmes)
-            COMPREPLY=($(compgen -W "list show create add-project add-dep remove" -- "${cur}"))
+            COMPREPLY=($(compgen -W "list show create add-project add-dep remove cascade" -- "${cur}"))
             ;;
         foreman)
             COMPREPLY=($(compgen -W "start stop status" -- "${cur}"))
@@ -151,7 +151,7 @@ _daedalus() {
                     _values 'action' list show create remove
                     ;;
                 programmes)
-                    _values 'action' list show create add-project add-dep remove
+                    _values 'action' list show create add-project add-dep remove cascade
                     ;;
                 foreman)
                     _values 'action' start stop status
@@ -218,7 +218,7 @@ complete -c daedalus -n '__fish_seen_subcommand_from runners' -a 'list show'
 complete -c daedalus -n '__fish_seen_subcommand_from personas' -a 'list show create remove'
 
 # Programmes subcommand
-complete -c daedalus -n '__fish_seen_subcommand_from programmes' -a 'list show create add-project add-dep remove'
+complete -c daedalus -n '__fish_seen_subcommand_from programmes' -a 'list show create add-project add-dep remove cascade'
 
 # Foreman subcommand
 complete -c daedalus -n '__fish_seen_subcommand_from foreman' -a 'start stop status'

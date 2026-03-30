@@ -225,6 +225,24 @@ func TestFishCompletion_PersonaFlag(t *testing.T) {
 	}
 }
 
+func TestBashCompletion_ProgrammesCascadeSubcommand(t *testing.T) {
+	if !strings.Contains(bashCompletion, "cascade") {
+		t.Error("bash completion missing cascade subcommand for programmes")
+	}
+}
+
+func TestZshCompletion_ProgrammesCascadeSubcommand(t *testing.T) {
+	if !strings.Contains(zshCompletion, "cascade") {
+		t.Error("zsh completion missing cascade subcommand for programmes")
+	}
+}
+
+func TestFishCompletion_ProgrammesCascadeSubcommand(t *testing.T) {
+	if !strings.Contains(fishCompletion, "cascade") {
+		t.Error("fish completion missing cascade subcommand for programmes")
+	}
+}
+
 func TestBashCompletion_SkillsSubcommand(t *testing.T) {
 	if !strings.Contains(bashCompletion, "skills)") {
 		t.Error("bash completion missing skills case")
