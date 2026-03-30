@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.26.1] - 2026-03-30
+
+### Added
+- **MCP server reconciliation on startup** — entrypoint now ensures daedalus-specific MCP servers (`skill-catalog`, `project-mgmt`) are present in the runner's config. Missing entries are added from defaults; existing entries and user-added servers are preserved.
+
+### Fixed
+- `project-mgmt-mcp` panic on startup caused by `google/jsonschema-go` v0.4.2 rejecting `description=` prefixed struct tags. Tags now use plain description strings.
+- Added 12 tests for `project-mgmt-mcp` covering all MCP tools, error handling, and version fallback.
+
 ## [0.26.0] - 2026-03-30
 
 ### Added

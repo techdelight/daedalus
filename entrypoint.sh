@@ -21,6 +21,21 @@ case "$RUNNER" in
             cp "$DEFAULTS_DIR/settings.json" "$CLAUDE_CONFIG_DIR/settings.json"
         fi
 
+        # Ensure daedalus-specific MCP servers are configured.
+        # Adds any missing entries from the defaults file without modifying existing ones.
+        LIVE="$CLAUDE_CONFIG_DIR/.claude.json"
+        DEFS="$DEFAULTS_DIR/.claude.json"
+        if [ -f "$LIVE" ] && [ -f "$DEFS" ]; then
+            PATCHED=$(jq --slurpfile defaults "$DEFS" '
+                (.mcpServers // {}) as $live |
+                ($defaults[0].mcpServers // {}) as $required |
+                .mcpServers = ($required * $live)
+            ' "$LIVE")
+            if [ -n "$PATCHED" ]; then
+                printf '%s\n' "$PATCHED" > "$LIVE"
+            fi
+        fi
+
         exec /opt/claude/bin/claude --dangerously-skip-permissions "$@"
         ;;
     copilot)

@@ -173,3 +173,21 @@ Host                          Container (claude-run-<name>)
 ```
 
 Security: non-root user, all capabilities dropped, `no-new-privileges`.
+
+### Container Startup (entrypoint.sh)
+
+The entrypoint script runs three phases before launching Claude Code:
+
+1. **Directory setup** — creates `$CLAUDE_CONFIG_DIR`, `/workspace/.claude/skills`, and `/workspace/.daedalus`.
+2. **Config seeding** — on first run (no `.claude.json`), copies default config files from `/opt/claude/defaults/`.
+3. **MCP server reconciliation** — ensures daedalus-specific MCP servers (`skill-catalog`, `project-mgmt`) are present in the live `.claude.json`. Uses jq to merge defaults with the live config: missing entries are added, existing entries (including user customizations) are preserved, and user-added MCP servers are left untouched.
+
+```
+defaults/.claude.json          live .claude.json
+┌──────────────────┐           ┌──────────────────┐
+│ mcpServers:      │           │ mcpServers:      │
+│   skill-catalog  │──merge──► │   skill-catalog  │ (added if missing)
+│   project-mgmt   │           │   project-mgmt   │ (added if missing)
+└──────────────────┘           │   notes-mcp      │ (user-added, kept)
+                               └──────────────────┘
+```
