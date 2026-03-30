@@ -19,13 +19,14 @@ Contains types, command builders, and helpers with no side effects.
 | `project.go` | `RegistryData`, `ProjectEntry` (with `ProgressPct`, `Vision`, `ProjectVersion`), `SessionRecord`, `ProjectInfo` types |
 | `command.go` | `BuildRunnerArgs()`, `BuildClaudeArgs()` (deprecated alias), `BuildTmuxCommand()`, `BuildEnvExports()`, `ShellQuote()`, `BuildExtraArgs()`, `OverlayPaths` |
 | `skills.go` | `StarterSkills()` — embedded starter skill files via `go:embed` |
+| `programme.go` | `Programme`, `DependencyEdge`, `DependencyGraph` types; `NewDependencyGraph()`, `TopologicalSort()`, `DetectCycles()`, `Downstreams()`, `Upstreams()`, `ValidateProgrammeName()` |
 | `time.go` | `NowUTC()`, `ParseUTC()`, `RelativeTime()` |
 
 ### `cmd/daedalus/` — CLI Entry Point
 
 | File | Responsibility |
 |---|---|
-| `main.go` | `main()`, `run()` dispatcher, project resolution, subcommand handlers (`list`, `prune`, `remove`, `config`, `skills`, `runners`, `personas`) |
+| `main.go` | `main()`, `run()` dispatcher, project resolution, subcommand handlers (`list`, `prune`, `remove`, `config`, `skills`, `runners`, `personas`, `programmes`) |
 
 ### `cmd/skill-catalog-mcp/` — Skill Catalog MCP Server
 
@@ -64,6 +65,7 @@ All side effects (filesystem, shell, network) live here behind interfaces.
 | `personas` | `Store`, `New()`, `List()`, `Read()`, `Create()`, `Update()`, `Remove()` | User-defined persona configuration CRUD (JSON files) |
 | `catalog` | `Catalog`, `New()`, `List()`, `Read()`, `Install()`, `Uninstall()`, `Create()`, `Update()`, `Remove()`, `ListInstalled()` | Shared skill catalog operations (filesystem I/O) |
 | `progress` | `Data`, `Read()`, `Write()`, `Update()` | Project progress file I/O (`.daedalus/progress.json`) |
+| `programme` | `Store`, `New()`, `List()`, `Read()`, `Create()`, `Update()`, `Remove()`, `AddProject()`, `AddDep()` | Programme definition CRUD (JSON files) |
 | `platform` | `IsWSL2()`, `WSL2IPAddress()`, `DisplayArgs()` | Platform detection (WSL2) and display forwarding argument resolution |
 
 ### Dependency Graph (no cycles)
@@ -75,6 +77,7 @@ logging   (leaf)
 personas  → core
 catalog   (leaf)
   ↑
+programme → core
 config    → core, color, personas
 registry  → core
 docker    → core, executor
@@ -83,7 +86,7 @@ completions → core
 tui       → core, executor, registry, docker, session
 web       → core, executor, registry, docker, session, progress
   ↑
-cmd/daedalus → all of the above + catalog + personas
+cmd/daedalus → all of the above + catalog + personas + programme
 cmd/skill-catalog-mcp → catalog (standalone MCP server, uses modelcontextprotocol/go-sdk)
 cmd/project-mgmt-mcp → progress (standalone MCP server, uses modelcontextprotocol/go-sdk)
 cmd/generate-manpage → (standalone, reads VERSION file only)

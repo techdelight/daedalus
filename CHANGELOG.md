@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-03-30
+
+### Added
+- **Multi-project programmes** — declare named collections of related projects with dependency relationships. Foundation for programme-level orchestration.
+- `daedalus programmes` CLI subcommand — `list` (shows all programmes), `show <name>` (prints full config), `create <name>` (creates empty programme), `add-project <programme> <project>` (adds project to programme), `add-dep <programme> <upstream> <downstream>` (declares dependency), `remove <name>` (deletes programme).
+- `core/programme.go` — `Programme`, `DependencyEdge`, `DependencyGraph` types with topological sort, cycle detection, upstream/downstream queries (pure functions, zero I/O).
+- `internal/programme` package — `Store` with `List`, `Read`, `Create`, `Update`, `Remove`, `AddProject`, `AddDep` operations, persisted as JSON files in `<data-dir>/programmes/`.
+- Shell completions for `programmes` subcommand in bash, zsh, and fish.
+- `ProgrammesDir()` method on `Config` for programme storage path.
+
 ## [0.19.0] - 2026-03-30
 
 ### Added
