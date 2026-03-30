@@ -37,6 +37,7 @@ type Config struct {
 	SkillsArgs      []string // positional args for "skills" subcommand
 	PersonasArgs    []string // positional args for "personas" subcommand
 	RunnersArgs     []string // positional args for "runners" subcommand
+	ProgrammesArgs  []string // positional args for "programmes" subcommand
 	TargetOverride  bool     // true when --target was explicitly passed
 	WebAddr         string   // host:port for web UI server
 	WSL2Detected    bool     // true when WSL2 was auto-detected and host defaulted to 0.0.0.0
@@ -89,6 +90,11 @@ func (c *Config) RegistryPath() string {
 // SkillsDir returns the path to the shared skill catalog directory.
 func (c *Config) SkillsDir() string {
 	return filepath.Join(c.DataDir, "skills")
+}
+
+// ProgrammesDir returns the path to the programmes directory.
+func (c *Config) ProgrammesDir() string {
+	return filepath.Join(c.DataDir, "programmes")
 }
 
 // ContainerLogPath returns the path to the container log file.

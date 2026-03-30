@@ -14,6 +14,7 @@ import (
 
 	"github.com/techdelight/daedalus/core"
 	"github.com/techdelight/daedalus/internal/personas"
+	"github.com/techdelight/daedalus/internal/programme"
 	"github.com/techdelight/daedalus/internal/catalog"
 	"github.com/techdelight/daedalus/internal/color"
 	"github.com/techdelight/daedalus/internal/completions"
@@ -97,6 +98,9 @@ func run(args []string) error {
 	case "runners":
 		logging.Info("subcommand: runners")
 		return manageRunners(cfg)
+	case "programmes":
+		logging.Info("subcommand: programmes")
+		return manageProgrammes(cfg)
 	}
 
 	// --- Normal project flow ---
@@ -1190,6 +1194,128 @@ func removePersona(store *personas.Store, name string) error {
 		return fmt.Errorf("removing persona: %w", err)
 	}
 	fmt.Printf("%s persona '%s' removed.\n", color.Green("OK:"), name)
+	return nil
+}
+
+// manageProgrammes handles the "programmes" subcommand for managing
+// multi-project programme definitions.
+func manageProgrammes(cfg *core.Config) error {
+	store := programme.New(cfg.ProgrammesDir())
+	args := cfg.ProgrammesArgs
+
+	if len(args) == 0 || args[0] == "list" {
+		return listProgrammes(store)
+	}
+
+	switch args[0] {
+	case "show":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: daedalus programmes show <name>")
+		}
+		return showProgramme(store, args[1])
+	case "create":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: daedalus programmes create <name>")
+		}
+		return createProgramme(store, args[1])
+	case "add-project":
+		if len(args) < 3 {
+			return fmt.Errorf("usage: daedalus programmes add-project <programme> <project>")
+		}
+		return addProjectToProgramme(store, args[1], args[2])
+	case "add-dep":
+		if len(args) < 4 {
+			return fmt.Errorf("usage: daedalus programmes add-dep <programme> <upstream> <downstream>")
+		}
+		return addDepToProgramme(store, args[1], args[2], args[3])
+	case "remove":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: daedalus programmes remove <name>")
+		}
+		return removeProgramme(store, args[1])
+	default:
+		return fmt.Errorf("unknown programmes command %q\n%s available: list, show, create, add-project, add-dep, remove", args[0], color.Cyan("Hint:"))
+	}
+}
+
+// listProgrammes prints all programme definitions in a table.
+func listProgrammes(store *programme.Store) error {
+	progs, err := store.List()
+	if err != nil {
+		return fmt.Errorf("listing programmes: %w", err)
+	}
+
+	if len(progs) == 0 {
+		fmt.Println("No programmes defined. Use 'daedalus programmes create <name>' to create one.")
+		return nil
+	}
+
+	nameW := 4
+	for _, p := range progs {
+		if len(p.Name) > nameW {
+			nameW = len(p.Name)
+		}
+	}
+
+	fmt.Printf("%-*s  %-10s  %s\n", nameW, color.Bold("NAME"), color.Bold("PROJECTS"), color.Bold("DEPS"))
+	fmt.Printf("%-*s  %-10s  %s\n", nameW, strings.Repeat("-", nameW), "--------", "----")
+	for _, p := range progs {
+		fmt.Printf("%-*s  %-10d  %d\n", nameW, p.Name, len(p.Projects), len(p.Deps))
+	}
+	return nil
+}
+
+// showProgramme prints the full JSON for a named programme.
+func showProgramme(store *programme.Store, name string) error {
+	p, err := store.Read(name)
+	if err != nil {
+		return fmt.Errorf("reading programme: %w", err)
+	}
+	data, err := json.MarshalIndent(p, "", "  ")
+	if err != nil {
+		return fmt.Errorf("formatting programme: %w", err)
+	}
+	fmt.Println(string(data))
+	return nil
+}
+
+// createProgramme creates a new empty programme.
+func createProgramme(store *programme.Store, name string) error {
+	p := core.Programme{
+		Name:     name,
+		Projects: []string{},
+	}
+	if err := store.Create(p); err != nil {
+		return fmt.Errorf("creating programme: %w", err)
+	}
+	fmt.Printf("%s programme '%s' created.\n", color.Green("OK:"), name)
+	return nil
+}
+
+// addProjectToProgramme adds a project to a programme.
+func addProjectToProgramme(store *programme.Store, programmeName, projectName string) error {
+	if err := store.AddProject(programmeName, projectName); err != nil {
+		return fmt.Errorf("adding project: %w", err)
+	}
+	fmt.Printf("%s project '%s' added to programme '%s'.\n", color.Green("OK:"), projectName, programmeName)
+	return nil
+}
+
+// addDepToProgramme adds a dependency edge to a programme.
+func addDepToProgramme(store *programme.Store, programmeName, upstream, downstream string) error {
+	if err := store.AddDep(programmeName, upstream, downstream); err != nil {
+		return fmt.Errorf("adding dependency: %w", err)
+	}
+	fmt.Printf("%s dependency %s → %s added to programme '%s'.\n", color.Green("OK:"), upstream, downstream, programmeName)
+	return nil
+}
+
+// removeProgramme deletes a programme by name.
+func removeProgramme(store *programme.Store, name string) error {
+	if err := store.Remove(name); err != nil {
+		return fmt.Errorf("removing programme: %w", err)
+	}
+	fmt.Printf("%s programme '%s' removed.\n", color.Green("OK:"), name)
 	return nil
 }
 

@@ -11,10 +11,10 @@ import (
 )
 
 func TestBashCompletion_ContainsSubcommands(t *testing.T) {
-	if !strings.Contains(bashCompletion, "skills runners personas") {
-		t.Error("bash completion missing skills/runners/personas subcommands")
+	if !strings.Contains(bashCompletion, "skills runners personas programmes") {
+		t.Error("bash completion missing skills/runners/personas/programmes subcommands")
 	}
-	if !strings.Contains(bashCompletion, "list prune remove rename config tui web completion skills runners personas") {
+	if !strings.Contains(bashCompletion, "list prune remove rename config tui web completion skills runners personas programmes") {
 		t.Error("bash completion missing subcommands")
 	}
 	if !strings.Contains(bashCompletion, "complete -F _daedalus daedalus") {
