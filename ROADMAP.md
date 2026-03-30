@@ -38,6 +38,17 @@
 
 ## Current Sprint
 
+### Sprint 27: Daedalus as MCP Client (v0.22.0)
+
+Goal: Daedalus consumes the project-mgmt-mcp server from the host side via `docker exec` + stdio transport. Enables programmatic reading of project state and aggregated programme views. Implements backlog item 18.
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | `internal/mcpclient/` — MCP client package using go-sdk, transport via `docker exec` + stdio | |
+| 2 | High-level methods: `ReadProgress()`, `ReadRoadmap()`, `GetCurrentSprint()` | |
+| 3 | `daedalus programmes show <name>` — aggregate progress from all member projects via MCP client | |
+| 4 | Documentation — ARCHITECTURE, CHANGELOG, VERSION, README | |
+
 ### Sprint 26: Roadmap Parsing and Sprint Decomposition (v0.21.0)
 
 Goal: Daedalus can read a ROADMAP.md file and parse it into structured sprint data. Adds a roadmap API endpoint and MCP tools for agents to query sprint status. Implements backlog item 17.
