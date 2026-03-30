@@ -4,6 +4,8 @@
 
 | # | Item |
 |---|------|
+| 30 | Skill install path — install skills to `.claude/skills/{skill-name}/SKILL.md` (directory per skill) instead of flat `.claude/skills/{skill-name}.md` |
+| 31 | Rename skill store — rename "skill catalog" / "skill" terminology to avoid confusion with Claude Code's built-in skill repository. Candidate: "focus" (focus catalog, focus files). Open to alternatives |
 | ~~1~~ | ~~Agent mode (`--agent`) — start Claude Code as a specific agent by passing a named agent configuration, enabling purpose-built personas and tool sets per project~~ |
 | 2 | Authentication for Web UI — add token-based login to protect the dashboard when exposed on a network |
 | 3 | Session cookie with configurable expiry |
