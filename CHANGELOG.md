@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.26.0] - 2026-03-30
+
+### Added
+- **Foreman web frontend** — dedicated view accessible from the main Daedalus page for managing the Foreman and its programmes.
+  - Foreman status panel with live state indicator, programme selector, and Start/Stop controls.
+  - Active plan display with project cards showing progress bars, agent state badges, and current sprint info.
+  - Cascade event log with color-coded action badges (propagate/notify/skip).
+  - Full programme CRUD: create, edit, and delete programmes with project lists and dependency edges.
+- REST API endpoints for programme management: `GET/POST /api/programmes`, `GET/PUT/DELETE /api/programmes/{name}`.
+
+### Changed
+- Dev and copilot-dev Docker targets now install Go 1.25 from the official tarball instead of Debian's `golang-go` package (was Go 1.19).
+- `build.sh` and `test.sh` updated to use `golang:1.25-bookworm` image.
+
 ## [0.25.1] - 2026-03-30
 
 ### Fixed

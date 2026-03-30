@@ -62,7 +62,7 @@ All side effects (filesystem, shell, network) live here behind interfaces.
 | `docker` | `Docker`, `SetupCacheDir()` | Container lifecycle: build, run, compose, status checks |
 | `session` | `Session`, `TmuxAvailable()` | tmux session create/attach/send-keys |
 | `tui` | `Run()` | Interactive TUI dashboard (bubbletea + lipgloss) |
-| `web` | `Run()`, `WebServer` | REST API + WebSocket terminal relay, embedded static assets |
+| `web` | `Run()`, `WebServer` | REST API + WebSocket terminal relay, embedded static assets; Foreman management view with programme CRUD |
 | `logging` | `Init()`, `Close()`, `Info()`, `Error()`, `Debug()` | Thread-safe file logging with timestamp and level prefixes |
 | `completions` | `Generate()` | bash/zsh/fish shell completion scripts |
 | `personas` | `Store`, `New()`, `List()`, `Read()`, `Create()`, `Update()`, `Remove()` | User-defined persona configuration CRUD (JSON files) |
@@ -129,7 +129,7 @@ cmd/generate-manpage → (standalone, reads VERSION file only)
 
 | Protocol | Port | Component | Description |
 |---|---|---|---|
-| HTTP | 3000 (default) | Web UI | REST API (`/api/projects/*`, `/api/projects/{name}/dashboard`) and static file serving |
+| HTTP | 3000 (default) | Web UI | REST API (`/api/projects/*`, `/api/foreman/*`, `/api/programmes/*`) and static file serving |
 | WebSocket | 3000 (default) | Web UI | Terminal relay at `/api/projects/{name}/terminal` |
 | Docker API | Unix socket | Docker client | Container lifecycle via `docker` CLI |
 | tmux | — | Session manager | IPC via `tmux` CLI commands |

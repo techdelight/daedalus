@@ -1085,3 +1085,299 @@ func TestHandleForemanStop_NoForeman(t *testing.T) {
 		t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusConflict, rec.Body.String())
 	}
 }
+
+func TestHandleListProgrammes_Empty(t *testing.T) {
+	ws, _ := setupWebTest(t)
+
+	req := httptest.NewRequest("GET", "/api/programmes", nil)
+	rec := httptest.NewRecorder()
+
+	ws.handleListProgrammes(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	var progs []map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &progs); err != nil {
+		t.Fatalf("cannot decode response: %v", err)
+	}
+	if len(progs) != 0 {
+		t.Fatalf("got %d programmes, want 0", len(progs))
+	}
+}
+
+func TestHandleListProgrammes_WithData(t *testing.T) {
+	ws, _ := setupWebTest(t)
+
+	// Create programmes directory and a programme file.
+	progDir := ws.cfg.ProgrammesDir()
+	if err := os.MkdirAll(progDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(progDir, "backend.json"), []byte(`{
+		"name": "backend",
+		"description": "Backend services",
+		"projects": ["auth", "api"],
+		"deps": [{"upstream": "auth", "downstream": "api"}]
+	}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest("GET", "/api/programmes", nil)
+	rec := httptest.NewRecorder()
+
+	ws.handleListProgrammes(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	var progs []core.Programme
+	if err := json.Unmarshal(rec.Body.Bytes(), &progs); err != nil {
+		t.Fatalf("cannot decode response: %v", err)
+	}
+	if len(progs) != 1 {
+		t.Fatalf("got %d programmes, want 1", len(progs))
+	}
+	if progs[0].Name != "backend" {
+		t.Errorf("name = %q, want %q", progs[0].Name, "backend")
+	}
+	if len(progs[0].Projects) != 2 {
+		t.Errorf("projects count = %d, want 2", len(progs[0].Projects))
+	}
+}
+
+func TestHandleCreateProgramme_Success(t *testing.T) {
+	ws, _ := setupWebTest(t)
+
+	body := `{"name": "frontend", "description": "UI apps", "projects": ["web", "mobile"]}`
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/programmes", ws.handleCreateProgramme)
+	req := httptest.NewRequest("POST", "/api/programmes", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusCreated, rec.Body.String())
+	}
+	var resp core.Programme
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("cannot decode response: %v", err)
+	}
+	if resp.Name != "frontend" {
+		t.Errorf("name = %q, want %q", resp.Name, "frontend")
+	}
+
+	// Verify file was created.
+	path := filepath.Join(ws.cfg.ProgrammesDir(), "frontend.json")
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		t.Error("programme file not created on disk")
+	}
+}
+
+func TestHandleCreateProgramme_Duplicate(t *testing.T) {
+	ws, _ := setupWebTest(t)
+
+	progDir := ws.cfg.ProgrammesDir()
+	if err := os.MkdirAll(progDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(progDir, "existing.json"), []byte(`{"name":"existing","projects":[]}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	body := `{"name": "existing", "projects": ["a"]}`
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/programmes", ws.handleCreateProgramme)
+	req := httptest.NewRequest("POST", "/api/programmes", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusConflict, rec.Body.String())
+	}
+}
+
+func TestHandleCreateProgramme_InvalidBody(t *testing.T) {
+	ws, _ := setupWebTest(t)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/programmes", ws.handleCreateProgramme)
+	req := httptest.NewRequest("POST", "/api/programmes", strings.NewReader("not json"))
+	rec := httptest.NewRecorder()
+
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+func TestHandleGetProgramme_Success(t *testing.T) {
+	ws, _ := setupWebTest(t)
+
+	progDir := ws.cfg.ProgrammesDir()
+	if err := os.MkdirAll(progDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(progDir, "myapp.json"), []byte(`{
+		"name": "myapp",
+		"description": "My app",
+		"projects": ["svc"]
+	}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/programmes/{name}", ws.handleGetProgramme)
+	req := httptest.NewRequest("GET", "/api/programmes/myapp", nil)
+	rec := httptest.NewRecorder()
+
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var resp core.Programme
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("cannot decode response: %v", err)
+	}
+	if resp.Name != "myapp" {
+		t.Errorf("name = %q, want %q", resp.Name, "myapp")
+	}
+}
+
+func TestHandleGetProgramme_NotFound(t *testing.T) {
+	ws, _ := setupWebTest(t)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/programmes/{name}", ws.handleGetProgramme)
+	req := httptest.NewRequest("GET", "/api/programmes/nonexistent", nil)
+	rec := httptest.NewRecorder()
+
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
+	}
+}
+
+func TestHandleUpdateProgramme_Success(t *testing.T) {
+	ws, _ := setupWebTest(t)
+
+	progDir := ws.cfg.ProgrammesDir()
+	if err := os.MkdirAll(progDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(progDir, "updatable.json"), []byte(`{"name":"updatable","projects":["a"]}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	body := `{"description": "Updated description", "projects": ["a", "b"]}`
+	mux := http.NewServeMux()
+	mux.HandleFunc("PUT /api/programmes/{name}", ws.handleUpdateProgramme)
+	req := httptest.NewRequest("PUT", "/api/programmes/updatable", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var resp core.Programme
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("cannot decode response: %v", err)
+	}
+	if resp.Name != "updatable" {
+		t.Errorf("name = %q, want %q", resp.Name, "updatable")
+	}
+	if resp.Description != "Updated description" {
+		t.Errorf("description = %q, want %q", resp.Description, "Updated description")
+	}
+	if len(resp.Projects) != 2 {
+		t.Errorf("projects count = %d, want 2", len(resp.Projects))
+	}
+}
+
+func TestHandleUpdateProgramme_NotFound(t *testing.T) {
+	ws, _ := setupWebTest(t)
+
+	body := `{"description": "new"}`
+	mux := http.NewServeMux()
+	mux.HandleFunc("PUT /api/programmes/{name}", ws.handleUpdateProgramme)
+	req := httptest.NewRequest("PUT", "/api/programmes/nonexistent", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
+	}
+}
+
+func TestHandleUpdateProgramme_InvalidBody(t *testing.T) {
+	ws, _ := setupWebTest(t)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("PUT /api/programmes/{name}", ws.handleUpdateProgramme)
+	req := httptest.NewRequest("PUT", "/api/programmes/test", strings.NewReader("not json"))
+	rec := httptest.NewRecorder()
+
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+func TestHandleDeleteProgramme_Success(t *testing.T) {
+	ws, _ := setupWebTest(t)
+
+	progDir := ws.cfg.ProgrammesDir()
+	if err := os.MkdirAll(progDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(progDir, "removable.json"), []byte(`{"name":"removable","projects":[]}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("DELETE /api/programmes/{name}", ws.handleDeleteProgramme)
+	req := httptest.NewRequest("DELETE", "/api/programmes/removable", nil)
+	rec := httptest.NewRecorder()
+
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var resp map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("cannot decode response: %v", err)
+	}
+	if resp["status"] != "deleted" {
+		t.Errorf("status = %q, want %q", resp["status"], "deleted")
+	}
+
+	// Verify file was removed.
+	path := filepath.Join(progDir, "removable.json")
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Error("programme file still exists after delete")
+	}
+}
+
+func TestHandleDeleteProgramme_NotFound(t *testing.T) {
+	ws, _ := setupWebTest(t)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("DELETE /api/programmes/{name}", ws.handleDeleteProgramme)
+	req := httptest.NewRequest("DELETE", "/api/programmes/nonexistent", nil)
+	rec := httptest.NewRecorder()
+
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
+	}
+}

@@ -56,15 +56,19 @@ USER claude
 # JVM tooling (Java, Maven, Kotlin) installed via SDKMAN instead of apt.
 FROM utils AS dev
 
+ARG GO_VERSION=1.25.0
+
 USER root
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
       zip curl \
-      golang-go \
       python3 python3-pip python3-venv \
       docker.io && \
     rm -rf /var/lib/apt/lists/*
+
+RUN curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" | tar -C /usr/local -xz
+ENV PATH="/usr/local/go/bin:$PATH"
 
 RUN usermod -aG docker claude
 
@@ -121,15 +125,19 @@ ENV RUNNER="copilot"
 # JVM tooling (Java, Maven, Kotlin) installed via SDKMAN instead of apt.
 FROM copilot-base AS copilot-dev
 
+ARG GO_VERSION=1.25.0
+
 USER root
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
       unzip wget zip curl build-essential \
-      golang-go \
       python3 python3-pip python3-venv \
       docker.io && \
     rm -rf /var/lib/apt/lists/*
+
+RUN curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" | tar -C /usr/local -xz
+ENV PATH="/usr/local/go/bin:$PATH"
 
 RUN usermod -aG docker claude
 
