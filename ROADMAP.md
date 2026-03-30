@@ -44,11 +44,11 @@ Goal: define the agent observation interface and implement a container-status-ba
 
 | # | Item | Status |
 |---|------|--------|
-| 1 | `internal/agentstate/` — `AgentState` enum, `Observer` interface, `ContainerObserver` implementation | |
-| 2 | `internal/web/` — `GET /api/projects/{name}/state` endpoint returning agent state | |
-| 3 | Web UI — agent state indicator (colored dot) on project cards in the list view | |
-| 4 | `internal/foreman/` — `AgentObserver` interface matching `agentstate.Observer` | |
-| 5 | Documentation — ARCHITECTURE, CHANGELOG, VERSION | |
+| 1 | `internal/agentstate/` — `AgentState` enum, `Observer` interface, `ContainerObserver` implementation | Done |
+| 2 | `internal/web/` — `GET /api/projects/{name}/state` endpoint returning agent state | Done |
+| 3 | Web UI — agent state indicator (colored dot) on project cards in the list view | Done |
+| 4 | `internal/foreman/` — `AgentObserver` interface matching `agentstate.Observer` | Done |
+| 5 | Documentation — ARCHITECTURE, CHANGELOG, VERSION | Done |
 
 ### Sprint 27: Daedalus as MCP Client (v0.22.0)
 
