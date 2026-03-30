@@ -38,6 +38,20 @@
 
 ## Current Sprint
 
+### Sprint 29: The Foreman Agent — Core Loop (v0.24.0)
+
+Goal: Daedalus itself becomes an AI-driven project manager. The Foreman reads roadmaps, maintains a plan, monitors worker agents, and reports through the Web UI. Runs as a goroutine inside `daedalus web`.
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | `core/foreman.go` — `ForemanConfig`, `ForemanState`, `ForemanPlan` pure types | |
+| 2 | `internal/foreman/foreman.go` — Foreman main loop: read programme, read roadmaps, build plan, monitor agents, report status | |
+| 3 | `internal/foreman/planner.go` — sprint planning logic (reads roadmaps, proposes next actions) | |
+| 4 | `internal/foreman/monitor.go` — monitoring loop: poll MCP client and agent observer for worker state | |
+| 5 | `cmd/daedalus/main.go` — `daedalus foreman start/stop/status` subcommands | |
+| 6 | `internal/web/` — `/api/foreman/status` endpoint, Foreman console panel in Web UI | |
+| 7 | Documentation — ARCHITECTURE, CHANGELOG, VERSION, README | |
+
 ### Sprint 28: Agent Observability (v0.23.0)
 
 Goal: define the agent observation interface and implement a container-status-based observer. Adds real-time agent state indicators to the Web UI. Partial implementation of backlog item 16 — full ACP integration deferred until the protocol is publicly stable.
