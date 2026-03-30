@@ -473,6 +473,33 @@ func (r *Registry) EndSession(projectName, sessionID string) error {
 	return r.write(data)
 }
 
+// UpdateProjectProgress updates progress metadata for the named project.
+// Only non-zero/non-empty values are applied (partial update).
+func (r *Registry) UpdateProjectProgress(name string, pct int, vision, projectVersion string) error {
+	data, err := r.read()
+	if err != nil {
+		return err
+	}
+	entry, ok := data.Projects[name]
+	if !ok {
+		return fmt.Errorf("project '%s' not found", name)
+	}
+	if pct > 0 {
+		if pct > 100 {
+			pct = 100
+		}
+		entry.ProgressPct = pct
+	}
+	if vision != "" {
+		entry.Vision = vision
+	}
+	if projectVersion != "" {
+		entry.ProjectVersion = projectVersion
+	}
+	data.Projects[name] = entry
+	return r.write(data)
+}
+
 // read loads the registry from disk, migrating if needed.
 func (r *Registry) read() (core.RegistryData, error) {
 	var data core.RegistryData

@@ -784,6 +784,98 @@ func TestRegistrySetDefaultFlags_ProjectNotFound(t *testing.T) {
 	}
 }
 
+func TestRegistryUpdateProjectProgress(t *testing.T) {
+	// Arrange
+	dir := t.TempDir()
+	regFile := filepath.Join(dir, "projects.json")
+	reg := NewRegistry(regFile)
+	reg.Init()
+	reg.AddProject("my-app", "/tmp/my-app", "dev")
+
+	// Act
+	err := reg.UpdateProjectProgress("my-app", 42, "Build a CLI tool", "1.2.0")
+
+	// Assert
+	if err != nil {
+		t.Fatalf("UpdateProjectProgress failed: %v", err)
+	}
+	entry, _, _ := reg.GetProject("my-app")
+	if entry.ProgressPct != 42 {
+		t.Errorf("ProgressPct = %d, want 42", entry.ProgressPct)
+	}
+	if entry.Vision != "Build a CLI tool" {
+		t.Errorf("Vision = %q, want %q", entry.Vision, "Build a CLI tool")
+	}
+	if entry.ProjectVersion != "1.2.0" {
+		t.Errorf("ProjectVersion = %q, want %q", entry.ProjectVersion, "1.2.0")
+	}
+}
+
+func TestRegistryUpdateProjectProgress_PartialUpdate(t *testing.T) {
+	// Arrange
+	dir := t.TempDir()
+	regFile := filepath.Join(dir, "projects.json")
+	reg := NewRegistry(regFile)
+	reg.Init()
+	reg.AddProject("my-app", "/tmp/my-app", "dev")
+	reg.UpdateProjectProgress("my-app", 50, "Original vision", "0.1.0")
+
+	// Act — update only pct
+	err := reg.UpdateProjectProgress("my-app", 75, "", "")
+
+	// Assert
+	if err != nil {
+		t.Fatalf("UpdateProjectProgress failed: %v", err)
+	}
+	entry, _, _ := reg.GetProject("my-app")
+	if entry.ProgressPct != 75 {
+		t.Errorf("ProgressPct = %d, want 75", entry.ProgressPct)
+	}
+	if entry.Vision != "Original vision" {
+		t.Errorf("Vision = %q, want %q", entry.Vision, "Original vision")
+	}
+	if entry.ProjectVersion != "0.1.0" {
+		t.Errorf("ProjectVersion = %q, want %q", entry.ProjectVersion, "0.1.0")
+	}
+}
+
+func TestRegistryUpdateProjectProgress_ProjectNotFound(t *testing.T) {
+	// Arrange
+	dir := t.TempDir()
+	regFile := filepath.Join(dir, "projects.json")
+	reg := NewRegistry(regFile)
+	reg.Init()
+
+	// Act
+	err := reg.UpdateProjectProgress("nonexistent", 50, "vision", "1.0.0")
+
+	// Assert
+	if err == nil {
+		t.Fatal("expected error for nonexistent project, got nil")
+	}
+}
+
+func TestRegistryUpdateProjectProgress_ClampsPct(t *testing.T) {
+	// Arrange
+	dir := t.TempDir()
+	regFile := filepath.Join(dir, "projects.json")
+	reg := NewRegistry(regFile)
+	reg.Init()
+	reg.AddProject("my-app", "/tmp/my-app", "dev")
+
+	// Act
+	err := reg.UpdateProjectProgress("my-app", 150, "", "")
+
+	// Assert
+	if err != nil {
+		t.Fatalf("UpdateProjectProgress failed: %v", err)
+	}
+	entry, _, _ := reg.GetProject("my-app")
+	if entry.ProgressPct != 100 {
+		t.Errorf("ProgressPct = %d, want 100 (clamped)", entry.ProgressPct)
+	}
+}
+
 func TestRegistryMigrate_V1toV2(t *testing.T) {
 	dir := t.TempDir()
 	regFile := filepath.Join(dir, "projects.json")
