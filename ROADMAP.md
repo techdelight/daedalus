@@ -38,6 +38,19 @@
 
 ## Current Sprint
 
+### Sprint 25: Programme Data Model and CLI (v0.20.0)
+
+Goal: declare multi-project programmes with dependency relationships. Users can model project topology even without the Foreman. Pure data model sprint — no orchestration yet.
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | `core/programme.go` — `Programme`, `DependencyEdge`, `DependencyGraph` types; `TopologicalSort()`, `DetectCycles()`, `Downstreams()`, `Upstreams()` pure functions with tests | |
+| 2 | `internal/programme/` — `Store` with `List`, `Read`, `Create`, `Update`, `Remove`, persisted to `programmes.json` with tests | |
+| 3 | `core/config.go` — add `Programme` field and `ProgrammesArgs` to Config; `ProgrammesDir()` method | |
+| 4 | `cmd/daedalus/main.go` — `daedalus programmes` subcommand: list, show, create, add-project, add-dep, remove | |
+| 5 | Shell completions for `programmes` subcommand in bash, zsh, fish | |
+| 6 | Documentation — update ARCHITECTURE.md, CHANGELOG.md, VERSION, README.md | |
+
 ### Sprint 24: Project Management MCP Server (v0.19.0)
 
 Goal: add a second MCP server (`project-mgmt-mcp`) inside each container so Claude Code can report progress, set vision/version, and read sprint items. Daedalus reads progress via bind-mounted `.daedalus/progress.json`. Implements backlog item 14.
