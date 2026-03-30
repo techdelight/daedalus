@@ -38,6 +38,18 @@
 
 ## Current Sprint
 
+### Sprint 28: Agent Observability (v0.23.0)
+
+Goal: define the agent observation interface and implement a container-status-based observer. Adds real-time agent state indicators to the Web UI. Partial implementation of backlog item 16 — full ACP integration deferred until the protocol is publicly stable.
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | `internal/agentstate/` — `AgentState` enum, `Observer` interface, `ContainerObserver` implementation | |
+| 2 | `internal/web/` — `GET /api/projects/{name}/state` endpoint returning agent state | |
+| 3 | Web UI — agent state indicator (colored dot) on project cards in the list view | |
+| 4 | `internal/foreman/` — `AgentObserver` interface matching `agentstate.Observer` | |
+| 5 | Documentation — ARCHITECTURE, CHANGELOG, VERSION | |
+
 ### Sprint 27: Daedalus as MCP Client (v0.22.0)
 
 Goal: Daedalus consumes the project-mgmt-mcp server from the host side via `docker exec` + stdio transport. Enables programmatic reading of project state and aggregated programme views. Implements backlog item 18.
