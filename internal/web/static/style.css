@@ -219,6 +219,16 @@ tbody td {
     min-height: 28px;
 }
 
+.foreman-status {
+    font-size: 11px;
+    color: #565f89;
+    margin-left: 12px;
+}
+
+.foreman-status.foreman-active {
+    color: #9ece6a;
+}
+
 /* --- Dashboard View --- */
 
 #dashboard-view {

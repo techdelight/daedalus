@@ -21,8 +21,11 @@ import (
 	"github.com/techdelight/daedalus/internal/color"
 	"github.com/techdelight/daedalus/internal/docker"
 	"github.com/techdelight/daedalus/internal/executor"
+	"github.com/techdelight/daedalus/internal/foreman"
+	"github.com/techdelight/daedalus/internal/mcpclient"
 	"github.com/techdelight/daedalus/internal/platform"
 	"github.com/techdelight/daedalus/internal/progress"
+	"github.com/techdelight/daedalus/internal/programme"
 	"github.com/techdelight/daedalus/internal/registry"
 	"github.com/techdelight/daedalus/internal/session"
 
@@ -37,6 +40,7 @@ type WebServer struct {
 	executor executor.Executor
 	cfg      *core.Config
 	observer agentstate.Observer
+	foreman  *foreman.Foreman
 }
 
 // NewWebServerForTest creates a WebServer with injected dependencies.
@@ -155,6 +159,9 @@ func Run(cfg *core.Config) error {
 	mux.HandleFunc("GET /api/projects/{name}/roadmap", ws.handleRoadmap)
 	mux.HandleFunc("GET /api/projects/{name}/state", ws.handleAgentState)
 	mux.HandleFunc("GET /api/projects/{name}/terminal", ws.handleTerminal)
+	mux.HandleFunc("GET /api/foreman/status", ws.handleForemanStatus)
+	mux.HandleFunc("POST /api/foreman/start", ws.handleForemanStart)
+	mux.HandleFunc("POST /api/foreman/stop", ws.handleForemanStop)
 
 	// Serve static files (embedded in binary)
 	staticFS, err := fs.Sub(staticFiles, "static")
@@ -512,6 +519,55 @@ func (ws *WebServer) handleAgentState(w http.ResponseWriter, r *http.Request) {
 	state := ws.observer.GetState(containerName)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"state": string(state)})
+}
+
+// handleForemanStatus returns the current Foreman state.
+func (ws *WebServer) handleForemanStatus(w http.ResponseWriter, r *http.Request) {
+	if ws.foreman == nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(core.ForemanStatus{State: core.ForemanIdle, Message: "not configured"})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(ws.foreman.Status())
+}
+
+// handleForemanStart starts the Foreman for a given programme.
+func (ws *WebServer) handleForemanStart(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Programme string `json:"programme"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Programme == "" {
+		http.Error(w, "request body must include \"programme\" field", http.StatusBadRequest)
+		return
+	}
+
+	// Create Foreman if needed
+	if ws.foreman == nil {
+		progStore := programme.New(ws.cfg.ProgrammesDir())
+		mcpClient := mcpclient.New()
+		obs := foreman.NewDefaultObserver(ws.observer)
+		cfg := core.ForemanConfig{Programme: req.Programme, PollSeconds: 30}
+		ws.foreman = foreman.New(cfg, progStore, ws.registry, mcpClient, obs)
+	}
+
+	if err := ws.foreman.Start(); err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "started", "programme": req.Programme})
+}
+
+// handleForemanStop stops the Foreman.
+func (ws *WebServer) handleForemanStop(w http.ResponseWriter, r *http.Request) {
+	if ws.foreman == nil {
+		http.Error(w, "foreman is not running", http.StatusConflict)
+		return
+	}
+	ws.foreman.Stop()
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "stopped"})
 }
 
 func (ws *WebServer) handleTerminal(w http.ResponseWriter, r *http.Request) {

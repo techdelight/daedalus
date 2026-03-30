@@ -256,6 +256,13 @@ func ParseArgs(args []string) (*core.Config, error) {
 		return cfg, nil
 	}
 
+	// Handle "foreman" subcommand (e.g., daedalus foreman start)
+	if len(positional) > 0 && positional[0] == "foreman" {
+		cfg.Subcommand = "foreman"
+		cfg.ForemanArgs = positional[1:]
+		return cfg, nil
+	}
+
 	// Handle positional args
 	switch len(positional) {
 	case 0:

@@ -15,6 +15,7 @@
             <header>
                 <h1>Daedalus</h1>
                 <button class="btn btn-filter" id="filter-active-btn" onclick="toggleFilter()">Active Only</button>
+                <span class="foreman-status" id="foreman-status"></span>
                 <span class="status" id="refresh-status"></span>
             </header>
             <div id="status-msg" class="status-msg"></div>
@@ -125,6 +126,20 @@
             }
         }
 
+        async function fetchForemanStatus() {
+            try {
+                const resp = await fetch('/api/foreman/status');
+                const data = await resp.json();
+                const el = document.getElementById('foreman-status');
+                if (data.state === 'monitoring' || data.state === 'planning') {
+                    el.textContent = 'Foreman: ' + data.state;
+                    el.className = 'foreman-status foreman-active';
+                } else {
+                    el.textContent = '';
+                }
+            } catch (e) {}
+        }
+
         async function fetchProjects() {
             try {
                 const resp = await fetch('/api/projects');
@@ -132,6 +147,7 @@
                 renderProjects(projects);
                 document.getElementById('refresh-status').textContent =
                     'Updated ' + new Date().toLocaleTimeString();
+                fetchForemanStatus();
             } catch (err) {
                 setStatus('Failed to fetch projects: ' + err.message);
             }
