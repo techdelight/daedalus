@@ -22,6 +22,7 @@ import (
 	"github.com/techdelight/daedalus/internal/docker"
 	"github.com/techdelight/daedalus/internal/executor"
 	"github.com/techdelight/daedalus/internal/logging"
+	"github.com/techdelight/daedalus/internal/mcpclient"
 	"github.com/techdelight/daedalus/internal/platform"
 	"github.com/techdelight/daedalus/internal/registry"
 	"github.com/techdelight/daedalus/internal/session"
@@ -1212,7 +1213,12 @@ func manageProgrammes(cfg *core.Config) error {
 		if len(args) < 2 {
 			return fmt.Errorf("usage: daedalus programmes show <name>")
 		}
-		return showProgramme(store, args[1])
+		reg := registry.NewRegistry(cfg.RegistryPath())
+		if err := reg.Init(); err != nil {
+			return fmt.Errorf("initializing registry: %w", err)
+		}
+		client := mcpclient.New()
+		return showProgramme(store, args[1], reg, client)
 	case "create":
 		if len(args) < 2 {
 			return fmt.Errorf("usage: daedalus programmes create <name>")
@@ -1265,17 +1271,52 @@ func listProgrammes(store *programme.Store) error {
 	return nil
 }
 
-// showProgramme prints the full JSON for a named programme.
-func showProgramme(store *programme.Store, name string) error {
+// showProgramme prints programme details with per-project progress aggregation.
+func showProgramme(store *programme.Store, name string, reg *registry.Registry, client *mcpclient.Client) error {
 	p, err := store.Read(name)
 	if err != nil {
 		return fmt.Errorf("reading programme: %w", err)
 	}
-	data, err := json.MarshalIndent(p, "", "  ")
-	if err != nil {
-		return fmt.Errorf("formatting programme: %w", err)
+
+	fmt.Printf("%s  %s\n", color.Bold("Programme:"), p.Name)
+	if p.Description != "" {
+		fmt.Printf("%s  %s\n", color.Bold("Description:"), p.Description)
 	}
-	fmt.Println(string(data))
+	fmt.Printf("%s  %d\n", color.Bold("Projects:"), len(p.Projects))
+	fmt.Printf("%s  %d\n\n", color.Bold("Dependencies:"), len(p.Deps))
+
+	if len(p.Deps) > 0 {
+		fmt.Println(color.Bold("Dependency Graph:"))
+		for _, d := range p.Deps {
+			fmt.Printf("  %s → %s\n", d.Upstream, d.Downstream)
+		}
+		fmt.Println()
+	}
+
+	if len(p.Projects) > 0 && reg != nil && client != nil {
+		fmt.Println(color.Bold("Project Status:"))
+		fmt.Printf("  %-20s  %-8s  %-12s  %s\n", "NAME", "PROGRESS", "VERSION", "SPRINT")
+		fmt.Printf("  %-20s  %-8s  %-12s  %s\n", "----", "--------", "-------", "------")
+		for _, projName := range p.Projects {
+			entry, found, _ := reg.GetProject(projName)
+			if !found {
+				fmt.Printf("  %-20s  %-8s  %-12s  %s\n", projName, "?", "?", "(not registered)")
+				continue
+			}
+			status, _ := client.GetProjectStatus(projName, entry.Directory)
+			pct := fmt.Sprintf("%d%%", status.ProgressPct)
+			ver := status.ProjectVersion
+			if ver == "" {
+				ver = "—"
+			}
+			sprint := "—"
+			if status.CurrentSprint != nil {
+				sprint = fmt.Sprintf("Sprint %d", status.CurrentSprint.Number)
+			}
+			fmt.Printf("  %-20s  %-8s  %-12s  %s\n", projName, pct, ver, sprint)
+		}
+	}
+
 	return nil
 }
 
