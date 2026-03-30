@@ -44,13 +44,13 @@ Goal: Daedalus itself becomes an AI-driven project manager. The Foreman reads ro
 
 | # | Item | Status |
 |---|------|--------|
-| 1 | `core/foreman.go` — `ForemanConfig`, `ForemanState`, `ForemanPlan` pure types | |
-| 2 | `internal/foreman/foreman.go` — Foreman main loop: read programme, read roadmaps, build plan, monitor agents, report status | |
-| 3 | `internal/foreman/planner.go` — sprint planning logic (reads roadmaps, proposes next actions) | |
-| 4 | `internal/foreman/monitor.go` — monitoring loop: poll MCP client and agent observer for worker state | |
-| 5 | `cmd/daedalus/main.go` — `daedalus foreman start/stop/status` subcommands | |
-| 6 | `internal/web/` — `/api/foreman/status` endpoint, Foreman console panel in Web UI | |
-| 7 | Documentation — ARCHITECTURE, CHANGELOG, VERSION, README | |
+| 1 | `core/foreman.go` — `ForemanConfig`, `ForemanState`, `ForemanPlan` pure types | Done |
+| 2 | `internal/foreman/foreman.go` — Foreman main loop: read programme, read roadmaps, build plan, monitor agents, report status | Done |
+| 3 | `internal/foreman/planner.go` — sprint planning logic (reads roadmaps, proposes next actions) | Done |
+| 4 | `internal/foreman/monitor.go` — monitoring loop: poll MCP client and agent observer for worker state | Done |
+| 5 | `cmd/daedalus/main.go` — `daedalus foreman start/stop/status` subcommands | Done |
+| 6 | `internal/web/` — `/api/foreman/status` endpoint, Foreman console panel in Web UI | Done |
+| 7 | Documentation — ARCHITECTURE, CHANGELOG, VERSION, README | Done |
 
 ### Sprint 28: Agent Observability (v0.23.0)
 

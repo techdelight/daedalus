@@ -21,6 +21,7 @@ Contains types, command builders, and helpers with no side effects.
 | `skills.go` | `StarterSkills()` — embedded starter skill files via `go:embed` |
 | `programme.go` | `Programme`, `DependencyEdge`, `DependencyGraph` types; `NewDependencyGraph()`, `TopologicalSort()`, `DetectCycles()`, `Downstreams()`, `Upstreams()`, `ValidateProgrammeName()` |
 | `sprint.go` | `Sprint`, `SprintItem`, `SprintStatus` types |
+| `foreman.go` | `ForemanConfig`, `ForemanState`, `ForemanPlan`, `ForemanProject`, `ForemanStatus` types |
 | `roadmap.go` | `ParseRoadmap()` — parses Daedalus-native ROADMAP.md into `[]Sprint` |
 | `time.go` | `NowUTC()`, `ParseUTC()`, `RelativeTime()` |
 
@@ -28,7 +29,7 @@ Contains types, command builders, and helpers with no side effects.
 
 | File | Responsibility |
 |---|---|
-| `main.go` | `main()`, `run()` dispatcher, project resolution, subcommand handlers (`list`, `prune`, `remove`, `config`, `skills`, `runners`, `personas`, `programmes`) |
+| `main.go` | `main()`, `run()` dispatcher, project resolution, subcommand handlers (`list`, `prune`, `remove`, `config`, `skills`, `runners`, `personas`, `programmes`, `foreman`) |
 
 ### `cmd/skill-catalog-mcp/` — Skill Catalog MCP Server
 
@@ -70,7 +71,7 @@ All side effects (filesystem, shell, network) live here behind interfaces.
 | `programme` | `Store`, `New()`, `List()`, `Read()`, `Create()`, `Update()`, `Remove()`, `AddProject()`, `AddDep()` | Programme definition CRUD (JSON files) |
 | `mcpclient` | `Client`, `New()`, `ReadProgress()`, `ReadRoadmap()`, `GetCurrentSprint()`, `GetProjectStatus()` | Host-side MCP client for reading project state via bind mounts |
 | `agentstate` | `State`, `Observer` interface, `ContainerObserver` | Agent state observation via Docker container inspection |
-| `foreman` | `AgentObserver` interface, `DefaultObserver` | Foreman agent observation layer |
+| `foreman` | `Foreman`, `Planner`, `Monitor`, `AgentObserver`, `DefaultObserver` | Foreman agent: main loop, sprint planning, project monitoring, agent observation |
 | `platform` | `IsWSL2()`, `WSL2IPAddress()`, `DisplayArgs()` | Platform detection (WSL2) and display forwarding argument resolution |
 
 ### Dependency Graph (no cycles)

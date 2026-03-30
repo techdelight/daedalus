@@ -87,6 +87,7 @@ daedalus skills [add <file> | remove <name> | show <name>]
 daedalus runners [list | show <name>]
 daedalus personas [list | show <name> | create <name> | remove <name>]
 daedalus programmes [list | show <name> | create <name> | add-project <prog> <proj> | add-dep <prog> <up> <down> | remove <name>]
+daedalus foreman [start | stop | status]
 daedalus tui
 daedalus web [--port PORT] [--host HOST]
 daedalus completion <bash|zsh|fish>
@@ -107,6 +108,7 @@ daedalus --help
 | `runners` | List or show built-in runner profiles (`claude`, `copilot`) |
 | `personas` | List, show, create, or remove named persona configurations |
 | `programmes` | List, show, create, or remove multi-project programmes with dependencies |
+| `foreman` | Start, stop, or check the status of the Foreman agent (runs inside `daedalus web`) |
 | `tui` | Interactive dashboard for managing projects |
 | `web` | Web UI dashboard (default: `localhost:3000`) |
 | `completion <shell>` | Print shell completion script (bash, zsh, fish) |

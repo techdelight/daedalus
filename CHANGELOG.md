@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.24.0] - 2026-03-30
+
+### Added
+- **The Foreman** — AI-driven project manager that monitors programmes. Reads roadmaps, builds plans, monitors agent state, and reports through the Web UI. Runs as a background goroutine inside `daedalus web`.
+- `daedalus foreman` CLI subcommand — `start`, `stop`, `status` commands (delegates to Web UI API).
+- Foreman REST API — `POST /api/foreman/start` (starts Foreman for a programme), `POST /api/foreman/stop`, `GET /api/foreman/status` (returns state, plan, and message).
+- Foreman status indicator in Web UI header — shows "Foreman: monitoring" when active.
+- `internal/foreman` package — `Foreman` (main loop), `Planner` (builds plans from programme data), `Monitor` (polls project and agent state).
+- `core/foreman.go` — `ForemanConfig`, `ForemanState`, `ForemanPlan`, `ForemanProject`, `ForemanStatus` pure types.
+- Shell completions for `foreman` subcommand in bash, zsh, and fish.
+
 ## [0.23.0] - 2026-03-30
 
 ### Added
