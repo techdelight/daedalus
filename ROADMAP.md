@@ -18,7 +18,7 @@
 | ~~10~~ | ~~Shared skills/MCP repository — a central directory of skills and MCP server configs that can be mounted or linked into any project, avoiding per-project duplication~~ |
 | 11 | Homebrew installation (`brew install daedalus`) — add Homebrew tap, formula generator, and CI automation. See [docs/homebrew-plan.md](docs/homebrew-plan.md) for full plan |
 | 12 | WSL2 Web UI access — enable `daedalus web` to be reachable from the Windows host when running inside WSL2 (bind to `0.0.0.0` or WSL2 IP, port-forwarding guidance, auto-detect WSL2 environment) |
-| 13 | Project management view in Web UI — per-project dashboard showing vision, version, time spent, and percentage complete |
+| ~~13~~ | ~~Project management view in Web UI — per-project dashboard showing vision, version, time spent, and percentage complete~~ |
 | 14 | Project management MCP server — provide an MCP server inside each project container so Claude Code can report progress (vision, version, percentage complete, time spent) back to Daedalus |
 | ~~15~~ | ~~Skill catalog — a browsable catalog of available skills that projects can select from and mount into their containers~~ |
 | 16 | ACP integration — use the Agent Client Protocol to communicate with the Claude Code CLI, enabling Daedalus to observe agent state (thinking, tool use, idle, error) in real time |
@@ -44,12 +44,12 @@ Goal: per-project dashboard showing vision, version, time spent, and progress pe
 
 | # | Item | Status |
 |---|------|--------|
-| 1 | `core/project.go` — add `ProgressPct`, `Vision`, `Version` fields to `ProjectEntry` with tests | |
-| 2 | `internal/registry/` — v2-to-v3 migration (new fields default to zero values) with migration test | |
-| 3 | `internal/registry/` — `UpdateProjectProgress(name, pct, vision, version)` method with tests | |
-| 4 | `internal/web/` — `GET /api/projects/{name}/dashboard` endpoint returning progress data with tests | |
-| 5 | `internal/web/static/` — project detail panel (click project row to see vision, version, total session time, progress bar) | |
-| 6 | Documentation — update ARCHITECTURE.md, CHANGELOG.md, VERSION, README.md | |
+| 1 | `core/project.go` — add `ProgressPct`, `Vision`, `ProjectVersion` fields to `ProjectEntry` with tests | Done |
+| 2 | `internal/registry/` — v2-to-v3 migration (new fields default to zero values) with migration test | Done |
+| 3 | `internal/registry/` — `UpdateProjectProgress(name, pct, vision, version)` method with tests | Done |
+| 4 | `internal/web/` — `GET /api/projects/{name}/dashboard` endpoint returning progress data with tests | Done |
+| 5 | `internal/web/static/` — project detail panel (click project row to see vision, version, total session time, progress bar) | Done |
+| 6 | Documentation — update ARCHITECTURE.md, CHANGELOG.md, VERSION, README.md | Done |
 
 ### Sprint 22: Runner/Persona Polish & Skill Fix (v0.17.0)
 

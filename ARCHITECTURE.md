@@ -16,7 +16,7 @@ Contains types, command builders, and helpers with no side effects.
 | `appconfig.go` | `AppConfig` struct, `ApplyAppConfig()` |
 | `runner.go` | `RunnerProfile` struct, `LookupRunner()`, `LookupBuiltinRunner()`, `ValidRunnerNames()`, `ResolveRunnerName()` |
 | `persona.go` | `PersonaConfig`, `PersonaOverlay` structs, `PersonasDir()`, `ValidatePersonaName()`, `IsBuiltinRunner()`, `BuiltinRunnerNames()` |
-| `project.go` | `RegistryData`, `ProjectEntry`, `SessionRecord`, `ProjectInfo` types |
+| `project.go` | `RegistryData`, `ProjectEntry` (with `ProgressPct`, `Vision`, `ProjectVersion`), `SessionRecord`, `ProjectInfo` types |
 | `command.go` | `BuildRunnerArgs()`, `BuildClaudeArgs()` (deprecated alias), `BuildTmuxCommand()`, `BuildEnvExports()`, `ShellQuote()`, `BuildExtraArgs()`, `OverlayPaths` |
 | `skills.go` | `StarterSkills()` — embedded starter skill files via `go:embed` |
 | `time.go` | `NowUTC()`, `ParseUTC()`, `RelativeTime()` |
@@ -48,7 +48,7 @@ All side effects (filesystem, shell, network) live here behind interfaces.
 | `executor` | `Executor` interface, `RealExecutor`, `MockExecutor` | Abstracts `os/exec` and `syscall.Exec` calls |
 | `color` | `Init()`, `Disable()`, `Red()`, `Green()`, `Yellow()`, `Cyan()`, `Bold()`, `Dim()` | ANSI color helpers, `NO_COLOR` support |
 | `config` | `ParseArgs()`, `IsHeadless()`, `LoadAppConfig()` | CLI argument parsing into `core.Config` |
-| `registry` | `Registry` | JSON file read/write for project metadata, schema migrations |
+| `registry` | `Registry` | JSON file read/write for project metadata, schema migrations (v3), progress tracking |
 | `docker` | `Docker`, `SetupCacheDir()` | Container lifecycle: build, run, compose, status checks |
 | `session` | `Session`, `TmuxAvailable()` | tmux session create/attach/send-keys |
 | `tui` | `Run()` | Interactive TUI dashboard (bubbletea + lipgloss) |
@@ -109,7 +109,7 @@ cmd/generate-manpage → (standalone, reads VERSION file only)
 
 | Protocol | Port | Component | Description |
 |---|---|---|---|
-| HTTP | 3000 (default) | Web UI | REST API (`/api/projects/*`) and static file serving |
+| HTTP | 3000 (default) | Web UI | REST API (`/api/projects/*`, `/api/projects/{name}/dashboard`) and static file serving |
 | WebSocket | 3000 (default) | Web UI | Terminal relay at `/api/projects/{name}/terminal` |
 | Docker API | Unix socket | Docker client | Container lifecycle via `docker` CLI |
 | tmux | — | Session manager | IPC via `tmux` CLI commands |
