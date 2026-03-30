@@ -494,6 +494,85 @@ func TestHandleRenameProject_InvalidName(t *testing.T) {
 	}
 }
 
+func TestHandleDashboard_Success(t *testing.T) {
+	// Arrange
+	ws, mock := setupWebTest(t)
+	if err := ws.registry.AddProject("myapp", "/path/myapp", "dev"); err != nil {
+		t.Fatal(err)
+	}
+	// Add sessions with durations
+	if _, err := ws.registry.StartSession("myapp", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := ws.registry.EndSession("myapp", "1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ws.registry.StartSession("myapp", "resume-1"); err != nil {
+		t.Fatal(err)
+	}
+	// Set progress metadata
+	if err := ws.registry.UpdateProjectProgress("myapp", 42, "Build a CLI tool", "1.2.0"); err != nil {
+		t.Fatal(err)
+	}
+	mock.Results["docker"] = executor.MockResult{Output: "claude-run-myapp\n"}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/projects/{name}/dashboard", ws.handleDashboard)
+
+	// Act
+	req := httptest.NewRequest("GET", "/api/projects/myapp/dashboard", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	// Assert
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var dash map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &dash); err != nil {
+		t.Fatalf("cannot decode response: %v", err)
+	}
+	if dash["name"] != "myapp" {
+		t.Errorf("name = %q, want %q", dash["name"], "myapp")
+	}
+	if dash["directory"] != "/path/myapp" {
+		t.Errorf("directory = %q, want %q", dash["directory"], "/path/myapp")
+	}
+	if dash["running"] != true {
+		t.Errorf("running = %v, want true", dash["running"])
+	}
+	if int(dash["progressPct"].(float64)) != 42 {
+		t.Errorf("progressPct = %v, want 42", dash["progressPct"])
+	}
+	if dash["vision"] != "Build a CLI tool" {
+		t.Errorf("vision = %q, want %q", dash["vision"], "Build a CLI tool")
+	}
+	if dash["projectVersion"] != "1.2.0" {
+		t.Errorf("projectVersion = %q, want %q", dash["projectVersion"], "1.2.0")
+	}
+	if int(dash["sessionCount"].(float64)) != 2 {
+		t.Errorf("sessionCount = %v, want 2", dash["sessionCount"])
+	}
+}
+
+func TestHandleDashboard_NotFound(t *testing.T) {
+	// Arrange
+	ws, _ := setupWebTest(t)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/projects/{name}/dashboard", ws.handleDashboard)
+
+	// Act
+	req := httptest.NewRequest("GET", "/api/projects/nonexistent/dashboard", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	// Assert
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
+	}
+}
+
 func TestHandleTerminal_NoSession(t *testing.T) {
 	ws, mock := setupWebTest(t)
 	if err := ws.registry.AddProject("myapp", "/path/myapp", "dev"); err != nil {

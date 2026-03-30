@@ -203,6 +203,116 @@ tbody td {
     min-height: 28px;
 }
 
+/* --- Dashboard View --- */
+
+#dashboard-view {
+    display: none;
+    flex-direction: column;
+    height: 100vh;
+    overflow-y: auto;
+}
+
+#dashboard-view.active {
+    display: flex;
+}
+
+.dashboard-header {
+    padding: 16px 24px;
+    border-bottom: 1px solid #292e42;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.dashboard-header .project-name {
+    font-size: 18px;
+    color: #bb9af7;
+    font-weight: 600;
+}
+
+.dashboard-header .btn-back {
+    border-color: #565f89;
+    color: #565f89;
+}
+
+.dashboard-header .btn-back:hover {
+    color: #c0caf5;
+    border-color: #c0caf5;
+}
+
+.dashboard-content {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+    padding: 24px;
+}
+
+.dashboard-card {
+    background: #16161e;
+    border: 1px solid #292e42;
+    border-radius: 8px;
+    padding: 16px;
+}
+
+.dashboard-card-wide {
+    grid-column: 1 / -1;
+}
+
+.dashboard-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #565f89;
+    margin-bottom: 8px;
+}
+
+.dashboard-value {
+    font-size: 20px;
+    color: #c0caf5;
+}
+
+.dashboard-vision {
+    font-size: 14px;
+    line-height: 1.6;
+}
+
+.progress-bar-container {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: #292e42;
+    border-radius: 4px;
+    padding: 0;
+    position: relative;
+}
+
+.progress-bar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 100%;
+    background: #9ece6a;
+    border-radius: 4px;
+    transition: width 0.3s ease;
+}
+
+.progress-text {
+    position: relative;
+    z-index: 1;
+    padding: 4px 8px;
+    font-size: 13px;
+    color: #c0caf5;
+}
+
+.project-link {
+    color: #7aa2f7;
+    text-decoration: none;
+}
+
+.project-link:hover {
+    text-decoration: underline;
+}
+
 /* --- Terminal View --- */
 
 #terminal-view {

@@ -38,6 +38,39 @@
             </div>
         </div>
 
+        <!-- Dashboard View -->
+        <div id="dashboard-view">
+            <div class="dashboard-header">
+                <span class="project-name" id="dashboard-project-name"></span>
+                <button class="btn btn-back" onclick="showProjectList()">Back</button>
+            </div>
+            <div class="dashboard-content">
+                <div class="dashboard-card">
+                    <div class="dashboard-label">Progress</div>
+                    <div class="progress-bar-container">
+                        <div class="progress-bar" id="dashboard-progress-bar"></div>
+                        <span class="progress-text" id="dashboard-progress-text">0%</span>
+                    </div>
+                </div>
+                <div class="dashboard-card">
+                    <div class="dashboard-label">Version</div>
+                    <div class="dashboard-value" id="dashboard-version">&mdash;</div>
+                </div>
+                <div class="dashboard-card">
+                    <div class="dashboard-label">Sessions</div>
+                    <div class="dashboard-value" id="dashboard-sessions">0</div>
+                </div>
+                <div class="dashboard-card">
+                    <div class="dashboard-label">Total Time</div>
+                    <div class="dashboard-value" id="dashboard-time">&mdash;</div>
+                </div>
+                <div class="dashboard-card dashboard-card-wide">
+                    <div class="dashboard-label">Vision</div>
+                    <div class="dashboard-value dashboard-vision" id="dashboard-vision">&mdash;</div>
+                </div>
+            </div>
+        </div>
+
         <!-- Terminal View -->
         <div id="terminal-view">
             <div class="terminal-header">
@@ -118,7 +151,7 @@
             empty.style.display = 'none';
             tbody.innerHTML = projects.map(p => `
                 <tr>
-                    <td>${escapeHtml(p.name)}</td>
+                    <td><a class="project-link" href="#" onclick="showDashboard('${escapeHtml(p.name)}'); return false;">${escapeHtml(p.name)}</a></td>
                     <td>
                         <span class="status-badge">
                             <span class="status-dot ${p.running ? 'running' : 'stopped'}"></span>
@@ -193,6 +226,34 @@
             }
         }
 
+        async function showDashboard(name) {
+            // Stop refresh
+            if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
+            // Fetch dashboard data
+            const resp = await fetch(`/api/projects/${encodeURIComponent(name)}/dashboard`);
+            if (!resp.ok) { setStatus('Error loading dashboard'); return; }
+            const data = await resp.json();
+            // Populate UI
+            document.getElementById('dashboard-project-name').textContent = data.name;
+            document.getElementById('dashboard-progress-bar').style.width = data.progressPct + '%';
+            document.getElementById('dashboard-progress-text').textContent = data.progressPct + '%';
+            document.getElementById('dashboard-version').textContent = data.projectVersion || '\u2014';
+            document.getElementById('dashboard-sessions').textContent = data.sessionCount;
+            document.getElementById('dashboard-time').textContent = formatDuration(data.totalTimeSec);
+            document.getElementById('dashboard-vision').textContent = data.vision || '\u2014';
+            // Show dashboard view
+            document.getElementById('project-view').classList.add('hidden');
+            document.getElementById('dashboard-view').classList.add('active');
+        }
+
+        function formatDuration(totalSec) {
+            if (!totalSec) return '\u2014';
+            const h = Math.floor(totalSec / 3600);
+            const m = Math.floor((totalSec % 3600) / 60);
+            if (h > 0) return h + 'h ' + m + 'm';
+            return m + 'm';
+        }
+
         function attachProject(name) {
             document.title = name + ' \u2014 Daedalus';
 
@@ -215,6 +276,7 @@
             disconnectTerminal();
 
             document.getElementById('terminal-view').classList.remove('active');
+            document.getElementById('dashboard-view').classList.remove('active');
             document.getElementById('project-view').classList.remove('hidden');
 
             fetchProjects();

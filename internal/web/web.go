@@ -72,9 +72,29 @@ func (ws *WebServer) HandleSendEnter(w http.ResponseWriter, r *http.Request) {
 	ws.handleSendEnter(w, r)
 }
 
+// HandleDashboard is the exported handler for GET /api/projects/{name}/dashboard.
+func (ws *WebServer) HandleDashboard(w http.ResponseWriter, r *http.Request) {
+	ws.handleDashboard(w, r)
+}
+
 // renameRequest is the JSON body for the rename endpoint.
 type renameRequest struct {
 	NewName string `json:"newName"`
+}
+
+// dashboardJSON is the JSON representation of a project dashboard.
+type dashboardJSON struct {
+	Name           string `json:"name"`
+	Directory      string `json:"directory"`
+	Target         string `json:"target"`
+	Running        bool   `json:"running"`
+	ProgressPct    int    `json:"progressPct"`
+	Vision         string `json:"vision"`
+	ProjectVersion string `json:"projectVersion"`
+	SessionCount   int    `json:"sessionCount"`
+	TotalTimeSec   int    `json:"totalTimeSec"`
+	LastUsed       string `json:"lastUsed"`
+	Created        string `json:"created"`
 }
 
 // projectJSON is the JSON representation of a project for the REST API.
@@ -109,6 +129,7 @@ func Run(cfg *core.Config) error {
 	mux.HandleFunc("POST /api/projects/{name}/stop", ws.handleStopProject)
 	mux.HandleFunc("POST /api/projects/{name}/rename", ws.handleRenameProject)
 	mux.HandleFunc("POST /api/projects/{name}/enter", ws.handleSendEnter)
+	mux.HandleFunc("GET /api/projects/{name}/dashboard", ws.handleDashboard)
 	mux.HandleFunc("GET /api/projects/{name}/terminal", ws.handleTerminal)
 
 	// Serve static files (embedded in binary)
@@ -342,6 +363,49 @@ func (ws *WebServer) handleRenameProject(w http.ResponseWriter, r *http.Request)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "renamed", "oldName": name, "newName": req.NewName})
+}
+
+// handleDashboard returns dashboard data for a single project.
+func (ws *WebServer) handleDashboard(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+
+	entry, found, err := ws.registry.GetProject(name)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if !found {
+		http.Error(w, fmt.Sprintf("project %q not found", name), http.StatusNotFound)
+		return
+	}
+
+	containerName := "claude-run-" + name
+	running, err := ws.docker.IsContainerRunning(containerName)
+	if err != nil {
+		log.Printf("Docker status check failed for %s: %v", name, err)
+	}
+
+	totalTimeSec := 0
+	for _, s := range entry.Sessions {
+		totalTimeSec += s.Duration
+	}
+
+	dash := dashboardJSON{
+		Name:           name,
+		Directory:      entry.Directory,
+		Target:         entry.Target,
+		Running:        running,
+		ProgressPct:    entry.ProgressPct,
+		Vision:         entry.Vision,
+		ProjectVersion: entry.ProjectVersion,
+		SessionCount:   len(entry.Sessions),
+		TotalTimeSec:   totalTimeSec,
+		LastUsed:       entry.LastUsed,
+		Created:        entry.Created,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(dash)
 }
 
 var wsUpgrader = websocket.Upgrader{
