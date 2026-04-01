@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.28.0] - 2026-04-01
+
+### Added
+- **Web UI authentication** — token-based login protects the dashboard when exposed on a network. A cryptographically random access token is generated on first launch and stored in `config.json`.
+- `--auth` / `--no-auth` flags for `daedalus web` — authentication is enabled by default; use `--no-auth` to disable.
+- Login page at `/login` with token input form, styled to match the Daedalus theme.
+- Session cookie (`daedalus_session`) with configurable expiry (default 24 hours, `auth-expiry` in `config.json`).
+- WebSocket authentication via session cookie (automatic) or `token` query parameter (fallback).
+- `internal/auth` package with 12 unit tests covering token generation, middleware, login flow, cookie handling, and query parameter auth.
+- Shell completions for `--auth` and `--no-auth` flags in bash, zsh, and fish.
+
 ## [0.27.0] - 2026-04-01
 
 ### Added

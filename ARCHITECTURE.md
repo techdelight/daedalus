@@ -70,6 +70,7 @@ All side effects (filesystem, shell, network) live here behind interfaces.
 | `progress` | `Data`, `Read()`, `Write()`, `Update()` | Project progress file I/O (`.daedalus/progress.json`) |
 | `programme` | `Store`, `New()`, `List()`, `Read()`, `Create()`, `Update()`, `Remove()`, `AddProject()`, `AddDep()` | Programme definition CRUD (JSON files) |
 | `mcpclient` | `Client`, `New()`, `ReadProgress()`, `ReadRoadmap()`, `GetCurrentSprint()`, `GetProjectStatus()` | Host-side MCP client for reading project state via bind mounts |
+| `auth` | `GenerateToken()`, `EnsureToken()`, `Middleware()`, `LoginHandler()` | Token-based authentication for Web UI (cookie + query param) |
 | `agentstate` | `State`, `Observer` interface, `ContainerObserver` | Agent state observation via Docker container inspection |
 | `foreman` | `Foreman`, `Planner`, `Monitor`, `AgentObserver`, `DefaultObserver` | Foreman agent: main loop, sprint planning, project monitoring, agent observation |
 | `platform` | `IsWSL2()`, `WSL2IPAddress()`, `DisplayArgs()` | Platform detection (WSL2) and display forwarding argument resolution |
@@ -82,6 +83,7 @@ color     (leaf)
 logging   (leaf)
 progress  (leaf)
 catalog   (leaf)
+auth      (leaf)
 personas  → core
 programme → core
 agentstate → executor
@@ -93,7 +95,7 @@ session   → executor
 completions → core
 foreman   → core, agentstate, mcpclient, programme, registry
 tui       → core, executor, registry, docker, session
-web       → core, executor, registry, docker, session, progress, agentstate, foreman, mcpclient, programme
+web       → core, executor, registry, docker, session, progress, agentstate, foreman, mcpclient, programme, auth
   ↑
 cmd/daedalus → all of the above + catalog + personas + programme + foreman + mcpclient
 cmd/skill-catalog-mcp → catalog (standalone MCP server, uses modelcontextprotocol/go-sdk)

@@ -18,6 +18,7 @@ import (
 
 	"github.com/techdelight/daedalus/core"
 	"github.com/techdelight/daedalus/internal/agentstate"
+	"github.com/techdelight/daedalus/internal/auth"
 	"github.com/techdelight/daedalus/internal/color"
 	"github.com/techdelight/daedalus/internal/docker"
 	"github.com/techdelight/daedalus/internal/executor"
@@ -188,6 +189,27 @@ func Run(cfg *core.Config) error {
 		w.Write([]byte(html))
 	})
 
+	// Authentication
+	var handler http.Handler = mux
+	if cfg.Auth {
+		token := cfg.AuthToken
+		if token == "" {
+			var err error
+			token, err = auth.EnsureToken(cfg.ScriptDir)
+			if err != nil {
+				return fmt.Errorf("setting up authentication: %w", err)
+			}
+		}
+		expiry := cfg.AuthExpiry
+		if expiry == 0 {
+			expiry = 24
+		}
+		mux.HandleFunc("/login", auth.LoginHandler(token, expiry))
+		handler = auth.Middleware(token, expiry, mux)
+		fmt.Printf("Authentication enabled (session expiry: %dh)\n", expiry)
+		fmt.Printf("Access token: %s\n", color.Bold(token))
+	}
+
 	if cfg.WSL2Detected {
 		fmt.Printf("%s binding to 0.0.0.0 instead of 127.0.0.1\n", color.Yellow("WSL2 detected:"))
 		if ip := platform.WSL2IPAddress(); ip != "" {
@@ -195,7 +217,7 @@ func Run(cfg *core.Config) error {
 		}
 	}
 	fmt.Printf("Starting web UI at http://%s\n", cfg.WebAddr)
-	return http.ListenAndServe(cfg.WebAddr, mux)
+	return http.ListenAndServe(cfg.WebAddr, handler)
 }
 
 // handleListProjects returns all registered projects with their running status.
