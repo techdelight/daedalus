@@ -135,3 +135,34 @@ func safeIndex(parts []string, i int) string {
 	}
 	return ""
 }
+
+// UnescapeOutput decodes tmux control mode octal escapes in %output data.
+// tmux escapes bytes as \OOO (three-digit octal) and backslashes as \\.
+func UnescapeOutput(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	i := 0
+	for i < len(s) {
+		if s[i] == '\\' && i+1 < len(s) {
+			if s[i+1] == '\\' {
+				b.WriteByte('\\')
+				i += 2
+				continue
+			}
+			// Octal escape: \OOO (exactly 3 digits)
+			if i+3 < len(s) && isOctal(s[i+1]) && isOctal(s[i+2]) && isOctal(s[i+3]) {
+				val := (s[i+1]-'0')*64 + (s[i+2]-'0')*8 + (s[i+3] - '0')
+				b.WriteByte(val)
+				i += 4
+				continue
+			}
+		}
+		b.WriteByte(s[i])
+		i++
+	}
+	return b.String()
+}
+
+func isOctal(c byte) bool {
+	return c >= '0' && c <= '7'
+}

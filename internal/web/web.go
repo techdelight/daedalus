@@ -591,7 +591,8 @@ func (ws *WebServer) handleTerminalControl(w http.ResponseWriter, r *http.Reques
 				return
 			}
 			if msg.Type == session.MsgOutput {
-				if err := conn.WriteMessage(websocket.BinaryMessage, []byte(msg.Content)); err != nil {
+				decoded := session.UnescapeOutput(msg.Content)
+				if err := conn.WriteMessage(websocket.BinaryMessage, []byte(decoded)); err != nil {
 					return
 				}
 			}

@@ -353,6 +353,46 @@ func TestControlSession_Close_NilCmd(t *testing.T) {
 	}
 }
 
+// --- UnescapeOutput tests ---
+
+func TestUnescapeOutput(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		// ESC (octal 033 = 0x1B)
+		{`\033[32m`, "\x1b[32m"},
+		// CR (octal 015 = 0x0D)
+		{`\015`, "\r"},
+		// LF (octal 012 = 0x0A)
+		{`\012`, "\n"},
+		// Combined: ESC + text + CR + LF
+		{`\033[1mhello\033[0m\015\012`, "\x1b[1mhello\x1b[0m\r\n"},
+		// Escaped backslash
+		{`hello\\world`, `hello\world`},
+		// No escapes
+		{"plain text", "plain text"},
+		// Empty
+		{"", ""},
+		// Octal for space (040 = 0x20)
+		{`\040`, " "},
+		// Multiple consecutive escapes
+		{`\033\033`, "\x1b\x1b"},
+		// Partial escape at end (not 3 digits) — left as-is
+		{`\03`, `\03`},
+		// Backslash followed by non-octal
+		{`\n`, `\n`},
+		// Real tmux output sample
+		{`\033[32m●\033[1C\033[39m\033[1mWrite\033[22m`, "\x1b[32m●\x1b[1C\x1b[39m\x1b[1mWrite\x1b[22m"},
+	}
+	for _, tc := range tests {
+		got := UnescapeOutput(tc.input)
+		if got != tc.want {
+			t.Errorf("UnescapeOutput(%q) = %q, want %q", tc.input, got, tc.want)
+		}
+	}
+}
+
 // --- safeIndex tests ---
 
 func TestSafeIndex(t *testing.T) {
