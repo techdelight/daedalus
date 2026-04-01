@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.29.1] - 2026-04-01
+
+### Fixed
+- Playwright e2e: scoped `.btn-back` selector to `#terminal-view` to fix strict mode violation when multiple Back buttons exist.
+
+### Added
+- Playwright e2e test suite (34 tests) covering static assets, HTML structure, all REST API endpoints, programme CRUD lifecycle, and auth modes.
+- Go test coverage improvements: `core` 98%, `cmd/skill-catalog-mcp` from 0% to tested, `internal/web` 60.6%.
+- `new-and-improved.md` — summary of all changes from v0.8.2 to v0.29.0.
+
+### Changed
+- README and ARCHITECTURE synced with codebase: auth config fields, skill directory structure, `/login` route, `ValidTargets()`, `UpdateProjectTarget()`, GitHub URL parsing.
+
 ## [0.29.0] - 2026-04-01
 
 ### Added
