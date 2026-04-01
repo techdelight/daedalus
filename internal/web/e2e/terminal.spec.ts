@@ -25,7 +25,7 @@ test.describe('Terminal View', () => {
     await page.locator('.btn-attach').first().click();
     await expect(page.locator('#terminal-view')).toHaveClass(/active/);
 
-    await page.locator('.btn-back').click();
+    await page.locator('#terminal-view .btn-back').click();
 
     await expect(page.locator('#terminal-view')).not.toHaveClass(/active/);
     await expect(page.locator('#project-view')).not.toHaveClass(/hidden/);
@@ -66,7 +66,7 @@ test.describe('Terminal View', () => {
     expect(fetchCount).toBe(countAfterAttach);
 
     // Go back — resumes auto-refresh
-    await page.locator('.btn-back').click();
+    await page.locator('#terminal-view .btn-back').click();
     const countAfterBack = fetchCount;
 
     await page.waitForTimeout(6000);
