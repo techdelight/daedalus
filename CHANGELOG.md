@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.27.0] - 2026-04-01
+
+### Added
+- **Favicon** — SVG favicon with labyrinth motif added to the Web UI, visible in browser tabs.
+- **Foreman UI project navigation** — clicking a project card in the Foreman view now navigates to that project's detail/dashboard view.
+
+### Changed
+- **Skill catalog directory structure** — skills are now stored as `{name}/SKILL.md` directories instead of flat `{name}.md` files. Applies to both the shared catalog and per-project installed skills. Starter skills are seeded in the new format on first run.
+
 ## [0.26.2] - 2026-04-01
 
 ### Added

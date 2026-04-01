@@ -4,7 +4,7 @@
 
 | # | Item |
 |---|------|
-| 30 | Skill install path — install skills to `.claude/skills/{skill-name}/SKILL.md` (directory per skill) instead of flat `.claude/skills/{skill-name}.md` |
+| ~~30~~ | ~~Skill install path — install skills to `.claude/skills/{skill-name}/SKILL.md` (directory per skill) instead of flat `.claude/skills/{skill-name}.md`~~ |
 | 31 | Rename skill store — rename "skill catalog" / "skill" terminology to avoid confusion with Claude Code's built-in skill repository. Candidate: "focus" (focus catalog, focus files). Open to alternatives |
 | ~~1~~ | ~~Agent mode (`--agent`) — start Claude Code as a specific agent by passing a named agent configuration, enabling purpose-built personas and tool sets per project~~ |
 | 2 | Authentication for Web UI — add token-based login to protect the dashboard when exposed on a network |
@@ -27,7 +27,7 @@
 | 19 | GitHub repo projects — start a project from a GitHub repo URL, cloning into a default project root directory |
 | ~~20~~ | ~~Browser tab title — set the Web UI tab title to include the name of the active project~~ |
 | 21 | Shared Maven `.m2` repository — mount a host-side `.m2/repository` into containers so dependencies are shared across projects. Investigate overlay/merge strategy: a stable global repo (read-only base) combined with a per-container local repo for builds/downloads/installs, so containers benefit from cached artifacts without polluting the shared cache |
-| 22 | Favicon — add a Daedalus favicon to the Web UI so the browser tab shows a recognizable icon |
+| ~~22~~ | ~~Favicon — add a Daedalus favicon to the Web UI so the browser tab shows a recognizable icon~~ |
 | ~~23~~ | ~~Display sharing (`--display`) — forward the host X11/Wayland display into Docker containers so GUI applications can render on the host screen. Support WSL2 (via `DISPLAY` + `/tmp/.X11-unix` or Wayland socket) and native Linux. Stored as a per-project `display` flag in `projects.json`, off by default. Prompted during `daedalus <name> <dir>` first registration and configurable via `daedalus config <name> --set display=true`~~ |
 | ~~24~~ | ~~Copilot CLI support — add GitHub Copilot CLI as an alternative coding agent alongside Claude Code. Allow selecting the agent per project via `--agent copilot` or `daedalus config <name> --set agent=copilot`. Install Copilot CLI in the container, configure entrypoint to launch the selected agent, and adapt session management for Copilot's CLI interface~~ |
 | 25 | Webdev container — move Node.js out of the regular `dev` stage into a dedicated `webdev` build target for web/frontend projects. Keeps the default dev image lean |
@@ -35,22 +35,21 @@
 | 27 | Decouple tooling from agent runner images — keep base agent containers minimal and let the agent install additional tools at runtime. Provide container snapshotting so customized environments persist across restarts. Key challenge: when the base image is upgraded, how do we replay tool installations? Options: (a) maintain a declarative tool registry (tool name + version + install method) that a provisioner re-applies on new base images — portable but subjective per tool; (b) record raw install commands as a replayable script — simple but fragile across base image changes; (c) hybrid approach with a registry of well-known tools (apt, pip, npm) plus an escape hatch for arbitrary commands. Needs design spike to evaluate trade-offs |
 | ~~28~~ | ~~Active project filter — add a toggle/filter to the Web UI and TUI that shows only running projects. Useful when the project list grows large and the user wants to focus on what is currently active~~ |
 | 29 | Mobile WebSocket stability — investigate and fix regular disconnects on mobile web clients (possible causes: browser background tab throttling, network switches between Wi-Fi and cellular, WebSocket ping/pong timeout tuning, reconnect logic) |
-| 32 | Foreman UI project navigation — clicking a project in the Foreman web UI opens that project's detail view |
+| ~~32~~ | ~~Foreman UI project navigation — clicking a project in the Foreman web UI opens that project's detail view~~ |
 | 33 | tmux control mode integration — use `tmux -C` control mode instead of raw PTY for terminal interaction. Enables native scrollback access (replacing tmux keybind-based scrolling), clean session disconnect/reconnect, and machine-parseable event notifications for agent observability |
 
 ## Current Sprint
 
-### Sprint 30: Programme-Level Cascade Orchestration (v0.25.0)
+### Sprint 31: Web UI Polish & Skill Paths (v0.27.0)
 
-Goal: when an upstream project completes a sprint item, the Foreman propagates work to downstream projects via the dependency graph. Configurable cascade strategies per dependency edge.
+Goal: improve the web interface with a favicon and clickable Foreman project cards, and modernise the skill catalog to use a directory-per-skill structure.
 
 | # | Item | Status |
 |---|------|--------|
-| 1 | `internal/foreman/cascade.go` — cascade logic via `DependencyGraph.Downstreams()`, cascade strategies (`auto`, `notify`, `manual`) | Done |
-| 2 | `core/programme.go` — add `Strategy` field to `DependencyEdge` | Done |
-| 3 | `internal/web/` — cascade event log in Foreman status API response | Done |
-| 4 | `daedalus programmes cascade <name> --dry-run` — preview cascade actions | Done |
-| 5 | Documentation — ARCHITECTURE, CHANGELOG, VERSION, README | Done |
+| 1 | Favicon — add an SVG favicon to `internal/web/static/`, link in `index.html` `<head>` | Done |
+| 2 | Foreman UI project navigation — make project cards in the Foreman view clickable, navigating to the project detail/dashboard view | Done |
+| 3 | Skill install path — change catalog install/read/list to use `{name}/SKILL.md` directory structure instead of flat `{name}.md` files. Update starter skills, MCP server, and all tests | Done |
+| 4 | Documentation — ARCHITECTURE, CHANGELOG, VERSION | Done |
 
 ### Sprint 29: The Foreman Agent — Core Loop (v0.24.0)
 
@@ -269,6 +268,18 @@ Goal: improve the build workflow, add diagnostic tooling, and set up release doc
 ---
 
 ## Sprint History
+
+### Sprint 30: Programme-Level Cascade Orchestration (v0.25.0)
+
+Delivered 2026-04-01. Cascade propagation through programme dependency graphs with configurable strategies.
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | `internal/foreman/cascade.go` — cascade logic via `DependencyGraph.Downstreams()`, cascade strategies (`auto`, `notify`, `manual`) | Done |
+| 2 | `core/programme.go` — add `Strategy` field to `DependencyEdge` | Done |
+| 3 | `internal/web/` — cascade event log in Foreman status API response | Done |
+| 4 | `daedalus programmes cascade <name> --dry-run` — preview cascade actions | Done |
+| 5 | Documentation — ARCHITECTURE, CHANGELOG, VERSION, README | Done |
 
 ### Sprint 18: Fix macOS Installation (v0.12.1)
 

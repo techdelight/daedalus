@@ -9,15 +9,20 @@ import (
 	"strings"
 )
 
-// Skill represents a skill file in the catalog.
+// Skill represents a skill in the catalog.
 type Skill struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
 }
 
+// skillFile is the fixed filename inside each skill directory.
+const skillFile = "SKILL.md"
+
 // Catalog provides operations on the shared skill catalog and per-project
 // installed skills. All methods are safe for concurrent use from MCP handlers
 // because each operation is a single filesystem call sequence.
+//
+// Skills are stored as directories: {catalogDir}/{name}/SKILL.md
 type Catalog struct {
 	catalogDir string
 	skillsDir  string
@@ -47,7 +52,7 @@ func (c *Catalog) Read(name string) (string, error) {
 	if err := validateName(name); err != nil {
 		return "", err
 	}
-	path := filepath.Join(c.catalogDir, name+".md")
+	path := filepath.Join(c.catalogDir, name, skillFile)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return "", fmt.Errorf("reading skill %q: %w", name, err)
@@ -60,17 +65,17 @@ func (c *Catalog) Install(name string) error {
 	if err := validateName(name); err != nil {
 		return err
 	}
-	src := filepath.Join(c.catalogDir, name+".md")
-	dst := filepath.Join(c.skillsDir, name+".md")
+	src := filepath.Join(c.catalogDir, name, skillFile)
+	dstDir := filepath.Join(c.skillsDir, name)
 
 	data, err := os.ReadFile(src)
 	if err != nil {
 		return fmt.Errorf("reading catalog skill %q: %w", name, err)
 	}
-	if err := os.MkdirAll(c.skillsDir, 0755); err != nil {
-		return fmt.Errorf("creating skills directory: %w", err)
+	if err := os.MkdirAll(dstDir, 0755); err != nil {
+		return fmt.Errorf("creating skill directory: %w", err)
 	}
-	if err := os.WriteFile(dst, data, 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dstDir, skillFile), data, 0644); err != nil {
 		return fmt.Errorf("installing skill %q: %w", name, err)
 	}
 	return nil
@@ -81,9 +86,13 @@ func (c *Catalog) Uninstall(name string) error {
 	if err := validateName(name); err != nil {
 		return err
 	}
-	path := filepath.Join(c.skillsDir, name+".md")
-	if err := os.Remove(path); err != nil {
+	dir := filepath.Join(c.skillsDir, name)
+	if err := os.RemoveAll(dir); err != nil {
 		return fmt.Errorf("uninstalling skill %q: %w", name, err)
+	}
+	// RemoveAll returns nil for nonexistent paths; check existence explicitly.
+	if _, err := os.Stat(dir); err == nil {
+		return fmt.Errorf("uninstalling skill %q: directory still exists", name)
 	}
 	return nil
 }
@@ -93,14 +102,14 @@ func (c *Catalog) Create(name, content string) error {
 	if err := validateName(name); err != nil {
 		return err
 	}
-	path := filepath.Join(c.catalogDir, name+".md")
-	if _, err := os.Stat(path); err == nil {
+	dir := filepath.Join(c.catalogDir, name)
+	if _, err := os.Stat(filepath.Join(dir, skillFile)); err == nil {
 		return fmt.Errorf("skill %q already exists", name)
 	}
-	if err := os.MkdirAll(c.catalogDir, 0755); err != nil {
-		return fmt.Errorf("creating catalog directory: %w", err)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("creating skill directory: %w", err)
 	}
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, skillFile), []byte(content), 0644); err != nil {
 		return fmt.Errorf("creating skill %q: %w", name, err)
 	}
 	return nil
@@ -111,7 +120,7 @@ func (c *Catalog) Update(name, content string) error {
 	if err := validateName(name); err != nil {
 		return err
 	}
-	path := filepath.Join(c.catalogDir, name+".md")
+	path := filepath.Join(c.catalogDir, name, skillFile)
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return fmt.Errorf("skill %q does not exist", name)
 	}
@@ -126,14 +135,18 @@ func (c *Catalog) Remove(name string) error {
 	if err := validateName(name); err != nil {
 		return err
 	}
-	path := filepath.Join(c.catalogDir, name+".md")
-	if err := os.Remove(path); err != nil {
+	dir := filepath.Join(c.catalogDir, name)
+	if _, err := os.Stat(filepath.Join(dir, skillFile)); os.IsNotExist(err) {
+		return fmt.Errorf("removing skill %q: skill does not exist", name)
+	}
+	if err := os.RemoveAll(dir); err != nil {
 		return fmt.Errorf("removing skill %q: %w", name, err)
 	}
 	return nil
 }
 
-// listSkillsIn reads all .md files from a directory and returns them as skills.
+// listSkillsIn reads all skill directories from a directory and returns them.
+// A skill directory contains a SKILL.md file.
 func listSkillsIn(dir string) ([]Skill, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -144,12 +157,15 @@ func listSkillsIn(dir string) ([]Skill, error) {
 	}
 	var skills []Skill
 	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+		if !e.IsDir() {
 			continue
 		}
-		name := strings.TrimSuffix(e.Name(), ".md")
-		desc := readFirstLine(filepath.Join(dir, e.Name()))
-		skills = append(skills, Skill{Name: name, Description: desc})
+		skillPath := filepath.Join(dir, e.Name(), skillFile)
+		if _, err := os.Stat(skillPath); err != nil {
+			continue // not a skill directory
+		}
+		desc := readFirstLine(skillPath)
+		skills = append(skills, Skill{Name: e.Name(), Description: desc})
 	}
 	return skills, nil
 }
@@ -173,7 +189,7 @@ func readFirstLine(path string) string {
 	return ""
 }
 
-// validateName checks that a skill name is safe for use as a filename.
+// validateName checks that a skill name is safe for use as a directory name.
 // It rejects empty names, path separators, and directory traversal attempts.
 func validateName(name string) error {
 	if name == "" {

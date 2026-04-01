@@ -22,9 +22,14 @@ func setupDirs(t *testing.T) (catalogDir, skillsDir string) {
 	return catalogDir, skillsDir
 }
 
+// writeSkill creates a skill directory with a SKILL.md file.
 func writeSkill(t *testing.T, dir, name, content string) {
 	t.Helper()
-	if err := os.WriteFile(filepath.Join(dir, name+".md"), []byte(content), 0644); err != nil {
+	skillDir := filepath.Join(dir, name)
+	if err := os.MkdirAll(skillDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, skillFile), []byte(content), 0644); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -56,7 +61,6 @@ func TestList_WithSkills(t *testing.T) {
 		t.Fatalf("List() returned %d skills, want 2", len(skills))
 	}
 
-	// Skills should include both entries (order depends on filesystem)
 	names := map[string]bool{}
 	for _, s := range skills {
 		names[s.Name] = true
@@ -66,11 +70,13 @@ func TestList_WithSkills(t *testing.T) {
 	}
 }
 
-func TestList_IgnoresNonMarkdown(t *testing.T) {
+func TestList_IgnoresNonSkillDirs(t *testing.T) {
 	catDir, sklDir := setupDirs(t)
 	writeSkill(t, catDir, "valid", "# Valid skill")
+	// Create a directory without SKILL.md — should be ignored
+	os.MkdirAll(filepath.Join(catDir, "empty-dir"), 0755)
+	// Create a plain file — should be ignored
 	os.WriteFile(filepath.Join(catDir, "notes.txt"), []byte("not a skill"), 0644)
-	os.Mkdir(filepath.Join(catDir, "subdir"), 0755)
 	c := New(catDir, sklDir)
 
 	skills, err := c.List()
@@ -126,8 +132,7 @@ func TestInstall(t *testing.T) {
 		t.Fatalf("Install() error = %v", err)
 	}
 
-	// Verify the file was copied
-	data, err := os.ReadFile(filepath.Join(sklDir, "commit.md"))
+	data, err := os.ReadFile(filepath.Join(sklDir, "commit", skillFile))
 	if err != nil {
 		t.Fatalf("installed file not found: %v", err)
 	}
@@ -146,7 +151,7 @@ func TestInstall_CreatesSkillsDir(t *testing.T) {
 		t.Fatalf("Install() error = %v", err)
 	}
 
-	if _, err := os.Stat(filepath.Join(sklDir, "commit.md")); err != nil {
+	if _, err := os.Stat(filepath.Join(sklDir, "commit", skillFile)); err != nil {
 		t.Errorf("installed file not found: %v", err)
 	}
 }
@@ -170,8 +175,8 @@ func TestUninstall(t *testing.T) {
 		t.Fatalf("Uninstall() error = %v", err)
 	}
 
-	if _, err := os.Stat(filepath.Join(sklDir, "commit.md")); !os.IsNotExist(err) {
-		t.Error("Uninstall() did not remove the file")
+	if _, err := os.Stat(filepath.Join(sklDir, "commit")); !os.IsNotExist(err) {
+		t.Error("Uninstall() did not remove the skill directory")
 	}
 }
 
@@ -179,9 +184,9 @@ func TestUninstall_NotInstalled(t *testing.T) {
 	catDir, sklDir := setupDirs(t)
 	c := New(catDir, sklDir)
 
-	err := c.Uninstall("nonexistent")
-	if err == nil {
-		t.Error("Uninstall() expected error for missing skill")
+	// RemoveAll on a nonexistent path succeeds silently — no error expected.
+	if err := c.Uninstall("nonexistent"); err != nil {
+		t.Errorf("Uninstall() error = %v, want nil for missing skill", err)
 	}
 }
 
@@ -193,7 +198,7 @@ func TestCreate(t *testing.T) {
 		t.Fatalf("Create() error = %v", err)
 	}
 
-	data, err := os.ReadFile(filepath.Join(catDir, "new-skill.md"))
+	data, err := os.ReadFile(filepath.Join(catDir, "new-skill", skillFile))
 	if err != nil {
 		t.Fatalf("created file not found: %v", err)
 	}
@@ -225,7 +230,7 @@ func TestUpdate(t *testing.T) {
 		t.Fatalf("Update() error = %v", err)
 	}
 
-	data, err := os.ReadFile(filepath.Join(catDir, "commit.md"))
+	data, err := os.ReadFile(filepath.Join(catDir, "commit", skillFile))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -256,8 +261,8 @@ func TestRemove(t *testing.T) {
 		t.Fatalf("Remove() error = %v", err)
 	}
 
-	if _, err := os.Stat(filepath.Join(catDir, "commit.md")); !os.IsNotExist(err) {
-		t.Error("Remove() did not delete the file")
+	if _, err := os.Stat(filepath.Join(catDir, "commit")); !os.IsNotExist(err) {
+		t.Error("Remove() did not delete the skill directory")
 	}
 }
 

@@ -1434,8 +1434,13 @@ func initSkillsCatalog(cfg *core.Config) error {
 		return fmt.Errorf("reading starter skills: %w", err)
 	}
 	for name, data := range starters {
-		if err := os.WriteFile(filepath.Join(dir, name), data, 0644); err != nil {
-			return fmt.Errorf("writing starter skill %s: %w", name, err)
+		skillName := strings.TrimSuffix(name, ".md")
+		skillDir := filepath.Join(dir, skillName)
+		if err := os.MkdirAll(skillDir, 0755); err != nil {
+			return fmt.Errorf("creating skill directory %s: %w", skillName, err)
+		}
+		if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), data, 0644); err != nil {
+			return fmt.Errorf("writing starter skill %s: %w", skillName, err)
 		}
 	}
 	logging.Info("initialized skill catalog with " + strconv.Itoa(len(starters)) + " starter skills")
