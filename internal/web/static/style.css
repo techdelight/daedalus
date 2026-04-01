@@ -567,6 +567,16 @@ tbody td {
     padding: 12px;
 }
 
+.foreman-project-card-clickable {
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+}
+
+.foreman-project-card-clickable:hover {
+    border-color: #7aa2f7;
+    background: #1e2030;
+}
+
 .foreman-project-card-header {
     display: flex;
     justify-content: space-between;

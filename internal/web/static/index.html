@@ -5,6 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Daedalus — Web Dashboard</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
     <link rel="stylesheet" href="/static/style.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css">
 </head>
@@ -546,7 +547,7 @@
                 const sprintText = p.currentSprint
                     ? 'Sprint ' + p.currentSprint.number + ': ' + escapeHtml(p.currentSprint.title)
                     : '';
-                return `<div class="foreman-project-card">
+                return `<div class="foreman-project-card foreman-project-card-clickable" onclick="showDashboard('${escapeHtml(p.name)}'); return false;">
                     <div class="foreman-project-card-header">
                         <span class="foreman-project-name">${escapeHtml(p.name)}</span>
                         <span class="foreman-project-agent ${escapeHtml(agentClass)}">${escapeHtml(p.agentState || 'unknown')}</span>
