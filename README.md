@@ -240,6 +240,7 @@ The web UI provides:
 - **Project list** with live status (running/stopped), target, and last-used time. Auto-refreshes every 5 seconds.
 - **Start/Stop** buttons for each project (launches container in a tmux session).
 - **Attach** button that opens an xterm.js terminal in the browser, connected to the tmux session via WebSocket.
+- **History** button in the terminal view loads the last 1000 lines of scrollback from tmux, replacing the need for `Ctrl+B [` copy mode. Powered by tmux control mode (`-C`).
 
 **Security:** Authentication is enabled by default. On first launch, a random access token is generated, saved to `config.json`, and printed to the terminal. Enter the token in the login page to start a session (cookie-based, default 24h expiry). Use `--no-auth` to disable authentication. Binds to `127.0.0.1` by default (localhost only); use `--host 0.0.0.0` for remote access.
 

@@ -3,8 +3,15 @@
 package session
 
 import (
+	"io"
+	"strings"
 	"testing"
 )
+
+type nopWriteCloser struct{}
+
+func (nopWriteCloser) Write(p []byte) (int, error) { return len(p), nil }
+func (nopWriteCloser) Close() error                { return nil }
 
 // --- Parser Tests ---
 
@@ -220,6 +227,129 @@ func TestShellQuote(t *testing.T) {
 		if got != tc.want {
 			t.Errorf("shellQuote(%q) = %q, want %q", tc.input, got, tc.want)
 		}
+	}
+}
+
+// --- ControlSession tests (using mock pipes) ---
+
+func TestControlSession_ReadMessage(t *testing.T) {
+	r, w := io.Pipe()
+	cs := NewControlSession("test", nopWriteCloser{}, r, nil)
+
+	go func() {
+		w.Write([]byte("%output %0 hello\n"))
+		w.Close()
+	}()
+
+	msg, err := cs.ReadMessage()
+	if err != nil {
+		t.Fatalf("ReadMessage() error = %v", err)
+	}
+	if msg.Type != MsgOutput {
+		t.Errorf("Type = %v, want MsgOutput", msg.Type)
+	}
+	if msg.Content != "hello" {
+		t.Errorf("Content = %q, want %q", msg.Content, "hello")
+	}
+}
+
+func TestControlSession_SendCommand(t *testing.T) {
+	r, w := io.Pipe()
+	cs := NewControlSession("test", w, strings.NewReader(""), nil)
+
+	go func() {
+		buf := make([]byte, 256)
+		n, _ := r.Read(buf)
+		got := string(buf[:n])
+		if got != "list-windows\n" {
+			t.Errorf("sent = %q, want %q", got, "list-windows\n")
+		}
+		r.Close()
+	}()
+
+	if err := cs.SendCommand("list-windows"); err != nil {
+		t.Fatalf("SendCommand() error = %v", err)
+	}
+}
+
+func TestControlSession_SendKeys(t *testing.T) {
+	r, w := io.Pipe()
+	cs := NewControlSession("mysess", w, strings.NewReader(""), nil)
+
+	go func() {
+		buf := make([]byte, 256)
+		n, _ := r.Read(buf)
+		got := string(buf[:n])
+		if !strings.Contains(got, "send-keys -t mysess") {
+			t.Errorf("sent = %q, want to contain 'send-keys -t mysess'", got)
+		}
+		r.Close()
+	}()
+
+	if err := cs.SendKeys("ls"); err != nil {
+		t.Fatalf("SendKeys() error = %v", err)
+	}
+}
+
+func TestControlSession_CapturePane(t *testing.T) {
+	stdinR, stdinW := io.Pipe()
+	stdoutR, stdoutW := io.Pipe()
+	cs := NewControlSession("test", stdinW, stdoutR, nil)
+
+	// Consume the command sent to stdin
+	go func() {
+		buf := make([]byte, 512)
+		stdinR.Read(buf) // capture-pane command
+		stdinR.Close()
+	}()
+
+	// Simulate tmux response
+	go func() {
+		stdoutW.Write([]byte("%begin 123 0\n"))
+		stdoutW.Write([]byte("line one\n"))
+		stdoutW.Write([]byte("line two\n"))
+		stdoutW.Write([]byte("%end 123 0\n"))
+		stdoutW.Close()
+	}()
+
+	content, err := cs.CapturePane(100)
+	if err != nil {
+		t.Fatalf("CapturePane() error = %v", err)
+	}
+	if content != "line one\nline two" {
+		t.Errorf("CapturePane() = %q, want %q", content, "line one\nline two")
+	}
+}
+
+func TestControlSession_CapturePane_Error(t *testing.T) {
+	stdinR, stdinW := io.Pipe()
+	stdoutR, stdoutW := io.Pipe()
+	cs := NewControlSession("test", stdinW, stdoutR, nil)
+
+	go func() {
+		buf := make([]byte, 512)
+		stdinR.Read(buf)
+		stdinR.Close()
+	}()
+
+	go func() {
+		stdoutW.Write([]byte("%error 123 session not found\n"))
+		stdoutW.Close()
+	}()
+
+	_, err := cs.CapturePane(100)
+	if err == nil {
+		t.Fatal("CapturePane() expected error")
+	}
+	if !strings.Contains(err.Error(), "session not found") {
+		t.Errorf("error = %v, want 'session not found'", err)
+	}
+}
+
+func TestControlSession_Close_NilCmd(t *testing.T) {
+	cs := NewControlSession("test", nopWriteCloser{}, strings.NewReader(""), nil)
+	if err := cs.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
 	}
 }
 

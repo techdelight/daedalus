@@ -21,6 +21,17 @@ type ControlSession struct {
 	mu     sync.Mutex // guards stdin writes
 }
 
+// NewControlSession creates a ControlSession from pre-built pipes.
+// Used by tests to inject mock I/O without spawning a real tmux process.
+func NewControlSession(name string, stdin io.WriteCloser, stdout io.Reader, cmd *exec.Cmd) *ControlSession {
+	return &ControlSession{
+		name:   name,
+		cmd:    cmd,
+		stdin:  stdin,
+		reader: bufio.NewReader(stdout),
+	}
+}
+
 // StartControlSession spawns `tmux -C attach-session -t <name>` and returns
 // a ControlSession for sending commands and reading messages.
 // The caller must call Close() when done.
@@ -95,7 +106,10 @@ func (cs *ControlSession) Close() error {
 	cs.mu.Lock()
 	cs.stdin.Close()
 	cs.mu.Unlock()
-	return cs.cmd.Wait()
+	if cs.cmd != nil {
+		return cs.cmd.Wait()
+	}
+	return nil
 }
 
 // readCommandResponse reads lines until a %end or %error message, collecting

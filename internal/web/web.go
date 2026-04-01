@@ -613,7 +613,10 @@ func (ws *WebServer) handleTerminalControl(w http.ResponseWriter, r *http.Reques
 					switch m.Type {
 					case "resize":
 						var rm resizeMsg
-						json.Unmarshal(data, &rm)
+						if err := json.Unmarshal(data, &rm); err != nil {
+							log.Printf("invalid resize message for %s: %v", name, err)
+							continue
+						}
 						if rm.Cols > 0 && rm.Rows > 0 {
 							cs.ResizeWindow(int(rm.Cols), int(rm.Rows))
 						}
@@ -634,14 +637,23 @@ func (ws *WebServer) handleTerminalControl(w http.ResponseWriter, r *http.Reques
 						conn.WriteMessage(websocket.TextMessage, resp)
 					default:
 						// Unknown JSON message — send as keys
-						cs.SendKeys(string(data))
+						if err := cs.SendKeys(string(data)); err != nil {
+							log.Printf("SendKeys error for %s: %v", name, err)
+							return
+						}
 					}
 					continue
 				}
 				// Non-JSON text — send as keys
-				cs.SendKeys(string(data))
+				if err := cs.SendKeys(string(data)); err != nil {
+					log.Printf("SendKeys error for %s: %v", name, err)
+					return
+				}
 			} else if msgType == websocket.BinaryMessage {
-				cs.SendKeys(string(data))
+				if err := cs.SendKeys(string(data)); err != nil {
+					log.Printf("SendKeys error for %s: %v", name, err)
+					return
+				}
 			}
 		}
 	}()
