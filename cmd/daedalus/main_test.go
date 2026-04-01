@@ -1470,3 +1470,138 @@ func TestResolvePersonaOverlay_EmptyPersona(t *testing.T) {
 		t.Error("overlay should be nil when persona is empty")
 	}
 }
+
+func TestParseGitHubURL_FullURL(t *testing.T) {
+	tests := []struct {
+		input    string
+		wantURL  string
+		wantName string
+		wantOK   bool
+	}{
+		{"https://github.com/user/repo", "https://github.com/user/repo.git", "repo", true},
+		{"https://github.com/user/repo.git", "https://github.com/user/repo.git", "repo", true},
+		{"http://github.com/org/my-project", "https://github.com/org/my-project.git", "my-project", true},
+		{"https://github.com/user", "", "", false},
+		{"https://example.com/user/repo", "", "", false},
+	}
+	for _, tc := range tests {
+		cloneURL, name, ok := parseGitHubURL(tc.input)
+		if ok != tc.wantOK {
+			t.Errorf("parseGitHubURL(%q) ok = %v, want %v", tc.input, ok, tc.wantOK)
+			continue
+		}
+		if !ok {
+			continue
+		}
+		if cloneURL != tc.wantURL {
+			t.Errorf("parseGitHubURL(%q) cloneURL = %q, want %q", tc.input, cloneURL, tc.wantURL)
+		}
+		if name != tc.wantName {
+			t.Errorf("parseGitHubURL(%q) name = %q, want %q", tc.input, name, tc.wantName)
+		}
+	}
+}
+
+func TestParseGitHubURL_Shorthand(t *testing.T) {
+	tests := []struct {
+		input    string
+		wantURL  string
+		wantName string
+		wantOK   bool
+	}{
+		{"user/repo", "https://github.com/user/repo.git", "repo", true},
+		{"org/my-project", "https://github.com/org/my-project.git", "my-project", true},
+		{"just-a-name", "", "", false},
+		{"a/b/c", "", "", false},
+		{"/repo", "", "", false},
+		{"user/", "", "", false},
+		{"user/repo.git", "", "", false}, // contains dot
+	}
+	for _, tc := range tests {
+		cloneURL, name, ok := parseGitHubURL(tc.input)
+		if ok != tc.wantOK {
+			t.Errorf("parseGitHubURL(%q) ok = %v, want %v", tc.input, ok, tc.wantOK)
+			continue
+		}
+		if !ok {
+			continue
+		}
+		if cloneURL != tc.wantURL {
+			t.Errorf("parseGitHubURL(%q) cloneURL = %q, want %q", tc.input, cloneURL, tc.wantURL)
+		}
+		if name != tc.wantName {
+			t.Errorf("parseGitHubURL(%q) name = %q, want %q", tc.input, name, tc.wantName)
+		}
+	}
+}
+
+func TestShowConfig_SetTarget(t *testing.T) {
+	dir := t.TempDir()
+	cacheDir := filepath.Join(dir, ".cache")
+	os.MkdirAll(cacheDir, 0755)
+	regFile := filepath.Join(cacheDir, "projects.json")
+	reg := registry.NewRegistry(regFile)
+	reg.Init()
+	reg.AddProject("my-app", "/tmp/my-app", "dev")
+
+	cfg := &core.Config{
+		ScriptDir:    dir,
+		DataDir:      cacheDir,
+		ConfigTarget: "my-app",
+		ConfigSet:    []string{"target=godot"},
+	}
+
+	old := os.Stdout
+	_, w, _ := os.Pipe()
+	os.Stdout = w
+
+	err := showOrEditConfig(cfg)
+
+	w.Close()
+	os.Stdout = old
+
+	if err != nil {
+		t.Fatalf("showOrEditConfig --set target=godot failed: %v", err)
+	}
+
+	entry, _, _ := reg.GetProject("my-app")
+	if entry.Target != "godot" {
+		t.Errorf("Target = %q, want %q", entry.Target, "godot")
+	}
+}
+
+func TestShowConfig_SetInvalidTarget(t *testing.T) {
+	dir := t.TempDir()
+	cacheDir := filepath.Join(dir, ".cache")
+	os.MkdirAll(cacheDir, 0755)
+	regFile := filepath.Join(cacheDir, "projects.json")
+	reg := registry.NewRegistry(regFile)
+	reg.Init()
+	reg.AddProject("my-app", "/tmp/my-app", "dev")
+
+	cfg := &core.Config{
+		ScriptDir:    dir,
+		DataDir:      cacheDir,
+		ConfigTarget: "my-app",
+		ConfigSet:    []string{"target=invalid"},
+	}
+
+	err := showOrEditConfig(cfg)
+	if err == nil {
+		t.Fatal("expected error for invalid target")
+	}
+	if !strings.Contains(err.Error(), "invalid target") {
+		t.Errorf("error = %v, want 'invalid target'", err)
+	}
+}
+
+func TestIsValidTarget(t *testing.T) {
+	for _, target := range []string{"dev", "godot", "base", "utils"} {
+		if !core.IsValidTarget(target) {
+			t.Errorf("IsValidTarget(%q) = false, want true", target)
+		}
+	}
+	if core.IsValidTarget("invalid") {
+		t.Error("IsValidTarget(\"invalid\") = true, want false")
+	}
+}

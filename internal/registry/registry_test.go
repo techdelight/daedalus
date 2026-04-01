@@ -876,6 +876,35 @@ func TestRegistryUpdateProjectProgress_ClampsPct(t *testing.T) {
 	}
 }
 
+func TestRegistryUpdateProjectTarget(t *testing.T) {
+	dir := t.TempDir()
+	regFile := filepath.Join(dir, "projects.json")
+	reg := NewRegistry(regFile)
+	reg.Init()
+	reg.AddProject("my-app", "/tmp/my-app", "dev")
+
+	err := reg.UpdateProjectTarget("my-app", "godot")
+	if err != nil {
+		t.Fatalf("UpdateProjectTarget failed: %v", err)
+	}
+	entry, _, _ := reg.GetProject("my-app")
+	if entry.Target != "godot" {
+		t.Errorf("Target = %q, want %q", entry.Target, "godot")
+	}
+}
+
+func TestRegistryUpdateProjectTarget_NotFound(t *testing.T) {
+	dir := t.TempDir()
+	regFile := filepath.Join(dir, "projects.json")
+	reg := NewRegistry(regFile)
+	reg.Init()
+
+	err := reg.UpdateProjectTarget("nonexistent", "dev")
+	if err == nil {
+		t.Fatal("expected error for nonexistent project")
+	}
+}
+
 func TestRegistryMigrate_V1toV2(t *testing.T) {
 	dir := t.TempDir()
 	regFile := filepath.Join(dir, "projects.json")

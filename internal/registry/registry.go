@@ -385,6 +385,21 @@ func (r *Registry) UpdateDefaultFlags(name string, set map[string]string, unset 
 	return r.write(data)
 }
 
+// UpdateProjectTarget changes the build target for an existing project.
+func (r *Registry) UpdateProjectTarget(name, target string) error {
+	data, err := r.read()
+	if err != nil {
+		return err
+	}
+	entry, ok := data.Projects[name]
+	if !ok {
+		return fmt.Errorf("project '%s' not found", name)
+	}
+	entry.Target = target
+	data.Projects[name] = entry
+	return r.write(data)
+}
+
 // TouchProject updates the lastUsed timestamp for an existing project.
 func (r *Registry) TouchProject(name string) error {
 	data, err := r.read()

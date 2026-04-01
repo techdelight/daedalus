@@ -12,7 +12,7 @@
 | ~~4~~ | ~~`--auth` / `--no-auth` flag for `daedalus web` (default: auth enabled)~~ |
 | ~~5~~ | ~~Generate and display access token on first `daedalus web` launch~~ |
 | 6 | Shell toggle — switch between Claude Code and a regular project shell inside the container |
-| 7 | Switch target for existing project — change build target from TUI (e.g. `F3`) and CLI (`daedalus config <name> --set target=<stage>`) without re-registering |
+| ~~7~~ | ~~Switch target for existing project — change build target from TUI (e.g. `F3`) and CLI (`daedalus config <name> --set target=<stage>`) without re-registering~~ |
 | 8 | Bundle release assets — package runtime files into a single tarball on the GitHub Release page instead of individual files |
 | 9 | Side-by-side versions — install a new version alongside the existing one, allowing rollback or A/B comparison before switching |
 | ~~10~~ | ~~Shared skills/MCP repository — a central directory of skills and MCP server configs that can be mounted or linked into any project, avoiding per-project duplication~~ |
@@ -24,7 +24,7 @@
 | 16 | ACP integration — use the Agent Client Protocol to communicate with the Claude Code CLI, enabling Daedalus to observe agent state (thinking, tool use, idle, error) in real time |
 | ~~17~~ | ~~Roadmap in Web UI — display the project roadmap as a collapsible side panel on the right of the dashboard~~ |
 | ~~18~~ | ~~Daedalus as MCP client — have Daedalus consume the Project Management MCP server to read roadmaps, construct and manage sprints, and trigger the agent to execute sprint items~~ |
-| 19 | GitHub repo projects — start a project from a GitHub repo URL, cloning into a default project root directory |
+| ~~19~~ | ~~GitHub repo projects — start a project from a GitHub repo URL, cloning into a default project root directory~~ |
 | ~~20~~ | ~~Browser tab title — set the Web UI tab title to include the name of the active project~~ |
 | 21 | Shared Maven `.m2` repository — mount a host-side `.m2/repository` into containers so dependencies are shared across projects. Investigate overlay/merge strategy: a stable global repo (read-only base) combined with a per-container local repo for builds/downloads/installs, so containers benefit from cached artifacts without polluting the shared cache |
 | ~~22~~ | ~~Favicon — add a Daedalus favicon to the Web UI so the browser tab shows a recognizable icon~~ |
@@ -40,17 +40,15 @@
 
 ## Current Sprint
 
-### Sprint 32: Web UI Authentication (v0.28.0)
+### Sprint 33: Project Workflow Improvements (v0.29.0)
 
-Goal: protect the Web UI with token-based authentication so it can be safely exposed on a network. Generate a random access token on first launch, require it for all API/page/WebSocket access, and provide `--auth`/`--no-auth` flags for control.
+Goal: improve project registration and configuration workflow — allow switching a project's build target without re-registering, and start projects directly from a GitHub repo URL.
 
 | # | Item | Status |
 |---|------|--------|
-| 1 | Auth token generation — add `AuthToken` and `AuthSessionExpiry` fields to `AppConfig`, generate cryptographically random token on first `daedalus web` launch, persist to `config.json`, display to user on startup | Done |
-| 2 | `--auth` / `--no-auth` flags — add `Auth` field to `Config`, parse flags in `internal/config`, default to auth enabled for `web` subcommand | Done |
-| 3 | Auth middleware — wrap all HTTP routes with token validation middleware. Login page with token input form. Session cookie (`daedalus_session`) set on successful login with configurable expiry (default 24h). Exempt `/login` and `/static/` from auth | Done |
-| 4 | WebSocket auth — validate session cookie or `token` query parameter on WebSocket upgrade | Done |
-| 5 | Documentation — ARCHITECTURE, CHANGELOG, VERSION, README | Done |
+| 1 | Switch target — add `UpdateProjectTarget()` to registry, handle `target=<stage>` in `daedalus config --set`, validate against known targets | Done |
+| 2 | GitHub repo projects — detect GitHub URLs in positional args, clone repo, register as project | Done |
+| 3 | Documentation — ARCHITECTURE, CHANGELOG, VERSION | Done |
 
 ### Sprint 29: The Foreman Agent — Core Loop (v0.24.0)
 
@@ -269,6 +267,18 @@ Goal: improve the build workflow, add diagnostic tooling, and set up release doc
 ---
 
 ## Sprint History
+
+### Sprint 32: Web UI Authentication (v0.28.0)
+
+Delivered 2026-04-01. Token-based auth for Web UI with login page, session cookies, and --auth/--no-auth flags.
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | Auth token generation — `AuthToken`/`AuthExpiry` in `AppConfig`, token persisted to `config.json` | Done |
+| 2 | `--auth` / `--no-auth` flags — default auth enabled for `web` subcommand | Done |
+| 3 | Auth middleware — login page, session cookie, exempt paths | Done |
+| 4 | WebSocket auth — cookie or `token` query parameter | Done |
+| 5 | Documentation — ARCHITECTURE, CHANGELOG, VERSION, README | Done |
 
 ### Sprint 31: Web UI Polish & Skill Paths (v0.27.0)
 
