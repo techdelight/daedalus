@@ -18,7 +18,10 @@ import (
 	"github.com/techdelight/daedalus/internal/agentstate"
 	"github.com/techdelight/daedalus/internal/docker"
 	"github.com/techdelight/daedalus/internal/executor"
+	"github.com/techdelight/daedalus/internal/foreman"
+	"github.com/techdelight/daedalus/internal/mcpclient"
 	"github.com/techdelight/daedalus/internal/progress"
+	"github.com/techdelight/daedalus/internal/programme"
 	"github.com/techdelight/daedalus/internal/registry"
 
 	"github.com/gorilla/websocket"
@@ -1379,5 +1382,374 @@ func TestHandleDeleteProgramme_NotFound(t *testing.T) {
 
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
+	}
+}
+
+// --- Tests for exported handler wrappers and NewWebServerForTest ---
+
+func TestNewWebServerForTest(t *testing.T) {
+	// Arrange
+	tmp := t.TempDir()
+	regPath := filepath.Join(tmp, "projects.json")
+	reg := registry.NewRegistry(regPath)
+	if err := reg.Init(); err != nil {
+		t.Fatalf("registry init: %v", err)
+	}
+	mock := executor.NewMockExecutor()
+	d := docker.NewDocker(mock, filepath.Join(tmp, "docker-compose.yml"))
+	cfg := &core.Config{ScriptDir: tmp, DataDir: tmp, ImagePrefix: "test"}
+
+	// Act
+	ws := NewWebServerForTest(reg, d, mock, cfg)
+
+	// Assert
+	if ws == nil {
+		t.Fatal("NewWebServerForTest returned nil")
+	}
+	if ws.registry != reg {
+		t.Error("registry not set correctly")
+	}
+	if ws.executor != mock {
+		t.Error("executor not set correctly")
+	}
+	if ws.cfg != cfg {
+		t.Error("cfg not set correctly")
+	}
+	if ws.observer == nil {
+		t.Error("observer should be non-nil")
+	}
+}
+
+func TestHandleListProjects_ExportedWrapper(t *testing.T) {
+	// Arrange
+	ws, _ := setupWebTest(t)
+	if err := ws.registry.AddProject("wrap-test", "/path/wrap", "dev"); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest("GET", "/api/projects", nil)
+	rec := httptest.NewRecorder()
+
+	// Act
+	ws.HandleListProjects(rec, req)
+
+	// Assert
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	var projects []projectJSON
+	if err := json.Unmarshal(rec.Body.Bytes(), &projects); err != nil {
+		t.Fatalf("cannot decode response: %v", err)
+	}
+	if len(projects) != 1 {
+		t.Fatalf("got %d projects, want 1", len(projects))
+	}
+	if projects[0].Name != "wrap-test" {
+		t.Errorf("name = %q, want %q", projects[0].Name, "wrap-test")
+	}
+}
+
+func TestHandleStartProject_ExportedWrapper(t *testing.T) {
+	// Arrange
+	ws, mock := setupWebTest(t)
+	if err := ws.registry.AddProject("start-wrap", "/path/start-wrap", "dev"); err != nil {
+		t.Fatal(err)
+	}
+	mock.Results["docker"] = executor.MockResult{Output: ""}
+	if err := os.MkdirAll(filepath.Join(ws.cfg.ScriptDir, ".cache"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/projects/{name}/start", ws.HandleStartProject)
+	req := httptest.NewRequest("POST", "/api/projects/start-wrap/start", nil)
+	rec := httptest.NewRecorder()
+
+	// Act
+	mux.ServeHTTP(rec, req)
+
+	// Assert
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var resp map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("cannot decode response: %v", err)
+	}
+	if resp["status"] != "started" {
+		t.Errorf("status = %q, want %q", resp["status"], "started")
+	}
+}
+
+func TestHandleStopProject_ExportedWrapper(t *testing.T) {
+	// Arrange
+	ws, mock := setupWebTest(t)
+	if err := ws.registry.AddProject("stop-wrap", "/path/stop-wrap", "dev"); err != nil {
+		t.Fatal(err)
+	}
+	mock.Results["docker"] = executor.MockResult{Output: "claude-run-stop-wrap\n"}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/projects/{name}/stop", ws.HandleStopProject)
+	req := httptest.NewRequest("POST", "/api/projects/stop-wrap/stop", nil)
+	rec := httptest.NewRecorder()
+
+	// Act
+	mux.ServeHTTP(rec, req)
+
+	// Assert
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var resp map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("cannot decode response: %v", err)
+	}
+	if resp["status"] != "stopped" {
+		t.Errorf("status = %q, want %q", resp["status"], "stopped")
+	}
+}
+
+func TestHandleRenameProject_ExportedWrapper(t *testing.T) {
+	// Arrange
+	ws, mock := setupWebTest(t)
+	if err := ws.registry.AddProject("rename-wrap", "/path/rename", "dev"); err != nil {
+		t.Fatal(err)
+	}
+	mock.Results["docker"] = executor.MockResult{Output: ""}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/projects/{name}/rename", ws.HandleRenameProject)
+	req := httptest.NewRequest("POST", "/api/projects/rename-wrap/rename",
+		strings.NewReader(`{"newName":"renamed-wrap"}`))
+	rec := httptest.NewRecorder()
+
+	// Act
+	mux.ServeHTTP(rec, req)
+
+	// Assert
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var resp map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("cannot decode response: %v", err)
+	}
+	if resp["status"] != "renamed" {
+		t.Errorf("status = %q, want %q", resp["status"], "renamed")
+	}
+}
+
+func TestHandleRenameProject_BadJSON(t *testing.T) {
+	// Arrange
+	ws, mock := setupWebTest(t)
+	if err := ws.registry.AddProject("badjson-app", "/path/app", "dev"); err != nil {
+		t.Fatal(err)
+	}
+	mock.Results["docker"] = executor.MockResult{Output: ""}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/projects/{name}/rename", ws.handleRenameProject)
+	req := httptest.NewRequest("POST", "/api/projects/badjson-app/rename",
+		strings.NewReader("not json"))
+	rec := httptest.NewRecorder()
+
+	// Act
+	mux.ServeHTTP(rec, req)
+
+	// Assert
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+}
+
+func TestHandleSendEnter_ExportedWrapper(t *testing.T) {
+	// Arrange
+	ws, mock := setupWebTest(t)
+	if err := ws.registry.AddProject("enter-wrap", "/path/enter-wrap", "dev"); err != nil {
+		t.Fatal(err)
+	}
+	mock.Results["tmux"] = executor.MockResult{Output: ""}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/projects/{name}/enter", ws.HandleSendEnter)
+	req := httptest.NewRequest("POST", "/api/projects/enter-wrap/enter", nil)
+	rec := httptest.NewRecorder()
+
+	// Act
+	mux.ServeHTTP(rec, req)
+
+	// Assert
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var resp map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("cannot decode response: %v", err)
+	}
+	if resp["status"] != "ok" {
+		t.Errorf("status = %q, want %q", resp["status"], "ok")
+	}
+}
+
+func TestHandleDashboard_ExportedWrapper(t *testing.T) {
+	// Arrange
+	ws, mock := setupWebTest(t)
+	if err := ws.registry.AddProject("dash-wrap", "/path/dash", "dev"); err != nil {
+		t.Fatal(err)
+	}
+	mock.Results["docker"] = executor.MockResult{Output: ""}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/projects/{name}/dashboard", ws.HandleDashboard)
+	req := httptest.NewRequest("GET", "/api/projects/dash-wrap/dashboard", nil)
+	rec := httptest.NewRecorder()
+
+	// Act
+	mux.ServeHTTP(rec, req)
+
+	// Assert
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var dash dashboardJSON
+	if err := json.Unmarshal(rec.Body.Bytes(), &dash); err != nil {
+		t.Fatalf("cannot decode response: %v", err)
+	}
+	if dash.Name != "dash-wrap" {
+		t.Errorf("name = %q, want %q", dash.Name, "dash-wrap")
+	}
+}
+
+func TestHandleRoadmap_ExportedWrapper(t *testing.T) {
+	// Arrange
+	ws, _ := setupWebTest(t)
+	projDir := t.TempDir()
+	if err := ws.registry.AddProject("road-wrap", projDir, "dev"); err != nil {
+		t.Fatal(err)
+	}
+	roadmapContent := `## Current Sprint
+
+### Sprint 1: Init (v0.1.0)
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | Setup | Done |
+`
+	if err := os.WriteFile(filepath.Join(projDir, "ROADMAP.md"), []byte(roadmapContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/projects/{name}/roadmap", ws.HandleRoadmap)
+	req := httptest.NewRequest("GET", "/api/projects/road-wrap/roadmap", nil)
+	rec := httptest.NewRecorder()
+
+	// Act
+	mux.ServeHTTP(rec, req)
+
+	// Assert
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var resp roadmapJSON
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("cannot decode response: %v", err)
+	}
+	if len(resp.Sprints) != 1 {
+		t.Fatalf("got %d sprints, want 1", len(resp.Sprints))
+	}
+}
+
+func TestHandleRoadmap_ReadError(t *testing.T) {
+	// Arrange: project directory points to a path where ROADMAP.md exists
+	// but is unreadable (a directory instead of a file triggers a read error
+	// that is NOT os.IsNotExist).
+	ws, _ := setupWebTest(t)
+	projDir := t.TempDir()
+	if err := ws.registry.AddProject("road-err", projDir, "dev"); err != nil {
+		t.Fatal(err)
+	}
+	// Create ROADMAP.md as a directory — os.ReadFile will fail with a non-IsNotExist error.
+	if err := os.Mkdir(filepath.Join(projDir, "ROADMAP.md"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/projects/{name}/roadmap", ws.handleRoadmap)
+	req := httptest.NewRequest("GET", "/api/projects/road-err/roadmap", nil)
+	rec := httptest.NewRecorder()
+
+	// Act
+	mux.ServeHTTP(rec, req)
+
+	// Assert
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusInternalServerError, rec.Body.String())
+	}
+}
+
+func TestHandleAgentState_ExportedWrapper(t *testing.T) {
+	// Arrange
+	ws, mock := setupWebTest(t)
+	if err := ws.registry.AddProject("state-wrap", "/path/state-wrap", "dev"); err != nil {
+		t.Fatal(err)
+	}
+	mock.Results["docker"] = executor.MockResult{Output: "running\n"}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/projects/{name}/state", ws.HandleAgentState)
+	req := httptest.NewRequest("GET", "/api/projects/state-wrap/state", nil)
+	rec := httptest.NewRecorder()
+
+	// Act
+	mux.ServeHTTP(rec, req)
+
+	// Assert
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var resp map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("cannot decode response: %v", err)
+	}
+	if resp["state"] != "running" {
+		t.Errorf("state = %q, want %q", resp["state"], "running")
+	}
+}
+
+func TestHandleForemanStop_WithActiveForeman(t *testing.T) {
+	// Arrange
+	ws, _ := setupWebTest(t)
+
+	// Create a real Foreman instance in idle state, then set it on the WebServer.
+	progDir := ws.cfg.ProgrammesDir()
+	if err := os.MkdirAll(progDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	progStore := programme.New(progDir)
+	mcpClient := mcpclient.New()
+	obs := foreman.NewDefaultObserver(ws.observer)
+	cfg := core.ForemanConfig{Programme: "test-prog", PollSeconds: 30}
+	ws.foreman = foreman.New(cfg, progStore, ws.registry, mcpClient, obs)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/foreman/stop", ws.handleForemanStop)
+	req := httptest.NewRequest("POST", "/api/foreman/stop", nil)
+	rec := httptest.NewRecorder()
+
+	// Act
+	mux.ServeHTTP(rec, req)
+
+	// Assert
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var resp map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("cannot decode response: %v", err)
+	}
+	if resp["status"] != "stopped" {
+		t.Errorf("status = %q, want %q", resp["status"], "stopped")
 	}
 }
