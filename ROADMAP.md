@@ -35,6 +35,8 @@
 | 27 | Decouple tooling from agent runner images — keep base agent containers minimal and let the agent install additional tools at runtime. Provide container snapshotting so customized environments persist across restarts. Key challenge: when the base image is upgraded, how do we replay tool installations? Options: (a) maintain a declarative tool registry (tool name + version + install method) that a provisioner re-applies on new base images — portable but subjective per tool; (b) record raw install commands as a replayable script — simple but fragile across base image changes; (c) hybrid approach with a registry of well-known tools (apt, pip, npm) plus an escape hatch for arbitrary commands. Needs design spike to evaluate trade-offs |
 | ~~28~~ | ~~Active project filter — add a toggle/filter to the Web UI and TUI that shows only running projects. Useful when the project list grows large and the user wants to focus on what is currently active~~ |
 | 29 | Mobile WebSocket stability — investigate and fix regular disconnects on mobile web clients (possible causes: browser background tab throttling, network switches between Wi-Fi and cellular, WebSocket ping/pong timeout tuning, reconnect logic) |
+| 32 | Foreman UI project navigation — clicking a project in the Foreman web UI opens that project's detail view |
+| 33 | tmux control mode integration — use `tmux -C` control mode instead of raw PTY for terminal interaction. Enables native scrollback access (replacing tmux keybind-based scrolling), clean session disconnect/reconnect, and machine-parseable event notifications for agent observability |
 
 ## Current Sprint
 

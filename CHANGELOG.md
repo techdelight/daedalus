@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.26.2] - 2026-04-01
+
+### Added
+- Backlog item #32: Foreman UI project navigation — clicking a project opens its detail view.
+- Backlog item #33: tmux control mode integration — native scrollback, clean disconnect/reconnect, event notifications.
+
 ## [0.26.1] - 2026-03-30
 
 ### Added
