@@ -71,6 +71,45 @@ func TestRelativeTime_OneDay(t *testing.T) {
 	}
 }
 
+func TestParseUTC(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		wantErr bool
+		wantY   int
+		wantM   time.Month
+		wantD   int
+	}{
+		{"valid timestamp", "2025-06-15T10:30:00Z", false, 2025, time.June, 15},
+		{"epoch", "1970-01-01T00:00:00Z", false, 1970, time.January, 1},
+		{"empty string", "", true, 0, 0, 0},
+		{"invalid format", "not-a-date", true, 0, 0, 0},
+		{"missing Z suffix", "2025-06-15T10:30:00", true, 0, 0, 0},
+		{"date only", "2025-06-15", true, 0, 0, 0},
+		{"wrong separator", "2025-06-15 10:30:00Z", true, 0, 0, 0},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// Act
+			got, err := ParseUTC(tc.input)
+
+			// Assert
+			if tc.wantErr {
+				if err == nil {
+					t.Errorf("ParseUTC(%q) = %v, want error", tc.input, got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("ParseUTC(%q) returned unexpected error: %v", tc.input, err)
+			}
+			if got.Year() != tc.wantY || got.Month() != tc.wantM || got.Day() != tc.wantD {
+				t.Errorf("ParseUTC(%q) = %v, want year=%d month=%v day=%d", tc.input, got, tc.wantY, tc.wantM, tc.wantD)
+			}
+		})
+	}
+}
+
 func TestRelativeTime_InvalidFormat(t *testing.T) {
 	got := RelativeTime("not-a-date")
 	if got != "not-a-date" {

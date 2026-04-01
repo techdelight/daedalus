@@ -380,6 +380,66 @@ func TestApplyRegistryEntry_NormalizesRunnerTarget(t *testing.T) {
 	}
 }
 
+func TestValidTargets(t *testing.T) {
+	// Arrange / Act
+	targets := ValidTargets()
+
+	// Assert
+	if len(targets) == 0 {
+		t.Fatal("ValidTargets() returned empty slice")
+	}
+	expected := map[string]bool{"dev": true, "godot": true, "base": true, "utils": true}
+	for _, tgt := range targets {
+		if !expected[tgt] {
+			t.Errorf("unexpected target %q in ValidTargets()", tgt)
+		}
+	}
+	if len(targets) != len(expected) {
+		t.Errorf("ValidTargets() returned %d targets, want %d", len(targets), len(expected))
+	}
+}
+
+func TestIsValidTarget(t *testing.T) {
+	tests := []struct {
+		name   string
+		target string
+		want   bool
+	}{
+		{"valid dev", "dev", true},
+		{"valid godot", "godot", true},
+		{"valid base", "base", true},
+		{"valid utils", "utils", true},
+		{"invalid empty", "", false},
+		{"invalid unknown", "production", false},
+		{"case sensitive", "Dev", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// Act
+			got := IsValidTarget(tc.target)
+
+			// Assert
+			if got != tc.want {
+				t.Errorf("IsValidTarget(%q) = %v, want %v", tc.target, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestConfig_ProgrammesDir(t *testing.T) {
+	// Arrange
+	cfg := &Config{DataDir: "/data/daedalus"}
+
+	// Act
+	got := cfg.ProgrammesDir()
+
+	// Assert
+	want := filepath.Join("/data/daedalus", "programmes")
+	if got != want {
+		t.Errorf("ProgrammesDir() = %q, want %q", got, want)
+	}
+}
+
 func TestApplyRegistryEntry_NilDefaultFlags(t *testing.T) {
 	cfg := &Config{Target: "dev"}
 	entry := ProjectEntry{

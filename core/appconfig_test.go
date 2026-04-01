@@ -176,6 +176,76 @@ func TestApplyAppConfig_LegacyAgent_IgnoredWhenRunnerSet(t *testing.T) {
 	}
 }
 
+func intPtr(n int) *int { return &n }
+
+func TestApplyAppConfig_AuthToken_Applied(t *testing.T) {
+	// Arrange
+	cfg := &Config{ImagePrefix: "techdelight/claude-runner"}
+
+	// Act
+	ApplyAppConfig(cfg, AppConfig{AuthToken: strPtr("secret-token-123")})
+
+	// Assert
+	if cfg.AuthToken != "secret-token-123" {
+		t.Errorf("AuthToken = %q, want %q", cfg.AuthToken, "secret-token-123")
+	}
+}
+
+func TestApplyAppConfig_AuthToken_CLIWins(t *testing.T) {
+	// Arrange
+	cfg := &Config{AuthToken: "cli-token", ImagePrefix: "techdelight/claude-runner"}
+
+	// Act
+	ApplyAppConfig(cfg, AppConfig{AuthToken: strPtr("config-token")})
+
+	// Assert
+	if cfg.AuthToken != "cli-token" {
+		t.Errorf("AuthToken = %q, want %q (CLI should win)", cfg.AuthToken, "cli-token")
+	}
+}
+
+func TestApplyAppConfig_AuthExpiry_Applied(t *testing.T) {
+	// Arrange
+	cfg := &Config{ImagePrefix: "techdelight/claude-runner"}
+
+	// Act
+	ApplyAppConfig(cfg, AppConfig{AuthExpiry: intPtr(48)})
+
+	// Assert
+	if cfg.AuthExpiry != 48 {
+		t.Errorf("AuthExpiry = %d, want %d", cfg.AuthExpiry, 48)
+	}
+}
+
+func TestApplyAppConfig_AuthExpiry_CLIWins(t *testing.T) {
+	// Arrange
+	cfg := &Config{AuthExpiry: 12, ImagePrefix: "techdelight/claude-runner"}
+
+	// Act
+	ApplyAppConfig(cfg, AppConfig{AuthExpiry: intPtr(48)})
+
+	// Assert
+	if cfg.AuthExpiry != 12 {
+		t.Errorf("AuthExpiry = %d, want %d (CLI should win)", cfg.AuthExpiry, 12)
+	}
+}
+
+func TestApplyAppConfig_AuthToken_NilNoChange(t *testing.T) {
+	// Arrange
+	cfg := &Config{ImagePrefix: "techdelight/claude-runner"}
+
+	// Act
+	ApplyAppConfig(cfg, AppConfig{})
+
+	// Assert
+	if cfg.AuthToken != "" {
+		t.Errorf("AuthToken = %q, want empty", cfg.AuthToken)
+	}
+	if cfg.AuthExpiry != 0 {
+		t.Errorf("AuthExpiry = %d, want 0", cfg.AuthExpiry)
+	}
+}
+
 func TestApplyAppConfig_AllFields(t *testing.T) {
 	cfg := &Config{ImagePrefix: "techdelight/claude-runner"}
 	ApplyAppConfig(cfg, AppConfig{
