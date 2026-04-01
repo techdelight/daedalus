@@ -4,6 +4,129 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.26.2] - 2026-04-01
+
+### Added
+- Backlog item #32: Foreman UI project navigation — clicking a project opens its detail view.
+- Backlog item #33: tmux control mode integration — native scrollback, clean disconnect/reconnect, event notifications.
+
+## [0.26.1] - 2026-03-30
+
+### Added
+- **MCP server reconciliation on startup** — entrypoint now ensures daedalus-specific MCP servers (`skill-catalog`, `project-mgmt`) are present in the runner's config. Missing entries are added from defaults; existing entries and user-added servers are preserved.
+
+### Fixed
+- `project-mgmt-mcp` panic on startup caused by `google/jsonschema-go` v0.4.2 rejecting `description=` prefixed struct tags. Tags now use plain description strings.
+- Added 12 tests for `project-mgmt-mcp` covering all MCP tools, error handling, and version fallback.
+
+## [0.26.0] - 2026-03-30
+
+### Added
+- **Foreman web frontend** — dedicated view accessible from the main Daedalus page for managing the Foreman and its programmes.
+  - Foreman status panel with live state indicator, programme selector, and Start/Stop controls.
+  - Active plan display with project cards showing progress bars, agent state badges, and current sprint info.
+  - Cascade event log with color-coded action badges (propagate/notify/skip).
+  - Full programme CRUD: create, edit, and delete programmes with project lists and dependency edges.
+- REST API endpoints for programme management: `GET/POST /api/programmes`, `GET/PUT/DELETE /api/programmes/{name}`.
+
+### Changed
+- Dev and copilot-dev Docker targets now install Go 1.25 from the official tarball instead of Debian's `golang-go` package (was Go 1.19).
+- `build.sh` and `test.sh` updated to use `golang:1.25-bookworm` image.
+
+## [0.25.1] - 2026-03-30
+
+### Fixed
+- Foreman `Start()` race condition — hold lock through goroutine launch to prevent TOCTOU between state check and `go f.run()`.
+- Foreman `Stop()` double-close panic — added guard flag to prevent closing `stopCh` twice.
+- `mcpclient.GetProjectStatus()` now propagates errors instead of silently returning partial data.
+- `agentstate.ContainerObserver` returns `StateUnknown` (not `StateStopped`) when Docker is unreachable, preventing false "stopped" reports.
+- Foreman planner and monitor now check registry and MCP client errors instead of silently ignoring them.
+- `programme.Store.List()` returns error on corrupt JSON files instead of silently skipping them.
+- Extracted shared `buildSummary()` function to eliminate duplication between planner and monitor.
+- Added missing tests: `DefaultObserver` (GetState, IsActive), Foreman web handlers (status, start, stop), `programme.Store.Update()`, `agentstate` state constants and additional container states.
+
+## [0.25.0] - 2026-03-30
+
+### Added
+- **Programme-level cascade orchestration** — when an upstream project completes, the Foreman evaluates which downstream projects need work based on the dependency graph and cascade strategy.
+- `CascadeStrategy` type on `DependencyEdge` — `auto` (Foreman acts), `notify` (flag for human approval), `manual` (skip). Defaults to `notify`.
+- `daedalus programmes cascade <name> [--dry-run]` — preview cascade propagation for a programme. Shows which downstream projects would be affected, with color-coded actions.
+- Cascade event log in Foreman status API response (`cascadeLog` field).
+- `EvaluateCascade()` function evaluates cascade actions for completed projects.
+
+## [0.24.0] - 2026-03-30
+
+### Added
+- **The Foreman** — AI-driven project manager that monitors programmes. Reads roadmaps, builds plans, monitors agent state, and reports through the Web UI. Runs as a background goroutine inside `daedalus web`.
+- `daedalus foreman` CLI subcommand — `start`, `stop`, `status` commands (delegates to Web UI API).
+- Foreman REST API — `POST /api/foreman/start` (starts Foreman for a programme), `POST /api/foreman/stop`, `GET /api/foreman/status` (returns state, plan, and message).
+- Foreman status indicator in Web UI header — shows "Foreman: monitoring" when active.
+- `internal/foreman` package — `Foreman` (main loop), `Planner` (builds plans from programme data), `Monitor` (polls project and agent state).
+- `core/foreman.go` — `ForemanConfig`, `ForemanState`, `ForemanPlan`, `ForemanProject`, `ForemanStatus` pure types.
+- Shell completions for `foreman` subcommand in bash, zsh, and fish.
+
+## [0.23.0] - 2026-03-30
+
+### Added
+- **Agent observability** — `internal/agentstate` package with `Observer` interface and `ContainerObserver` implementation that determines agent state from Docker container status.
+- `GET /api/projects/{name}/state` REST endpoint returning current agent state (running, stopped, idle, error, unknown).
+- Pulsing animation on running project status dots in the Web UI.
+- `internal/foreman/observer.go` — `AgentObserver` interface and `DefaultObserver` wrapper for use in the Foreman loop.
+
+## [0.22.0] - 2026-03-30
+
+### Added
+- `internal/mcpclient` package — host-side MCP client that reads project progress and roadmap data from bind-mounted files. Provides `ReadProgress()`, `ReadRoadmap()`, `GetCurrentSprint()`, and `GetProjectStatus()` methods.
+- `daedalus programmes show <name>` now displays aggregated member project status — progress percentage, version, and current sprint for each project in the programme.
+
+### Changed
+- `programmes show` output changed from raw JSON dump to a formatted display with programme header, dependency graph, and per-project status table.
+
+## [0.21.0] - 2026-03-30
+
+### Added
+- **Roadmap parsing** — `ParseRoadmap()` in `core/roadmap.go` parses Daedalus-native ROADMAP.md files into structured `Sprint` and `SprintItem` data. Detects current vs historical sprints.
+- `GET /api/projects/{name}/roadmap` REST endpoint returning parsed sprint data from the project's ROADMAP.md.
+- **Roadmap panel in Web UI** — click "Show Roadmap" in the project dashboard to see all sprints with items, statuses, goals, and version tags. Current sprints are highlighted.
+- `get_roadmap` and `get_current_sprint` MCP tools in `project-mgmt-mcp` — agents can query the project's ROADMAP.md for sprint data.
+- `core/sprint.go` — `Sprint`, `SprintItem`, `SprintStatus` pure types.
+
+## [0.20.0] - 2026-03-30
+
+### Added
+- **Multi-project programmes** — declare named collections of related projects with dependency relationships. Foundation for programme-level orchestration.
+- `daedalus programmes` CLI subcommand — `list` (shows all programmes), `show <name>` (prints full config), `create <name>` (creates empty programme), `add-project <programme> <project>` (adds project to programme), `add-dep <programme> <upstream> <downstream>` (declares dependency), `remove <name>` (deletes programme).
+- `core/programme.go` — `Programme`, `DependencyEdge`, `DependencyGraph` types with topological sort, cycle detection, upstream/downstream queries (pure functions, zero I/O).
+- `internal/programme` package — `Store` with `List`, `Read`, `Create`, `Update`, `Remove`, `AddProject`, `AddDep` operations, persisted as JSON files in `<data-dir>/programmes/`.
+- Shell completions for `programmes` subcommand in bash, zsh, and fish.
+- `ProgrammesDir()` method on `Config` for programme storage path.
+
+## [0.19.0] - 2026-03-30
+
+### Added
+- **Project management MCP server** (`project-mgmt-mcp`) — runs inside each container, providing 4 tools via MCP stdio: `report_progress` (set completion %), `set_vision`, `set_version`, `get_progress`. Claude Code can use these tools to report project status back to Daedalus in real time.
+- `internal/progress` package — read/write operations for `.daedalus/progress.json` files with partial-update semantics.
+- `.daedalus/` directory mounted into containers for progress data exchange between agent and host.
+- Dashboard endpoint now reads `.daedalus/progress.json` from the project directory, preferring real-time MCP-reported data over registry data.
+
+### Changed
+- `BuildExtraArgs` now mounts the project's `.daedalus/` directory into containers at `/workspace/.daedalus`.
+- `build.sh` now builds three binaries: `daedalus`, `skill-catalog-mcp`, and `project-mgmt-mcp`.
+- `claude.json` registers the `project-mgmt` MCP server alongside `skill-catalog`.
+- `entrypoint.sh` ensures `/workspace/.daedalus/` directory exists on container startup.
+- `Dockerfile` copies `project-mgmt-mcp` binary into the image.
+
+## [0.18.0] - 2026-03-30
+
+### Added
+- **Project management dashboard** — click any project name in the Web UI to see a detail panel with progress bar, version, total session time, session count, and vision statement.
+- `GET /api/projects/{name}/dashboard` REST endpoint returning full project dashboard data (progress percentage, vision, project version, total session time, session count, running status).
+- `UpdateProjectProgress(name, pct, vision, projectVersion)` registry method for updating project progress metadata. Supports partial updates (only non-zero/non-empty values applied) and clamps percentage to 0-100.
+- `ProgressPct`, `Vision`, and `ProjectVersion` fields on `ProjectEntry` for storing per-project progress metadata.
+
+### Changed
+- Registry schema upgraded from v2 to v3 (automatic migration on first read). New fields default to zero values — no data loss.
+
 ## [0.17.0] - 2026-03-29
 
 ### Added

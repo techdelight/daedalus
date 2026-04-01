@@ -30,7 +30,7 @@ _daedalus() {
     local cur prev words cword
     _init_completion || return
 
-    local subcommands="list prune remove rename config tui web completion skills runners personas"
+    local subcommands="list prune remove rename config tui web completion skills runners personas programmes foreman"
     local flags="--build --target --resume -p --no-tmux --debug --dind --display --force --port --host --no-color --runner --persona --help -h"
 
     # Complete subcommands and flags for the first argument
@@ -62,6 +62,12 @@ _daedalus() {
         personas)
             COMPREPLY=($(compgen -W "list show create remove" -- "${cur}"))
             ;;
+        programmes)
+            COMPREPLY=($(compgen -W "list show create add-project add-dep remove cascade" -- "${cur}"))
+            ;;
+        foreman)
+            COMPREPLY=($(compgen -W "start stop status" -- "${cur}"))
+            ;;
         *)
             COMPREPLY=($(compgen -W "${flags}" -- "${cur}"))
             ;;
@@ -90,6 +96,8 @@ _daedalus() {
         'skills:Manage shared skill catalog'
         'runners:List or show built-in runner profiles'
         'personas:Manage named persona configurations'
+        'programmes:Manage multi-project programmes'
+        'foreman:Manage the Foreman AI project manager'
     )
 
     flags=(
@@ -142,6 +150,12 @@ _daedalus() {
                 personas)
                     _values 'action' list show create remove
                     ;;
+                programmes)
+                    _values 'action' list show create add-project add-dep remove cascade
+                    ;;
+                foreman)
+                    _values 'action' start stop status
+                    ;;
                 *)
                     _describe -t flags 'flag' flags
                     ;;
@@ -168,6 +182,8 @@ complete -c daedalus -n '__fish_use_subcommand' -a 'completion' -d 'Print shell 
 complete -c daedalus -n '__fish_use_subcommand' -a 'skills' -d 'Manage shared skill catalog'
 complete -c daedalus -n '__fish_use_subcommand' -a 'runners' -d 'List or show built-in runner profiles'
 complete -c daedalus -n '__fish_use_subcommand' -a 'personas' -d 'Manage named persona configurations'
+complete -c daedalus -n '__fish_use_subcommand' -a 'programmes' -d 'Manage multi-project programmes'
+complete -c daedalus -n '__fish_use_subcommand' -a 'foreman' -d 'Manage the Foreman AI project manager'
 
 # Global flags
 complete -c daedalus -l build -d 'Force rebuild the Docker image'
@@ -200,6 +216,12 @@ complete -c daedalus -n '__fish_seen_subcommand_from runners' -a 'list show'
 
 # Personas subcommand
 complete -c daedalus -n '__fish_seen_subcommand_from personas' -a 'list show create remove'
+
+# Programmes subcommand
+complete -c daedalus -n '__fish_seen_subcommand_from programmes' -a 'list show create add-project add-dep remove cascade'
+
+# Foreman subcommand
+complete -c daedalus -n '__fish_seen_subcommand_from foreman' -a 'start stop status'
 
 # Dynamic project names for remove and config
 complete -c daedalus -n '__fish_seen_subcommand_from remove rename config' -a '(daedalus list 2>/dev/null | tail -n +3 | string match -r "^\S+")'

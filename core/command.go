@@ -67,6 +67,9 @@ func BuildExtraArgs(cfg *Config, displayArgs []string, overlay *OverlayPaths) []
 	// Always mount the shared skill catalog
 	args = append(args, "-v", cfg.SkillsDir()+":/opt/skills")
 
+	// Mount .daedalus/ for project management MCP server progress reporting
+	args = append(args, "-v", cfg.ProjectDir+"/.daedalus:/workspace/.daedalus")
+
 	if cfg.DinD {
 		args = append(args, "-v", "/var/run/docker.sock:/var/run/docker.sock")
 	}

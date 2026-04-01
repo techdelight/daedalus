@@ -5,6 +5,10 @@
     "skill-catalog": {
       "command": "/usr/local/bin/skill-catalog-mcp",
       "args": ["--catalog-dir", "/opt/skills", "--skills-dir", "/workspace/.claude/skills"]
+    },
+    "project-mgmt": {
+      "command": "/usr/local/bin/project-mgmt-mcp",
+      "args": ["--project-dir", "/workspace"]
     }
   }
 }

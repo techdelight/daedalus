@@ -11,10 +11,10 @@ import (
 )
 
 func TestBashCompletion_ContainsSubcommands(t *testing.T) {
-	if !strings.Contains(bashCompletion, "skills runners personas") {
-		t.Error("bash completion missing skills/runners/personas subcommands")
+	if !strings.Contains(bashCompletion, "skills runners personas programmes") {
+		t.Error("bash completion missing skills/runners/personas/programmes subcommands")
 	}
-	if !strings.Contains(bashCompletion, "list prune remove rename config tui web completion skills runners personas") {
+	if !strings.Contains(bashCompletion, "list prune remove rename config tui web completion skills runners personas programmes") {
 		t.Error("bash completion missing subcommands")
 	}
 	if !strings.Contains(bashCompletion, "complete -F _daedalus daedalus") {
@@ -222,6 +222,24 @@ func TestFishCompletion_RunnerFlag(t *testing.T) {
 func TestFishCompletion_PersonaFlag(t *testing.T) {
 	if !strings.Contains(fishCompletion, "-l persona") {
 		t.Error("fish completion missing persona flag")
+	}
+}
+
+func TestBashCompletion_ProgrammesCascadeSubcommand(t *testing.T) {
+	if !strings.Contains(bashCompletion, "cascade") {
+		t.Error("bash completion missing cascade subcommand for programmes")
+	}
+}
+
+func TestZshCompletion_ProgrammesCascadeSubcommand(t *testing.T) {
+	if !strings.Contains(zshCompletion, "cascade") {
+		t.Error("zsh completion missing cascade subcommand for programmes")
+	}
+}
+
+func TestFishCompletion_ProgrammesCascadeSubcommand(t *testing.T) {
+	if !strings.Contains(fishCompletion, "cascade") {
+		t.Error("fish completion missing cascade subcommand for programmes")
 	}
 }
 

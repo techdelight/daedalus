@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/techdelight/daedalus/core"
 	"github.com/techdelight/daedalus/internal/executor"
 )
 
@@ -212,6 +213,31 @@ func TestComposeRunCommand_WithExtraArgs(t *testing.T) {
 	}
 
 	_ = mock
+}
+
+func TestSetupProjectDirs(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &core.Config{ProjectDir: dir}
+
+	if err := SetupProjectDirs(cfg); err != nil {
+		t.Fatalf("SetupProjectDirs: %v", err)
+	}
+
+	for _, sub := range []string{".daedalus", ".claude/skills"} {
+		info, err := os.Stat(dir + "/" + sub)
+		if err != nil {
+			t.Errorf("%s not created: %v", sub, err)
+			continue
+		}
+		if !info.IsDir() {
+			t.Errorf("%s is not a directory", sub)
+		}
+	}
+
+	// Idempotent: calling again must not fail.
+	if err := SetupProjectDirs(cfg); err != nil {
+		t.Fatalf("SetupProjectDirs (idempotent): %v", err)
+	}
 }
 
 func TestComposeRun_DoesNotPolluteEnv(t *testing.T) {

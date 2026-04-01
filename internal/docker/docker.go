@@ -105,3 +105,19 @@ func SetupCacheDir(cfg *core.Config) error {
 	}
 	return nil
 }
+
+// SetupProjectDirs ensures bind-mounted project directories exist on the host
+// before Docker runs. Without this, Docker creates missing mount sources as
+// root:root, making them unwritable by the unprivileged container user.
+func SetupProjectDirs(cfg *core.Config) error {
+	dirs := []string{
+		cfg.ProjectDir + "/.daedalus",
+		cfg.ProjectDir + "/.claude/skills",
+	}
+	for _, dir := range dirs {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return fmt.Errorf("creating %s: %w", dir, err)
+		}
+	}
+	return nil
+}

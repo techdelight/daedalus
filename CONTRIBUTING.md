@@ -28,7 +28,7 @@ Implements GET/POST endpoints for listing, starting, and stopping projects.
 # Run all tests
 ./test.sh
 
-# Run tests locally (requires Go 1.24+)
+# Run tests locally (requires Go 1.25+)
 go test -v ./...
 ```
 

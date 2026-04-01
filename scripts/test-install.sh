@@ -157,6 +157,7 @@ esac
 
 BINARY_NAME="daedalus-${OS}-${ARCH}"
 MCP_BINARY_NAME="skill-catalog-mcp-${OS}-${ARCH}"
+PROJ_MCP_BINARY_NAME="project-mgmt-mcp-${OS}-${ARCH}"
 
 # Create mock release directory with fake files
 create_mock_release() {
@@ -169,6 +170,8 @@ create_mock_release() {
     chmod 755 "$MOCK_RELEASE/$BINARY_NAME"
     printf '#!/bin/sh\necho "skill-catalog-mcp %s"\n' "$version" > "$MOCK_RELEASE/$MCP_BINARY_NAME"
     chmod 755 "$MOCK_RELEASE/$MCP_BINARY_NAME"
+    printf '#!/bin/sh\necho "project-mgmt-mcp %s"\n' "$version" > "$MOCK_RELEASE/$PROJ_MCP_BINARY_NAME"
+    chmod 755 "$MOCK_RELEASE/$PROJ_MCP_BINARY_NAME"
 
     # Fake runtime files
     echo '{"version":""}' > "$MOCK_RELEASE/config.json"
@@ -210,8 +213,9 @@ create_patched_installer() {
     # Replace binary download with local copy.
     sed_inplace 's|curl -fsSL -o "\$WORK_DIR/daedalus" .*|cp "'"$mock_dir"'/'"$BINARY_NAME"'" "$WORK_DIR/daedalus"|' "$dest"
 
-    # Replace MCP binary download with local copy.
+    # Replace MCP binary downloads with local copies.
     sed_inplace 's|curl -fsSL -o "\$WORK_DIR/skill-catalog-mcp" .*|cp "'"$mock_dir"'/'"$MCP_BINARY_NAME"'" "$WORK_DIR/skill-catalog-mcp"|' "$dest"
+    sed_inplace 's|curl -fsSL -o "\$WORK_DIR/project-mgmt-mcp" .*|cp "'"$mock_dir"'/'"$PROJ_MCP_BINARY_NAME"'" "$WORK_DIR/project-mgmt-mcp"|' "$dest"
 
     # Replace setup.sh download with local copy.
     sed_inplace 's|curl -fsSL -o "\$WORK_DIR/setup.sh" .*|cp "'"$mock_dir"'/setup.sh" "$WORK_DIR/setup.sh"|' "$dest"
@@ -240,8 +244,10 @@ bash "$PATCHED_INSTALLER" --prefix "$TEST_PREFIX" --no-link > /dev/null 2>&1
 
 assert_file_exists "binary exists" "$TEST_PREFIX/daedalus"
 assert_executable "binary is executable" "$TEST_PREFIX/daedalus"
-assert_file_exists "MCP binary exists" "$TEST_PREFIX/skill-catalog-mcp"
-assert_executable "MCP binary is executable" "$TEST_PREFIX/skill-catalog-mcp"
+assert_file_exists "skill-catalog-mcp binary exists" "$TEST_PREFIX/skill-catalog-mcp"
+assert_executable "skill-catalog-mcp binary is executable" "$TEST_PREFIX/skill-catalog-mcp"
+assert_file_exists "project-mgmt-mcp binary exists" "$TEST_PREFIX/project-mgmt-mcp"
+assert_executable "project-mgmt-mcp binary is executable" "$TEST_PREFIX/project-mgmt-mcp"
 assert_file_exists "claude.json present" "$TEST_PREFIX/claude.json"
 assert_file_exists "docker-compose.yml present" "$TEST_PREFIX/docker-compose.yml"
 assert_file_exists "Dockerfile present" "$TEST_PREFIX/Dockerfile"
@@ -347,6 +353,7 @@ WORK_DIR="$MOCK_RELEASE" bash "$SETUP_SH" --prefix "$TEST_PREFIX_RM" --uninstall
 
 assert_file_not_exists "binary removed" "$TEST_PREFIX_RM/daedalus"
 assert_file_not_exists "skill-catalog-mcp removed" "$TEST_PREFIX_RM/skill-catalog-mcp"
+assert_file_not_exists "project-mgmt-mcp removed" "$TEST_PREFIX_RM/project-mgmt-mcp"
 assert_file_not_exists "config.json removed" "$TEST_PREFIX_RM/config.json"
 assert_file_not_exists "claude.json removed" "$TEST_PREFIX_RM/claude.json"
 assert_file_not_exists "docker-compose.yml removed" "$TEST_PREFIX_RM/docker-compose.yml"

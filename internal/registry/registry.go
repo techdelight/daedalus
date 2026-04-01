@@ -23,6 +23,7 @@ type migrateFunc func(data *core.RegistryData) error
 // migrations maps source version → upgrade function.
 var migrations = map[int]migrateFunc{
 	1: migrateV1toV2,
+	2: migrateV2toV3,
 }
 
 // migrateV1toV2 upgrades the registry from v1 to v2.
@@ -30,6 +31,14 @@ var migrations = map[int]migrateFunc{
 // Zero values (nil) are correct — omitempty keeps JSON clean.
 func migrateV1toV2(data *core.RegistryData) error {
 	data.Version = 2
+	return nil
+}
+
+// migrateV2toV3 upgrades the registry from v2 to v3.
+// v3 adds ProgressPct, Vision, and ProjectVersion fields to ProjectEntry.
+// Zero values (0/"") are correct — omitempty keeps JSON clean.
+func migrateV2toV3(data *core.RegistryData) error {
+	data.Version = 3
 	return nil
 }
 
@@ -461,6 +470,33 @@ func (r *Registry) EndSession(projectName, sessionID string) error {
 	}
 
 	data.Projects[projectName] = entry
+	return r.write(data)
+}
+
+// UpdateProjectProgress updates progress metadata for the named project.
+// Only non-zero/non-empty values are applied (partial update).
+func (r *Registry) UpdateProjectProgress(name string, pct int, vision, projectVersion string) error {
+	data, err := r.read()
+	if err != nil {
+		return err
+	}
+	entry, ok := data.Projects[name]
+	if !ok {
+		return fmt.Errorf("project '%s' not found", name)
+	}
+	if pct > 0 {
+		if pct > 100 {
+			pct = 100
+		}
+		entry.ProgressPct = pct
+	}
+	if vision != "" {
+		entry.Vision = vision
+	}
+	if projectVersion != "" {
+		entry.ProjectVersion = projectVersion
+	}
+	data.Projects[name] = entry
 	return r.write(data)
 }
 

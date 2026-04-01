@@ -8,7 +8,7 @@ import (
 )
 
 // CurrentRegistryVersion is the latest registry schema version.
-const CurrentRegistryVersion = 2
+const CurrentRegistryVersion = 3
 
 // RegistryData is the top-level JSON structure for the project registry.
 type RegistryData struct {
@@ -27,12 +27,15 @@ type SessionRecord struct {
 
 // ProjectEntry holds metadata for a registered project.
 type ProjectEntry struct {
-	Directory    string            `json:"directory"`
-	Target       string            `json:"target"`
-	Created      string            `json:"created"`
-	LastUsed     string            `json:"lastUsed"`
-	DefaultFlags map[string]string `json:"defaultFlags,omitempty"`
-	Sessions     []SessionRecord   `json:"sessions,omitempty"`
+	Directory      string            `json:"directory"`
+	Target         string            `json:"target"`
+	Created        string            `json:"created"`
+	LastUsed       string            `json:"lastUsed"`
+	DefaultFlags   map[string]string `json:"defaultFlags,omitempty"`
+	Sessions       []SessionRecord   `json:"sessions,omitempty"`
+	ProgressPct    int               `json:"progressPct,omitempty"`
+	Vision         string            `json:"vision,omitempty"`
+	ProjectVersion string            `json:"projectVersion,omitempty"`
 }
 
 // ProjectInfo holds a project name alongside its registry entry.

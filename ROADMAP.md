@@ -4,6 +4,8 @@
 
 | # | Item |
 |---|------|
+| 30 | Skill install path — install skills to `.claude/skills/{skill-name}/SKILL.md` (directory per skill) instead of flat `.claude/skills/{skill-name}.md` |
+| 31 | Rename skill store — rename "skill catalog" / "skill" terminology to avoid confusion with Claude Code's built-in skill repository. Candidate: "focus" (focus catalog, focus files). Open to alternatives |
 | ~~1~~ | ~~Agent mode (`--agent`) — start Claude Code as a specific agent by passing a named agent configuration, enabling purpose-built personas and tool sets per project~~ |
 | 2 | Authentication for Web UI — add token-based login to protect the dashboard when exposed on a network |
 | 3 | Session cookie with configurable expiry |
@@ -16,12 +18,12 @@
 | ~~10~~ | ~~Shared skills/MCP repository — a central directory of skills and MCP server configs that can be mounted or linked into any project, avoiding per-project duplication~~ |
 | 11 | Homebrew installation (`brew install daedalus`) — add Homebrew tap, formula generator, and CI automation. See [docs/homebrew-plan.md](docs/homebrew-plan.md) for full plan |
 | 12 | WSL2 Web UI access — enable `daedalus web` to be reachable from the Windows host when running inside WSL2 (bind to `0.0.0.0` or WSL2 IP, port-forwarding guidance, auto-detect WSL2 environment) |
-| 13 | Project management view in Web UI — per-project dashboard showing vision, version, time spent, and percentage complete |
-| 14 | Project management MCP server — provide an MCP server inside each project container so Claude Code can report progress (vision, version, percentage complete, time spent) back to Daedalus |
+| ~~13~~ | ~~Project management view in Web UI — per-project dashboard showing vision, version, time spent, and percentage complete~~ |
+| ~~14~~ | ~~Project management MCP server — provide an MCP server inside each project container so Claude Code can report progress (vision, version, percentage complete, time spent) back to Daedalus~~ |
 | ~~15~~ | ~~Skill catalog — a browsable catalog of available skills that projects can select from and mount into their containers~~ |
 | 16 | ACP integration — use the Agent Client Protocol to communicate with the Claude Code CLI, enabling Daedalus to observe agent state (thinking, tool use, idle, error) in real time |
-| 17 | Roadmap in Web UI — display the project roadmap as a collapsible side panel on the right of the dashboard |
-| 18 | Daedalus as MCP client — have Daedalus consume the Project Management MCP server to read roadmaps, construct and manage sprints, and trigger the agent to execute sprint items |
+| ~~17~~ | ~~Roadmap in Web UI — display the project roadmap as a collapsible side panel on the right of the dashboard~~ |
+| ~~18~~ | ~~Daedalus as MCP client — have Daedalus consume the Project Management MCP server to read roadmaps, construct and manage sprints, and trigger the agent to execute sprint items~~ |
 | 19 | GitHub repo projects — start a project from a GitHub repo URL, cloning into a default project root directory |
 | ~~20~~ | ~~Browser tab title — set the Web UI tab title to include the name of the active project~~ |
 | 21 | Shared Maven `.m2` repository — mount a host-side `.m2/repository` into containers so dependencies are shared across projects. Investigate overlay/merge strategy: a stable global repo (read-only base) combined with a per-container local repo for builds/downloads/installs, so containers benefit from cached artifacts without polluting the shared cache |
@@ -33,8 +35,112 @@
 | 27 | Decouple tooling from agent runner images — keep base agent containers minimal and let the agent install additional tools at runtime. Provide container snapshotting so customized environments persist across restarts. Key challenge: when the base image is upgraded, how do we replay tool installations? Options: (a) maintain a declarative tool registry (tool name + version + install method) that a provisioner re-applies on new base images — portable but subjective per tool; (b) record raw install commands as a replayable script — simple but fragile across base image changes; (c) hybrid approach with a registry of well-known tools (apt, pip, npm) plus an escape hatch for arbitrary commands. Needs design spike to evaluate trade-offs |
 | ~~28~~ | ~~Active project filter — add a toggle/filter to the Web UI and TUI that shows only running projects. Useful when the project list grows large and the user wants to focus on what is currently active~~ |
 | 29 | Mobile WebSocket stability — investigate and fix regular disconnects on mobile web clients (possible causes: browser background tab throttling, network switches between Wi-Fi and cellular, WebSocket ping/pong timeout tuning, reconnect logic) |
+| 32 | Foreman UI project navigation — clicking a project in the Foreman web UI opens that project's detail view |
+| 33 | tmux control mode integration — use `tmux -C` control mode instead of raw PTY for terminal interaction. Enables native scrollback access (replacing tmux keybind-based scrolling), clean session disconnect/reconnect, and machine-parseable event notifications for agent observability |
 
 ## Current Sprint
+
+### Sprint 30: Programme-Level Cascade Orchestration (v0.25.0)
+
+Goal: when an upstream project completes a sprint item, the Foreman propagates work to downstream projects via the dependency graph. Configurable cascade strategies per dependency edge.
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | `internal/foreman/cascade.go` — cascade logic via `DependencyGraph.Downstreams()`, cascade strategies (`auto`, `notify`, `manual`) | Done |
+| 2 | `core/programme.go` — add `Strategy` field to `DependencyEdge` | Done |
+| 3 | `internal/web/` — cascade event log in Foreman status API response | Done |
+| 4 | `daedalus programmes cascade <name> --dry-run` — preview cascade actions | Done |
+| 5 | Documentation — ARCHITECTURE, CHANGELOG, VERSION, README | Done |
+
+### Sprint 29: The Foreman Agent — Core Loop (v0.24.0)
+
+Goal: Daedalus itself becomes an AI-driven project manager. The Foreman reads roadmaps, maintains a plan, monitors worker agents, and reports through the Web UI. Runs as a goroutine inside `daedalus web`.
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | `core/foreman.go` — `ForemanConfig`, `ForemanState`, `ForemanPlan` pure types | Done |
+| 2 | `internal/foreman/foreman.go` — Foreman main loop: read programme, read roadmaps, build plan, monitor agents, report status | Done |
+| 3 | `internal/foreman/planner.go` — sprint planning logic (reads roadmaps, proposes next actions) | Done |
+| 4 | `internal/foreman/monitor.go` — monitoring loop: poll MCP client and agent observer for worker state | Done |
+| 5 | `cmd/daedalus/main.go` — `daedalus foreman start/stop/status` subcommands | Done |
+| 6 | `internal/web/` — `/api/foreman/status` endpoint, Foreman console panel in Web UI | Done |
+| 7 | Documentation — ARCHITECTURE, CHANGELOG, VERSION, README | Done |
+
+### Sprint 28: Agent Observability (v0.23.0)
+
+Goal: define the agent observation interface and implement a container-status-based observer. Adds real-time agent state indicators to the Web UI. Partial implementation of backlog item 16 — full ACP integration deferred until the protocol is publicly stable.
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | `internal/agentstate/` — `AgentState` enum, `Observer` interface, `ContainerObserver` implementation | Done |
+| 2 | `internal/web/` — `GET /api/projects/{name}/state` endpoint returning agent state | Done |
+| 3 | Web UI — agent state indicator (colored dot) on project cards in the list view | Done |
+| 4 | `internal/foreman/` — `AgentObserver` interface matching `agentstate.Observer` | Done |
+| 5 | Documentation — ARCHITECTURE, CHANGELOG, VERSION | Done |
+
+### Sprint 27: Daedalus as MCP Client (v0.22.0)
+
+Goal: Daedalus consumes the project-mgmt-mcp server from the host side via `docker exec` + stdio transport. Enables programmatic reading of project state and aggregated programme views. Implements backlog item 18.
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | `internal/mcpclient/` — MCP client package using go-sdk, transport via `docker exec` + stdio | Done |
+| 2 | High-level methods: `ReadProgress()`, `ReadRoadmap()`, `GetCurrentSprint()` | Done |
+| 3 | `daedalus programmes show <name>` — aggregate progress from all member projects via MCP client | Done |
+| 4 | Documentation — ARCHITECTURE, CHANGELOG, VERSION, README | Done |
+
+### Sprint 26: Roadmap Parsing and Sprint Decomposition (v0.21.0)
+
+Goal: Daedalus can read a ROADMAP.md file and parse it into structured sprint data. Adds a roadmap API endpoint and MCP tools for agents to query sprint status. Implements backlog item 17.
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | `core/sprint.go` — `Sprint`, `SprintItem`, `SprintStatus` types (pure, zero I/O) | Done |
+| 2 | `core/roadmap.go` — `ParseRoadmap(markdown) ([]Sprint, error)` parser for Daedalus-native ROADMAP.md format | Done |
+| 3 | `internal/web/` — `GET /api/projects/{name}/roadmap` endpoint, collapsible side panel in Web UI | Done |
+| 4 | `cmd/project-mgmt-mcp/` — `get_roadmap` and `get_current_sprint` tools | Done |
+| 5 | Documentation — ARCHITECTURE, CHANGELOG, VERSION, README | Done |
+
+### Sprint 25: Programme Data Model and CLI (v0.20.0)
+
+Goal: declare multi-project programmes with dependency relationships. Users can model project topology even without the Foreman. Pure data model sprint — no orchestration yet.
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | `core/programme.go` — `Programme`, `DependencyEdge`, `DependencyGraph` types; `TopologicalSort()`, `DetectCycles()`, `Downstreams()`, `Upstreams()` pure functions with tests | Done |
+| 2 | `internal/programme/` — `Store` with `List`, `Read`, `Create`, `Update`, `Remove`, persisted to `programmes.json` with tests | Done |
+| 3 | `core/config.go` — add `Programme` field and `ProgrammesArgs` to Config; `ProgrammesDir()` method | Done |
+| 4 | `cmd/daedalus/main.go` — `daedalus programmes` subcommand: list, show, create, add-project, add-dep, remove | Done |
+| 5 | Shell completions for `programmes` subcommand in bash, zsh, fish | Done |
+| 6 | Documentation — update ARCHITECTURE.md, CHANGELOG.md, VERSION, README.md | Done |
+
+### Sprint 24: Project Management MCP Server (v0.19.0)
+
+Goal: add a second MCP server (`project-mgmt-mcp`) inside each container so Claude Code can report progress, set vision/version, and read sprint items. Daedalus reads progress via bind-mounted `.daedalus/progress.json`. Implements backlog item 14.
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | `internal/progress/` package — pure progress file read/write operations with tests | Done |
+| 2 | `cmd/project-mgmt-mcp/main.go` — new MCP server binary with `report_progress`, `set_vision`, `set_version`, `get_progress` tools | Done |
+| 3 | `core/command.go` — mount `.daedalus/` directory into containers via `BuildExtraArgs` | Done |
+| 4 | `claude.json` — register `project-mgmt-mcp` MCP server entry | Done |
+| 5 | `Dockerfile` — copy `project-mgmt-mcp` binary into image, `entrypoint.sh` — ensure `.daedalus/` directory exists | Done |
+| 6 | `build.sh` — build `project-mgmt-mcp` binary alongside existing binaries | Done |
+| 7 | `internal/web/` — poll `.daedalus/progress.json` from host and feed into dashboard endpoint | Done |
+| 8 | Documentation — update ARCHITECTURE.md, CHANGELOG.md, VERSION, README.md | Done |
+
+### Sprint 23: Project Management View in Web UI (v0.18.0)
+
+Goal: per-project dashboard showing vision, version, time spent, and progress percentage — the foundation for the Foreman agent's reporting layer. Implements backlog item 13.
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | `core/project.go` — add `ProgressPct`, `Vision`, `ProjectVersion` fields to `ProjectEntry` with tests | Done |
+| 2 | `internal/registry/` — v2-to-v3 migration (new fields default to zero values) with migration test | Done |
+| 3 | `internal/registry/` — `UpdateProjectProgress(name, pct, vision, version)` method with tests | Done |
+| 4 | `internal/web/` — `GET /api/projects/{name}/dashboard` endpoint returning progress data with tests | Done |
+| 5 | `internal/web/static/` — project detail panel (click project row to see vision, version, total session time, progress bar) | Done |
+| 6 | Documentation — update ARCHITECTURE.md, CHANGELOG.md, VERSION, README.md | Done |
 
 ### Sprint 22: Runner/Persona Polish & Skill Fix (v0.17.0)
 

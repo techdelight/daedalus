@@ -182,15 +182,20 @@ cleanup() { rm -rf "$WORK_DIR"; }
 trap cleanup EXIT
 
 BINARY_NAME="daedalus-${OS}-${ARCH}"
-MCP_BINARY_NAME="skill-catalog-mcp-${OS}-${ARCH}"
+SKILL_MCP_NAME="skill-catalog-mcp-${OS}-${ARCH}"
+PROJ_MCP_NAME="project-mgmt-mcp-${OS}-${ARCH}"
 echo ""
 echo "Downloading ${BINARY_NAME}..."
 curl -fsSL -o "$WORK_DIR/daedalus" "${DOWNLOAD_BASE}/${BINARY_NAME}"
 chmod 755 "$WORK_DIR/daedalus"
 
-echo "Downloading ${MCP_BINARY_NAME}..."
-curl -fsSL -o "$WORK_DIR/skill-catalog-mcp" "${DOWNLOAD_BASE}/${MCP_BINARY_NAME}"
+echo "Downloading ${SKILL_MCP_NAME}..."
+curl -fsSL -o "$WORK_DIR/skill-catalog-mcp" "${DOWNLOAD_BASE}/${SKILL_MCP_NAME}"
 chmod 755 "$WORK_DIR/skill-catalog-mcp"
+
+echo "Downloading ${PROJ_MCP_NAME}..."
+curl -fsSL -o "$WORK_DIR/project-mgmt-mcp" "${DOWNLOAD_BASE}/${PROJ_MCP_NAME}"
+chmod 755 "$WORK_DIR/project-mgmt-mcp"
 
 echo "Downloading setup.sh..."
 curl -fsSL -o "$WORK_DIR/setup.sh" "${DOWNLOAD_BASE}/setup.sh"
@@ -205,7 +210,7 @@ done
 NEW_VERSION="${TAG#v}"
 sed_inplace "s/\"version\": *\"\"/\"version\": \"$NEW_VERSION\"/" "$WORK_DIR/config.json"
 
-echo "  Downloaded 2 binaries, setup.sh, and ${#RUNTIME_FILES[@]} runtime files."
+echo "  Downloaded 3 binaries, setup.sh, and ${#RUNTIME_FILES[@]} runtime files."
 
 # ── Hand off to setup.sh ─────────────────────────────────────────────────────
 export WORK_DIR

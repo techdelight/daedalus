@@ -15,6 +15,8 @@
             <header>
                 <h1>Daedalus</h1>
                 <button class="btn btn-filter" id="filter-active-btn" onclick="toggleFilter()">Active Only</button>
+                <button class="btn btn-foreman" onclick="showForemanView()">Foreman</button>
+                <span class="foreman-status" id="foreman-status"></span>
                 <span class="status" id="refresh-status"></span>
             </header>
             <div id="status-msg" class="status-msg"></div>
@@ -34,6 +36,124 @@
                 </table>
                 <div id="empty-state" class="empty-state" style="display:none">
                     No registered projects.
+                </div>
+            </div>
+        </div>
+
+        <!-- Dashboard View -->
+        <div id="dashboard-view">
+            <div class="dashboard-header">
+                <span class="project-name" id="dashboard-project-name"></span>
+                <button class="btn btn-back" onclick="showProjectList()">Back</button>
+            </div>
+            <div class="dashboard-content">
+                <div class="dashboard-card">
+                    <div class="dashboard-label">Progress</div>
+                    <div class="progress-bar-container">
+                        <div class="progress-bar" id="dashboard-progress-bar"></div>
+                        <span class="progress-text" id="dashboard-progress-text">0%</span>
+                    </div>
+                </div>
+                <div class="dashboard-card">
+                    <div class="dashboard-label">Version</div>
+                    <div class="dashboard-value" id="dashboard-version">&mdash;</div>
+                </div>
+                <div class="dashboard-card">
+                    <div class="dashboard-label">Sessions</div>
+                    <div class="dashboard-value" id="dashboard-sessions">0</div>
+                </div>
+                <div class="dashboard-card">
+                    <div class="dashboard-label">Total Time</div>
+                    <div class="dashboard-value" id="dashboard-time">&mdash;</div>
+                </div>
+                <div class="dashboard-card dashboard-card-wide">
+                    <div class="dashboard-label">Vision</div>
+                    <div class="dashboard-value dashboard-vision" id="dashboard-vision">&mdash;</div>
+                </div>
+            </div>
+            <div class="roadmap-section">
+                <button class="btn btn-roadmap" onclick="toggleRoadmap(this)">Show Roadmap</button>
+                <div id="roadmap-panel" class="roadmap-panel" style="display:none"></div>
+            </div>
+        </div>
+
+        <!-- Foreman View -->
+        <div id="foreman-view">
+            <div class="foreman-header">
+                <span class="project-name">Foreman</span>
+                <button class="btn btn-back" onclick="showProjectList()">Back</button>
+            </div>
+            <div id="foreman-status-msg" class="status-msg"></div>
+            <div class="foreman-body">
+                <!-- Foreman Controls -->
+                <div class="foreman-section">
+                    <div class="foreman-section-title">Status</div>
+                    <div class="foreman-controls">
+                        <div class="foreman-state-row">
+                            <span class="status-badge">
+                                <span class="status-dot" id="foreman-state-dot"></span>
+                                <span id="foreman-state-label">idle</span>
+                            </span>
+                            <span class="foreman-message" id="foreman-message"></span>
+                        </div>
+                        <div class="foreman-actions" id="foreman-actions">
+                            <select id="foreman-programme-select" class="foreman-select">
+                                <option value="">Select programme...</option>
+                            </select>
+                            <button class="btn btn-start" id="foreman-start-btn" onclick="startForeman()">Start</button>
+                            <button class="btn btn-stop" id="foreman-stop-btn" onclick="stopForeman()" style="display:none">Stop</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Active Plan -->
+                <div class="foreman-section" id="foreman-plan-section" style="display:none">
+                    <div class="foreman-section-title">Active Plan</div>
+                    <div class="foreman-plan-summary" id="foreman-plan-summary"></div>
+                    <div class="foreman-projects" id="foreman-projects"></div>
+                </div>
+
+                <!-- Cascade Log -->
+                <div class="foreman-section" id="foreman-cascade-section" style="display:none">
+                    <div class="foreman-section-title">Cascade Log</div>
+                    <div class="foreman-cascade-log" id="foreman-cascade-log"></div>
+                </div>
+
+                <!-- Programme Management -->
+                <div class="foreman-section">
+                    <div class="foreman-section-title-row">
+                        <span class="foreman-section-title">Programmes</span>
+                        <button class="btn btn-create" onclick="showCreateProgramme()">New Programme</button>
+                    </div>
+                    <div id="programme-list"></div>
+                </div>
+
+                <!-- Create/Edit Programme Form -->
+                <div class="foreman-section" id="programme-form-section" style="display:none">
+                    <div class="foreman-section-title" id="programme-form-title">New Programme</div>
+                    <div class="programme-form">
+                        <input type="hidden" id="programme-form-mode" value="create">
+                        <div class="form-field">
+                            <label>Name</label>
+                            <input type="text" id="programme-form-name" placeholder="my-programme" class="form-input">
+                        </div>
+                        <div class="form-field">
+                            <label>Description</label>
+                            <input type="text" id="programme-form-desc" placeholder="Description..." class="form-input">
+                        </div>
+                        <div class="form-field">
+                            <label>Projects <span class="form-hint">(comma-separated)</span></label>
+                            <input type="text" id="programme-form-projects" placeholder="project-a, project-b" class="form-input">
+                        </div>
+                        <div class="form-field" id="programme-form-deps-field">
+                            <label>Dependencies <span class="form-hint">(one per line: upstream &gt; downstream)</span></label>
+                            <textarea id="programme-form-deps" placeholder="auth > api&#10;api > frontend" class="form-input form-textarea" rows="3"></textarea>
+                        </div>
+                        <div class="form-actions">
+                            <button class="btn btn-start" onclick="saveProgramme()">Save</button>
+                            <button class="btn" onclick="hideProgrammeForm()">Cancel</button>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -88,6 +208,20 @@
             }
         }
 
+        async function fetchForemanStatus() {
+            try {
+                const resp = await fetch('/api/foreman/status');
+                const data = await resp.json();
+                const el = document.getElementById('foreman-status');
+                if (data.state === 'monitoring' || data.state === 'planning') {
+                    el.textContent = 'Foreman: ' + data.state;
+                    el.className = 'foreman-status foreman-active';
+                } else {
+                    el.textContent = '';
+                }
+            } catch (e) {}
+        }
+
         async function fetchProjects() {
             try {
                 const resp = await fetch('/api/projects');
@@ -95,6 +229,7 @@
                 renderProjects(projects);
                 document.getElementById('refresh-status').textContent =
                     'Updated ' + new Date().toLocaleTimeString();
+                fetchForemanStatus();
             } catch (err) {
                 setStatus('Failed to fetch projects: ' + err.message);
             }
@@ -118,7 +253,7 @@
             empty.style.display = 'none';
             tbody.innerHTML = projects.map(p => `
                 <tr>
-                    <td>${escapeHtml(p.name)}</td>
+                    <td><a class="project-link" href="#" onclick="showDashboard('${escapeHtml(p.name)}'); return false;">${escapeHtml(p.name)}</a></td>
                     <td>
                         <span class="status-badge">
                             <span class="status-dot ${p.running ? 'running' : 'stopped'}"></span>
@@ -193,11 +328,82 @@
             }
         }
 
+        async function showDashboard(name) {
+            // Stop refresh
+            if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
+            if (foremanTimer) { clearInterval(foremanTimer); foremanTimer = null; }
+            // Fetch dashboard data
+            const resp = await fetch(`/api/projects/${encodeURIComponent(name)}/dashboard`);
+            if (!resp.ok) { setStatus('Error loading dashboard'); return; }
+            const data = await resp.json();
+            // Populate UI
+            document.getElementById('dashboard-project-name').textContent = data.name;
+            document.getElementById('dashboard-progress-bar').style.width = data.progressPct + '%';
+            document.getElementById('dashboard-progress-text').textContent = data.progressPct + '%';
+            document.getElementById('dashboard-version').textContent = data.projectVersion || '\u2014';
+            document.getElementById('dashboard-sessions').textContent = data.sessionCount;
+            document.getElementById('dashboard-time').textContent = formatDuration(data.totalTimeSec);
+            document.getElementById('dashboard-vision').textContent = data.vision || '\u2014';
+            // Show dashboard view
+            document.getElementById('project-view').classList.add('hidden');
+            document.getElementById('foreman-view').classList.remove('active');
+            document.getElementById('dashboard-view').classList.add('active');
+        }
+
+        async function toggleRoadmap(btn) {
+            const panel = document.getElementById('roadmap-panel');
+            if (panel.style.display !== 'none') {
+                panel.style.display = 'none';
+                btn.textContent = 'Show Roadmap';
+                return;
+            }
+            const name = document.getElementById('dashboard-project-name').textContent;
+            const resp = await fetch(`/api/projects/${encodeURIComponent(name)}/roadmap`);
+            if (!resp.ok) { setStatus('Error loading roadmap'); return; }
+            const data = await resp.json();
+            panel.innerHTML = renderRoadmap(data.sprints);
+            panel.style.display = 'block';
+            btn.textContent = 'Hide Roadmap';
+        }
+
+        function renderRoadmap(sprints) {
+            if (!sprints || sprints.length === 0) return '<p class="empty-state">No roadmap found.</p>';
+            return sprints.map(s => {
+                const badge = s.isCurrent ? '<span class="sprint-current">current</span>' : '';
+                const items = s.items.map(item => {
+                    const statusClass = item.status === 'Done' ? 'item-done' : '';
+                    return `<div class="sprint-item ${statusClass}">
+                        <span class="item-num">#${item.number}</span>
+                        <span class="item-desc">${escapeHtml(item.description)}</span>
+                        <span class="item-status">${item.status || 'pending'}</span>
+                    </div>`;
+                }).join('');
+                return `<div class="sprint-card">
+                    <div class="sprint-header-row">
+                        <span class="sprint-title">Sprint ${s.number}: ${escapeHtml(s.title)}</span>
+                        ${s.version ? `<span class="sprint-version">v${escapeHtml(s.version)}</span>` : ''}
+                        ${badge}
+                    </div>
+                    ${s.goal ? `<div class="sprint-goal">${escapeHtml(s.goal)}</div>` : ''}
+                    <div class="sprint-items">${items}</div>
+                </div>`;
+            }).join('');
+        }
+
+        function formatDuration(totalSec) {
+            if (!totalSec) return '\u2014';
+            const h = Math.floor(totalSec / 3600);
+            const m = Math.floor((totalSec % 3600) / 60);
+            if (h > 0) return h + 'h ' + m + 'm';
+            return m + 'm';
+        }
+
         function attachProject(name) {
             document.title = name + ' \u2014 Daedalus';
 
             // Switch to terminal view
             document.getElementById('project-view').classList.add('hidden');
+            document.getElementById('foreman-view').classList.remove('active');
             document.getElementById('terminal-view').classList.add('active');
             document.getElementById('terminal-project-name').textContent = name;
 
@@ -206,6 +412,10 @@
                 clearInterval(refreshTimer);
                 refreshTimer = null;
             }
+            if (foremanTimer) {
+                clearInterval(foremanTimer);
+                foremanTimer = null;
+            }
 
             connectTerminal(name);
         }
@@ -213,8 +423,11 @@
         function showProjectList() {
             document.title = 'Daedalus \u2014 Web Dashboard';
             disconnectTerminal();
+            if (foremanTimer) { clearInterval(foremanTimer); foremanTimer = null; }
 
             document.getElementById('terminal-view').classList.remove('active');
+            document.getElementById('dashboard-view').classList.remove('active');
+            document.getElementById('foreman-view').classList.remove('active');
             document.getElementById('project-view').classList.remove('hidden');
 
             fetchProjects();
@@ -248,6 +461,316 @@
             }
             const d = Math.floor(diff / 86400);
             return d === 1 ? '1 day ago' : d + ' days ago';
+        }
+
+        // --- Foreman View ---
+
+        let foremanTimer = null;
+
+        function setForemanStatus(msg) {
+            document.getElementById('foreman-status-msg').textContent = msg;
+        }
+
+        async function showForemanView() {
+            if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
+            document.getElementById('project-view').classList.add('hidden');
+            document.getElementById('foreman-view').classList.add('active');
+            document.title = 'Foreman \u2014 Daedalus';
+            await Promise.all([fetchForemanDetail(), fetchProgrammes()]);
+            foremanTimer = setInterval(fetchForemanDetail, 5000);
+        }
+
+        async function fetchForemanDetail() {
+            try {
+                const resp = await fetch('/api/foreman/status');
+                const data = await resp.json();
+                renderForemanStatus(data);
+            } catch (e) {}
+        }
+
+        function renderForemanStatus(data) {
+            const dot = document.getElementById('foreman-state-dot');
+            const label = document.getElementById('foreman-state-label');
+            const msg = document.getElementById('foreman-message');
+            const startBtn = document.getElementById('foreman-start-btn');
+            const stopBtn = document.getElementById('foreman-stop-btn');
+            const selectEl = document.getElementById('foreman-programme-select');
+            const planSection = document.getElementById('foreman-plan-section');
+            const cascadeSection = document.getElementById('foreman-cascade-section');
+
+            label.textContent = data.state;
+            msg.textContent = data.message || '';
+
+            // State dot
+            dot.className = 'status-dot';
+            if (data.state === 'monitoring' || data.state === 'planning') {
+                dot.classList.add('running');
+            } else if (data.state === 'idle' || data.state === 'stopped') {
+                dot.classList.add('stopped');
+            } else if (data.state === 'reporting') {
+                dot.classList.add('idle');
+            }
+
+            // Show/hide controls
+            const isActive = data.state === 'monitoring' || data.state === 'planning' || data.state === 'reporting';
+            startBtn.style.display = isActive ? 'none' : '';
+            stopBtn.style.display = isActive ? '' : 'none';
+            selectEl.style.display = isActive ? 'none' : '';
+
+            // Plan
+            if (data.plan) {
+                planSection.style.display = '';
+                document.getElementById('foreman-plan-summary').textContent = data.plan.summary || '';
+                renderForemanProjects(data.plan.activeProjects || []);
+            } else {
+                planSection.style.display = 'none';
+            }
+
+            // Cascade log
+            if (data.cascadeLog && data.cascadeLog.length > 0) {
+                cascadeSection.style.display = '';
+                renderCascadeLog(data.cascadeLog);
+            } else {
+                cascadeSection.style.display = 'none';
+            }
+        }
+
+        function renderForemanProjects(projects) {
+            const container = document.getElementById('foreman-projects');
+            if (!projects || projects.length === 0) {
+                container.innerHTML = '<div class="programme-empty">No active projects.</div>';
+                return;
+            }
+            container.innerHTML = projects.map(p => {
+                const agentClass = p.agentState || 'stopped';
+                const sprintText = p.currentSprint
+                    ? 'Sprint ' + p.currentSprint.number + ': ' + escapeHtml(p.currentSprint.title)
+                    : '';
+                return `<div class="foreman-project-card">
+                    <div class="foreman-project-card-header">
+                        <span class="foreman-project-name">${escapeHtml(p.name)}</span>
+                        <span class="foreman-project-agent ${escapeHtml(agentClass)}">${escapeHtml(p.agentState || 'unknown')}</span>
+                    </div>
+                    <div class="foreman-project-progress">
+                        <div class="progress-bar-container">
+                            <div class="progress-bar" style="width:${p.progressPct}%"></div>
+                        </div>
+                        <span class="progress-text">${p.progressPct}%</span>
+                    </div>
+                    ${sprintText ? '<div class="foreman-project-sprint">' + sprintText + '</div>' : ''}
+                </div>`;
+            }).join('');
+        }
+
+        function renderCascadeLog(log) {
+            const container = document.getElementById('foreman-cascade-log');
+            container.innerHTML = log.map(entry => {
+                const actionClass = entry.action || '';
+                return `<div class="cascade-entry">
+                    <span>${escapeHtml(entry.upstream)}</span>
+                    <span class="cascade-arrow">\u2192</span>
+                    <span>${escapeHtml(entry.downstream)}</span>
+                    <span class="cascade-action ${escapeHtml(actionClass)}">${escapeHtml(entry.action)}</span>
+                    <span class="cascade-message">${escapeHtml(entry.message)}</span>
+                </div>`;
+            }).join('');
+        }
+
+        async function startForeman() {
+            const select = document.getElementById('foreman-programme-select');
+            const programme = select.value;
+            if (!programme) { setForemanStatus('Select a programme first'); return; }
+            try {
+                const resp = await fetch('/api/foreman/start', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({programme: programme})
+                });
+                if (!resp.ok) {
+                    const text = await resp.text();
+                    setForemanStatus('Error: ' + text);
+                    return;
+                }
+                fetchForemanDetail();
+            } catch (err) {
+                setForemanStatus('Error: ' + err.message);
+            }
+        }
+
+        async function stopForeman() {
+            try {
+                const resp = await fetch('/api/foreman/stop', {method: 'POST'});
+                if (!resp.ok) {
+                    const text = await resp.text();
+                    setForemanStatus('Error: ' + text);
+                    return;
+                }
+                fetchForemanDetail();
+            } catch (err) {
+                setForemanStatus('Error: ' + err.message);
+            }
+        }
+
+        // --- Programme Management ---
+
+        async function fetchProgrammes() {
+            try {
+                const resp = await fetch('/api/programmes');
+                const progs = await resp.json();
+                renderProgrammeList(progs);
+                populateProgrammeSelect(progs);
+            } catch (e) {}
+        }
+
+        function populateProgrammeSelect(progs) {
+            const select = document.getElementById('foreman-programme-select');
+            const current = select.value;
+            select.innerHTML = '<option value="">Select programme...</option>';
+            progs.forEach(p => {
+                const opt = document.createElement('option');
+                opt.value = p.name;
+                opt.textContent = p.name;
+                if (p.name === current) opt.selected = true;
+                select.appendChild(opt);
+            });
+        }
+
+        function renderProgrammeList(progs) {
+            const container = document.getElementById('programme-list');
+            if (!progs || progs.length === 0) {
+                container.innerHTML = '<div class="programme-empty">No programmes defined.</div>';
+                return;
+            }
+            container.innerHTML = progs.map(p => {
+                const projects = (p.projects || []).map(name =>
+                    '<span class="programme-project-tag">' + escapeHtml(name) + '</span>'
+                ).join('');
+                const deps = (p.deps || []).map(d =>
+                    '<span class="programme-dep-tag">' + escapeHtml(d.upstream) + ' \u2192 ' + escapeHtml(d.downstream) +
+                    (d.strategy ? ' (' + escapeHtml(d.strategy) + ')' : '') + '</span>'
+                ).join('');
+                return `<div class="programme-card">
+                    <div class="programme-card-header">
+                        <span class="programme-card-name">${escapeHtml(p.name)}</span>
+                        <div class="programme-card-actions">
+                            <button class="btn btn-edit" onclick="editProgramme('${escapeHtml(p.name)}')">Edit</button>
+                            <button class="btn btn-danger" onclick="deleteProgramme('${escapeHtml(p.name)}')">Delete</button>
+                        </div>
+                    </div>
+                    ${p.description ? '<div class="programme-card-desc">' + escapeHtml(p.description) + '</div>' : ''}
+                    <div class="programme-card-projects">${projects || '<span class="programme-empty" style="padding:0">No projects</span>'}</div>
+                    ${deps ? '<div class="programme-card-deps">' + deps + '</div>' : ''}
+                </div>`;
+            }).join('');
+        }
+
+        function showCreateProgramme() {
+            document.getElementById('programme-form-mode').value = 'create';
+            document.getElementById('programme-form-title').textContent = 'New Programme';
+            document.getElementById('programme-form-name').value = '';
+            document.getElementById('programme-form-name').disabled = false;
+            document.getElementById('programme-form-desc').value = '';
+            document.getElementById('programme-form-projects').value = '';
+            document.getElementById('programme-form-deps').value = '';
+            document.getElementById('programme-form-section').style.display = '';
+        }
+
+        async function editProgramme(name) {
+            try {
+                const resp = await fetch('/api/programmes/' + encodeURIComponent(name));
+                if (!resp.ok) { setForemanStatus('Error loading programme'); return; }
+                const p = await resp.json();
+                document.getElementById('programme-form-mode').value = 'edit';
+                document.getElementById('programme-form-title').textContent = 'Edit Programme';
+                document.getElementById('programme-form-name').value = p.name;
+                document.getElementById('programme-form-name').disabled = true;
+                document.getElementById('programme-form-desc').value = p.description || '';
+                document.getElementById('programme-form-projects').value = (p.projects || []).join(', ');
+                document.getElementById('programme-form-deps').value = (p.deps || []).map(d => {
+                    let line = d.upstream + ' > ' + d.downstream;
+                    if (d.strategy) line += ' (' + d.strategy + ')';
+                    return line;
+                }).join('\n');
+                document.getElementById('programme-form-section').style.display = '';
+            } catch (err) {
+                setForemanStatus('Error: ' + err.message);
+            }
+        }
+
+        function hideProgrammeForm() {
+            document.getElementById('programme-form-section').style.display = 'none';
+        }
+
+        function parseDeps(text) {
+            if (!text.trim()) return [];
+            return text.trim().split('\n').filter(l => l.trim()).map(line => {
+                // Format: upstream > downstream (strategy)
+                const strategyMatch = line.match(/\((\w+)\)\s*$/);
+                let strategy = '';
+                let cleanLine = line;
+                if (strategyMatch) {
+                    strategy = strategyMatch[1];
+                    cleanLine = line.replace(/\(\w+\)\s*$/, '');
+                }
+                const parts = cleanLine.split('>').map(s => s.trim());
+                const dep = {upstream: parts[0], downstream: parts[1] || ''};
+                if (strategy) dep.strategy = strategy;
+                return dep;
+            });
+        }
+
+        async function saveProgramme() {
+            const mode = document.getElementById('programme-form-mode').value;
+            const name = document.getElementById('programme-form-name').value.trim();
+            const desc = document.getElementById('programme-form-desc').value.trim();
+            const projects = document.getElementById('programme-form-projects').value
+                .split(',').map(s => s.trim()).filter(s => s);
+            const deps = parseDeps(document.getElementById('programme-form-deps').value);
+
+            if (!name) { setForemanStatus('Programme name is required'); return; }
+
+            const body = {name: name, description: desc, projects: projects, deps: deps};
+
+            try {
+                let resp;
+                if (mode === 'create') {
+                    resp = await fetch('/api/programmes', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify(body)
+                    });
+                } else {
+                    resp = await fetch('/api/programmes/' + encodeURIComponent(name), {
+                        method: 'PUT',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify(body)
+                    });
+                }
+                if (!resp.ok) {
+                    const text = await resp.text();
+                    setForemanStatus('Error: ' + text);
+                    return;
+                }
+                hideProgrammeForm();
+                fetchProgrammes();
+            } catch (err) {
+                setForemanStatus('Error: ' + err.message);
+            }
+        }
+
+        async function deleteProgramme(name) {
+            if (!confirm('Delete programme "' + name + '"?')) return;
+            try {
+                const resp = await fetch('/api/programmes/' + encodeURIComponent(name), {method: 'DELETE'});
+                if (!resp.ok) {
+                    const text = await resp.text();
+                    setForemanStatus('Error: ' + text);
+                    return;
+                }
+                fetchProgrammes();
+            } catch (err) {
+                setForemanStatus('Error: ' + err.message);
+            }
         }
 
         // Initial load

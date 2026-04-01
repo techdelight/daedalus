@@ -9,13 +9,25 @@ case "$RUNNER" in
         # Ensure config directory exists
         mkdir -p "$CLAUDE_CONFIG_DIR"
 
-        # Ensure skills directory exists for skill catalog
-        mkdir -p /workspace/.claude/skills
-
         # Seed config files on first run
         if [ ! -f "$CLAUDE_CONFIG_DIR/.claude.json" ]; then
             cp "$DEFAULTS_DIR/.claude.json" "$CLAUDE_CONFIG_DIR/.claude.json"
             cp "$DEFAULTS_DIR/settings.json" "$CLAUDE_CONFIG_DIR/settings.json"
+        fi
+
+        # Ensure daedalus-specific MCP servers are configured.
+        # Adds any missing entries from the defaults file without modifying existing ones.
+        LIVE="$CLAUDE_CONFIG_DIR/.claude.json"
+        DEFS="$DEFAULTS_DIR/.claude.json"
+        if [ -f "$LIVE" ] && [ -f "$DEFS" ]; then
+            PATCHED=$(jq --slurpfile defaults "$DEFS" '
+                (.mcpServers // {}) as $live |
+                ($defaults[0].mcpServers // {}) as $required |
+                .mcpServers = ($required * $live)
+            ' "$LIVE")
+            if [ -n "$PATCHED" ]; then
+                printf '%s\n' "$PATCHED" > "$LIVE"
+            fi
         fi
 
         exec /opt/claude/bin/claude --dangerously-skip-permissions "$@"

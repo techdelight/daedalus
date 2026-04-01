@@ -120,10 +120,26 @@ tbody td {
 .status-dot.running {
     background: #9ece6a;
     box-shadow: 0 0 6px rgba(158, 206, 106, 0.4);
+    animation: pulse 2s ease-in-out infinite;
 }
 
 .status-dot.stopped {
     background: #565f89;
+}
+
+.status-dot.idle {
+    background: #e0af68;
+    box-shadow: 0 0 6px rgba(224, 175, 104, 0.4);
+}
+
+.status-dot.error {
+    background: #f7768e;
+    box-shadow: 0 0 6px rgba(247, 118, 142, 0.4);
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
 }
 
 .actions {
@@ -201,6 +217,642 @@ tbody td {
     font-size: 12px;
     color: #e0af68;
     min-height: 28px;
+}
+
+.foreman-status {
+    font-size: 11px;
+    color: #565f89;
+    margin-left: 12px;
+}
+
+.foreman-status.foreman-active {
+    color: #9ece6a;
+}
+
+/* --- Dashboard View --- */
+
+#dashboard-view {
+    display: none;
+    flex-direction: column;
+    height: 100vh;
+    overflow-y: auto;
+}
+
+#dashboard-view.active {
+    display: flex;
+}
+
+.dashboard-header {
+    padding: 16px 24px;
+    border-bottom: 1px solid #292e42;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.dashboard-header .project-name {
+    font-size: 18px;
+    color: #bb9af7;
+    font-weight: 600;
+}
+
+.dashboard-header .btn-back {
+    border-color: #565f89;
+    color: #565f89;
+}
+
+.dashboard-header .btn-back:hover {
+    color: #c0caf5;
+    border-color: #c0caf5;
+}
+
+.dashboard-content {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+    padding: 24px;
+}
+
+.dashboard-card {
+    background: #16161e;
+    border: 1px solid #292e42;
+    border-radius: 8px;
+    padding: 16px;
+}
+
+.dashboard-card-wide {
+    grid-column: 1 / -1;
+}
+
+.dashboard-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #565f89;
+    margin-bottom: 8px;
+}
+
+.dashboard-value {
+    font-size: 20px;
+    color: #c0caf5;
+}
+
+.dashboard-vision {
+    font-size: 14px;
+    line-height: 1.6;
+}
+
+.progress-bar-container {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: #292e42;
+    border-radius: 4px;
+    padding: 0;
+    position: relative;
+}
+
+.progress-bar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 100%;
+    background: #9ece6a;
+    border-radius: 4px;
+    transition: width 0.3s ease;
+}
+
+.progress-text {
+    position: relative;
+    z-index: 1;
+    padding: 4px 8px;
+    font-size: 13px;
+    color: #c0caf5;
+}
+
+.project-link {
+    color: #7aa2f7;
+    text-decoration: none;
+}
+
+.project-link:hover {
+    text-decoration: underline;
+}
+
+/* --- Roadmap Panel --- */
+
+.roadmap-section {
+    padding: 0 24px 24px;
+}
+
+.btn-roadmap {
+    border-color: #e0af68;
+    color: #e0af68;
+    margin-bottom: 16px;
+}
+
+.btn-roadmap:hover {
+    background: rgba(224, 175, 104, 0.1);
+}
+
+.roadmap-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.sprint-card {
+    background: #16161e;
+    border: 1px solid #292e42;
+    border-radius: 8px;
+    padding: 16px;
+}
+
+.sprint-header-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 8px;
+}
+
+.sprint-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #c0caf5;
+}
+
+.sprint-version {
+    font-size: 12px;
+    color: #565f89;
+}
+
+.sprint-current {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: rgba(158, 206, 106, 0.15);
+    color: #9ece6a;
+}
+
+.sprint-goal {
+    font-size: 12px;
+    color: #565f89;
+    margin-bottom: 12px;
+    line-height: 1.5;
+}
+
+.sprint-items {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.sprint-item {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    font-size: 12px;
+    padding: 4px 0;
+}
+
+.sprint-item.item-done {
+    opacity: 0.5;
+}
+
+.item-num {
+    color: #565f89;
+    min-width: 24px;
+}
+
+.item-desc {
+    flex: 1;
+    color: #a9b1d6;
+}
+
+.item-status {
+    color: #9ece6a;
+    font-size: 11px;
+}
+
+/* --- Foreman View --- */
+
+#foreman-view {
+    display: none;
+    flex-direction: column;
+    height: 100vh;
+    overflow-y: auto;
+}
+
+#foreman-view.active {
+    display: flex;
+}
+
+.foreman-header {
+    padding: 16px 24px;
+    border-bottom: 1px solid #292e42;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.foreman-header .project-name {
+    font-size: 18px;
+    color: #bb9af7;
+    font-weight: 600;
+}
+
+.foreman-header .btn-back {
+    border-color: #565f89;
+    color: #565f89;
+}
+
+.foreman-header .btn-back:hover {
+    color: #c0caf5;
+    border-color: #c0caf5;
+}
+
+.foreman-body {
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+}
+
+.foreman-section {
+    background: #16161e;
+    border: 1px solid #292e42;
+    border-radius: 8px;
+    padding: 16px;
+}
+
+.foreman-section-title {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #565f89;
+    margin-bottom: 12px;
+    font-weight: 600;
+}
+
+.foreman-section-title-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.foreman-section-title-row .foreman-section-title {
+    margin-bottom: 0;
+}
+
+.foreman-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.foreman-state-row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.foreman-message {
+    font-size: 12px;
+    color: #565f89;
+}
+
+.foreman-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.foreman-select {
+    padding: 4px 12px;
+    border: 1px solid #292e42;
+    border-radius: 4px;
+    background: #1a1b26;
+    color: #c0caf5;
+    font-family: inherit;
+    font-size: 12px;
+    cursor: pointer;
+    min-width: 180px;
+}
+
+.foreman-select:focus {
+    border-color: #7aa2f7;
+    outline: none;
+}
+
+.foreman-plan-summary {
+    font-size: 13px;
+    color: #a9b1d6;
+    margin-bottom: 16px;
+    line-height: 1.5;
+}
+
+.foreman-projects {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 12px;
+}
+
+.foreman-project-card {
+    background: #1a1b26;
+    border: 1px solid #292e42;
+    border-radius: 6px;
+    padding: 12px;
+}
+
+.foreman-project-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.foreman-project-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: #c0caf5;
+}
+
+.foreman-project-agent {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 4px;
+}
+
+.foreman-project-agent.running {
+    background: rgba(158, 206, 106, 0.15);
+    color: #9ece6a;
+}
+
+.foreman-project-agent.idle {
+    background: rgba(224, 175, 104, 0.15);
+    color: #e0af68;
+}
+
+.foreman-project-agent.stopped {
+    background: rgba(86, 95, 137, 0.3);
+    color: #565f89;
+}
+
+.foreman-project-agent.error {
+    background: rgba(247, 118, 142, 0.15);
+    color: #f7768e;
+}
+
+.foreman-project-progress {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+
+.foreman-project-progress .progress-bar-container {
+    flex: 1;
+    height: 6px;
+}
+
+.foreman-project-progress .progress-bar {
+    height: 6px;
+}
+
+.foreman-project-progress .progress-text {
+    font-size: 11px;
+    padding: 0;
+    min-width: 32px;
+    text-align: right;
+}
+
+.foreman-project-sprint {
+    font-size: 11px;
+    color: #565f89;
+    margin-top: 4px;
+}
+
+.foreman-cascade-log {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.cascade-entry {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    font-size: 12px;
+    padding: 6px 0;
+    border-bottom: 1px solid #1e2030;
+}
+
+.cascade-entry:last-child {
+    border-bottom: none;
+}
+
+.cascade-arrow {
+    color: #7aa2f7;
+    flex-shrink: 0;
+}
+
+.cascade-action {
+    font-size: 11px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    flex-shrink: 0;
+}
+
+.cascade-action.propagate {
+    background: rgba(158, 206, 106, 0.15);
+    color: #9ece6a;
+}
+
+.cascade-action.notify {
+    background: rgba(224, 175, 104, 0.15);
+    color: #e0af68;
+}
+
+.cascade-action.skip {
+    background: rgba(86, 95, 137, 0.3);
+    color: #565f89;
+}
+
+.cascade-message {
+    color: #a9b1d6;
+    flex: 1;
+}
+
+/* Programme cards */
+
+.programme-card {
+    background: #1a1b26;
+    border: 1px solid #292e42;
+    border-radius: 6px;
+    padding: 12px;
+    margin-bottom: 8px;
+}
+
+.programme-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 4px;
+}
+
+.programme-card-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: #7aa2f7;
+}
+
+.programme-card-actions {
+    display: flex;
+    gap: 6px;
+}
+
+.programme-card-desc {
+    font-size: 12px;
+    color: #565f89;
+    margin-bottom: 8px;
+}
+
+.programme-card-projects {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.programme-project-tag {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: rgba(122, 162, 247, 0.1);
+    color: #7aa2f7;
+    border: 1px solid rgba(122, 162, 247, 0.2);
+}
+
+.programme-card-deps {
+    margin-top: 8px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.programme-dep-tag {
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    background: rgba(187, 154, 247, 0.1);
+    color: #bb9af7;
+}
+
+.btn-foreman {
+    border-color: #bb9af7;
+    color: #bb9af7;
+}
+
+.btn-foreman:hover {
+    background: rgba(187, 154, 247, 0.1);
+}
+
+.btn-create {
+    border-color: #9ece6a;
+    color: #9ece6a;
+    font-size: 11px;
+}
+
+.btn-create:hover {
+    background: rgba(158, 206, 106, 0.1);
+}
+
+.btn-rename {
+    border-color: #e0af68;
+    color: #e0af68;
+}
+
+.btn-rename:hover {
+    background: rgba(224, 175, 104, 0.1);
+}
+
+.btn-danger {
+    border-color: #f7768e;
+    color: #f7768e;
+}
+
+.btn-danger:hover {
+    background: rgba(247, 118, 142, 0.1);
+}
+
+.btn-edit {
+    border-color: #7aa2f7;
+    color: #7aa2f7;
+}
+
+.btn-edit:hover {
+    background: rgba(122, 162, 247, 0.1);
+}
+
+/* Programme form */
+
+.programme-form {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.form-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.form-field label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #565f89;
+}
+
+.form-hint {
+    text-transform: none;
+    letter-spacing: normal;
+}
+
+.form-input {
+    padding: 6px 10px;
+    border: 1px solid #292e42;
+    border-radius: 4px;
+    background: #1a1b26;
+    color: #c0caf5;
+    font-family: inherit;
+    font-size: 13px;
+}
+
+.form-input:focus {
+    border-color: #7aa2f7;
+    outline: none;
+}
+
+.form-textarea {
+    resize: vertical;
+    min-height: 60px;
+}
+
+.form-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 4px;
+}
+
+.programme-empty {
+    text-align: center;
+    padding: 16px;
+    color: #565f89;
+    font-size: 13px;
 }
 
 /* --- Terminal View --- */
@@ -395,6 +1047,24 @@ tbody td {
     tbody td:nth-child(5) .btn {
         padding: 8px 16px;
         font-size: 14px;
+    }
+
+    /* Foreman view mobile */
+    .foreman-body {
+        padding: 12px;
+    }
+
+    .foreman-projects {
+        grid-template-columns: 1fr;
+    }
+
+    .foreman-actions {
+        flex-wrap: wrap;
+    }
+
+    .foreman-select {
+        min-width: 0;
+        flex: 1;
     }
 
     /* Reduced padding */
