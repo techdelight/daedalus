@@ -89,7 +89,7 @@ daedalus personas [list | show <name> | create <name> | remove <name>]
 daedalus programmes [list | show <name> | create <name> | add-project <prog> <proj> | add-dep <prog> <up> <down> | remove <name>]
 daedalus foreman [start | stop | status]
 daedalus tui
-daedalus web [--port PORT] [--host HOST]
+daedalus web [--port PORT] [--host HOST] [--auth|--no-auth]
 daedalus completion <bash|zsh|fish>
 daedalus --help
 ```
@@ -132,6 +132,8 @@ daedalus --help
 | `--no-color` | Disable colored output (also honors `NO_COLOR` env var) |
 | `--port <port>` | Port for web UI (default: `3000`) |
 | `--host <host>` | Host for web UI (default: `127.0.0.1`) |
+| `--auth` | Enable token-based authentication for web UI (default for `web`) |
+| `--no-auth` | Disable authentication for web UI |
 
 **Examples:**
 
@@ -184,6 +186,15 @@ daedalus personas create reviewer
 # Use a custom persona
 daedalus --persona reviewer my-app /path/to/project
 
+# Start a project from a GitHub URL
+daedalus https://github.com/user/repo
+
+# Or use owner/repo shorthand
+daedalus user/repo
+
+# Switch a project's build target
+daedalus config my-app --set target=godot
+
 # Set Copilot as the default runner for a project
 daedalus config my-app --set runner=copilot
 
@@ -230,7 +241,7 @@ The web UI provides:
 - **Start/Stop** buttons for each project (launches container in a tmux session).
 - **Attach** button that opens an xterm.js terminal in the browser, connected to the tmux session via WebSocket.
 
-**Security:** Binds to `127.0.0.1` by default (localhost only). Use `--host 0.0.0.0` for remote access (add your own authentication layer).
+**Security:** Authentication is enabled by default. On first launch, a random access token is generated, saved to `config.json`, and printed to the terminal. Enter the token in the login page to start a session (cookie-based, default 24h expiry). Use `--no-auth` to disable authentication. Binds to `127.0.0.1` by default (localhost only); use `--host 0.0.0.0` for remote access.
 
 ### WSL2
 
