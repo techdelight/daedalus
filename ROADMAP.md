@@ -40,6 +40,17 @@
 
 ## Current Sprint
 
+### Sprint 36: tmux Control Mode — Web Terminal Relay (v0.32.0)
+
+Goal: wire the ControlSession into the Web UI terminal as an alternative to the PTY relay. Add scrollback request support via WebSocket. Both modes coexist — control mode activates via `?mode=control` query parameter.
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | `internal/web/web.go` — `handleTerminalControl()` handler using `ControlSession` instead of PTY, with `readControlMessages` / `writeControlMessages` relay goroutines | Done |
+| 2 | WebSocket scrollback — client sends `{"type":"scrollback","lines":N}`, server calls `CapturePane()` and returns `{"type":"scrollback-response","content":"..."}` | Done |
+| 3 | `internal/web/static/terminal.js` — add scrollback request message type and render response | Done |
+| 4 | Tests and documentation | Done |
+
 ### Sprint 35: tmux Control Mode — Control Session & Parser (v0.31.0)
 
 Goal: implement the control session package and message parser (Phase 1 of the tmux control mode plan). New `ControlSession` type that spawns `tmux -C attach-session`, parses `%output/%begin/%end/%error` messages, and provides `SendKeys()`, `CapturePane()`, and `ResizeWindow()` methods.

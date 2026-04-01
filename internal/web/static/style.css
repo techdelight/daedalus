@@ -911,6 +911,15 @@ tbody td {
     border-color: #c0caf5;
 }
 
+.terminal-header .btn-history {
+    border-color: #7aa2f7;
+    color: #7aa2f7;
+}
+
+.terminal-header .btn-history:hover {
+    background: rgba(122, 162, 247, 0.1);
+}
+
 .terminal-header .btn-select {
     display: none;
     border-color: #9ece6a;

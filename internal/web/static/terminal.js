@@ -51,9 +51,9 @@ function connectTerminal(projectName) {
     fitAddon.fit();
     requestAnimationFrame(function() { if (fitAddon) fitAddon.fit(); });
 
-    // Connect WebSocket
+    // Connect WebSocket — use control mode for scrollback support
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${proto}//${location.host}/api/projects/${encodeURIComponent(projectName)}/terminal`;
+    const wsUrl = `${proto}//${location.host}/api/projects/${encodeURIComponent(projectName)}/terminal?mode=control`;
     ws = new WebSocket(wsUrl);
     ws.binaryType = 'arraybuffer';
 
@@ -69,7 +69,16 @@ function connectTerminal(projectName) {
     ws.onmessage = function(event) {
         if (event.data instanceof ArrayBuffer) {
             term.write(new Uint8Array(event.data));
-        } else {
+        } else if (typeof event.data === 'string') {
+            try {
+                var msg = JSON.parse(event.data);
+                if (msg.type === 'scrollback-response' && msg.content) {
+                    // Write scrollback content above current output
+                    term.write('\x1b[2J\x1b[H'); // clear + home
+                    term.write(msg.content);
+                    return;
+                }
+            } catch (e) { /* not JSON, treat as terminal data */ }
             term.write(event.data);
         }
     };
@@ -228,6 +237,12 @@ function connectTerminal(projectName) {
         mobileInput.removeEventListener('keydown', onMobileKeydown);
         mobileInput.removeEventListener('input', onMobileInput);
     };
+}
+
+function requestScrollback(lines) {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'scrollback', lines: lines || 500 }));
+    }
 }
 
 function disconnectTerminal() {

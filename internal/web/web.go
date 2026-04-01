@@ -530,6 +530,125 @@ type resizeMsg struct {
 	Rows uint16 `json:"rows"`
 }
 
+type wsMsg struct {
+	Type  string `json:"type"`
+	Lines int    `json:"lines,omitempty"`
+}
+
+type scrollbackResponse struct {
+	Type    string `json:"type"`
+	Content string `json:"content"`
+}
+
+// handleTerminalControl is the control-mode alternative to handleTerminal.
+// It uses tmux -C for structured I/O instead of a raw PTY relay.
+// Activated by ?mode=control on the terminal WebSocket endpoint.
+func (ws *WebServer) handleTerminalControl(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+
+	_, found, err := ws.registry.GetProject(name)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if !found {
+		http.Error(w, fmt.Sprintf("project %q not found", name), http.StatusNotFound)
+		return
+	}
+
+	sessName := "claude-" + name
+	sess := session.NewSession(ws.executor, sessName)
+	if !sess.Exists() {
+		http.Error(w, fmt.Sprintf("no tmux session for project %q", name), http.StatusNotFound)
+		return
+	}
+
+	conn, err := wsUpgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Printf("WebSocket upgrade failed for %s: %v", name, err)
+		return
+	}
+	defer conn.Close()
+
+	cs, err := session.StartControlSession(sessName)
+	if err != nil {
+		conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("Failed to start control mode: %v", err)))
+		return
+	}
+	defer cs.Close()
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	// Read control messages from tmux, forward to WebSocket
+	go func() {
+		defer wg.Done()
+		for {
+			msg, err := cs.ReadMessage()
+			if err != nil {
+				conn.WriteMessage(websocket.CloseMessage,
+					websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+				return
+			}
+			if msg.Type == session.MsgOutput {
+				if err := conn.WriteMessage(websocket.BinaryMessage, []byte(msg.Content)); err != nil {
+					return
+				}
+			}
+			// Layout changes and other events can be forwarded as JSON in the future
+		}
+	}()
+
+	// Read WebSocket messages, dispatch to control session
+	go func() {
+		defer wg.Done()
+		for {
+			msgType, data, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+			if msgType == websocket.TextMessage {
+				var m wsMsg
+				if json.Unmarshal(data, &m) == nil {
+					switch m.Type {
+					case "resize":
+						var rm resizeMsg
+						json.Unmarshal(data, &rm)
+						if rm.Cols > 0 && rm.Rows > 0 {
+							cs.ResizeWindow(int(rm.Cols), int(rm.Rows))
+						}
+					case "scrollback":
+						lines := m.Lines
+						if lines <= 0 {
+							lines = 500
+						}
+						content, err := cs.CapturePane(lines)
+						if err != nil {
+							log.Printf("CapturePane error for %s: %v", name, err)
+							continue
+						}
+						resp, _ := json.Marshal(scrollbackResponse{
+							Type:    "scrollback-response",
+							Content: content,
+						})
+						conn.WriteMessage(websocket.TextMessage, resp)
+					default:
+						// Unknown JSON message — send as keys
+						cs.SendKeys(string(data))
+					}
+					continue
+				}
+				// Non-JSON text — send as keys
+				cs.SendKeys(string(data))
+			} else if msgType == websocket.BinaryMessage {
+				cs.SendKeys(string(data))
+			}
+		}
+	}()
+
+	wg.Wait()
+}
+
 // handleAgentState returns the agent state for a project.
 func (ws *WebServer) handleAgentState(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
@@ -673,6 +792,12 @@ func (ws *WebServer) handleDeleteProgramme(w http.ResponseWriter, r *http.Reques
 }
 
 func (ws *WebServer) handleTerminal(w http.ResponseWriter, r *http.Request) {
+	// Route to control mode if ?mode=control is set
+	if r.URL.Query().Get("mode") == "control" {
+		ws.handleTerminalControl(w, r)
+		return
+	}
+
 	name := r.PathValue("name")
 
 	_, found, err := ws.registry.GetProject(name)

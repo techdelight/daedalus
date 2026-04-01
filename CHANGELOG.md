@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.32.0] - 2026-04-01
+
+### Added
+- **tmux control mode web terminal** — `handleTerminalControl()` in `internal/web/web.go` uses `ControlSession` (tmux `-C`) instead of raw PTY relay. Activated via `?mode=control` query parameter on the terminal WebSocket endpoint. Both modes coexist.
+- **Scrollback support** — "History" button in the terminal header requests the last 1000 lines of pane scrollback via `CapturePane()`. Client sends `{"type":"scrollback","lines":N}`, server responds with `{"type":"scrollback-response","content":"..."}`.
+- Web UI terminal now defaults to control mode for scrollback access.
+
 ## [0.31.0] - 2026-04-01
 
 ### Added
