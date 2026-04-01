@@ -14,6 +14,8 @@ type AppConfig struct {
 	Runner      *string `json:"runner,omitempty"`
 	Persona     *string `json:"persona,omitempty"`
 	Agent       *string `json:"agent,omitempty"` // legacy: maps to Runner for backward compat
+	AuthToken   *string `json:"auth-token,omitempty"`
+	AuthExpiry  *int    `json:"auth-expiry,omitempty"` // session expiry in hours
 }
 
 // ApplyAppConfig sets fields on cfg from app only when the cfg field is still
@@ -43,5 +45,11 @@ func ApplyAppConfig(cfg *Config, app AppConfig) {
 	// Legacy: "agent" in config.json maps to Runner for backward compat
 	if cfg.Runner == "" && app.Agent != nil {
 		cfg.Runner = *app.Agent
+	}
+	if cfg.AuthToken == "" && app.AuthToken != nil {
+		cfg.AuthToken = *app.AuthToken
+	}
+	if cfg.AuthExpiry == 0 && app.AuthExpiry != nil {
+		cfg.AuthExpiry = *app.AuthExpiry
 	}
 }

@@ -44,6 +44,9 @@ type Config struct {
 	WSL2Detected    bool     // true when WSL2 was auto-detected and host defaulted to 0.0.0.0
 	LogFile         string   // path to log file for persistent logging
 	ContainerLog    bool     // log container output to file
+	Auth            bool     // enable token-based authentication for web UI
+	AuthToken       string   // access token for web UI authentication
+	AuthExpiry      int      // session cookie expiry in hours (default 24)
 }
 
 // Image returns the full Docker image tag.

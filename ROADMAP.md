@@ -7,10 +7,10 @@
 | ~~30~~ | ~~Skill install path — install skills to `.claude/skills/{skill-name}/SKILL.md` (directory per skill) instead of flat `.claude/skills/{skill-name}.md`~~ |
 | 31 | Rename skill store — rename "skill catalog" / "skill" terminology to avoid confusion with Claude Code's built-in skill repository. Candidate: "focus" (focus catalog, focus files). Open to alternatives |
 | ~~1~~ | ~~Agent mode (`--agent`) — start Claude Code as a specific agent by passing a named agent configuration, enabling purpose-built personas and tool sets per project~~ |
-| 2 | Authentication for Web UI — add token-based login to protect the dashboard when exposed on a network |
-| 3 | Session cookie with configurable expiry |
-| 4 | `--auth` / `--no-auth` flag for `daedalus web` (default: auth enabled) |
-| 5 | Generate and display access token on first `daedalus web` launch |
+| ~~2~~ | ~~Authentication for Web UI — add token-based login to protect the dashboard when exposed on a network~~ |
+| ~~3~~ | ~~Session cookie with configurable expiry~~ |
+| ~~4~~ | ~~`--auth` / `--no-auth` flag for `daedalus web` (default: auth enabled)~~ |
+| ~~5~~ | ~~Generate and display access token on first `daedalus web` launch~~ |
 | 6 | Shell toggle — switch between Claude Code and a regular project shell inside the container |
 | 7 | Switch target for existing project — change build target from TUI (e.g. `F3`) and CLI (`daedalus config <name> --set target=<stage>`) without re-registering |
 | 8 | Bundle release assets — package runtime files into a single tarball on the GitHub Release page instead of individual files |
@@ -40,16 +40,17 @@
 
 ## Current Sprint
 
-### Sprint 31: Web UI Polish & Skill Paths (v0.27.0)
+### Sprint 32: Web UI Authentication (v0.28.0)
 
-Goal: improve the web interface with a favicon and clickable Foreman project cards, and modernise the skill catalog to use a directory-per-skill structure.
+Goal: protect the Web UI with token-based authentication so it can be safely exposed on a network. Generate a random access token on first launch, require it for all API/page/WebSocket access, and provide `--auth`/`--no-auth` flags for control.
 
 | # | Item | Status |
 |---|------|--------|
-| 1 | Favicon — add an SVG favicon to `internal/web/static/`, link in `index.html` `<head>` | Done |
-| 2 | Foreman UI project navigation — make project cards in the Foreman view clickable, navigating to the project detail/dashboard view | Done |
-| 3 | Skill install path — change catalog install/read/list to use `{name}/SKILL.md` directory structure instead of flat `{name}.md` files. Update starter skills, MCP server, and all tests | Done |
-| 4 | Documentation — ARCHITECTURE, CHANGELOG, VERSION | Done |
+| 1 | Auth token generation — add `AuthToken` and `AuthSessionExpiry` fields to `AppConfig`, generate cryptographically random token on first `daedalus web` launch, persist to `config.json`, display to user on startup | Done |
+| 2 | `--auth` / `--no-auth` flags — add `Auth` field to `Config`, parse flags in `internal/config`, default to auth enabled for `web` subcommand | Done |
+| 3 | Auth middleware — wrap all HTTP routes with token validation middleware. Login page with token input form. Session cookie (`daedalus_session`) set on successful login with configurable expiry (default 24h). Exempt `/login` and `/static/` from auth | Done |
+| 4 | WebSocket auth — validate session cookie or `token` query parameter on WebSocket upgrade | Done |
+| 5 | Documentation — ARCHITECTURE, CHANGELOG, VERSION, README | Done |
 
 ### Sprint 29: The Foreman Agent — Core Loop (v0.24.0)
 
@@ -268,6 +269,17 @@ Goal: improve the build workflow, add diagnostic tooling, and set up release doc
 ---
 
 ## Sprint History
+
+### Sprint 31: Web UI Polish & Skill Paths (v0.27.0)
+
+Delivered 2026-04-01. Favicon, Foreman project navigation, directory-per-skill catalog structure.
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | Favicon — add an SVG favicon to `internal/web/static/`, link in `index.html` `<head>` | Done |
+| 2 | Foreman UI project navigation — make project cards in the Foreman view clickable, navigating to the project detail/dashboard view | Done |
+| 3 | Skill install path — change catalog install/read/list to use `{name}/SKILL.md` directory structure instead of flat `{name}.md` files. Update starter skills, MCP server, and all tests | Done |
+| 4 | Documentation — ARCHITECTURE, CHANGELOG, VERSION | Done |
 
 ### Sprint 30: Programme-Level Cascade Orchestration (v0.25.0)
 

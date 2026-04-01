@@ -45,6 +45,7 @@ func ParseArgs(args []string) (*core.Config, error) {
 	webHost := "127.0.0.1"
 	webPort := "3000"
 	hostOverride := false
+	noAuthExplicit := false
 
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
@@ -86,6 +87,11 @@ func ParseArgs(args []string) (*core.Config, error) {
 			cfg.NoColor = true
 		case "--container-log":
 			cfg.ContainerLog = true
+		case "--auth":
+			cfg.Auth = true
+		case "--no-auth":
+			cfg.Auth = false
+			noAuthExplicit = true
 		case "--set":
 			if i+1 >= len(args) {
 				return nil, fmt.Errorf("--set requires a key=value pair")
@@ -281,6 +287,12 @@ func ParseArgs(args []string) (*core.Config, error) {
 					cfg.WSL2Detected = true
 				}
 				cfg.WebAddr = webHost + ":" + webPort
+			}
+			// Default auth to true for web subcommand unless --no-auth was set.
+			// We detect this by checking if Auth is still false and no explicit
+			// --no-auth was passed (we track this via a local flag).
+			if positional[0] == "web" && !noAuthExplicit {
+				cfg.Auth = true
 			}
 			return cfg, nil
 		}
