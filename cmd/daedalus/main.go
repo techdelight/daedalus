@@ -6,7 +6,9 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -475,6 +477,31 @@ func resolveTwoArgs(cfg *core.Config, reg *registry.Registry) error {
 
 // resolveOneArg handles the case where only the project name is provided.
 func resolveOneArg(cfg *core.Config, reg *registry.Registry) error {
+	// Check if the "name" is actually a GitHub URL
+	if repoURL, repoName, ok := parseGitHubURL(cfg.ProjectName); ok {
+		cfg.ProjectName = repoName
+		// Check if already registered
+		entry, found, err := reg.GetProject(repoName)
+		if err != nil {
+			return fmt.Errorf("checking project: %w", err)
+		}
+		if found {
+			core.ApplyRegistryEntry(cfg, entry)
+			if err := reg.TouchProject(repoName); err != nil {
+				return fmt.Errorf("updating project timestamp: %w", err)
+			}
+			return nil
+		}
+		// Clone into projects directory
+		projectsRoot := filepath.Join(cfg.DataDir, "projects")
+		cloneDir := filepath.Join(projectsRoot, repoName)
+		if err := cloneGitRepo(repoURL, cloneDir); err != nil {
+			return err
+		}
+		cfg.ProjectDir = cloneDir
+		return handleNewProject(cfg, reg)
+	}
+
 	entry, found, err := reg.GetProject(cfg.ProjectName)
 	if err != nil {
 		return fmt.Errorf("checking project: %w", err)
@@ -632,6 +659,56 @@ func handleDirConflict(cfg *core.Config, reg *registry.Registry, existingName st
 	}
 }
 
+// parseGitHubURL checks if input is a GitHub URL or shorthand (owner/repo).
+// Returns the clone URL, extracted repo name, and whether it matched.
+func parseGitHubURL(input string) (cloneURL, repoName string, ok bool) {
+	// Full URL: https://github.com/owner/repo or https://github.com/owner/repo.git
+	if strings.HasPrefix(input, "https://github.com/") || strings.HasPrefix(input, "http://github.com/") {
+		u, err := url.Parse(input)
+		if err != nil {
+			return "", "", false
+		}
+		parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+		if len(parts) < 2 {
+			return "", "", false
+		}
+		repo := strings.TrimSuffix(parts[1], ".git")
+		cloneURL = "https://github.com/" + parts[0] + "/" + parts[1]
+		if !strings.HasSuffix(cloneURL, ".git") {
+			cloneURL += ".git"
+		}
+		return cloneURL, repo, true
+	}
+	// Shorthand: owner/repo (exactly one slash, no dots or colons)
+	if strings.Count(input, "/") == 1 && !strings.Contains(input, ":") && !strings.Contains(input, ".") {
+		parts := strings.Split(input, "/")
+		if parts[0] != "" && parts[1] != "" {
+			return "https://github.com/" + input + ".git", parts[1], true
+		}
+	}
+	return "", "", false
+}
+
+// cloneGitRepo clones a git repository to the specified directory.
+func cloneGitRepo(repoURL, targetDir string) error {
+	if _, err := os.Stat(targetDir); err == nil {
+		// Directory already exists — assume it's a previous clone
+		fmt.Printf("Directory '%s' already exists, skipping clone.\n", targetDir)
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(targetDir), 0755); err != nil {
+		return fmt.Errorf("creating projects directory: %w", err)
+	}
+	fmt.Printf("Cloning %s...\n", repoURL)
+	cmd := exec.Command("git", "clone", repoURL, targetDir)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("cloning repository: %w", err)
+	}
+	return nil
+}
+
 // showOrEditConfig displays or modifies per-project default flags.
 func showOrEditConfig(cfg *core.Config) error {
 	if cfg.ConfigTarget == "" {
@@ -656,10 +733,24 @@ func showOrEditConfig(cfg *core.Config) error {
 		setMap := make(map[string]string)
 		for _, kv := range cfg.ConfigSet {
 			parts := strings.SplitN(kv, "=", 2)
+			// Handle target= specially — update the project target directly
+			if parts[0] == "target" {
+				if !core.IsValidTarget(parts[1]) {
+					return fmt.Errorf("invalid target %q — valid targets: %s",
+						parts[1], strings.Join(core.ValidTargets(), ", "))
+				}
+				if err := reg.UpdateProjectTarget(cfg.ConfigTarget, parts[1]); err != nil {
+					return fmt.Errorf("updating target: %w", err)
+				}
+				fmt.Printf("%s target changed to '%s' for '%s'.\n", color.Green("OK:"), parts[1], cfg.ConfigTarget)
+				continue
+			}
 			setMap[parts[0]] = parts[1]
 		}
-		if err := reg.UpdateDefaultFlags(cfg.ConfigTarget, setMap, cfg.ConfigUnset); err != nil {
-			return fmt.Errorf("updating config: %w", err)
+		if len(setMap) > 0 || len(cfg.ConfigUnset) > 0 {
+			if err := reg.UpdateDefaultFlags(cfg.ConfigTarget, setMap, cfg.ConfigUnset); err != nil {
+				return fmt.Errorf("updating config: %w", err)
+			}
 		}
 		// Re-read to show updated state
 		entry, _, err = reg.GetProject(cfg.ConfigTarget)

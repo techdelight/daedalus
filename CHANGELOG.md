@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.29.0] - 2026-04-01
+
+### Added
+- **Switch target for existing project** — `daedalus config <name> --set target=<stage>` changes the build target without re-registering. Validates against known targets (dev, godot, base, utils).
+- `UpdateProjectTarget()` method in registry package.
+- `ValidTargets()` and `IsValidTarget()` functions in core package.
+- **GitHub repo projects** — pass a GitHub URL or `owner/repo` shorthand as the project name to clone and register in one step. E.g., `daedalus https://github.com/user/repo` or `daedalus user/repo`.
+- Tests for target switching, GitHub URL parsing, and registry `UpdateProjectTarget`.
+
 ## [0.28.0] - 2026-04-01
 
 ### Added

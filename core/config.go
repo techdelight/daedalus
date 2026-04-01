@@ -49,6 +49,21 @@ type Config struct {
 	AuthExpiry      int      // session cookie expiry in hours (default 24)
 }
 
+// ValidTargets returns the list of valid build target names.
+func ValidTargets() []string {
+	return []string{"dev", "godot", "base", "utils"}
+}
+
+// IsValidTarget returns true if name is a recognised build target.
+func IsValidTarget(name string) bool {
+	for _, t := range ValidTargets() {
+		if t == name {
+			return true
+		}
+	}
+	return false
+}
+
 // Image returns the full Docker image tag.
 // For non-claude runners, "claude-runner" in the prefix is replaced with
 // "<runner>-runner" (e.g. "techdelight/copilot-runner:dev").
