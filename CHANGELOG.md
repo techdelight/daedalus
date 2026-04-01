@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.31.0] - 2026-04-01
+
+### Added
+- **tmux control mode session** — `ControlSession` in `internal/session/control.go` spawns `tmux -C attach-session` and provides structured message I/O: `SendKeys()`, `CapturePane()`, `ResizeWindow()`, `ReadMessage()`, `Close()`.
+- **Control message parser** — `ParseControlLine()` in `internal/session/controlparser.go` parses all `%`-prefixed tmux control mode messages: `%output`, `%begin`, `%end`, `%error`, `%layout-change`, `%session-changed`, `%window-renamed`, `%pane-mode-changed`.
+- 19 unit tests covering all message types, edge cases (empty input, special characters, spaces), `shellQuote()`, and `safeIndex()`.
+
 ## [0.30.0] - 2026-04-01
 
 ### Added

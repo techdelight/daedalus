@@ -40,15 +40,16 @@
 
 ## Current Sprint
 
-### Sprint 34: tmux Control Mode Investigation (v0.30.0)
+### Sprint 35: tmux Control Mode — Control Session & Parser (v0.31.0)
 
-Goal: research spike — investigate `tmux -C` control mode as a replacement for the raw PTY relay in the Web UI terminal. Produce a design document with architecture, migration plan, and implementation guidance.
+Goal: implement the control session package and message parser (Phase 1 of the tmux control mode plan). New `ControlSession` type that spawns `tmux -C attach-session`, parses `%output/%begin/%end/%error` messages, and provides `SendKeys()`, `CapturePane()`, and `ResizeWindow()` methods.
 
 | # | Item | Status |
 |---|------|--------|
-| 1 | Research spike — analyse current tmux integration, control mode protocol, impact per component, benefits/risks, migration path | Done |
-| 2 | Design document — `docs/tmux-control-mode.md` with architecture, phased plan, and implementation sketches | Done |
-| 3 | Documentation — CHANGELOG, VERSION | Done |
+| 1 | `internal/session/controlparser.go` — `ControlMessage` type and `ParseControlLine()` parser for all `%`-prefixed message types, with tests | Done |
+| 2 | `internal/session/control.go` — `ControlSession` struct with `Start()`, `SendKeys()`, `CapturePane()`, `ResizeWindow()`, `ReadMessage()`, `Close()` methods | Done |
+| 3 | `internal/session/control_test.go` — unit tests for parser (all message types, edge cases) and integration tests for ControlSession with MockExecutor | Done |
+| 4 | Documentation — ARCHITECTURE, CHANGELOG, VERSION | Done |
 
 ### Sprint 29: The Foreman Agent — Core Loop (v0.24.0)
 
