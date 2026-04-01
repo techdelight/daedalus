@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.30.0] - 2026-04-01
+
+### Added
+- **tmux control mode design document** (`docs/tmux-control-mode.md`) — research spike covering current PTY relay architecture, tmux `-C` protocol analysis, component impact assessment, phased implementation plan (4 phases, ~850 lines, 3 sprints), and migration strategy. Approved for implementation.
+
 ## [0.29.1] - 2026-04-01
 
 ### Fixed

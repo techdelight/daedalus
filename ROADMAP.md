@@ -40,7 +40,15 @@
 
 ## Current Sprint
 
-No active sprint.
+### Sprint 34: tmux Control Mode Investigation (v0.30.0)
+
+Goal: research spike — investigate `tmux -C` control mode as a replacement for the raw PTY relay in the Web UI terminal. Produce a design document with architecture, migration plan, and implementation guidance.
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | Research spike — analyse current tmux integration, control mode protocol, impact per component, benefits/risks, migration path | Done |
+| 2 | Design document — `docs/tmux-control-mode.md` with architecture, phased plan, and implementation sketches | Done |
+| 3 | Documentation — CHANGELOG, VERSION | Done |
 
 ### Sprint 29: The Foreman Agent — Core Loop (v0.24.0)
 
