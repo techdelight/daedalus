@@ -96,6 +96,15 @@ func (cs *ControlSession) CapturePane(lines int) (string, error) {
 	return cs.readCommandResponse()
 }
 
+// CaptureVisible captures only the currently visible pane content.
+func (cs *ControlSession) CaptureVisible() (string, error) {
+	cmd := fmt.Sprintf("capture-pane -t %s -p -e", cs.name)
+	if err := cs.SendCommand(cmd); err != nil {
+		return "", fmt.Errorf("sending capture-pane: %w", err)
+	}
+	return cs.readCommandResponse()
+}
+
 // ResizeWindow resizes the session window.
 func (cs *ControlSession) ResizeWindow(cols, rows int) error {
 	return cs.SendCommand(fmt.Sprintf("resize-window -t %s -x %d -y %d", cs.name, cols, rows))

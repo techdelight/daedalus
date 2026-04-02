@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.33.0] - 2026-04-02
+
+### Added
+- **History mode visual indicator** — blue "HISTORY MODE" banner with hint text appears between terminal header and content when viewing scrollback. History button highlights with active state. (Backlog #35)
+- **History mode exit** — press Esc, any key, or click the Exit button in the banner to leave history mode. Exiting sends a `live-capture` request to restore the current visible pane content. (Backlog #36)
+- **Live capture endpoint** — new `CaptureVisible()` method on `ControlSession` captures only the visible pane (no scrollback depth). New `live-capture` WebSocket message type in `handleTerminalControl()`.
+- **Scroll recovery after crash/disconnect** — history mode state resets automatically on WebSocket close, error, or terminal disconnect, preventing stale scroll viewport. (Backlog #40)
+- Backlog items 34–40 added to ROADMAP.md.
+
 ## [0.32.0] - 2026-04-01
 
 ### Added

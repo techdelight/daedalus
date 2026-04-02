@@ -6,6 +6,7 @@ let term = null;
 let ws = null;
 let fitAddon = null;
 let cleanupListeners = null;
+let inHistoryMode = false;
 
 function isMobileView() {
     return window.matchMedia('(max-width: 768px)').matches;
@@ -73,8 +74,13 @@ function connectTerminal(projectName) {
             try {
                 var msg = JSON.parse(event.data);
                 if (msg.type === 'scrollback-response' && msg.content) {
-                    // Write scrollback content above current output
                     term.write('\x1b[2J\x1b[H'); // clear + home
+                    term.write(msg.content);
+                    enterHistoryMode();
+                    return;
+                }
+                if (msg.type === 'live-capture-response' && msg.content) {
+                    term.write('\x1b[2J\x1b[H');
                     term.write(msg.content);
                     return;
                 }
@@ -84,15 +90,41 @@ function connectTerminal(projectName) {
     };
 
     ws.onclose = function() {
+        if (inHistoryMode) {
+            inHistoryMode = false;
+            var banner = document.getElementById('history-banner');
+            if (banner) banner.classList.remove('active');
+            var btn = document.querySelector('.btn-history');
+            if (btn) btn.classList.remove('active');
+        }
         term.write('\r\n\x1b[33m[Connection closed]\x1b[0m\r\n');
     };
 
     ws.onerror = function() {
+        if (inHistoryMode) {
+            inHistoryMode = false;
+            var banner = document.getElementById('history-banner');
+            if (banner) banner.classList.remove('active');
+            var btn = document.querySelector('.btn-history');
+            if (btn) btn.classList.remove('active');
+        }
         term.write('\r\n\x1b[31m[Connection error]\x1b[0m\r\n');
     };
 
+    // Intercept Esc to exit history mode
+    term.onKey(function(ev) {
+        if (inHistoryMode && ev.domEvent.key === 'Escape') {
+            ev.domEvent.preventDefault();
+            exitHistoryMode();
+        }
+    });
+
     // Forward input to WebSocket
     term.onData(function(data) {
+        if (inHistoryMode) {
+            exitHistoryMode();
+            return; // consume the keystroke that exits history
+        }
         if (ws && ws.readyState === WebSocket.OPEN) {
             ws.send(new TextEncoder().encode(data));
         }
@@ -239,6 +271,28 @@ function connectTerminal(projectName) {
     };
 }
 
+function enterHistoryMode() {
+    if (inHistoryMode) return;
+    inHistoryMode = true;
+    var banner = document.getElementById('history-banner');
+    if (banner) banner.classList.add('active');
+    var btn = document.querySelector('.btn-history');
+    if (btn) btn.classList.add('active');
+}
+
+function exitHistoryMode() {
+    if (!inHistoryMode) return;
+    inHistoryMode = false;
+    var banner = document.getElementById('history-banner');
+    if (banner) banner.classList.remove('active');
+    var btn = document.querySelector('.btn-history');
+    if (btn) btn.classList.remove('active');
+    // Request live terminal content to restore the viewport
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'live-capture' }));
+    }
+}
+
 function requestScrollback(lines) {
     if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: 'scrollback', lines: lines || 500 }));
@@ -246,6 +300,11 @@ function requestScrollback(lines) {
 }
 
 function disconnectTerminal() {
+    inHistoryMode = false;
+    var banner = document.getElementById('history-banner');
+    if (banner) banner.classList.remove('active');
+    var btn = document.querySelector('.btn-history');
+    if (btn) btn.classList.remove('active');
     if (cleanupListeners) {
         cleanupListeners();
         cleanupListeners = null;

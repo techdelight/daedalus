@@ -37,8 +37,27 @@
 | 29 | Mobile WebSocket stability — investigate and fix regular disconnects on mobile web clients (possible causes: browser background tab throttling, network switches between Wi-Fi and cellular, WebSocket ping/pong timeout tuning, reconnect logic) |
 | ~~32~~ | ~~Foreman UI project navigation — clicking a project in the Foreman web UI opens that project's detail view~~ |
 | 33 | tmux control mode integration — use `tmux -C` control mode instead of raw PTY for terminal interaction. Enables native scrollback access (replacing tmux keybind-based scrolling), clean session disconnect/reconnect, and machine-parseable event notifications for agent observability |
+| 34 | Project detail roadmap not found — when viewing project details the roadmap panel shows "not found" even though vision loads correctly. Investigate roadmap file detection / API endpoint for the project detail view |
+| ~~35~~ | ~~History mode visual indicator — when the user presses `history` (scroll mode) inside a project terminal, there is no visual feedback that scroll mode is active. Add a clear indicator (e.g. status bar highlight, overlay badge, or border change) so the user knows they are in history/scroll mode~~ |
+| ~~36~~ | ~~History mode exit — provide a clear, discoverable way to exit history/scroll mode and document it. Consider an on-screen hint (e.g. "Press Esc to exit history") shown while in scroll mode~~ |
+| 37 | Shared Claude versions volume — Claude CLI stores its versions in `~/.local/share/claude/versions` inside each container, consuming significant disk space per project. Create a shared Docker volume for this path and mount it into all containers that use a Claude runner, so versions are downloaded once and reused across projects |
+| 38 | Web UI hangs on trust prompt — when attaching to a container/tmux session where Claude CLI is showing the "trust this folder" security prompt, the Web UI hangs instead of rendering the prompt interactively. Investigate whether the trust prompt can be auto-accepted via CLI flags (e.g. pre-trusting the project directory) or ensure the prompt is rendered and interactive in the web terminal |
+| 39 | Add Maven to dev container — the `dev` build target does not include `mvn`. Install Maven via SDKMAN! in the Dockerfile so Java/Maven projects work out of the box |
+| ~~40~~ | ~~TUI scroll recovery after history crash — when using `history` (scroll mode) in the Web UI and the session crashes, the TUI can fail to re-orient tmux to the bottom of the scrollback. Ensure the TUI resets the tmux viewport to the latest output after a crash or abnormal exit from scroll mode~~ |
 
 ## Current Sprint
+
+### Sprint 37: History Mode UX (v0.33.0)
+
+Goal: make history/scroll mode in the Web UI discoverable, clearly indicated, and easy to exit. Add crash/disconnect recovery so the terminal viewport always returns to live output.
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | `inHistoryMode` state tracking in `terminal.js` with `enterHistoryMode()` / `exitHistoryMode()` functions | Done |
+| 2 | Visual banner (`#history-banner`) with "HISTORY MODE" label, hint text, and Exit button in `index.html` + `style.css` | Done |
+| 3 | Exit via Esc key, any keystroke, or Exit button — sends `live-capture` to restore live viewport | Done |
+| 4 | `CaptureVisible()` method on `ControlSession` and `live-capture` WebSocket message handler in `web.go` | Done |
+| 5 | History mode state reset on WebSocket close, error, and `disconnectTerminal()` | Done |
 
 ### Sprint 36: tmux Control Mode — Web Terminal Relay (v0.32.0)
 

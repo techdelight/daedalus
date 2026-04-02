@@ -920,6 +920,50 @@ tbody td {
     background: rgba(122, 162, 247, 0.1);
 }
 
+.terminal-header .btn-history.active {
+    background: rgba(122, 162, 247, 0.25);
+    border-color: #7aa2f7;
+    color: #fff;
+}
+
+#history-banner {
+    display: none;
+    align-items: center;
+    gap: 12px;
+    padding: 6px 16px;
+    background: rgba(122, 162, 247, 0.15);
+    border-bottom: 2px solid #7aa2f7;
+    color: #7aa2f7;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+#history-banner.active {
+    display: flex;
+}
+
+#history-banner .history-hint {
+    color: #565f89;
+    font-weight: 400;
+    font-size: 12px;
+}
+
+#history-banner .btn-exit-history {
+    margin-left: auto;
+    padding: 2px 12px;
+    border: 1px solid #7aa2f7;
+    border-radius: 4px;
+    background: transparent;
+    color: #7aa2f7;
+    cursor: pointer;
+    font-size: 12px;
+}
+
+#history-banner .btn-exit-history:hover {
+    background: rgba(122, 162, 247, 0.2);
+    color: #fff;
+}
+
 .terminal-header .btn-select {
     display: none;
     border-color: #9ece6a;

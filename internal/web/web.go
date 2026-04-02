@@ -636,6 +636,17 @@ func (ws *WebServer) handleTerminalControl(w http.ResponseWriter, r *http.Reques
 							Content: content,
 						})
 						conn.WriteMessage(websocket.TextMessage, resp)
+					case "live-capture":
+						content, err := cs.CaptureVisible()
+						if err != nil {
+							log.Printf("CaptureVisible error for %s: %v", name, err)
+							continue
+						}
+						resp, _ := json.Marshal(scrollbackResponse{
+							Type:    "live-capture-response",
+							Content: content,
+						})
+						conn.WriteMessage(websocket.TextMessage, resp)
 					default:
 						// Unknown JSON message — send as keys
 						if err := cs.SendKeys(string(data)); err != nil {
