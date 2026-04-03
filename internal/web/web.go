@@ -577,6 +577,13 @@ func (ws *WebServer) handleTerminalControl(w http.ResponseWriter, r *http.Reques
 	}
 	defer cs.Close()
 
+	// Capture visible pane content before starting relay goroutines.
+	// This avoids a blank terminal on connect — no reader contention
+	// because the goroutines have not started yet.
+	if content, err := cs.CaptureVisible(); err == nil && content != "" {
+		conn.WriteMessage(websocket.BinaryMessage, []byte(content))
+	}
+
 	var wg sync.WaitGroup
 	wg.Add(2)
 

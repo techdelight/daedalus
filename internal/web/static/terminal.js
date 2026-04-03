@@ -65,8 +65,6 @@ function connectTerminal(projectName) {
             cols: term.cols,
             rows: term.rows
         }));
-        // Capture current pane content so the terminal is never blank on connect
-        ws.send(JSON.stringify({ type: 'live-capture' }));
     };
 
     ws.onmessage = function(event) {
