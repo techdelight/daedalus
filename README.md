@@ -240,7 +240,8 @@ The web UI provides:
 - **Project list** with live status (running/stopped), target, and last-used time. Auto-refreshes every 5 seconds.
 - **Start/Stop** buttons for each project (launches container in a tmux session).
 - **Attach** button that opens an xterm.js terminal in the browser, connected to the tmux session via WebSocket.
-- **History** button in the terminal view loads the last 1000 lines of scrollback from tmux, replacing the need for `Ctrl+B [` copy mode. Powered by tmux control mode (`-C`).
+- **History** button in the terminal view loads the last 1000 lines of scrollback from tmux, replacing the need for `Ctrl+B [` copy mode. Powered by tmux control mode (`-C`). A blue "HISTORY MODE" banner appears while viewing scrollback — press Esc, any key, or click Exit to return to the live terminal.
+- **Auto-capture on connect** — the terminal automatically captures and displays the current pane content when attaching, so you never see a blank screen.
 
 **Security:** Authentication is enabled by default. On first launch, a random access token is generated, saved to `config.json`, and printed to the terminal. Enter the token in the login page to start a session (cookie-based, default 24h expiry). Use `--no-auth` to disable authentication. Binds to `127.0.0.1` by default (localhost only); use `--host 0.0.0.0` for remote access.
 
@@ -464,7 +465,7 @@ Each container includes a `project-mgmt` MCP server that Claude Code can use to 
 
 Progress data is stored in `.daedalus/progress.json` in the project directory, visible to both the container and the host. The Web UI dashboard reads this file to display real-time progress.
 
-Click any project name in the Web UI to see the project dashboard with progress bar, version, total session time, and vision. The dashboard also includes a "Show Roadmap" button to view parsed sprint data from the project's `ROADMAP.md`.
+Click any project name in the Web UI (or from the Foreman view) to see the project dashboard with progress bar, version, total session time, and vision. The roadmap is automatically loaded and displayed from the project's `ROADMAP.md`. Use the "Hide Roadmap" / "Show Roadmap" button to toggle visibility.
 
 **MCP roadmap tools (inside the container):**
 

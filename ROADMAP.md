@@ -44,12 +44,14 @@
 | 38 | Web UI hangs on trust prompt — when attaching to a container/tmux session where Claude CLI is showing the "trust this folder" security prompt, the Web UI hangs instead of rendering the prompt interactively. Investigate whether the trust prompt can be auto-accepted via CLI flags (e.g. pre-trusting the project directory) or ensure the prompt is rendered and interactive in the web terminal |
 | 39 | Add Maven to dev container — the `dev` build target does not include `mvn`. Install Maven via SDKMAN! in the Dockerfile so Java/Maven projects work out of the box |
 | ~~40~~ | ~~TUI scroll recovery after history crash — when using `history` (scroll mode) in the Web UI and the session crashes, the TUI can fail to re-orient tmux to the bottom of the scrollback. Ensure the TUI resets the tmux viewport to the latest output after a crash or abnormal exit from scroll mode~~ |
+| ~~41~~ | ~~Foreman roadmap display — the Foreman view does not show roadmaps when opening them for a project. Investigate whether the Foreman is failing to read/parse the roadmap or if the UI is not rendering the response~~ |
+| ~~42~~ | ~~Web UI blank terminal on attach — when opening a project in the Web UI the terminal view frequently shows no content, especially on mobile. Investigate causes: WebSocket race condition on connect, control mode attach timing, initial pane capture missing, or mobile browser throttling delaying the first render~~ |
 
 ## Current Sprint
 
-### Sprint 37: History Mode UX (v0.33.0)
+### Sprint 37: History Mode UX & Bug Fixes (v0.33.0)
 
-Goal: make history/scroll mode in the Web UI discoverable, clearly indicated, and easy to exit. Add crash/disconnect recovery so the terminal viewport always returns to live output.
+Goal: make history/scroll mode in the Web UI discoverable, clearly indicated, and easy to exit. Add crash/disconnect recovery so the terminal viewport always returns to live output. Fix Foreman roadmap display and blank terminal on attach.
 
 | # | Item | Status |
 |---|------|--------|
@@ -58,6 +60,8 @@ Goal: make history/scroll mode in the Web UI discoverable, clearly indicated, an
 | 3 | Exit via Esc key, any keystroke, or Exit button — sends `live-capture` to restore live viewport | Done |
 | 4 | `CaptureVisible()` method on `ControlSession` and `live-capture` WebSocket message handler in `web.go` | Done |
 | 5 | History mode state reset on WebSocket close, error, and `disconnectTerminal()` | Done |
+| 6 | Foreman roadmap display — `showDashboard()` now resets roadmap panel and auto-loads via `loadRoadmap()`. Roadmap visible immediately when opening a project from Foreman or project list (backlog #41) | Done |
+| 7 | Web UI blank terminal on attach — `ws.onopen` now sends `live-capture` request after resize to populate terminal immediately on connect (backlog #42) | Done |
 
 ### Sprint 36: tmux Control Mode — Web Terminal Relay (v0.32.0)
 

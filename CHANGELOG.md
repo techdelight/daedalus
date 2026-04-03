@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.34.0] - 2026-04-03
+
+### Fixed
+- **Blank terminal on attach** — terminal now sends a `live-capture` request immediately after WebSocket connect and resize, so the current pane content is displayed right away instead of waiting for new tmux output. Especially impactful on mobile where the blank + disabled-input terminal appeared broken. (Backlog #42)
+- **Foreman roadmap display** — `showDashboard()` now resets the roadmap panel and auto-loads the roadmap via `loadRoadmap()` when opening a project from the Foreman or project list. Previously the roadmap panel could show stale data or remain empty. (Backlog #41)
+
+### Added
+- `CaptureVisible()` and `CaptureVisible_Error` unit tests for the control session package.
+- Backlog items 41–42 added to ROADMAP.md.
+
 ## [0.33.0] - 2026-04-02
 
 ### Added

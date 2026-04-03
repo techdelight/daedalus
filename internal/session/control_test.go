@@ -346,6 +346,63 @@ func TestControlSession_CapturePane_Error(t *testing.T) {
 	}
 }
 
+func TestControlSession_CaptureVisible(t *testing.T) {
+	stdinR, stdinW := io.Pipe()
+	stdoutR, stdoutW := io.Pipe()
+	cs := NewControlSession("test", stdinW, stdoutR, nil)
+
+	go func() {
+		buf := make([]byte, 512)
+		n, _ := stdinR.Read(buf)
+		cmd := string(buf[:n])
+		// CaptureVisible should NOT include -S flag (no scrollback depth)
+		if strings.Contains(cmd, "-S") {
+			t.Errorf("CaptureVisible command includes -S flag: %s", cmd)
+		}
+		stdinR.Close()
+	}()
+
+	go func() {
+		stdoutW.Write([]byte("%begin 123 0\n"))
+		stdoutW.Write([]byte("visible content\n"))
+		stdoutW.Write([]byte("%end 123 0\n"))
+		stdoutW.Close()
+	}()
+
+	content, err := cs.CaptureVisible()
+	if err != nil {
+		t.Fatalf("CaptureVisible() error = %v", err)
+	}
+	if !strings.Contains(content, "visible content") {
+		t.Errorf("content = %q, want 'visible content'", content)
+	}
+}
+
+func TestControlSession_CaptureVisible_Error(t *testing.T) {
+	stdinR, stdinW := io.Pipe()
+	stdoutR, stdoutW := io.Pipe()
+	cs := NewControlSession("test", stdinW, stdoutR, nil)
+
+	go func() {
+		buf := make([]byte, 512)
+		stdinR.Read(buf)
+		stdinR.Close()
+	}()
+
+	go func() {
+		stdoutW.Write([]byte("%error 123 pane not found\n"))
+		stdoutW.Close()
+	}()
+
+	_, err := cs.CaptureVisible()
+	if err == nil {
+		t.Fatal("CaptureVisible() expected error")
+	}
+	if !strings.Contains(err.Error(), "pane not found") {
+		t.Errorf("error = %v, want 'pane not found'", err)
+	}
+}
+
 func TestControlSession_Close_NilCmd(t *testing.T) {
 	cs := NewControlSession("test", nopWriteCloser{}, strings.NewReader(""), nil)
 	if err := cs.Close(); err != nil {

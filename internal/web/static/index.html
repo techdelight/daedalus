@@ -351,10 +351,31 @@
             document.getElementById('dashboard-sessions').textContent = data.sessionCount;
             document.getElementById('dashboard-time').textContent = formatDuration(data.totalTimeSec);
             document.getElementById('dashboard-vision').textContent = data.vision || '\u2014';
+            // Reset roadmap panel
+            const roadmapPanel = document.getElementById('roadmap-panel');
+            roadmapPanel.style.display = 'none';
+            roadmapPanel.innerHTML = '';
+            const roadmapBtn = document.querySelector('.btn-roadmap');
+            if (roadmapBtn) roadmapBtn.textContent = 'Show Roadmap';
             // Show dashboard view
             document.getElementById('project-view').classList.add('hidden');
             document.getElementById('foreman-view').classList.remove('active');
             document.getElementById('dashboard-view').classList.add('active');
+            // Auto-load roadmap
+            loadRoadmap(name);
+        }
+
+        async function loadRoadmap(name) {
+            const panel = document.getElementById('roadmap-panel');
+            const btn = document.querySelector('.btn-roadmap');
+            const resp = await fetch(`/api/projects/${encodeURIComponent(name)}/roadmap`);
+            if (!resp.ok) return;
+            const data = await resp.json();
+            panel.innerHTML = renderRoadmap(data.sprints);
+            if (data.sprints && data.sprints.length > 0) {
+                panel.style.display = 'block';
+                if (btn) btn.textContent = 'Hide Roadmap';
+            }
         }
 
         async function toggleRoadmap(btn) {
@@ -365,12 +386,7 @@
                 return;
             }
             const name = document.getElementById('dashboard-project-name').textContent;
-            const resp = await fetch(`/api/projects/${encodeURIComponent(name)}/roadmap`);
-            if (!resp.ok) { setStatus('Error loading roadmap'); return; }
-            const data = await resp.json();
-            panel.innerHTML = renderRoadmap(data.sprints);
-            panel.style.display = 'block';
-            btn.textContent = 'Hide Roadmap';
+            await loadRoadmap(name);
         }
 
         function renderRoadmap(sprints) {
