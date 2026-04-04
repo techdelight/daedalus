@@ -11,7 +11,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 - `shellQuote` exported as `ShellQuote` in `internal/session` package (required by the refactored `handleTerminalControl` which builds tmux commands directly).
-- Backlog item 43 added to ROADMAP.md.
+- **Pipeline version in config.json** — release workflow patches `config.json` with the semantic version (e.g. `0.34.0`); dev-release workflow patches it with `dev_{timestamp}` (e.g. `dev_20260404120000`). (Backlog #43)
 
 ## [0.34.0] - 2026-04-03
 

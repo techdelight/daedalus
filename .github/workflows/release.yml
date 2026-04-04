@@ -95,6 +95,8 @@ jobs:
           cp artifacts/binaries-*/project-mgmt-mcp-* release-assets/
           cp claude.json install.sh setup.sh config.json docker-compose.yml Dockerfile entrypoint.sh settings.json logo.txt scripts/wsl2-network.bat release-assets/
           sed -i 's/RELEASE_TAG="__RELEASE_TAG__"/RELEASE_TAG="${{ github.ref_name }}"/' release-assets/install.sh
+          VERSION=$(cat VERSION)
+          sed -i "s/\"version\": \"\"/\"version\": \"$VERSION\"/" release-assets/config.json
 
       - name: Extract changelog
         id: changelog

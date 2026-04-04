@@ -46,7 +46,7 @@
 | ~~40~~ | ~~TUI scroll recovery after history crash — when using `history` (scroll mode) in the Web UI and the session crashes, the TUI can fail to re-orient tmux to the bottom of the scrollback. Ensure the TUI resets the tmux viewport to the latest output after a crash or abnormal exit from scroll mode~~ |
 | ~~41~~ | ~~Foreman roadmap display — the Foreman view does not show roadmaps when opening them for a project. Investigate whether the Foreman is failing to read/parse the roadmap or if the UI is not rendering the response~~ |
 | ~~42~~ | ~~Web UI blank terminal on attach — when opening a project in the Web UI the terminal view frequently shows no content, especially on mobile. Investigate causes: WebSocket race condition on connect, control mode attach timing, initial pane capture missing, or mobile browser throttling delaying the first render~~ |
-| 43 | Pipeline version in config.json — store the Daedalus version in the `version` field of `config.json` in the GitHub Release assets. For stable releases use the semantic version (e.g. `0.34.0`). For dev releases use `dev_{timestamp}` format. Update the dev-release and release workflows to sed/patch the field before publishing |
+| ~~43~~ | ~~Pipeline version in config.json — store the Daedalus version in the `version` field of `config.json` in the GitHub Release assets. For stable releases use the semantic version (e.g. `0.34.0`). For dev releases use `dev_{timestamp}` format. Update the dev-release and release workflows to sed/patch the field before publishing~~ |
 
 ## Current Sprint
 
