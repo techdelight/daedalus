@@ -75,18 +75,16 @@ RUN usermod -aG docker claude
 USER claude
 
 # Install SDKMAN and JVM tooling as the claude user
-# The SDKMAN installer may fail to create src/tmp dirs on some versions;
-# create them after install if missing, then re-run installer to complete setup.
-RUN curl -s "https://get.sdkman.io" -o /tmp/sdkman-install.sh && \
-    bash /tmp/sdkman-install.sh || \
-    (mkdir -p "$HOME/.sdkman/src" "$HOME/.sdkman/tmp" && bash /tmp/sdkman-install.sh) && \
-    rm -f /tmp/sdkman-install.sh
+# Pre-create dirs that the upstream installer may expect but fail to create.
+ENV SDKMAN_DIR="/home/claude/.sdkman"
+RUN mkdir -p "$SDKMAN_DIR/src" "$SDKMAN_DIR/tmp" "$SDKMAN_DIR/bin" && \
+    curl -s "https://get.sdkman.io" | bash && \
+    test -f "$SDKMAN_DIR/bin/sdkman-init.sh"
 SHELL ["/bin/bash", "-c"]
-RUN source "$HOME/.sdkman/bin/sdkman-init.sh" && \
+RUN source "$SDKMAN_DIR/bin/sdkman-init.sh" && \
     sdk install java 21.0.6-tem && \
     sdk install maven && \
     sdk install kotlin
-ENV SDKMAN_DIR="/home/claude/.sdkman"
 ENV PATH="$SDKMAN_DIR/candidates/java/current/bin:$SDKMAN_DIR/candidates/maven/current/bin:$SDKMAN_DIR/candidates/kotlin/current/bin:$PATH"
 
 # ── Stage 4: godot ───────────────────────────────────────────────────────────
@@ -149,14 +147,13 @@ RUN usermod -aG docker claude
 USER claude
 
 # Install SDKMAN and JVM tooling as the claude user
-RUN curl -s "https://get.sdkman.io" -o /tmp/sdkman-install.sh && \
-    bash /tmp/sdkman-install.sh || \
-    (mkdir -p "$HOME/.sdkman/src" "$HOME/.sdkman/tmp" && bash /tmp/sdkman-install.sh) && \
-    rm -f /tmp/sdkman-install.sh
+ENV SDKMAN_DIR="/home/claude/.sdkman"
+RUN mkdir -p "$SDKMAN_DIR/src" "$SDKMAN_DIR/tmp" "$SDKMAN_DIR/bin" && \
+    curl -s "https://get.sdkman.io" | bash && \
+    test -f "$SDKMAN_DIR/bin/sdkman-init.sh"
 SHELL ["/bin/bash", "-c"]
-RUN source "$HOME/.sdkman/bin/sdkman-init.sh" && \
+RUN source "$SDKMAN_DIR/bin/sdkman-init.sh" && \
     sdk install java 21.0.6-tem && \
     sdk install maven && \
     sdk install kotlin
-ENV SDKMAN_DIR="/home/claude/.sdkman"
 ENV PATH="$SDKMAN_DIR/candidates/java/current/bin:$SDKMAN_DIR/candidates/maven/current/bin:$SDKMAN_DIR/candidates/kotlin/current/bin:$PATH"
