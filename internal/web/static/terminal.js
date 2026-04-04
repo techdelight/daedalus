@@ -65,6 +65,8 @@ function connectTerminal(projectName) {
             cols: term.cols,
             rows: term.rows
         }));
+        // Request current terminal content so attach shows existing output
+        ws.send(JSON.stringify({ type: 'live-capture' }));
     };
 
     ws.onmessage = function(event) {
