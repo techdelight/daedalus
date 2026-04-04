@@ -75,7 +75,9 @@ RUN usermod -aG docker claude
 USER claude
 
 # Install SDKMAN and JVM tooling as the claude user
-RUN curl -s "https://get.sdkman.io" | bash
+# Pre-create directories expected by the SDKMAN installer script.
+RUN mkdir -p "$HOME/.sdkman/src" "$HOME/.sdkman/tmp" && \
+    curl -s "https://get.sdkman.io" | bash
 SHELL ["/bin/bash", "-c"]
 RUN source "$HOME/.sdkman/bin/sdkman-init.sh" && \
     sdk install java 21.0.6-tem && \
@@ -144,7 +146,9 @@ RUN usermod -aG docker claude
 USER claude
 
 # Install SDKMAN and JVM tooling as the claude user
-RUN curl -s "https://get.sdkman.io" | bash
+# Pre-create directories expected by the SDKMAN installer script.
+RUN mkdir -p "$HOME/.sdkman/src" "$HOME/.sdkman/tmp" && \
+    curl -s "https://get.sdkman.io" | bash
 SHELL ["/bin/bash", "-c"]
 RUN source "$HOME/.sdkman/bin/sdkman-init.sh" && \
     sdk install java 21.0.6-tem && \
