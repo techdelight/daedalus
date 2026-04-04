@@ -316,8 +316,8 @@ func TestControlSession_CapturePane(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CapturePane() error = %v", err)
 	}
-	if content != "line one\nline two" {
-		t.Errorf("CapturePane() = %q, want %q", content, "line one\nline two")
+	if content != "line one\r\nline two" {
+		t.Errorf("CapturePane() = %q, want %q", content, "line one\r\nline two")
 	}
 }
 

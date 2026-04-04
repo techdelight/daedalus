@@ -137,7 +137,7 @@ func (cs *ControlSession) readCommandResponse() (string, error) {
 		case MsgBegin:
 			inResponse = true
 		case MsgEnd:
-			return strings.Join(lines, "\n"), nil
+			return strings.Join(lines, "\r\n"), nil
 		case MsgError:
 			return "", fmt.Errorf("tmux error: %s", msg.Content)
 		case MsgOutput:

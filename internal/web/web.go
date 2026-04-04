@@ -653,7 +653,7 @@ func (ws *WebServer) handleTerminalControl(w http.ResponseWriter, r *http.Reques
 				if inResponse {
 					respType := dequeueType()
 					if respType != "" {
-						content := strings.Join(responseLines, "\n")
+						content := strings.Join(responseLines, "\r\n")
 						resp, _ := json.Marshal(scrollbackResponse{
 							Type:    respType,
 							Content: content,
