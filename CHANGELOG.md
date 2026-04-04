@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+- **WebSocket resize race condition** — the tmux reader goroutine and WebSocket handler goroutine were both calling `ReadMessage()` on the same `bufio.Reader`, racing for command responses. Refactored `handleTerminalControl()` so a single reader goroutine consumes all tmux control-mode output, with a `sendTracked`/`dequeueType` queue to match `%begin/%end` responses to commands.
+- **No terminal refresh after resize** — resize messages produced no visible response because `%layout-change` events were silently dropped. The reader goroutine now auto-captures visible pane content on `%layout-change` and sends a `live-capture-response` back to the client.
+- **Discarded errors in web handlers** — fixed 8 silently discarded errors in `web.go`: PTY cleanup (`Close`, `Wait`, `Signal`), PTY relay (`Setsize`, `Write`), progress read, index HTML write, and WebSocket response write. All now either log or return on error per contributing guidelines.
+
+### Changed
+- `shellQuote` exported as `ShellQuote` in `internal/session` package (required by the refactored `handleTerminalControl` which builds tmux commands directly).
+- Backlog item 43 added to ROADMAP.md.
+
 ## [0.34.0] - 2026-04-03
 
 ### Fixed

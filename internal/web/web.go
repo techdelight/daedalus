@@ -186,7 +186,9 @@ func Run(cfg *core.Config) error {
 		}
 		html := strings.Replace(string(data), ">Daedalus<", ">Daedalus ["+version+"]<", 1)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Write([]byte(html))
+		if _, err := w.Write([]byte(html)); err != nil {
+				log.Printf("write index.html: %v", err)
+			}
 	})
 
 	// Authentication
@@ -478,7 +480,10 @@ func (ws *WebServer) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	// Read progress data from .daedalus/progress.json in the project directory.
 	// This is written by the project-mgmt-mcp server inside the container
 	// and visible on the host via the bind mount.
-	progData, _ := progress.Read(entry.Directory)
+	progData, err := progress.Read(entry.Directory)
+	if err != nil {
+		log.Printf("read progress for %s: %v", name, err)
+	}
 
 	totalTimeSec := 0
 	for _, s := range entry.Sessions {
@@ -584,12 +589,50 @@ func (ws *WebServer) handleTerminalControl(w http.ResponseWriter, r *http.Reques
 		conn.WriteMessage(websocket.BinaryMessage, []byte(content))
 	}
 
+	// pendingTypes tracks the expected response type for each command sent
+	// to tmux, in FIFO order. "" means ignore (resize-window, send-keys).
+	// A non-empty string is the JSON "type" for the response wrapper.
+	var (
+		pendingMu    sync.Mutex
+		pendingTypes []string
+	)
+
+	// sendTracked sends a tmux command and enqueues the expected response
+	// type atomically, keeping the queue synchronised with the command stream.
+	sendTracked := func(command, responseType string) error {
+		pendingMu.Lock()
+		defer pendingMu.Unlock()
+		if err := cs.SendCommand(command); err != nil {
+			return err
+		}
+		pendingTypes = append(pendingTypes, responseType)
+		return nil
+	}
+
+	dequeueType := func() string {
+		pendingMu.Lock()
+		defer pendingMu.Unlock()
+		if len(pendingTypes) == 0 {
+			return ""
+		}
+		t := pendingTypes[0]
+		pendingTypes = pendingTypes[1:]
+		return t
+	}
+
 	var wg sync.WaitGroup
 	wg.Add(2)
 
-	// Read control messages from tmux, forward to WebSocket
+	// Reader goroutine: sole consumer of tmux control-mode output.
+	// Forwards %output to WebSocket, collects %begin/%end command
+	// responses and dispatches them based on the pendingTypes queue.
+	// On %layout-change (after resize), auto-captures visible content.
 	go func() {
 		defer wg.Done()
+		var (
+			inResponse    bool
+			responseLines []string
+		)
 		for {
 			msg, err := cs.ReadMessage()
 			if err != nil {
@@ -597,17 +640,49 @@ func (ws *WebServer) handleTerminalControl(w http.ResponseWriter, r *http.Reques
 					websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
 				return
 			}
-			if msg.Type == session.MsgOutput {
+			switch msg.Type {
+			case session.MsgOutput:
 				decoded := session.UnescapeOutput(msg.Content)
 				if err := conn.WriteMessage(websocket.BinaryMessage, []byte(decoded)); err != nil {
 					return
 				}
+			case session.MsgBegin:
+				inResponse = true
+				responseLines = responseLines[:0]
+			case session.MsgEnd:
+				if inResponse {
+					respType := dequeueType()
+					if respType != "" {
+						content := strings.Join(responseLines, "\n")
+						resp, _ := json.Marshal(scrollbackResponse{
+							Type:    respType,
+							Content: content,
+						})
+						if err := conn.WriteMessage(websocket.TextMessage, resp); err != nil {
+							return
+						}
+					}
+				}
+				inResponse = false
+			case session.MsgError:
+				dequeueType()
+				inResponse = false
+			case session.MsgLayoutChange:
+				// Window was resized — refresh terminal content.
+				cmd := fmt.Sprintf("capture-pane -t %s -p -e", sessName)
+				if err := sendTracked(cmd, "live-capture-response"); err != nil {
+					log.Printf("post-resize capture error for %s: %v", name, err)
+				}
+			case session.MsgUnknown:
+				if inResponse {
+					responseLines = append(responseLines, msg.Content)
+				}
 			}
-			// Layout changes and other events can be forwarded as JSON in the future
 		}
 	}()
 
-	// Read WebSocket messages, dispatch to control session
+	// WebSocket reader: dispatches user input and commands to tmux
+	// via sendTracked so every command is tracked in the response queue.
 	go func() {
 		defer wg.Done()
 		for {
@@ -626,37 +701,28 @@ func (ws *WebServer) handleTerminalControl(w http.ResponseWriter, r *http.Reques
 							continue
 						}
 						if rm.Cols > 0 && rm.Rows > 0 {
-							cs.ResizeWindow(int(rm.Cols), int(rm.Rows))
+							cmd := fmt.Sprintf("resize-window -t %s -x %d -y %d", sessName, int(rm.Cols), int(rm.Rows))
+							if err := sendTracked(cmd, ""); err != nil {
+								log.Printf("ResizeWindow error for %s: %v", name, err)
+							}
 						}
 					case "scrollback":
 						lines := m.Lines
 						if lines <= 0 {
 							lines = 500
 						}
-						content, err := cs.CapturePane(lines)
-						if err != nil {
+						cmd := fmt.Sprintf("capture-pane -t %s -p -e -S -%d", sessName, lines)
+						if err := sendTracked(cmd, "scrollback-response"); err != nil {
 							log.Printf("CapturePane error for %s: %v", name, err)
-							continue
 						}
-						resp, _ := json.Marshal(scrollbackResponse{
-							Type:    "scrollback-response",
-							Content: content,
-						})
-						conn.WriteMessage(websocket.TextMessage, resp)
 					case "live-capture":
-						content, err := cs.CaptureVisible()
-						if err != nil {
+						cmd := fmt.Sprintf("capture-pane -t %s -p -e", sessName)
+						if err := sendTracked(cmd, "live-capture-response"); err != nil {
 							log.Printf("CaptureVisible error for %s: %v", name, err)
-							continue
 						}
-						resp, _ := json.Marshal(scrollbackResponse{
-							Type:    "live-capture-response",
-							Content: content,
-						})
-						conn.WriteMessage(websocket.TextMessage, resp)
 					default:
-						// Unknown JSON message — send as keys
-						if err := cs.SendKeys(string(data)); err != nil {
+						cmd := fmt.Sprintf("send-keys -t %s %s", sessName, session.ShellQuote(string(data)))
+						if err := sendTracked(cmd, ""); err != nil {
 							log.Printf("SendKeys error for %s: %v", name, err)
 							return
 						}
@@ -664,12 +730,14 @@ func (ws *WebServer) handleTerminalControl(w http.ResponseWriter, r *http.Reques
 					continue
 				}
 				// Non-JSON text — send as keys
-				if err := cs.SendKeys(string(data)); err != nil {
+				cmd := fmt.Sprintf("send-keys -t %s %s", sessName, session.ShellQuote(string(data)))
+				if err := sendTracked(cmd, ""); err != nil {
 					log.Printf("SendKeys error for %s: %v", name, err)
 					return
 				}
 			} else if msgType == websocket.BinaryMessage {
-				if err := cs.SendKeys(string(data)); err != nil {
+				cmd := fmt.Sprintf("send-keys -t %s %s", sessName, session.ShellQuote(string(data)))
+				if err := sendTracked(cmd, ""); err != nil {
 					log.Printf("SendKeys error for %s: %v", name, err)
 					return
 				}
@@ -879,10 +947,16 @@ func startPTY(sessionName string) (*os.File, *exec.Cmd, error) {
 
 func cleanupPTY(cmd *exec.Cmd, ptmx *os.File) {
 	if cmd.Process != nil {
-		cmd.Process.Signal(syscall.SIGHUP)
+		if err := cmd.Process.Signal(syscall.SIGHUP); err != nil {
+			log.Printf("SIGHUP to PTY process: %v", err)
+		}
 	}
-	ptmx.Close()
-	cmd.Wait()
+	if err := ptmx.Close(); err != nil {
+		log.Printf("close PTY: %v", err)
+	}
+	if err := cmd.Wait(); err != nil {
+		log.Printf("wait for PTY process: %v", err)
+	}
 }
 
 func relayPTYToWebSocket(wg *sync.WaitGroup, ptmx *os.File, conn *websocket.Conn, name string) {
@@ -916,12 +990,18 @@ func relayWebSocketToPTY(wg *sync.WaitGroup, conn *websocket.Conn, ptmx *os.File
 		case websocket.TextMessage:
 			var msg resizeMsg
 			if json.Unmarshal(data, &msg) == nil && msg.Type == "resize" && msg.Cols > 0 && msg.Rows > 0 {
-				pty.Setsize(ptmx, &pty.Winsize{Rows: msg.Rows, Cols: msg.Cols})
+				if err := pty.Setsize(ptmx, &pty.Winsize{Rows: msg.Rows, Cols: msg.Cols}); err != nil {
+					log.Printf("PTY setsize: %v", err)
+				}
 				continue
 			}
-			ptmx.Write(data)
+			if _, err := ptmx.Write(data); err != nil {
+				return
+			}
 		case websocket.BinaryMessage:
-			ptmx.Write(data)
+			if _, err := ptmx.Write(data); err != nil {
+				return
+			}
 		}
 	}
 }

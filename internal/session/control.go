@@ -83,7 +83,7 @@ func (cs *ControlSession) SendCommand(command string) error {
 
 // SendKeys sends keystrokes to the session's pane.
 func (cs *ControlSession) SendKeys(keys string) error {
-	return cs.SendCommand(fmt.Sprintf("send-keys -t %s %s", cs.name, shellQuote(keys)))
+	return cs.SendCommand(fmt.Sprintf("send-keys -t %s %s", cs.name, ShellQuote(keys)))
 }
 
 // CapturePane requests the last n lines of pane scrollback.
@@ -150,7 +150,7 @@ func (cs *ControlSession) readCommandResponse() (string, error) {
 	}
 }
 
-// shellQuote wraps a string in single quotes for tmux send-keys.
-func shellQuote(s string) string {
+// ShellQuote wraps a string in single quotes for tmux send-keys.
+func ShellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
 }

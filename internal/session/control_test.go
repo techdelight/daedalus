@@ -210,7 +210,7 @@ func TestParseControlLine_AllTypes(t *testing.T) {
 	}
 }
 
-// --- shellQuote tests ---
+// --- ShellQuote tests ---
 
 func TestShellQuote(t *testing.T) {
 	tests := []struct {
@@ -223,9 +223,9 @@ func TestShellQuote(t *testing.T) {
 		{"", "''"},
 	}
 	for _, tc := range tests {
-		got := shellQuote(tc.input)
+		got := ShellQuote(tc.input)
 		if got != tc.want {
-			t.Errorf("shellQuote(%q) = %q, want %q", tc.input, got, tc.want)
+			t.Errorf("ShellQuote(%q) = %q, want %q", tc.input, got, tc.want)
 		}
 	}
 }
