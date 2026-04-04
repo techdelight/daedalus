@@ -137,7 +137,6 @@ RUNTIME_FILES=(
     docker-compose.yml
     Dockerfile
     entrypoint.sh
-    sdkman-install.sh
     settings.json
     logo.txt
     config.json
@@ -179,7 +178,6 @@ create_mock_release() {
     echo "compose: true" > "$MOCK_RELEASE/docker-compose.yml"
     echo "FROM alpine" > "$MOCK_RELEASE/Dockerfile"
     echo '#!/bin/sh' > "$MOCK_RELEASE/entrypoint.sh"
-    echo '#!/bin/bash' > "$MOCK_RELEASE/sdkman-install.sh"
     echo '{}' > "$MOCK_RELEASE/claude.json"
     echo '{}' > "$MOCK_RELEASE/settings.json"
     echo "DAEDALUS" > "$MOCK_RELEASE/logo.txt"

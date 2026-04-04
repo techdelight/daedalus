@@ -75,18 +75,13 @@ RUN usermod -aG docker claude
 USER claude
 
 # Install SDKMAN and JVM tooling as the claude user
-# Uses vendored installer (scripts/sdkman-install.sh) pinned to v5.22.4
-# with a fix for missing src/ directory. See scripts/sdkman-install.sh.
-COPY --chown=claude:claude sdkman-install.sh /tmp/sdkman-install.sh
-ENV SDKMAN_DIR="/home/claude/.sdkman"
-RUN bash /tmp/sdkman-install.sh && \
-    rm -f /tmp/sdkman-install.sh && \
-    test -f "$SDKMAN_DIR/bin/sdkman-init.sh"
+RUN curl -s "https://get.sdkman.io" | bash
 SHELL ["/bin/bash", "-c"]
-RUN source "$SDKMAN_DIR/bin/sdkman-init.sh" && \
+RUN source "$HOME/.sdkman/bin/sdkman-init.sh" && \
     sdk install java 21.0.6-tem && \
     sdk install maven && \
     sdk install kotlin
+ENV SDKMAN_DIR="/home/claude/.sdkman"
 ENV PATH="$SDKMAN_DIR/candidates/java/current/bin:$SDKMAN_DIR/candidates/maven/current/bin:$SDKMAN_DIR/candidates/kotlin/current/bin:$PATH"
 
 # ── Stage 4: godot ───────────────────────────────────────────────────────────
@@ -149,14 +144,11 @@ RUN usermod -aG docker claude
 USER claude
 
 # Install SDKMAN and JVM tooling as the claude user
-COPY --chown=claude:claude sdkman-install.sh /tmp/sdkman-install.sh
-ENV SDKMAN_DIR="/home/claude/.sdkman"
-RUN bash /tmp/sdkman-install.sh && \
-    rm -f /tmp/sdkman-install.sh && \
-    test -f "$SDKMAN_DIR/bin/sdkman-init.sh"
+RUN curl -s "https://get.sdkman.io" | bash
 SHELL ["/bin/bash", "-c"]
-RUN source "$SDKMAN_DIR/bin/sdkman-init.sh" && \
+RUN source "$HOME/.sdkman/bin/sdkman-init.sh" && \
     sdk install java 21.0.6-tem && \
     sdk install maven && \
     sdk install kotlin
+ENV SDKMAN_DIR="/home/claude/.sdkman"
 ENV PATH="$SDKMAN_DIR/candidates/java/current/bin:$SDKMAN_DIR/candidates/maven/current/bin:$SDKMAN_DIR/candidates/kotlin/current/bin:$PATH"
