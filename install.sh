@@ -172,7 +172,12 @@ if [[ -z "$TAG" ]]; then
     exit 1
 fi
 
-echo "  Release: $TAG"
+RELEASE_DISPLAY="$TAG"
+if [[ "$TAG" == "dev" ]]; then
+    PUBLISHED_AT="$(echo "$RELEASE_JSON" | grep '"published_at"' | head -1 | sed 's/.*"published_at": *"\([^"]*\)".*/\1/')"
+    [[ -n "$PUBLISHED_AT" ]] && RELEASE_DISPLAY="$TAG $PUBLISHED_AT"
+fi
+echo "  Release: $RELEASE_DISPLAY"
 
 DOWNLOAD_BASE="https://github.com/techdelight/daedalus/releases/download/${TAG}"
 
