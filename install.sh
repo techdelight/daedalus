@@ -213,6 +213,9 @@ done
 
 # Patch version into downloaded config.json for setup.sh
 NEW_VERSION="${TAG#v}"
+if [[ "$TAG" == "dev" && -n "${PUBLISHED_AT:-}" ]]; then
+    NEW_VERSION="dev $PUBLISHED_AT"
+fi
 sed_inplace "s/\"version\": *\"\"/\"version\": \"$NEW_VERSION\"/" "$WORK_DIR/config.json"
 
 echo "  Downloaded 3 binaries, setup.sh, and ${#RUNTIME_FILES[@]} runtime files."
