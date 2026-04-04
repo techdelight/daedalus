@@ -60,7 +60,7 @@ All side effects (filesystem, shell, network) live here behind interfaces.
 | `config` | `ParseArgs()`, `IsHeadless()`, `LoadAppConfig()` | CLI argument parsing into `core.Config` |
 | `registry` | `Registry`, `UpdateProjectTarget()` | JSON file read/write for project metadata, schema migrations (v3), progress tracking |
 | `docker` | `Docker`, `SetupCacheDir()` | Container lifecycle: build, run, compose, status checks |
-| `session` | `Session`, `TmuxAvailable()`, `ControlSession`, `ParseControlLine()` | tmux session create/attach/send-keys; control mode (`-C`) session with structured message I/O |
+| `session` | `Session`, `TmuxAvailable()`, `ControlSession`, `ParseControlLine()`, `ShellQuote()` | tmux session create/attach/send-keys; control mode (`-C`) session with structured message I/O |
 | `tui` | `Run()` | Interactive TUI dashboard (bubbletea + lipgloss) |
 | `web` | `Run()`, `WebServer` | REST API + WebSocket terminal relay, embedded static assets; Foreman management view with programme CRUD |
 | `logging` | `Init()`, `Close()`, `Info()`, `Error()`, `Debug()` | Thread-safe file logging with timestamp and level prefixes |
@@ -132,7 +132,7 @@ cmd/generate-manpage → (standalone, reads VERSION file only)
 | Protocol | Port | Component | Description |
 |---|---|---|---|
 | HTTP | 3000 (default) | Web UI | REST API (`/api/projects/*`, `/api/foreman/*`, `/api/programmes/*`), `/login` (auth), and static file serving |
-| WebSocket | 3000 (default) | Web UI | Terminal relay at `/api/projects/{name}/terminal` |
+| WebSocket | 3000 (default) | Web UI | Terminal relay at `/api/projects/{name}/terminal`; control mode uses single-reader goroutine with `sendTracked`/`dequeueType` queue for serialised tmux command/response matching |
 | Docker API | Unix socket | Docker client | Container lifecycle via `docker` CLI |
 | tmux | — | Session manager | IPC via `tmux` CLI commands |
 
