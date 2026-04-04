@@ -75,10 +75,12 @@ RUN usermod -aG docker claude
 USER claude
 
 # Install SDKMAN and JVM tooling as the claude user
-# Pre-create dirs that the upstream installer may expect but fail to create.
+# Uses vendored installer (scripts/sdkman-install.sh) pinned to v5.22.4
+# with a fix for missing src/ directory. See scripts/sdkman-install.sh.
+COPY --chown=claude:claude scripts/sdkman-install.sh /tmp/sdkman-install.sh
 ENV SDKMAN_DIR="/home/claude/.sdkman"
-RUN mkdir -p "$SDKMAN_DIR/src" "$SDKMAN_DIR/tmp" "$SDKMAN_DIR/bin" && \
-    curl -s "https://get.sdkman.io" | bash && \
+RUN bash /tmp/sdkman-install.sh && \
+    rm -f /tmp/sdkman-install.sh && \
     test -f "$SDKMAN_DIR/bin/sdkman-init.sh"
 SHELL ["/bin/bash", "-c"]
 RUN source "$SDKMAN_DIR/bin/sdkman-init.sh" && \
@@ -147,9 +149,10 @@ RUN usermod -aG docker claude
 USER claude
 
 # Install SDKMAN and JVM tooling as the claude user
+COPY --chown=claude:claude scripts/sdkman-install.sh /tmp/sdkman-install.sh
 ENV SDKMAN_DIR="/home/claude/.sdkman"
-RUN mkdir -p "$SDKMAN_DIR/src" "$SDKMAN_DIR/tmp" "$SDKMAN_DIR/bin" && \
-    curl -s "https://get.sdkman.io" | bash && \
+RUN bash /tmp/sdkman-install.sh && \
+    rm -f /tmp/sdkman-install.sh && \
     test -f "$SDKMAN_DIR/bin/sdkman-init.sh"
 SHELL ["/bin/bash", "-c"]
 RUN source "$SDKMAN_DIR/bin/sdkman-init.sh" && \
