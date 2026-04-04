@@ -75,9 +75,12 @@ RUN usermod -aG docker claude
 USER claude
 
 # Install SDKMAN and JVM tooling as the claude user
-# Pre-create directories expected by the SDKMAN installer script.
-RUN mkdir -p "$HOME/.sdkman/src" "$HOME/.sdkman/tmp" && \
-    curl -s "https://get.sdkman.io" | bash
+# The SDKMAN installer may fail to create src/tmp dirs on some versions;
+# create them after install if missing, then re-run installer to complete setup.
+RUN curl -s "https://get.sdkman.io" -o /tmp/sdkman-install.sh && \
+    bash /tmp/sdkman-install.sh || \
+    (mkdir -p "$HOME/.sdkman/src" "$HOME/.sdkman/tmp" && bash /tmp/sdkman-install.sh) && \
+    rm -f /tmp/sdkman-install.sh
 SHELL ["/bin/bash", "-c"]
 RUN source "$HOME/.sdkman/bin/sdkman-init.sh" && \
     sdk install java 21.0.6-tem && \
@@ -146,9 +149,10 @@ RUN usermod -aG docker claude
 USER claude
 
 # Install SDKMAN and JVM tooling as the claude user
-# Pre-create directories expected by the SDKMAN installer script.
-RUN mkdir -p "$HOME/.sdkman/src" "$HOME/.sdkman/tmp" && \
-    curl -s "https://get.sdkman.io" | bash
+RUN curl -s "https://get.sdkman.io" -o /tmp/sdkman-install.sh && \
+    bash /tmp/sdkman-install.sh || \
+    (mkdir -p "$HOME/.sdkman/src" "$HOME/.sdkman/tmp" && bash /tmp/sdkman-install.sh) && \
+    rm -f /tmp/sdkman-install.sh
 SHELL ["/bin/bash", "-c"]
 RUN source "$HOME/.sdkman/bin/sdkman-init.sh" && \
     sdk install java 21.0.6-tem && \
