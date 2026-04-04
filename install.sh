@@ -24,6 +24,7 @@ RUNTIME_FILES=(
     docker-compose.yml
     Dockerfile
     entrypoint.sh
+    sdkman-install.sh
     settings.json
     logo.txt
     config.json
