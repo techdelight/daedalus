@@ -9,15 +9,6 @@ RELEASE_TAG="__RELEASE_TAG__"
 
 GITHUB_REPO="https://api.github.com/repos/techdelight/daedalus/releases"
 
-# ── Portable sed -i (BSD vs GNU) ────────────────────────────────────────────
-sed_inplace() {
-    if sed --version >/dev/null 2>&1; then
-        sed -i "$@"
-    else
-        sed -i '' "$@"
-    fi
-}
-
 # ── Runtime files to download alongside binaries ─────────────────────────────
 RUNTIME_FILES=(
     claude.json
@@ -172,12 +163,7 @@ if [[ -z "$TAG" ]]; then
     exit 1
 fi
 
-RELEASE_DISPLAY="$TAG"
-if [[ "$TAG" == "dev" ]]; then
-    PUBLISHED_AT="$(echo "$RELEASE_JSON" | grep '"published_at"' | head -1 | sed 's/.*"published_at": *"\([^"]*\)".*/\1/')"
-    [[ -n "$PUBLISHED_AT" ]] && RELEASE_DISPLAY="$TAG $PUBLISHED_AT"
-fi
-echo "  Release: $RELEASE_DISPLAY"
+echo "  Release: $TAG"
 
 DOWNLOAD_BASE="https://github.com/techdelight/daedalus/releases/download/${TAG}"
 
@@ -210,13 +196,6 @@ echo "Downloading runtime files..."
 for f in "${RUNTIME_FILES[@]}"; do
     curl -fsSL -o "$WORK_DIR/$f" "${DOWNLOAD_BASE}/${f}"
 done
-
-# Patch version into downloaded config.json for setup.sh
-NEW_VERSION="${TAG#v}"
-if [[ "$TAG" == "dev" && -n "${PUBLISHED_AT:-}" ]]; then
-    NEW_VERSION="dev $PUBLISHED_AT"
-fi
-sed_inplace "s/\"version\": *\"\"/\"version\": \"$NEW_VERSION\"/" "$WORK_DIR/config.json"
 
 echo "  Downloaded 3 binaries, setup.sh, and ${#RUNTIME_FILES[@]} runtime files."
 
