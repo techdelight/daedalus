@@ -438,6 +438,7 @@ unzip -qo "$sdkman_zip_file" -d "$sdkman_tmp_folder"
 
 # copy in place
 echo "* Copying archive contents..."
+mkdir -p "$sdkman_libexec_folder"
 find "$sdkman_libexec_folder" -maxdepth 1 -type f -delete
 cp -rf "${sdkman_tmp_folder}"/sdkman-*/* "$SDKMAN_DIR"
 
