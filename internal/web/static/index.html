@@ -7,6 +7,7 @@
     <title>Daedalus — Web Dashboard</title>
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
     <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/guild.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css">
 </head>
 <body>
@@ -16,6 +17,7 @@
             <header>
                 <h1>Daedalus</h1>
                 <button class="btn btn-filter" id="filter-active-btn" onclick="toggleFilter()">Active Only</button>
+                <button class="btn btn-foreman" onclick="showGuildView()">Guild</button>
                 <button class="btn btn-foreman" onclick="showForemanView()">Foreman</button>
                 <span class="foreman-status" id="foreman-status"></span>
                 <span class="status" id="refresh-status"></span>
@@ -73,8 +75,27 @@
                 </div>
             </div>
             <div class="roadmap-section">
-                <button class="btn btn-roadmap" onclick="toggleRoadmap(this)">Show Roadmap</button>
-                <div id="roadmap-panel" class="roadmap-panel" style="display:none"></div>
+                <button class="btn btn-roadmap" onclick="togglePanel('strategic-roadmap-panel', this)">Roadmap</button>
+                <button class="btn btn-roadmap" onclick="togglePanel('backlog-panel', this)">Backlog</button>
+                <button class="btn btn-roadmap" onclick="togglePanel('sprints-panel', this)">Sprints</button>
+            </div>
+            <div id="strategic-roadmap-panel" class="roadmap-panel" style="display:none"></div>
+            <div id="backlog-panel" class="roadmap-panel" style="display:none"></div>
+            <div id="sprints-panel" class="roadmap-panel" style="display:none"></div>
+        </div>
+
+        <!-- Guild Hall View -->
+        <div id="guild-view">
+            <div class="guild-header">
+                <span class="guild-title">Guild Hall</span>
+                <span class="guild-subtitle" id="guild-subtitle"></span>
+                <button class="btn btn-back" onclick="hideGuildView(); showProjectList();">Back</button>
+            </div>
+            <div class="guild-hall">
+                <div class="guild-members" id="guild-members"></div>
+                <div class="guild-empty" id="guild-empty" style="display:none">
+                    No guild members yet. Register a project to begin.
+                </div>
             </div>
         </div>
 
@@ -351,46 +372,83 @@
             document.getElementById('dashboard-sessions').textContent = data.sessionCount;
             document.getElementById('dashboard-time').textContent = formatDuration(data.totalTimeSec);
             document.getElementById('dashboard-vision').textContent = data.vision || '\u2014';
-            // Reset roadmap panel
-            const roadmapPanel = document.getElementById('roadmap-panel');
-            roadmapPanel.style.display = 'none';
-            roadmapPanel.innerHTML = '';
-            const roadmapBtn = document.querySelector('.btn-roadmap');
-            if (roadmapBtn) roadmapBtn.textContent = 'Show Roadmap';
+            // Reset all panels
+            ['strategic-roadmap-panel', 'backlog-panel', 'sprints-panel'].forEach(id => {
+                const p = document.getElementById(id);
+                p.style.display = 'none';
+                p.innerHTML = '';
+            });
             // Show dashboard view
             document.getElementById('project-view').classList.add('hidden');
             document.getElementById('foreman-view').classList.remove('active');
+            document.getElementById('guild-view').classList.remove('active');
+            if (typeof hideGuildView === 'function') hideGuildView();
             document.getElementById('dashboard-view').classList.add('active');
-            // Auto-load roadmap
-            loadRoadmap(name);
+            // Auto-load all panels
+            loadStrategicRoadmap(name);
+            loadBacklog(name);
+            loadSprints(name);
         }
 
-        async function loadRoadmap(name) {
-            const panel = document.getElementById('roadmap-panel');
-            const btn = document.querySelector('.btn-roadmap');
-            const resp = await fetch(`/api/projects/${encodeURIComponent(name)}/roadmap`);
-            if (!resp.ok) return;
-            const data = await resp.json();
-            panel.innerHTML = renderRoadmap(data.sprints);
-            if (data.sprints && data.sprints.length > 0) {
-                panel.style.display = 'block';
-                if (btn) btn.textContent = 'Hide Roadmap';
-            }
-        }
-
-        async function toggleRoadmap(btn) {
-            const panel = document.getElementById('roadmap-panel');
+        function togglePanel(panelId, btn) {
+            const panel = document.getElementById(panelId);
             if (panel.style.display !== 'none') {
                 panel.style.display = 'none';
-                btn.textContent = 'Show Roadmap';
                 return;
             }
             const name = document.getElementById('dashboard-project-name').textContent;
-            await loadRoadmap(name);
+            if (panelId === 'strategic-roadmap-panel') loadStrategicRoadmap(name);
+            else if (panelId === 'backlog-panel') loadBacklog(name);
+            else if (panelId === 'sprints-panel') loadSprints(name);
         }
 
-        function renderRoadmap(sprints) {
-            if (!sprints || sprints.length === 0) return '<p class="empty-state">No roadmap found.</p>';
+        async function loadStrategicRoadmap(name) {
+            const panel = document.getElementById('strategic-roadmap-panel');
+            const resp = await fetch(`/api/projects/${encodeURIComponent(name)}/strategic-roadmap`);
+            if (!resp.ok) return;
+            const data = await resp.json();
+            if (data.content) {
+                panel.innerHTML = '<div class="strategic-roadmap-content"><pre>' + escapeHtml(data.content) + '</pre></div>';
+                panel.style.display = 'block';
+            } else {
+                panel.innerHTML = '<p class="empty-state">No roadmap found.</p>';
+            }
+        }
+
+        async function loadBacklog(name) {
+            const panel = document.getElementById('backlog-panel');
+            const resp = await fetch(`/api/projects/${encodeURIComponent(name)}/backlog`);
+            if (!resp.ok) return;
+            const data = await resp.json();
+            panel.innerHTML = renderBacklog(data.items);
+            if (data.items && data.items.length > 0) {
+                panel.style.display = 'block';
+            }
+        }
+
+        async function loadSprints(name) {
+            const panel = document.getElementById('sprints-panel');
+            const resp = await fetch(`/api/projects/${encodeURIComponent(name)}/sprints`);
+            if (!resp.ok) return;
+            const data = await resp.json();
+            panel.innerHTML = renderSprints(data.sprints);
+            if (data.sprints && data.sprints.length > 0) {
+                panel.style.display = 'block';
+            }
+        }
+
+        function renderBacklog(items) {
+            if (!items || items.length === 0) return '<p class="empty-state">No backlog found.</p>';
+            return '<div class="backlog-list">' + items.map(item => {
+                return `<div class="backlog-item">
+                    <span class="item-num">#${item.number}</span>
+                    <span class="item-desc">${escapeHtml(item.description)}</span>
+                </div>`;
+            }).join('') + '</div>';
+        }
+
+        function renderSprints(sprints) {
+            if (!sprints || sprints.length === 0) return '<p class="empty-state">No sprints found.</p>';
             return sprints.map(s => {
                 const badge = s.isCurrent ? '<span class="sprint-current">current</span>' : '';
                 const items = s.items.map(item => {
@@ -451,6 +509,8 @@
             document.getElementById('terminal-view').classList.remove('active');
             document.getElementById('dashboard-view').classList.remove('active');
             document.getElementById('foreman-view').classList.remove('active');
+            document.getElementById('guild-view').classList.remove('active');
+            if (typeof hideGuildView === 'function') hideGuildView();
             document.getElementById('project-view').classList.remove('hidden');
 
             fetchProjects();
@@ -801,5 +861,6 @@
         fetchProjects();
         refreshTimer = setInterval(fetchProjects, 5000);
     </script>
+    <script src="/static/guild.js"></script>
 </body>
 </html>

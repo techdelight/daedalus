@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/techdelight/daedalus/core"
+	"github.com/techdelight/daedalus/internal/activity"
 	"github.com/techdelight/daedalus/internal/agentstate"
 	"github.com/techdelight/daedalus/internal/docker"
 	"github.com/techdelight/daedalus/internal/executor"
@@ -45,12 +46,14 @@ func setupWebTest(t *testing.T) (*WebServer, *executor.MockExecutor) {
 		Target:      "dev",
 	}
 
+	observer := agentstate.NewContainerObserver(mock)
 	ws := &WebServer{
-		registry: reg,
-		docker:   docker,
-		executor: mock,
-		cfg:      cfg,
-		observer: agentstate.NewContainerObserver(mock),
+		registry:         reg,
+		docker:           docker,
+		executor:         mock,
+		cfg:              cfg,
+		observer:         observer,
+		activityResolver: activity.NewResolver(observer, activity.NewClaudeCodeDetector()),
 	}
 	return ws, mock
 }
@@ -1751,5 +1754,440 @@ func TestHandleForemanStop_WithActiveForeman(t *testing.T) {
 	}
 	if resp["status"] != "stopped" {
 		t.Errorf("status = %q, want %q", resp["status"], "stopped")
+	}
+}
+
+func TestHandleSprints(t *testing.T) {
+	// Arrange
+	ws, _ := setupWebTest(t)
+	projDir := t.TempDir()
+	if err := ws.registry.AddProject("sprint-app", projDir, "dev"); err != nil {
+		t.Fatal(err)
+	}
+	sprintsContent := `## Current Sprint
+
+### Sprint 3: API Layer (v0.3.0)
+
+Goal: Build REST endpoints.
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | GET endpoints | Done |
+| 2 | POST endpoints | In Progress |
+`
+	if err := os.WriteFile(filepath.Join(projDir, "SPRINTS.md"), []byte(sprintsContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/projects/{name}/sprints", ws.handleSprints)
+
+	// Act
+	req := httptest.NewRequest("GET", "/api/projects/sprint-app/sprints", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	// Assert
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var resp roadmapJSON
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("cannot decode response: %v", err)
+	}
+	if len(resp.Sprints) != 1 {
+		t.Fatalf("got %d sprints, want 1", len(resp.Sprints))
+	}
+	if resp.Sprints[0].Number != 3 {
+		t.Errorf("sprint[0].Number = %d, want 3", resp.Sprints[0].Number)
+	}
+	if resp.Sprints[0].Title != "API Layer" {
+		t.Errorf("sprint[0].Title = %q, want %q", resp.Sprints[0].Title, "API Layer")
+	}
+	if resp.Sprints[0].Version != "0.3.0" {
+		t.Errorf("sprint[0].Version = %q, want %q", resp.Sprints[0].Version, "0.3.0")
+	}
+	if !resp.Sprints[0].IsCurrent {
+		t.Error("sprint[0].IsCurrent = false, want true")
+	}
+	if len(resp.Sprints[0].Items) != 2 {
+		t.Fatalf("sprint[0] has %d items, want 2", len(resp.Sprints[0].Items))
+	}
+	if resp.Sprints[0].Items[0].Status != "Done" {
+		t.Errorf("sprint[0].Items[0].Status = %q, want %q", resp.Sprints[0].Items[0].Status, "Done")
+	}
+}
+
+func TestHandleSprints_FallbackToRoadmap(t *testing.T) {
+	// Arrange
+	ws, _ := setupWebTest(t)
+	projDir := t.TempDir()
+	if err := ws.registry.AddProject("fallback-app", projDir, "dev"); err != nil {
+		t.Fatal(err)
+	}
+	// Only ROADMAP.md exists, no SPRINTS.md
+	roadmapContent := `## Current Sprint
+
+### Sprint 1: Bootstrap (v0.1.0)
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | Initial setup | Done |
+`
+	if err := os.WriteFile(filepath.Join(projDir, "ROADMAP.md"), []byte(roadmapContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/projects/{name}/sprints", ws.handleSprints)
+
+	// Act
+	req := httptest.NewRequest("GET", "/api/projects/fallback-app/sprints", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	// Assert
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var resp roadmapJSON
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("cannot decode response: %v", err)
+	}
+	if len(resp.Sprints) != 1 {
+		t.Fatalf("got %d sprints, want 1", len(resp.Sprints))
+	}
+	if resp.Sprints[0].Number != 1 {
+		t.Errorf("sprint[0].Number = %d, want 1", resp.Sprints[0].Number)
+	}
+}
+
+func TestHandleSprints_NoFile(t *testing.T) {
+	// Arrange
+	ws, _ := setupWebTest(t)
+	projDir := t.TempDir()
+	if err := ws.registry.AddProject("no-sprint-app", projDir, "dev"); err != nil {
+		t.Fatal(err)
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/projects/{name}/sprints", ws.handleSprints)
+
+	// Act
+	req := httptest.NewRequest("GET", "/api/projects/no-sprint-app/sprints", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	// Assert
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var resp roadmapJSON
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("cannot decode response: %v", err)
+	}
+	if len(resp.Sprints) != 0 {
+		t.Errorf("got %d sprints, want 0", len(resp.Sprints))
+	}
+}
+
+func TestHandleBacklog(t *testing.T) {
+	// Arrange
+	ws, _ := setupWebTest(t)
+	projDir := t.TempDir()
+	if err := ws.registry.AddProject("backlog-app", projDir, "dev"); err != nil {
+		t.Fatal(err)
+	}
+	backlogContent := `# Backlog
+
+| # | Item |
+|---|------|
+| 1 | Add caching layer |
+| 2 | Improve error messages |
+| 3 | Add metrics endpoint |
+`
+	if err := os.WriteFile(filepath.Join(projDir, "BACKLOG.md"), []byte(backlogContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/projects/{name}/backlog", ws.handleBacklog)
+
+	// Act
+	req := httptest.NewRequest("GET", "/api/projects/backlog-app/backlog", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	// Assert
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var resp backlogJSON
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("cannot decode response: %v", err)
+	}
+	if len(resp.Items) != 3 {
+		t.Fatalf("got %d items, want 3", len(resp.Items))
+	}
+	if resp.Items[0].Number != 1 {
+		t.Errorf("items[0].Number = %d, want 1", resp.Items[0].Number)
+	}
+	if resp.Items[0].Description != "Add caching layer" {
+		t.Errorf("items[0].Description = %q, want %q", resp.Items[0].Description, "Add caching layer")
+	}
+	if resp.Items[2].Description != "Add metrics endpoint" {
+		t.Errorf("items[2].Description = %q, want %q", resp.Items[2].Description, "Add metrics endpoint")
+	}
+}
+
+func TestHandleBacklog_NoFile(t *testing.T) {
+	// Arrange
+	ws, _ := setupWebTest(t)
+	projDir := t.TempDir()
+	if err := ws.registry.AddProject("no-backlog-app", projDir, "dev"); err != nil {
+		t.Fatal(err)
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/projects/{name}/backlog", ws.handleBacklog)
+
+	// Act
+	req := httptest.NewRequest("GET", "/api/projects/no-backlog-app/backlog", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	// Assert
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var resp backlogJSON
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("cannot decode response: %v", err)
+	}
+	if len(resp.Items) != 0 {
+		t.Errorf("got %d items, want 0", len(resp.Items))
+	}
+}
+
+func TestHandleStrategicRoadmap(t *testing.T) {
+	// Arrange
+	ws, _ := setupWebTest(t)
+	projDir := t.TempDir()
+	if err := ws.registry.AddProject("strategic-app", projDir, "dev"); err != nil {
+		t.Fatal(err)
+	}
+	roadmapContent := `# Strategic Roadmap
+
+## Vision
+Build the best tool ever.
+
+## Milestones
+- v1.0: MVP
+- v2.0: Scale
+`
+	if err := os.WriteFile(filepath.Join(projDir, "ROADMAP.md"), []byte(roadmapContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/projects/{name}/strategic-roadmap", ws.handleStrategicRoadmap)
+
+	// Act
+	req := httptest.NewRequest("GET", "/api/projects/strategic-app/strategic-roadmap", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	// Assert
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var resp strategicRoadmapJSON
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("cannot decode response: %v", err)
+	}
+	if resp.Content != roadmapContent {
+		t.Errorf("content = %q, want %q", resp.Content, roadmapContent)
+	}
+}
+
+func TestHandleStrategicRoadmap_NoFile(t *testing.T) {
+	// Arrange
+	ws, _ := setupWebTest(t)
+	projDir := t.TempDir()
+	if err := ws.registry.AddProject("no-strategic-app", projDir, "dev"); err != nil {
+		t.Fatal(err)
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/projects/{name}/strategic-roadmap", ws.handleStrategicRoadmap)
+
+	// Act
+	req := httptest.NewRequest("GET", "/api/projects/no-strategic-app/strategic-roadmap", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	// Assert
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var resp strategicRoadmapJSON
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("cannot decode response: %v", err)
+	}
+	if resp.Content != "" {
+		t.Errorf("content = %q, want empty string", resp.Content)
+	}
+}
+
+func TestHandleSprints_ExportedWrapper(t *testing.T) {
+	// Arrange
+	ws, _ := setupWebTest(t)
+	projDir := t.TempDir()
+	if err := ws.registry.AddProject("sprint-wrap", projDir, "dev"); err != nil {
+		t.Fatal(err)
+	}
+	sprintsContent := `## Current Sprint
+
+### Sprint 1: Init (v0.1.0)
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | Setup | Done |
+`
+	if err := os.WriteFile(filepath.Join(projDir, "SPRINTS.md"), []byte(sprintsContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/projects/{name}/sprints", ws.HandleSprints)
+	req := httptest.NewRequest("GET", "/api/projects/sprint-wrap/sprints", nil)
+	rec := httptest.NewRecorder()
+
+	// Act
+	mux.ServeHTTP(rec, req)
+
+	// Assert
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var resp roadmapJSON
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("cannot decode response: %v", err)
+	}
+	if len(resp.Sprints) != 1 {
+		t.Fatalf("got %d sprints, want 1", len(resp.Sprints))
+	}
+}
+
+func TestHandleBacklog_ExportedWrapper(t *testing.T) {
+	// Arrange
+	ws, _ := setupWebTest(t)
+	projDir := t.TempDir()
+	if err := ws.registry.AddProject("backlog-wrap", projDir, "dev"); err != nil {
+		t.Fatal(err)
+	}
+	backlogContent := `# Backlog
+
+| # | Item |
+|---|------|
+| 1 | First item |
+`
+	if err := os.WriteFile(filepath.Join(projDir, "BACKLOG.md"), []byte(backlogContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/projects/{name}/backlog", ws.HandleBacklog)
+	req := httptest.NewRequest("GET", "/api/projects/backlog-wrap/backlog", nil)
+	rec := httptest.NewRecorder()
+
+	// Act
+	mux.ServeHTTP(rec, req)
+
+	// Assert
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var resp backlogJSON
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("cannot decode response: %v", err)
+	}
+	if len(resp.Items) != 1 {
+		t.Fatalf("got %d items, want 1", len(resp.Items))
+	}
+}
+
+func TestHandleStrategicRoadmap_ExportedWrapper(t *testing.T) {
+	// Arrange
+	ws, _ := setupWebTest(t)
+	projDir := t.TempDir()
+	if err := ws.registry.AddProject("strat-wrap", projDir, "dev"); err != nil {
+		t.Fatal(err)
+	}
+	roadmapContent := `# Roadmap
+
+## Goals
+- Ship v1.0
+`
+	if err := os.WriteFile(filepath.Join(projDir, "ROADMAP.md"), []byte(roadmapContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/projects/{name}/strategic-roadmap", ws.HandleStrategicRoadmap)
+	req := httptest.NewRequest("GET", "/api/projects/strat-wrap/strategic-roadmap", nil)
+	rec := httptest.NewRecorder()
+
+	// Act
+	mux.ServeHTTP(rec, req)
+
+	// Assert
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var resp strategicRoadmapJSON
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("cannot decode response: %v", err)
+	}
+	if resp.Content != roadmapContent {
+		t.Errorf("content = %q, want %q", resp.Content, roadmapContent)
+	}
+}
+
+func TestHandleGuild(t *testing.T) {
+	ws, mock := setupWebTest(t)
+	if err := ws.registry.AddProject("alpha", "/tmp/alpha", "dev"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ws.registry.AddProject("beta", "/tmp/beta", "dev"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Both containers stopped (docker inspect returns exited for all)
+	mock.Results["docker"] = executor.MockResult{Output: "exited\n"}
+
+	req := httptest.NewRequest("GET", "/api/guild", nil)
+	rec := httptest.NewRecorder()
+	ws.handleGuild(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+
+	var members []guildMemberJSON
+	if err := json.Unmarshal(rec.Body.Bytes(), &members); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(members) != 2 {
+		t.Fatalf("got %d members, want 2", len(members))
+	}
+
+	for _, m := range members {
+		if m.Name == "" {
+			t.Error("member name is empty")
+		}
+		if m.Activity != "sleeping" {
+			t.Errorf("member %s: got activity %q, want sleeping", m.Name, m.Activity)
+		}
 	}
 }
