@@ -47,13 +47,15 @@ func setupWebTest(t *testing.T) (*WebServer, *executor.MockExecutor) {
 	}
 
 	observer := agentstate.NewContainerObserver(mock)
+	detectors := activity.NewDetectorRegistry()
+	detectors.Register("claude", activity.NewClaudeCodeDetector())
 	ws := &WebServer{
 		registry:         reg,
 		docker:           docker,
 		executor:         mock,
 		cfg:              cfg,
 		observer:         observer,
-		activityResolver: activity.NewResolver(observer, activity.NewClaudeCodeDetector()),
+		activityResolver: activity.NewResolver(observer, detectors),
 	}
 	return ws, mock
 }
@@ -974,12 +976,16 @@ func TestHandleAgentState_Running(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusOK, rec.Body.String())
 	}
-	var resp map[string]string
+	var resp activityStateJSON
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("cannot decode response: %v", err)
 	}
-	if resp["state"] != "running" {
-		t.Errorf("state = %q, want %q", resp["state"], "running")
+	// Running container with no activity file → idle (ClaudeCodeDetector default)
+	if resp.Activity != "idle" {
+		t.Errorf("activity = %q, want %q", resp.Activity, "idle")
+	}
+	if resp.ContainerState != "running" {
+		t.Errorf("containerState = %q, want %q", resp.ContainerState, "running")
 	}
 }
 
@@ -1000,10 +1006,13 @@ func TestHandleAgentState_Stopped(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
-	var resp map[string]string
+	var resp activityStateJSON
 	json.Unmarshal(rec.Body.Bytes(), &resp)
-	if resp["state"] != "stopped" {
-		t.Errorf("state = %q, want %q", resp["state"], "stopped")
+	if resp.Activity != "sleeping" {
+		t.Errorf("activity = %q, want %q", resp.Activity, "sleeping")
+	}
+	if resp.ContainerState != "stopped" {
+		t.Errorf("containerState = %q, want %q", resp.ContainerState, "stopped")
 	}
 }
 
@@ -1712,12 +1721,12 @@ func TestHandleAgentState_ExportedWrapper(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusOK, rec.Body.String())
 	}
-	var resp map[string]string
+	var resp activityStateJSON
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("cannot decode response: %v", err)
 	}
-	if resp["state"] != "running" {
-		t.Errorf("state = %q, want %q", resp["state"], "running")
+	if resp.ContainerState != "running" {
+		t.Errorf("containerState = %q, want %q", resp.ContainerState, "running")
 	}
 }
 

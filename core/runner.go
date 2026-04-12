@@ -2,6 +2,14 @@
 
 package core
 
+// HookConfig describes the activity-reporting hooks a runner supports.
+// Each entry maps a hook event name to the shell command that writes
+// activity state. The command may contain {{.ActivityFile}} as a
+// placeholder for the absolute path to the activity JSON file.
+type HookConfig struct {
+	Hooks map[string]string // hook_event_name → shell command template
+}
+
 // RunnerProfile describes the CLI binary and flags for an AI runner.
 type RunnerProfile struct {
 	Name          string
@@ -13,6 +21,7 @@ type RunnerProfile struct {
 	ResumeFlag    string   // e.g. "--resume"
 	PromptPrefix  []string // flags before the prompt (e.g. ["--print", "--verbose"])
 	PromptFlag    string   // e.g. "-p"
+	ActivityHooks HookConfig
 }
 
 var runnerProfiles = map[string]RunnerProfile{
@@ -26,6 +35,16 @@ var runnerProfiles = map[string]RunnerProfile{
 		ResumeFlag:    "--resume",
 		PromptPrefix:  []string{"--print", "--verbose"},
 		PromptFlag:    "-p",
+		ActivityHooks: HookConfig{
+			Hooks: map[string]string{
+				"PreToolUse":      `printf '{"state":"busy","detail":"tool_use","ts":"%s"}' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > {{.ActivityFile}}`,
+				"PostToolUse":     `printf '{"state":"busy","detail":"tool_done","ts":"%s"}' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > {{.ActivityFile}}`,
+				"SubagentStart":   `printf '{"state":"busy","detail":"subagent","ts":"%s"}' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > {{.ActivityFile}}`,
+				"Stop":            `printf '{"state":"idle","detail":"stop","ts":"%s"}' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > {{.ActivityFile}}`,
+				"Notification":    `printf '{"state":"idle","detail":"waiting","ts":"%s"}' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > {{.ActivityFile}}`,
+				"UserPromptSubmit": `printf '{"state":"busy","detail":"prompt","ts":"%s"}' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > {{.ActivityFile}}`,
+			},
+		},
 	},
 	"copilot": {
 		Name:          "copilot",

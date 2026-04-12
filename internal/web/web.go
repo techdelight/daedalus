@@ -50,13 +50,15 @@ type WebServer struct {
 // Intended for integration tests that need to exercise handlers end-to-end.
 func NewWebServerForTest(reg *registry.Registry, d *docker.Docker, exec executor.Executor, cfg *core.Config) *WebServer {
 	observer := agentstate.NewContainerObserver(exec)
+	detectors := activity.NewDetectorRegistry()
+	detectors.Register("claude", activity.NewClaudeCodeDetector())
 	return &WebServer{
 		registry:         reg,
 		docker:           d,
 		executor:         exec,
 		cfg:              cfg,
 		observer:         observer,
-		activityResolver: activity.NewResolver(observer, activity.NewClaudeCodeDetector()),
+		activityResolver: activity.NewResolver(observer, detectors),
 	}
 }
 
@@ -137,6 +139,14 @@ type guildMemberJSON struct {
 	SessionCount int    `json:"sessionCount"`
 }
 
+// activityStateJSON is the JSON response for the project state endpoint.
+type activityStateJSON struct {
+	Activity       string `json:"activity"`       // busy/idle/sleeping
+	Detail         string `json:"detail"`          // tool_use, stop, waiting, etc.
+	UpdatedAt      string `json:"updatedAt"`       // RFC3339 timestamp of last state change
+	ContainerState string `json:"containerState"`  // raw docker state for backward compat
+}
+
 // projectJSON is the JSON representation of a project for the REST API.
 type projectJSON struct {
 	Name         string `json:"name"`
@@ -157,7 +167,9 @@ func Run(cfg *core.Config) error {
 	docker := docker.NewDocker(exec, filepath.Join(cfg.ScriptDir, "docker-compose.yml"))
 
 	observer := agentstate.NewContainerObserver(exec)
-	actResolver := activity.NewResolver(observer, activity.NewClaudeCodeDetector())
+	detectors := activity.NewDetectorRegistry()
+	detectors.Register("claude", activity.NewClaudeCodeDetector())
+	actResolver := activity.NewResolver(observer, detectors)
 
 	ws := &WebServer{
 		registry:         reg,
@@ -767,10 +779,10 @@ func (ws *WebServer) handleTerminalControl(w http.ResponseWriter, r *http.Reques
 	wg.Wait()
 }
 
-// handleAgentState returns the agent state for a project.
+// handleAgentState returns the activity state for a project.
 func (ws *WebServer) handleAgentState(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
-	_, found, err := ws.registry.GetProject(name)
+	entry, found, err := ws.registry.GetProject(name)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -780,9 +792,21 @@ func (ws *WebServer) handleAgentState(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	containerName := "claude-run-" + name
-	state := ws.observer.GetState(containerName)
+	containerState := ws.observer.GetState(containerName)
+
+	runnerName := entry.DefaultFlags["runner"]
+	if runnerName == "" {
+		runnerName = "claude"
+	}
+	info := ws.activityResolver.Resolve(containerName, entry.Directory, runnerName)
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"state": string(state)})
+	json.NewEncoder(w).Encode(activityStateJSON{
+		Activity:       string(info.State),
+		Detail:         info.Detail,
+		UpdatedAt:      info.UpdatedAt,
+		ContainerState: string(containerState),
+	})
 }
 
 // handleGuild returns all projects with unified activity state for the guild hall view.
@@ -796,7 +820,11 @@ func (ws *WebServer) handleGuild(w http.ResponseWriter, r *http.Request) {
 	members := make([]guildMemberJSON, 0, len(entries))
 	for _, e := range entries {
 		containerName := "claude-run-" + e.Name
-		info := ws.activityResolver.Resolve(containerName, e.Entry.Directory)
+		runnerName := e.Entry.DefaultFlags["runner"]
+		if runnerName == "" {
+			runnerName = "claude"
+		}
+		info := ws.activityResolver.Resolve(containerName, e.Entry.Directory, runnerName)
 
 		progressPct := e.Entry.ProgressPct
 		vision := e.Entry.Vision
