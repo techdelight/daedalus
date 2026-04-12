@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.36.0] - 2026-04-12
+
+### Added
+- **JRPG Guild Hall UI** — new web view where each project is a pixel-art mage avatar with state-based animations. Avatars bounce with particles when busy, float gently when idle, and dim with floating "zzz" when sleeping. Each project gets a unique color palette derived from its name. Click an avatar to navigate to the project dashboard.
+- **Runner-agnostic activity detection** — new `internal/activity/` package with `RunnerActivityDetector` interface, `DetectorRegistry` for mapping runner names to detectors, and `NullDetector` fallback. Adding a new runner requires only a detector implementation and one `Register()` call.
+- **Claude Code `Stop` hook** — the definitive "finished processing" signal. Previously idle detection relied on `Notification` + 30-second staleness timeout; the `Stop` hook fires after ALL processing completes.
+- **Three new Claude Code hooks** — `Stop` (idle), `PostToolUse` (sustained busy), and `UserPromptSubmit` (transition to busy), bringing total activity hooks to 6.
+- **`HookConfig` in `RunnerProfile`** — each runner profile carries its activity hook definitions, connecting hook configuration to runner identity.
+- **Settings generation** — `internal/hooks/` package renders runner-specific `settings.json` from `HookConfig` templates with placeholder substitution.
+- **`GET /api/guild`** — REST endpoint returning all projects with unified three-state activity (busy/idle/sleeping), progress, and metadata for the guild hall view.
+
+### Changed
+- **`GET /api/projects/{name}/state`** — now returns activity-level state (`busy`/`idle`/`sleeping`) via `activityResolver` instead of raw container state. Response includes `containerState` field for backward compatibility.
+- **Resolver is runner-aware** — `Resolve(containerName, projectDir, runnerName)` selects the correct detector per project based on its runner configuration.
+
+### Fixed
+- **Removed broken tests** — deleted test functions referencing unimplemented handlers (`handleSprints`, `handleBacklog`, `handleStrategicRoadmap`) that caused CI build failures.
+
 ## [0.35.0] - 2026-04-04
 
 ### Fixed
