@@ -179,3 +179,56 @@ func TestResolveRunnerName_Claude(t *testing.T) {
 		t.Errorf("ResolveRunnerName() = %q, want %q", got, "claude")
 	}
 }
+
+func TestClaudeHookConfig(t *testing.T) {
+	p, _ := LookupBuiltinRunner("claude")
+	hooks := p.ActivityHooks.Hooks
+
+	// Claude should have 6 activity hooks
+	expectedHooks := []string{
+		"PreToolUse", "PostToolUse", "SubagentStart",
+		"Stop", "Notification", "UserPromptSubmit",
+	}
+	for _, name := range expectedHooks {
+		if _, ok := hooks[name]; !ok {
+			t.Errorf("missing hook %q in Claude HookConfig", name)
+		}
+	}
+	if len(hooks) != len(expectedHooks) {
+		t.Errorf("got %d hooks, want %d", len(hooks), len(expectedHooks))
+	}
+
+	// Stop hook must write idle state
+	if cmd, ok := hooks["Stop"]; ok {
+		if !contains(cmd, `"state":"idle"`) {
+			t.Errorf("Stop hook should write idle state, got: %s", cmd)
+		}
+	}
+
+	// PreToolUse hook must write busy state
+	if cmd, ok := hooks["PreToolUse"]; ok {
+		if !contains(cmd, `"state":"busy"`) {
+			t.Errorf("PreToolUse hook should write busy state, got: %s", cmd)
+		}
+	}
+}
+
+func TestCopilotHookConfig_Empty(t *testing.T) {
+	p, _ := LookupBuiltinRunner("copilot")
+	if len(p.ActivityHooks.Hooks) != 0 {
+		t.Errorf("copilot should have no activity hooks, got %d", len(p.ActivityHooks.Hooks))
+	}
+}
+
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && searchString(s, substr)
+}
+
+func searchString(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}

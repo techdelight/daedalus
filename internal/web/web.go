@@ -17,6 +17,7 @@ import (
 	"syscall"
 
 	"github.com/techdelight/daedalus/core"
+	"github.com/techdelight/daedalus/internal/activity"
 	"github.com/techdelight/daedalus/internal/agentstate"
 	"github.com/techdelight/daedalus/internal/auth"
 	"github.com/techdelight/daedalus/internal/color"
@@ -36,23 +37,28 @@ import (
 
 // WebServer holds dependencies for the web UI HTTP handlers.
 type WebServer struct {
-	registry *registry.Registry
-	docker   *docker.Docker
-	executor executor.Executor
-	cfg      *core.Config
-	observer agentstate.Observer
-	foreman  *foreman.Foreman
+	registry         *registry.Registry
+	docker           *docker.Docker
+	executor         executor.Executor
+	cfg              *core.Config
+	observer         agentstate.Observer
+	activityResolver *activity.Resolver
+	foreman          *foreman.Foreman
 }
 
 // NewWebServerForTest creates a WebServer with injected dependencies.
 // Intended for integration tests that need to exercise handlers end-to-end.
 func NewWebServerForTest(reg *registry.Registry, d *docker.Docker, exec executor.Executor, cfg *core.Config) *WebServer {
+	observer := agentstate.NewContainerObserver(exec)
+	detectors := activity.NewDetectorRegistry()
+	detectors.Register("claude", activity.NewClaudeCodeDetector())
 	return &WebServer{
-		registry: reg,
-		docker:   d,
-		executor: exec,
-		cfg:      cfg,
-		observer: agentstate.NewContainerObserver(exec),
+		registry:         reg,
+		docker:           d,
+		executor:         exec,
+		cfg:              cfg,
+		observer:         observer,
+		activityResolver: activity.NewResolver(observer, detectors),
 	}
 }
 
@@ -121,6 +127,26 @@ type roadmapJSON struct {
 	Sprints []core.Sprint `json:"sprints"`
 }
 
+// guildMemberJSON is the JSON representation of a project for the guild hall view.
+type guildMemberJSON struct {
+	Name         string `json:"name"`
+	Activity     string `json:"activity"`
+	Detail       string `json:"detail"`
+	ProgressPct  int    `json:"progressPct"`
+	Vision       string `json:"vision"`
+	Target       string `json:"target"`
+	LastUsed     string `json:"lastUsed"`
+	SessionCount int    `json:"sessionCount"`
+}
+
+// activityStateJSON is the JSON response for the project state endpoint.
+type activityStateJSON struct {
+	Activity       string `json:"activity"`       // busy/idle/sleeping
+	Detail         string `json:"detail"`          // tool_use, stop, waiting, etc.
+	UpdatedAt      string `json:"updatedAt"`       // RFC3339 timestamp of last state change
+	ContainerState string `json:"containerState"`  // raw docker state for backward compat
+}
+
 // projectJSON is the JSON representation of a project for the REST API.
 type projectJSON struct {
 	Name         string `json:"name"`
@@ -141,13 +167,17 @@ func Run(cfg *core.Config) error {
 	docker := docker.NewDocker(exec, filepath.Join(cfg.ScriptDir, "docker-compose.yml"))
 
 	observer := agentstate.NewContainerObserver(exec)
+	detectors := activity.NewDetectorRegistry()
+	detectors.Register("claude", activity.NewClaudeCodeDetector())
+	actResolver := activity.NewResolver(observer, detectors)
 
 	ws := &WebServer{
-		registry: reg,
-		docker:   docker,
-		executor: exec,
-		cfg:      cfg,
-		observer: observer,
+		registry:         reg,
+		docker:           docker,
+		executor:         exec,
+		cfg:              cfg,
+		observer:         observer,
+		activityResolver: actResolver,
 	}
 
 	mux := http.NewServeMux()
@@ -160,6 +190,7 @@ func Run(cfg *core.Config) error {
 	mux.HandleFunc("GET /api/projects/{name}/roadmap", ws.handleRoadmap)
 	mux.HandleFunc("GET /api/projects/{name}/state", ws.handleAgentState)
 	mux.HandleFunc("GET /api/projects/{name}/terminal", ws.handleTerminal)
+	mux.HandleFunc("GET /api/guild", ws.handleGuild)
 	mux.HandleFunc("GET /api/foreman/status", ws.handleForemanStatus)
 	mux.HandleFunc("POST /api/foreman/start", ws.handleForemanStart)
 	mux.HandleFunc("POST /api/foreman/stop", ws.handleForemanStop)
@@ -748,10 +779,10 @@ func (ws *WebServer) handleTerminalControl(w http.ResponseWriter, r *http.Reques
 	wg.Wait()
 }
 
-// handleAgentState returns the agent state for a project.
+// handleAgentState returns the activity state for a project.
 func (ws *WebServer) handleAgentState(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
-	_, found, err := ws.registry.GetProject(name)
+	entry, found, err := ws.registry.GetProject(name)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -761,9 +792,66 @@ func (ws *WebServer) handleAgentState(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	containerName := "claude-run-" + name
-	state := ws.observer.GetState(containerName)
+	containerState := ws.observer.GetState(containerName)
+
+	runnerName := entry.DefaultFlags["runner"]
+	if runnerName == "" {
+		runnerName = "claude"
+	}
+	info := ws.activityResolver.Resolve(containerName, entry.Directory, runnerName)
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"state": string(state)})
+	json.NewEncoder(w).Encode(activityStateJSON{
+		Activity:       string(info.State),
+		Detail:         info.Detail,
+		UpdatedAt:      info.UpdatedAt,
+		ContainerState: string(containerState),
+	})
+}
+
+// handleGuild returns all projects with unified activity state for the guild hall view.
+func (ws *WebServer) handleGuild(w http.ResponseWriter, r *http.Request) {
+	entries, err := ws.registry.GetProjectEntries()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	members := make([]guildMemberJSON, 0, len(entries))
+	for _, e := range entries {
+		containerName := "claude-run-" + e.Name
+		runnerName := e.Entry.DefaultFlags["runner"]
+		if runnerName == "" {
+			runnerName = "claude"
+		}
+		info := ws.activityResolver.Resolve(containerName, e.Entry.Directory, runnerName)
+
+		progressPct := e.Entry.ProgressPct
+		vision := e.Entry.Vision
+		progData, err := progress.Read(e.Entry.Directory)
+		if err == nil {
+			if progData.ProgressPct > 0 {
+				progressPct = progData.ProgressPct
+			}
+			if progData.Vision != "" {
+				vision = progData.Vision
+			}
+		}
+
+		members = append(members, guildMemberJSON{
+			Name:         e.Name,
+			Activity:     string(info.State),
+			Detail:       info.Detail,
+			ProgressPct:  progressPct,
+			Vision:       vision,
+			Target:       e.Entry.Target,
+			LastUsed:     e.Entry.LastUsed,
+			SessionCount: len(e.Entry.Sessions),
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(members)
 }
 
 // handleForemanStatus returns the current Foreman state.

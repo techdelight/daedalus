@@ -14,15 +14,17 @@ Contains types, command builders, and helpers with no side effects.
 |---|---|
 | `config.go` | `Config` struct (incl. `Auth`, `AuthToken`, `AuthExpiry`), `ValidTargets()`, `IsValidTarget()`, `Image()`, `ContainerName()`, `TmuxSession()`, `CacheDir()`, `SkillsDir()`, `UseTmux()`, `ApplyRegistryEntry()` |
 | `appconfig.go` | `AppConfig` struct (incl. `AuthToken`, `AuthExpiry`), `ApplyAppConfig()` |
-| `runner.go` | `RunnerProfile` struct, `LookupRunner()`, `LookupBuiltinRunner()`, `ValidRunnerNames()`, `ResolveRunnerName()` |
+| `runner.go` | `HookConfig`, `RunnerProfile` structs (incl. `ActivityHooks`), `LookupRunner()`, `LookupBuiltinRunner()`, `ValidRunnerNames()`, `ResolveRunnerName()` |
+| `activity.go` | `ActivityState`, `ActivityInfo` — three-state activity model (busy/idle/sleeping) |
 | `persona.go` | `PersonaConfig`, `PersonaOverlay` structs, `PersonasDir()`, `ValidatePersonaName()`, `IsBuiltinRunner()`, `BuiltinRunnerNames()` |
 | `project.go` | `RegistryData`, `ProjectEntry` (with `ProgressPct`, `Vision`, `ProjectVersion`), `SessionRecord`, `ProjectInfo` types |
 | `command.go` | `BuildRunnerArgs()`, `BuildClaudeArgs()` (deprecated alias), `BuildTmuxCommand()`, `BuildEnvExports()`, `ShellQuote()`, `BuildExtraArgs()`, `OverlayPaths` |
 | `skills.go` | `StarterSkills()` — embedded starter skill files via `go:embed` |
 | `programme.go` | `Programme`, `DependencyEdge`, `DependencyGraph` types; `NewDependencyGraph()`, `TopologicalSort()`, `DetectCycles()`, `Downstreams()`, `Upstreams()`, `ValidateProgrammeName()` |
-| `sprint.go` | `Sprint`, `SprintItem`, `SprintStatus` types |
+| `sprint.go` | `Sprint`, `SprintItem`, `SprintStatus` types — data model for SPRINTS.md |
 | `foreman.go` | `ForemanConfig`, `ForemanState`, `ForemanPlan`, `ForemanProject`, `ForemanStatus` types |
-| `roadmap.go` | `ParseRoadmap()` — parses Daedalus-native ROADMAP.md into `[]Sprint` |
+| `backlog.go` | `BacklogItem`, `ParseBacklog()` — parses BACKLOG.md into backlog items |
+| `roadmap.go` | `ParseSprints()` — parses SPRINTS.md into `[]Sprint`; `ParseRoadmap()` kept as legacy alias |
 | `time.go` | `NowUTC()`, `ParseUTC()`, `RelativeTime()` |
 
 ### `cmd/daedalus/` — CLI Entry Point
@@ -71,7 +73,9 @@ All side effects (filesystem, shell, network) live here behind interfaces.
 | `programme` | `Store`, `New()`, `List()`, `Read()`, `Create()`, `Update()`, `Remove()`, `AddProject()`, `AddDep()` | Programme definition CRUD (JSON files) |
 | `mcpclient` | `Client`, `New()`, `ReadProgress()`, `ReadRoadmap()`, `GetCurrentSprint()`, `GetProjectStatus()` | Host-side MCP client for reading project state via bind mounts |
 | `auth` | `GenerateToken()`, `EnsureToken()`, `Middleware()`, `LoginHandler()` | Token-based authentication for Web UI (cookie + query param) |
+| `activity` | `RunnerActivityDetector` interface, `ClaudeCodeDetector`, `NullDetector`, `DetectorRegistry`, `Resolver` | Runner-agnostic activity detection (busy/idle/sleeping) with registry for pluggable detectors |
 | `agentstate` | `State`, `Observer` interface, `ContainerObserver` | Agent state observation via Docker container inspection |
+| `hooks` | `GenerateSettings()` | Renders runner-specific `settings.json` from `HookConfig` templates |
 | `foreman` | `Foreman`, `Planner`, `Monitor`, `AgentObserver`, `DefaultObserver` | Foreman agent: main loop, sprint planning, project monitoring, agent observation |
 | `platform` | `IsWSL2()`, `WSL2IPAddress()`, `DisplayArgs()` | Platform detection (WSL2) and display forwarding argument resolution |
 
@@ -87,6 +91,8 @@ auth      (leaf)
 personas  → core
 programme → core
 agentstate → executor
+activity  → core, agentstate
+hooks     → core
 mcpclient → core, progress
 config    → core, color, personas
 registry  → core
@@ -95,7 +101,7 @@ session   → executor
 completions → core
 foreman   → core, agentstate, mcpclient, programme, registry
 tui       → core, executor, registry, docker, session
-web       → core, executor, registry, docker, session, progress, agentstate, foreman, mcpclient, programme, auth
+web       → core, executor, registry, docker, session, progress, agentstate, activity, foreman, mcpclient, programme, auth
   ↑
 cmd/daedalus → all of the above + catalog + personas + programme + foreman + mcpclient
 cmd/skill-catalog-mcp → catalog (standalone MCP server, uses modelcontextprotocol/go-sdk)

@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/techdelight/daedalus/core"
+	"github.com/techdelight/daedalus/internal/activity"
 	"github.com/techdelight/daedalus/internal/agentstate"
 	"github.com/techdelight/daedalus/internal/docker"
 	"github.com/techdelight/daedalus/internal/executor"
@@ -45,12 +46,16 @@ func setupWebTest(t *testing.T) (*WebServer, *executor.MockExecutor) {
 		Target:      "dev",
 	}
 
+	observer := agentstate.NewContainerObserver(mock)
+	detectors := activity.NewDetectorRegistry()
+	detectors.Register("claude", activity.NewClaudeCodeDetector())
 	ws := &WebServer{
-		registry: reg,
-		docker:   docker,
-		executor: mock,
-		cfg:      cfg,
-		observer: agentstate.NewContainerObserver(mock),
+		registry:         reg,
+		docker:           docker,
+		executor:         mock,
+		cfg:              cfg,
+		observer:         observer,
+		activityResolver: activity.NewResolver(observer, detectors),
 	}
 	return ws, mock
 }
@@ -971,12 +976,16 @@ func TestHandleAgentState_Running(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusOK, rec.Body.String())
 	}
-	var resp map[string]string
+	var resp activityStateJSON
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("cannot decode response: %v", err)
 	}
-	if resp["state"] != "running" {
-		t.Errorf("state = %q, want %q", resp["state"], "running")
+	// Running container with no activity file → idle (ClaudeCodeDetector default)
+	if resp.Activity != "idle" {
+		t.Errorf("activity = %q, want %q", resp.Activity, "idle")
+	}
+	if resp.ContainerState != "running" {
+		t.Errorf("containerState = %q, want %q", resp.ContainerState, "running")
 	}
 }
 
@@ -997,10 +1006,13 @@ func TestHandleAgentState_Stopped(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
-	var resp map[string]string
+	var resp activityStateJSON
 	json.Unmarshal(rec.Body.Bytes(), &resp)
-	if resp["state"] != "stopped" {
-		t.Errorf("state = %q, want %q", resp["state"], "stopped")
+	if resp.Activity != "sleeping" {
+		t.Errorf("activity = %q, want %q", resp.Activity, "sleeping")
+	}
+	if resp.ContainerState != "stopped" {
+		t.Errorf("containerState = %q, want %q", resp.ContainerState, "stopped")
 	}
 }
 
@@ -1709,12 +1721,12 @@ func TestHandleAgentState_ExportedWrapper(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusOK, rec.Body.String())
 	}
-	var resp map[string]string
+	var resp activityStateJSON
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("cannot decode response: %v", err)
 	}
-	if resp["state"] != "running" {
-		t.Errorf("state = %q, want %q", resp["state"], "running")
+	if resp.ContainerState != "running" {
+		t.Errorf("containerState = %q, want %q", resp.ContainerState, "running")
 	}
 }
 
@@ -1751,5 +1763,43 @@ func TestHandleForemanStop_WithActiveForeman(t *testing.T) {
 	}
 	if resp["status"] != "stopped" {
 		t.Errorf("status = %q, want %q", resp["status"], "stopped")
+	}
+}
+
+func TestHandleGuild(t *testing.T) {
+	ws, mock := setupWebTest(t)
+	if err := ws.registry.AddProject("alpha", "/tmp/alpha", "dev"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ws.registry.AddProject("beta", "/tmp/beta", "dev"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Both containers stopped (docker inspect returns exited for all)
+	mock.Results["docker"] = executor.MockResult{Output: "exited\n"}
+
+	req := httptest.NewRequest("GET", "/api/guild", nil)
+	rec := httptest.NewRecorder()
+	ws.handleGuild(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+
+	var members []guildMemberJSON
+	if err := json.Unmarshal(rec.Body.Bytes(), &members); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(members) != 2 {
+		t.Fatalf("got %d members, want 2", len(members))
+	}
+
+	for _, m := range members {
+		if m.Name == "" {
+			t.Error("member name is empty")
+		}
+		if m.Activity != "sleeping" {
+			t.Errorf("member %s: got activity %q, want sleeping", m.Name, m.Activity)
+		}
 	}
 }
