@@ -4,6 +4,27 @@ package core
 
 import "testing"
 
+func TestParseSprints_DelegatesToParseRoadmap(t *testing.T) {
+	input := `## Current Sprint
+
+### Sprint 1: Test (v0.1.0)
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | Task A | Done |
+`
+	sprints := ParseSprints(input)
+	if len(sprints) != 1 {
+		t.Fatalf("got %d sprints, want 1", len(sprints))
+	}
+	if sprints[0].Number != 1 {
+		t.Errorf("Number = %d, want 1", sprints[0].Number)
+	}
+	if !sprints[0].IsCurrent {
+		t.Error("IsCurrent = false, want true")
+	}
+}
+
 func TestParseRoadmap_CurrentSprint(t *testing.T) {
 	// Arrange
 	input := `## Current Sprint

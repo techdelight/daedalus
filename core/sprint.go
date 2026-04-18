@@ -18,7 +18,7 @@ type SprintItem struct {
 	Status      SprintStatus `json:"status"`
 }
 
-// Sprint represents a parsed sprint from a ROADMAP.md file.
+// Sprint represents a parsed sprint from a SPRINTS.md (or legacy ROADMAP.md) file.
 type Sprint struct {
 	Number    int          `json:"number"`
 	Title     string       `json:"title"`

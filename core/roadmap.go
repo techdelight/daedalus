@@ -14,10 +14,10 @@ var sprintHeaderRe = regexp.MustCompile(`^###\s+Sprint\s+(\d+):\s+(.+?)(?:\s+\(v
 // tableRowRe matches "| N | description | status |" where N is a number.
 var tableRowRe = regexp.MustCompile(`^\|\s*(\d+)\s*\|(.+)\|([^|]*)\|\s*$`)
 
-// ParseRoadmap parses a Daedalus-native ROADMAP.md into a list of sprints.
+// ParseSprints parses a SPRINTS.md (or legacy ROADMAP.md) into a list of sprints.
 // Returns sprints in the order they appear. Sprints under "## Current Sprint"
 // are marked with IsCurrent=true.
-func ParseRoadmap(markdown string) []Sprint {
+func ParseSprints(markdown string) []Sprint {
 	lines := strings.Split(markdown, "\n")
 	var sprints []Sprint
 	var current *Sprint
@@ -82,4 +82,10 @@ func ParseRoadmap(markdown string) []Sprint {
 	}
 
 	return sprints
+}
+
+// ParseRoadmap is a backward-compatible alias for ParseSprints.
+// Deprecated: use ParseSprints for new code.
+func ParseRoadmap(markdown string) []Sprint {
+	return ParseSprints(markdown)
 }

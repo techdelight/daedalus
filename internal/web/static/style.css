@@ -436,6 +436,35 @@ tbody td {
     font-size: 11px;
 }
 
+.backlog-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.backlog-item {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    font-size: 12px;
+    padding: 6px 8px;
+    background: #16161e;
+    border: 1px solid #292e42;
+    border-radius: 4px;
+}
+
+.strategic-roadmap-content pre {
+    font-size: 12px;
+    color: #a9b1d6;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    line-height: 1.6;
+    background: #16161e;
+    border: 1px solid #292e42;
+    border-radius: 8px;
+    padding: 16px;
+}
+
 /* --- Foreman View --- */
 
 #foreman-view {

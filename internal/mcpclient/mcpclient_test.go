@@ -216,6 +216,156 @@ func TestGetProjectStatus(t *testing.T) {
 	}
 }
 
+func TestReadSprints_FromSprintsFile(t *testing.T) {
+	client := New()
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "SPRINTS.md"), `## Current Sprint
+
+### Sprint 5: Test (v1.0.0)
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | Task A | Done |
+`)
+	sprints, err := client.ReadSprints(dir)
+	if err != nil {
+		t.Fatalf("ReadSprints() error = %v", err)
+	}
+	if len(sprints) != 1 {
+		t.Fatalf("got %d sprints, want 1", len(sprints))
+	}
+	if sprints[0].Number != 5 {
+		t.Errorf("Number = %d, want 5", sprints[0].Number)
+	}
+}
+
+func TestReadSprints_FallsBackToRoadmap(t *testing.T) {
+	client := New()
+	dir := t.TempDir()
+	// No SPRINTS.md, only ROADMAP.md
+	writeFile(t, filepath.Join(dir, "ROADMAP.md"), `## Current Sprint
+
+### Sprint 3: Legacy (v0.5.0)
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | Old task | Done |
+`)
+	sprints, err := client.ReadSprints(dir)
+	if err != nil {
+		t.Fatalf("ReadSprints() error = %v", err)
+	}
+	if len(sprints) != 1 {
+		t.Fatalf("got %d sprints, want 1", len(sprints))
+	}
+	if sprints[0].Number != 3 {
+		t.Errorf("Number = %d, want 3", sprints[0].Number)
+	}
+}
+
+func TestReadSprints_PrefersSprintsOverRoadmap(t *testing.T) {
+	client := New()
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "SPRINTS.md"), `## Current Sprint
+
+### Sprint 10: New (v2.0.0)
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | New task | Done |
+`)
+	writeFile(t, filepath.Join(dir, "ROADMAP.md"), `## Current Sprint
+
+### Sprint 1: Old (v0.1.0)
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | Old task | Done |
+`)
+	sprints, err := client.ReadSprints(dir)
+	if err != nil {
+		t.Fatalf("ReadSprints() error = %v", err)
+	}
+	if len(sprints) != 1 {
+		t.Fatalf("got %d sprints, want 1", len(sprints))
+	}
+	if sprints[0].Number != 10 {
+		t.Errorf("Number = %d, want 10 (should prefer SPRINTS.md)", sprints[0].Number)
+	}
+}
+
+func TestReadSprints_NoFiles(t *testing.T) {
+	client := New()
+	dir := t.TempDir()
+	sprints, err := client.ReadSprints(dir)
+	if err != nil {
+		t.Fatalf("ReadSprints() error = %v", err)
+	}
+	if sprints != nil {
+		t.Errorf("got %v, want nil", sprints)
+	}
+}
+
+func TestReadBacklog_WithFile(t *testing.T) {
+	client := New()
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "BACKLOG.md"), `# Backlog
+
+| # | Item |
+|---|------|
+| 1 | First task |
+| 2 | Second task |
+`)
+	items, err := client.ReadBacklog(dir)
+	if err != nil {
+		t.Fatalf("ReadBacklog() error = %v", err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("got %d items, want 2", len(items))
+	}
+	if items[0].Description != "First task" {
+		t.Errorf("items[0].Description = %q", items[0].Description)
+	}
+}
+
+func TestReadBacklog_NoFile(t *testing.T) {
+	client := New()
+	dir := t.TempDir()
+	items, err := client.ReadBacklog(dir)
+	if err != nil {
+		t.Fatalf("ReadBacklog() error = %v", err)
+	}
+	if items != nil {
+		t.Errorf("got %v, want nil", items)
+	}
+}
+
+func TestReadStrategicRoadmap_WithFile(t *testing.T) {
+	client := New()
+	dir := t.TempDir()
+	content := "# Roadmap\n\n## Milestone 1\n\nShip the MVP.\n"
+	writeFile(t, filepath.Join(dir, "ROADMAP.md"), content)
+	got, err := client.ReadStrategicRoadmap(dir)
+	if err != nil {
+		t.Fatalf("ReadStrategicRoadmap() error = %v", err)
+	}
+	if got != content {
+		t.Errorf("got %q, want %q", got, content)
+	}
+}
+
+func TestReadStrategicRoadmap_NoFile(t *testing.T) {
+	client := New()
+	dir := t.TempDir()
+	got, err := client.ReadStrategicRoadmap(dir)
+	if err != nil {
+		t.Fatalf("ReadStrategicRoadmap() error = %v", err)
+	}
+	if got != "" {
+		t.Errorf("got %q, want empty", got)
+	}
+}
+
 // writeProgressJSON writes a progress.json file in the .daedalus/ subdirectory.
 func writeProgressJSON(t *testing.T, dir string, d progress.Data) {
 	t.Helper()

@@ -80,37 +80,81 @@ func registerTools(server *mcp.Server, projectDir string) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "get_roadmap",
-		Description: "Parse and return all sprints from the project's ROADMAP.md",
+		Description: "Parse and return all sprints from SPRINTS.md (falls back to ROADMAP.md)",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, input struct{}) (*mcp.CallToolResult, RoadmapOutput, error) {
-		content, err := os.ReadFile(filepath.Join(projectDir, "ROADMAP.md"))
+		content, err := readSprintsFile(projectDir)
 		if err != nil {
-			if os.IsNotExist(err) {
-				return nil, RoadmapOutput{Sprints: []core.Sprint{}}, nil
-			}
 			return errResult(err), RoadmapOutput{}, nil
 		}
-		sprints := core.ParseRoadmap(string(content))
+		if content == "" {
+			return nil, RoadmapOutput{Sprints: []core.Sprint{}}, nil
+		}
+		sprints := core.ParseSprints(content)
 		return nil, RoadmapOutput{Sprints: sprints}, nil
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "get_current_sprint",
-		Description: "Return the current sprint from the project's ROADMAP.md",
+		Description: "Return the current sprint from SPRINTS.md (falls back to ROADMAP.md)",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, input struct{}) (*mcp.CallToolResult, *core.Sprint, error) {
-		content, err := os.ReadFile(filepath.Join(projectDir, "ROADMAP.md"))
+		content, err := readSprintsFile(projectDir)
 		if err != nil {
-			if os.IsNotExist(err) {
-				return nil, nil, nil
-			}
 			return errResult(err), nil, nil
 		}
-		sprints := core.ParseRoadmap(string(content))
+		if content == "" {
+			return nil, nil, nil
+		}
+		sprints := core.ParseSprints(content)
 		for i := range sprints {
 			if sprints[i].IsCurrent {
 				return nil, &sprints[i], nil
 			}
 		}
 		return nil, nil, nil
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "get_sprints",
+		Description: "Parse and return all sprints from SPRINTS.md (falls back to ROADMAP.md)",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, input struct{}) (*mcp.CallToolResult, RoadmapOutput, error) {
+		content, err := readSprintsFile(projectDir)
+		if err != nil {
+			return errResult(err), RoadmapOutput{}, nil
+		}
+		if content == "" {
+			return nil, RoadmapOutput{Sprints: []core.Sprint{}}, nil
+		}
+		sprints := core.ParseSprints(content)
+		return nil, RoadmapOutput{Sprints: sprints}, nil
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "get_backlog",
+		Description: "Parse and return all backlog items from BACKLOG.md",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, input struct{}) (*mcp.CallToolResult, BacklogOutput, error) {
+		data, err := os.ReadFile(filepath.Join(projectDir, "BACKLOG.md"))
+		if err != nil {
+			if os.IsNotExist(err) {
+				return nil, BacklogOutput{Items: []core.BacklogItem{}}, nil
+			}
+			return errResult(err), BacklogOutput{}, nil
+		}
+		items := core.ParseBacklog(string(data))
+		return nil, BacklogOutput{Items: items}, nil
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "get_strategic_roadmap",
+		Description: "Return the raw ROADMAP.md content (strategic milestones and goals)",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, input struct{}) (*mcp.CallToolResult, StrategicRoadmapOutput, error) {
+		data, err := os.ReadFile(filepath.Join(projectDir, "ROADMAP.md"))
+		if err != nil {
+			if os.IsNotExist(err) {
+				return nil, StrategicRoadmapOutput{}, nil
+			}
+			return errResult(err), StrategicRoadmapOutput{}, nil
+		}
+		return nil, StrategicRoadmapOutput{Content: string(data)}, nil
 	})
 }
 
@@ -135,9 +179,38 @@ type RoadmapOutput struct {
 	Sprints []core.Sprint `json:"sprints"`
 }
 
+// BacklogOutput wraps parsed backlog items for the MCP response.
+type BacklogOutput struct {
+	Items []core.BacklogItem `json:"items"`
+}
+
+// StrategicRoadmapOutput wraps raw roadmap markdown for the MCP response.
+type StrategicRoadmapOutput struct {
+	Content string `json:"content"`
+}
+
 // StatusOutput wraps a status message for the MCP response.
 type StatusOutput struct {
 	Status string `json:"status"`
+}
+
+// readSprintsFile reads SPRINTS.md, falling back to ROADMAP.md.
+func readSprintsFile(projectDir string) (string, error) {
+	data, err := os.ReadFile(filepath.Join(projectDir, "SPRINTS.md"))
+	if err == nil {
+		return string(data), nil
+	}
+	if !os.IsNotExist(err) {
+		return "", err
+	}
+	data, err = os.ReadFile(filepath.Join(projectDir, "ROADMAP.md"))
+	if err == nil {
+		return string(data), nil
+	}
+	if os.IsNotExist(err) {
+		return "", nil
+	}
+	return "", err
 }
 
 // errResult returns a CallToolResult indicating an error.

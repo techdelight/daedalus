@@ -53,12 +53,15 @@ func TestNewServer_RegistersAllTools(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := map[string]bool{
-		"report_progress":  false,
-		"set_vision":       false,
-		"set_version":      false,
-		"get_progress":     false,
-		"get_roadmap":      false,
-		"get_current_sprint": false,
+		"report_progress":     false,
+		"set_vision":          false,
+		"set_version":         false,
+		"get_progress":        false,
+		"get_roadmap":         false,
+		"get_current_sprint":  false,
+		"get_sprints":         false,
+		"get_backlog":         false,
+		"get_strategic_roadmap": false,
 	}
 	for _, tool := range res.Tools {
 		if _, ok := want[tool.Name]; ok {
@@ -278,6 +281,117 @@ func TestGetCurrentSprint_WithFile(t *testing.T) {
 	}
 	if sprint["isCurrent"] != true {
 		t.Errorf("expected isCurrent=true")
+	}
+}
+
+func TestGetSprints_FromSprintsFile(t *testing.T) {
+	cs, dir := setup(t)
+	sprints := `## Current Sprint
+
+### Sprint 8: New Format (v3.0.0)
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | Migrate docs | Done |
+`
+	if err := os.WriteFile(filepath.Join(dir, "SPRINTS.md"), []byte(sprints), 0644); err != nil {
+		t.Fatal(err)
+	}
+	res := callTool(t, cs, "get_sprints", map[string]any{})
+	if res.IsError {
+		t.Fatalf("unexpected error: %v", res.Content)
+	}
+	text := res.Content[0].(*mcp.TextContent).Text
+	var out RoadmapOutput
+	if err := json.Unmarshal([]byte(text), &out); err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Sprints) != 1 {
+		t.Fatalf("got %d sprints, want 1", len(out.Sprints))
+	}
+	if out.Sprints[0].Number != 8 {
+		t.Errorf("Number = %d, want 8", out.Sprints[0].Number)
+	}
+}
+
+func TestGetBacklog_WithFile(t *testing.T) {
+	cs, dir := setup(t)
+	backlog := `# Backlog
+
+| # | Item |
+|---|------|
+| 1 | Add auth |
+| 2 | Fix bugs |
+`
+	if err := os.WriteFile(filepath.Join(dir, "BACKLOG.md"), []byte(backlog), 0644); err != nil {
+		t.Fatal(err)
+	}
+	res := callTool(t, cs, "get_backlog", map[string]any{})
+	if res.IsError {
+		t.Fatalf("unexpected error: %v", res.Content)
+	}
+	text := res.Content[0].(*mcp.TextContent).Text
+	var out BacklogOutput
+	if err := json.Unmarshal([]byte(text), &out); err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Items) != 2 {
+		t.Fatalf("got %d items, want 2", len(out.Items))
+	}
+	if out.Items[0].Description != "Add auth" {
+		t.Errorf("items[0].Description = %q", out.Items[0].Description)
+	}
+}
+
+func TestGetBacklog_NoFile(t *testing.T) {
+	cs, _ := setup(t)
+	res := callTool(t, cs, "get_backlog", map[string]any{})
+	if res.IsError {
+		t.Fatalf("unexpected error: %v", res.Content)
+	}
+	text := res.Content[0].(*mcp.TextContent).Text
+	var out BacklogOutput
+	if err := json.Unmarshal([]byte(text), &out); err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Items) != 0 {
+		t.Errorf("got %d items, want 0", len(out.Items))
+	}
+}
+
+func TestGetStrategicRoadmap_WithFile(t *testing.T) {
+	cs, dir := setup(t)
+	content := "# Roadmap\n\n## Milestone 1: MVP\n\nShip the core product.\n"
+	if err := os.WriteFile(filepath.Join(dir, "ROADMAP.md"), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	res := callTool(t, cs, "get_strategic_roadmap", map[string]any{})
+	if res.IsError {
+		t.Fatalf("unexpected error: %v", res.Content)
+	}
+	text := res.Content[0].(*mcp.TextContent).Text
+	var out StrategicRoadmapOutput
+	if err := json.Unmarshal([]byte(text), &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Content != content {
+		t.Errorf("got %q, want %q", out.Content, content)
+	}
+}
+
+func TestGetStrategicRoadmap_NoFile(t *testing.T) {
+	cs, _ := setup(t)
+	res := callTool(t, cs, "get_strategic_roadmap", map[string]any{})
+	if res.IsError {
+		t.Fatalf("unexpected error: %v", res.Content)
+	}
+	text := res.Content[0].(*mcp.TextContent).Text
+	var out StrategicRoadmapOutput
+	if err := json.Unmarshal([]byte(text), &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Content != "" {
+		t.Errorf("got %q, want empty", out.Content)
 	}
 }
 
