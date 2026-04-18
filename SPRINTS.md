@@ -2,9 +2,26 @@
 
 ## Current Sprint
 
+### Sprint 38: Document Structure Split (v0.37.0)
+
+Goal: separate the monolithic ROADMAP.md into three purpose-specific files — ROADMAP.md (strategic milestones), BACKLOG.md (prioritised work items), SPRINTS.md (sprint execution) — and update all parsers, MCP tools, and MCP client to support the new structure.
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | Split ROADMAP.md — extract backlog items to BACKLOG.md and sprint data to SPRINTS.md, keep only strategic milestones in ROADMAP.md | Done |
+| 2 | `core/backlog.go` — `BacklogItem` type and `ParseBacklog()` parser with tests | Done |
+| 3 | `core/roadmap.go` — rename `ParseRoadmap` to `ParseSprints` to reflect new file structure, add backward-compatible alias, with tests | Done |
+| 4 | `cmd/project-mgmt-mcp/` — new `get_sprints`, `get_backlog`, `get_strategic_roadmap` MCP tools with `readSprintsFile()` fallback (SPRINTS.md → ROADMAP.md), with tests | Done |
+| 5 | `internal/mcpclient/` — update MCP client methods for new tool names and add new methods for backlog and strategic roadmap, with tests | Done |
+| 6 | Documentation — SPRINTS.md structure cleanup, VERSION, CHANGELOG | Done |
+
+---
+
+## Sprint History
+
 ### Sprint 37: History Mode UX & Bug Fixes (v0.33.0)
 
-Goal: make history/scroll mode in the Web UI discoverable, clearly indicated, and easy to exit. Add crash/disconnect recovery so the terminal viewport always returns to live output. Fix Foreman roadmap display and blank terminal on attach.
+Delivered 2026-04-18. History/scroll mode UX, crash recovery, Foreman roadmap fix, blank terminal fix.
 
 | # | Item | Status |
 |---|------|--------|
@@ -252,10 +269,6 @@ Goal: improve the build workflow, add diagnostic tooling, and set up release doc
 | 5 | Auto-rebuild after install/upgrade — detect when runtime files (Dockerfile, entrypoint, etc.) have changed and rebuild the Docker image on next project start | Done |
 | 6 | Install script test harness — run the installer in a chroot or lightweight container to validate install/upgrade/uninstall flows without affecting the host | Done |
 
----
-
-## Sprint History
-
 ### Sprint 33: Project Workflow Improvements (v0.29.0)
 
 Delivered 2026-04-01. Target switching via config --set, GitHub repo URL/shorthand project creation.
@@ -457,9 +470,4 @@ Three UI surfaces sharing one core. Clean architecture extraction.
 - 113 tests total, zero regressions
 - Resolved 6 additional code review issues
 
----
-
-## Future Sprints
-
-(see Current Sprint above)
 

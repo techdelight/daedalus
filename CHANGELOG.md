@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.37.0] - 2026-04-18
+
+### Added
+- **Document structure split** — separated monolithic `ROADMAP.md` into three purpose-specific files: `ROADMAP.md` (strategic milestones), `BACKLOG.md` (prioritised work items), `SPRINTS.md` (sprint execution history).
+- **Backlog parser** — `core/backlog.go` with `BacklogItem` type and `ParseBacklog()` function for parsing `BACKLOG.md` tables.
+- **New MCP tools** — `get_sprints` (parse sprints from `SPRINTS.md`), `get_backlog` (parse backlog items), `get_strategic_roadmap` (raw roadmap content). All sprint tools fall back to `ROADMAP.md` for backward compatibility.
+- **Muse starter skill** — new `muse.md` starter skill in the skill catalog.
+
+### Changed
+- **`ParseRoadmap` renamed to `ParseSprints`** — reflects that sprint data now lives in `SPRINTS.md` rather than `ROADMAP.md`.
+- **`get_roadmap` / `get_current_sprint` MCP tools** — now read from `SPRINTS.md` first, falling back to `ROADMAP.md` for projects that haven't migrated.
+- **MCP client** — updated methods to use new tool names and added methods for backlog and strategic roadmap queries.
+
 ## [0.36.0] - 2026-04-12
 
 ### Added

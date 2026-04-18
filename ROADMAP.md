@@ -40,6 +40,6 @@ Runtime        & Foreman      Fidelity              Obs     Operations
 
 ## Current Focus
 
-Milestone 3: Terminal Fidelity — tmux control mode is functional with scrollback, resize, history mode, and live-capture. Remaining work: WebSocket resize race fix (done), terminal formatting fix (done), document structure split (in progress).
+Milestone 3: Terminal Fidelity — tmux control mode is functional with scrollback, resize, history mode, and live-capture. Document structure split complete (ROADMAP/BACKLOG/SPRINTS). Remaining: final polish and stabilisation.
 
 See `BACKLOG.md` for work items and `SPRINTS.md` for sprint execution.
