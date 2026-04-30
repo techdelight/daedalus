@@ -25,3 +25,4 @@
 | 45 | Post-install onboarding — after download and install, users don't know what to do next. Add a first-run wizard, `daedalus init` command, or getting-started guide that appears after installation |
 | 46 | Clarify value proposition — improve README, landing page, and first-run messaging to clearly explain what Daedalus does and why users need it. Focus on the "hands-off AI coding in a safe container" pitch |
 | 47 | Mobile multiline input broken — multiline input on mobile web UI only sends the first line. Investigate the mobile textarea Send handler in `index.html` — likely splits on newline or truncates before sending to WebSocket |
+| 48 | Large paste kills WebSocket — pasting ~500 words into the web UI input drops the connection and the message isn't sent. Investigate WebSocket frame size limits, send-path chunking, and reconnect behavior on large payloads |
