@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+- **Deduplicated `ShellQuote`** — removed `internal/session.ShellQuote` (a copy of `core.ShellQuote`) and routed `internal/session` and `internal/web` through `core.ShellQuote`. Per ARCHITECTURE/CONTRIBUTING, command builders belong in `core/`.
+
 ## [0.37.0] - 2026-04-18
 
 ### Added

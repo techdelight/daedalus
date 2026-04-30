@@ -210,26 +210,6 @@ func TestParseControlLine_AllTypes(t *testing.T) {
 	}
 }
 
-// --- ShellQuote tests ---
-
-func TestShellQuote(t *testing.T) {
-	tests := []struct {
-		input string
-		want  string
-	}{
-		{"hello", "'hello'"},
-		{"hello world", "'hello world'"},
-		{"it's", "'it'\\''s'"},
-		{"", "''"},
-	}
-	for _, tc := range tests {
-		got := ShellQuote(tc.input)
-		if got != tc.want {
-			t.Errorf("ShellQuote(%q) = %q, want %q", tc.input, got, tc.want)
-		}
-	}
-}
-
 // --- ControlSession tests (using mock pipes) ---
 
 func TestControlSession_ReadMessage(t *testing.T) {

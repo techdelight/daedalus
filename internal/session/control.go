@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+
+	"github.com/techdelight/daedalus/core"
 )
 
 // ControlSession manages a tmux session via control mode (-C).
@@ -83,7 +85,7 @@ func (cs *ControlSession) SendCommand(command string) error {
 
 // SendKeys sends keystrokes to the session's pane.
 func (cs *ControlSession) SendKeys(keys string) error {
-	return cs.SendCommand(fmt.Sprintf("send-keys -t %s %s", cs.name, ShellQuote(keys)))
+	return cs.SendCommand(fmt.Sprintf("send-keys -t %s %s", cs.name, core.ShellQuote(keys)))
 }
 
 // CapturePane requests the last n lines of pane scrollback.
@@ -148,9 +150,4 @@ func (cs *ControlSession) readCommandResponse() (string, error) {
 			}
 		}
 	}
-}
-
-// ShellQuote wraps a string in single quotes for tmux send-keys.
-func ShellQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
 }
