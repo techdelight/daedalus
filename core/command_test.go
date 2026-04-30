@@ -303,3 +303,93 @@ func TestShellQuote(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildControlSendKeys(t *testing.T) {
+	tests := []struct {
+		name   string
+		target string
+		text   string
+		want   string
+	}{
+		{
+			name:   "single line",
+			target: "claude-foo",
+			text:   "hello",
+			want:   "send-keys -t claude-foo -l 'hello'",
+		},
+		{
+			name:   "empty input",
+			target: "s",
+			text:   "",
+			want:   "send-keys -t s -l ''",
+		},
+		{
+			name:   "embedded single quote",
+			target: "s",
+			text:   "it's",
+			want:   "send-keys -t s -l 'it'\\''s'",
+		},
+		{
+			name:   "two lines LF",
+			target: "s",
+			text:   "ab\ncd",
+			want:   "send-keys -t s -l 'ab' Enter -l 'cd'",
+		},
+		{
+			name:   "trailing newline",
+			target: "s",
+			text:   "ab\n",
+			want:   "send-keys -t s -l 'ab' Enter",
+		},
+		{
+			name:   "leading newline",
+			target: "s",
+			text:   "\nab",
+			want:   "send-keys -t s Enter -l 'ab'",
+		},
+		{
+			name:   "lone newline",
+			target: "s",
+			text:   "\n",
+			want:   "send-keys -t s Enter",
+		},
+		{
+			name:   "blank line between",
+			target: "s",
+			text:   "ab\n\ncd",
+			want:   "send-keys -t s -l 'ab' Enter Enter -l 'cd'",
+		},
+		{
+			name:   "CRLF normalised to LF",
+			target: "s",
+			text:   "ab\r\ncd",
+			want:   "send-keys -t s -l 'ab' Enter -l 'cd'",
+		},
+		{
+			name:   "lone CR treated as newline",
+			target: "s",
+			text:   "ab\rcd",
+			want:   "send-keys -t s -l 'ab' Enter -l 'cd'",
+		},
+		{
+			name:   "tab kept literal",
+			target: "s",
+			text:   "a\tb",
+			want:   "send-keys -t s -l 'a\tb'",
+		},
+		{
+			name:   "key-name-like content stays literal",
+			target: "s",
+			text:   "Enter",
+			want:   "send-keys -t s -l 'Enter'",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := BuildControlSendKeys(tc.target, tc.text)
+			if got != tc.want {
+				t.Errorf("BuildControlSendKeys(%q, %q) = %q, want %q", tc.target, tc.text, got, tc.want)
+			}
+		})
+	}
+}

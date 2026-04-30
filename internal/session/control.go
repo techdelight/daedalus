@@ -83,9 +83,12 @@ func (cs *ControlSession) SendCommand(command string) error {
 	return err
 }
 
-// SendKeys sends keystrokes to the session's pane.
+// SendKeys sends keystrokes to the session's pane. Newlines in keys are
+// translated to Enter so the resulting tmux control-mode command stays on
+// a single line; non-newline content is sent literally so embedded tmux
+// key names are typed verbatim.
 func (cs *ControlSession) SendKeys(keys string) error {
-	return cs.SendCommand(fmt.Sprintf("send-keys -t %s %s", cs.name, core.ShellQuote(keys)))
+	return cs.SendCommand(core.BuildControlSendKeys(cs.name, keys))
 }
 
 // CapturePane requests the last n lines of pane scrollback.

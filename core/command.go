@@ -24,6 +24,32 @@ func ShellQuote(s string) string {
 	return "'" + escaped + "'"
 }
 
+// BuildControlSendKeys builds a tmux control-mode `send-keys` command that
+// types text into the target pane. Newlines (\n, \r, \r\n) become Enter
+// keystrokes so the result is a single line — required because tmux control
+// mode is line-delimited and an embedded newline would split the command.
+// All non-newline content is sent via `send-keys -l` (literal) so tmux key
+// names like "Enter" or "BSpace" embedded in user text are typed verbatim.
+func BuildControlSendKeys(target, text string) string {
+	norm := strings.ReplaceAll(text, "\r\n", "\n")
+	norm = strings.ReplaceAll(norm, "\r", "\n")
+	parts := strings.Split(norm, "\n")
+
+	var args []string
+	for i, p := range parts {
+		if i > 0 {
+			args = append(args, "Enter")
+		}
+		if p != "" {
+			args = append(args, "-l", ShellQuote(p))
+		}
+	}
+	if len(args) == 0 {
+		args = append(args, "-l", ShellQuote(""))
+	}
+	return fmt.Sprintf("send-keys -t %s %s", target, strings.Join(args, " "))
+}
+
 // BuildRunnerArgs constructs runner CLI arguments from config, using the
 // runner profile to determine which flags to emit.
 func BuildRunnerArgs(cfg *Config) []string {

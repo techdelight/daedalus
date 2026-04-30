@@ -752,7 +752,7 @@ func (ws *WebServer) handleTerminalControl(w http.ResponseWriter, r *http.Reques
 							log.Printf("CaptureVisible error for %s: %v", name, err)
 						}
 					default:
-						cmd := fmt.Sprintf("send-keys -t %s %s", sessName, core.ShellQuote(string(data)))
+						cmd := core.BuildControlSendKeys(sessName, string(data))
 						if err := sendTracked(cmd, ""); err != nil {
 							log.Printf("SendKeys error for %s: %v", name, err)
 							return
@@ -761,13 +761,13 @@ func (ws *WebServer) handleTerminalControl(w http.ResponseWriter, r *http.Reques
 					continue
 				}
 				// Non-JSON text — send as keys
-				cmd := fmt.Sprintf("send-keys -t %s %s", sessName, core.ShellQuote(string(data)))
+				cmd := core.BuildControlSendKeys(sessName, string(data))
 				if err := sendTracked(cmd, ""); err != nil {
 					log.Printf("SendKeys error for %s: %v", name, err)
 					return
 				}
 			} else if msgType == websocket.BinaryMessage {
-				cmd := fmt.Sprintf("send-keys -t %s %s", sessName, core.ShellQuote(string(data)))
+				cmd := core.BuildControlSendKeys(sessName, string(data))
 				if err := sendTracked(cmd, ""); err != nil {
 					log.Printf("SendKeys error for %s: %v", name, err)
 					return

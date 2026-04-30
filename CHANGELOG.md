@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+- **Large paste kills WebSocket** — pasting text containing newlines (or any multiline input on mobile) terminated the tmux control-mode `send-keys` command at the first `\n`, desyncing the response queue and dropping the WebSocket connection. Added `core.BuildControlSendKeys` which translates newlines to `Enter` keystrokes and uses `send-keys -l` (literal) for non-newline content, keeping the resulting command on a single line. (Backlog #47, #48)
+
 ### Changed
 - **Deduplicated `ShellQuote`** — removed `internal/session.ShellQuote` (a copy of `core.ShellQuote`) and routed `internal/session` and `internal/web` through `core.ShellQuote`. Per ARCHITECTURE/CONTRIBUTING, command builders belong in `core/`.
 

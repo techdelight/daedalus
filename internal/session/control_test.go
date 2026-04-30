@@ -271,6 +271,39 @@ func TestControlSession_SendKeys(t *testing.T) {
 	}
 }
 
+// Multi-line input must be encoded as a single control-mode command line
+// (newlines translated to Enter), otherwise the embedded \n would be parsed
+// as a command boundary and split the send-keys call. Backlog #47, #48.
+func TestControlSession_SendKeys_MultilineStaysOneCommand(t *testing.T) {
+	r, w := io.Pipe()
+	cs := NewControlSession("mysess", w, strings.NewReader(""), nil)
+
+	done := make(chan string, 1)
+	go func() {
+		buf := make([]byte, 1024)
+		n, _ := r.Read(buf)
+		done <- string(buf[:n])
+		r.Close()
+	}()
+
+	if err := cs.SendKeys("line one\nline two\nline three"); err != nil {
+		t.Fatalf("SendKeys() error = %v", err)
+	}
+	got := <-done
+
+	// Exactly one trailing newline (the SendCommand terminator) — the payload
+	// itself must not introduce additional line breaks.
+	if strings.Count(got, "\n") != 1 {
+		t.Errorf("sent payload contains %d newlines, want exactly 1; got = %q",
+			strings.Count(got, "\n"), got)
+	}
+	for _, want := range []string{"-l 'line one'", "Enter", "-l 'line two'", "-l 'line three'"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("sent = %q, missing %q", got, want)
+		}
+	}
+}
+
 func TestControlSession_CapturePane(t *testing.T) {
 	stdinR, stdinW := io.Pipe()
 	stdoutR, stdoutW := io.Pipe()
