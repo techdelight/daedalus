@@ -10,11 +10,9 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
-	"strings"
 	"sync"
 	"syscall"
 
-	"github.com/techdelight/daedalus/core"
 	"github.com/techdelight/daedalus/internal/session"
 
 	"github.com/creack/pty"
@@ -91,7 +89,9 @@ func (ws *WebServer) handleTerminal(w http.ResponseWriter, r *http.Request) {
 
 // handleTerminalControl is the control-mode alternative to handleTerminal.
 // It uses tmux -C for structured I/O instead of a raw PTY relay.
-// Activated by ?mode=control on the terminal WebSocket endpoint.
+// Activated by ?mode=control on the terminal WebSocket endpoint. The
+// reader/writer goroutines and the FIFO response queue live in
+// controlRelay (see control_relay.go).
 func (ws *WebServer) handleTerminalControl(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 
@@ -126,170 +126,14 @@ func (ws *WebServer) handleTerminalControl(w http.ResponseWriter, r *http.Reques
 	}
 	defer cs.Close()
 
-	// Capture visible pane content before starting relay goroutines.
-	// This avoids a blank terminal on connect — no reader contention
-	// because the goroutines have not started yet.
+	// Capture visible pane content before starting the relay so the
+	// terminal is populated immediately on connect — no reader contention
+	// because the relay goroutines have not started yet.
 	if content, err := cs.CaptureVisible(); err == nil && content != "" {
 		conn.WriteMessage(websocket.BinaryMessage, []byte(content))
 	}
 
-	// pendingTypes tracks the expected response type for each command sent
-	// to tmux, in FIFO order. "" means ignore (resize-window, send-keys).
-	// A non-empty string is the JSON "type" for the response wrapper.
-	var (
-		pendingMu    sync.Mutex
-		pendingTypes []string
-	)
-
-	// sendTracked sends a tmux command and enqueues the expected response
-	// type atomically, keeping the queue synchronised with the command stream.
-	sendTracked := func(command, responseType string) error {
-		pendingMu.Lock()
-		defer pendingMu.Unlock()
-		if err := cs.SendCommand(command); err != nil {
-			return err
-		}
-		pendingTypes = append(pendingTypes, responseType)
-		return nil
-	}
-
-	dequeueType := func() string {
-		pendingMu.Lock()
-		defer pendingMu.Unlock()
-		if len(pendingTypes) == 0 {
-			return ""
-		}
-		t := pendingTypes[0]
-		pendingTypes = pendingTypes[1:]
-		return t
-	}
-
-	var wg sync.WaitGroup
-	wg.Add(2)
-
-	// Reader goroutine: sole consumer of tmux control-mode output.
-	// Forwards %output to WebSocket, collects %begin/%end command
-	// responses and dispatches them based on the pendingTypes queue.
-	// On %layout-change (after resize), auto-captures visible content.
-	go func() {
-		defer wg.Done()
-		var (
-			inResponse    bool
-			responseLines []string
-		)
-		for {
-			msg, err := cs.ReadMessage()
-			if err != nil {
-				conn.WriteMessage(websocket.CloseMessage,
-					websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
-				return
-			}
-			switch msg.Type {
-			case session.MsgOutput:
-				decoded := session.UnescapeOutput(msg.Content)
-				if err := conn.WriteMessage(websocket.BinaryMessage, []byte(decoded)); err != nil {
-					return
-				}
-			case session.MsgBegin:
-				inResponse = true
-				responseLines = responseLines[:0]
-			case session.MsgEnd:
-				if inResponse {
-					respType := dequeueType()
-					if respType != "" {
-						content := strings.Join(responseLines, "\r\n")
-						resp, _ := json.Marshal(scrollbackResponse{
-							Type:    respType,
-							Content: content,
-						})
-						if err := conn.WriteMessage(websocket.TextMessage, resp); err != nil {
-							return
-						}
-					}
-				}
-				inResponse = false
-			case session.MsgError:
-				dequeueType()
-				inResponse = false
-			case session.MsgLayoutChange:
-				// Window was resized — refresh terminal content.
-				cmd := fmt.Sprintf("capture-pane -t %s -p -e", sessName)
-				if err := sendTracked(cmd, "live-capture-response"); err != nil {
-					log.Printf("post-resize capture error for %s: %v", name, err)
-				}
-			case session.MsgUnknown:
-				if inResponse {
-					responseLines = append(responseLines, msg.Content)
-				}
-			}
-		}
-	}()
-
-	// WebSocket reader: dispatches user input and commands to tmux
-	// via sendTracked so every command is tracked in the response queue.
-	go func() {
-		defer wg.Done()
-		for {
-			msgType, data, err := conn.ReadMessage()
-			if err != nil {
-				return
-			}
-			if msgType == websocket.TextMessage {
-				var m wsMsg
-				if json.Unmarshal(data, &m) == nil {
-					switch m.Type {
-					case "resize":
-						var rm resizeMsg
-						if err := json.Unmarshal(data, &rm); err != nil {
-							log.Printf("invalid resize message for %s: %v", name, err)
-							continue
-						}
-						if rm.Cols > 0 && rm.Rows > 0 {
-							cmd := fmt.Sprintf("resize-window -t %s -x %d -y %d", sessName, int(rm.Cols), int(rm.Rows))
-							if err := sendTracked(cmd, ""); err != nil {
-								log.Printf("ResizeWindow error for %s: %v", name, err)
-							}
-						}
-					case "scrollback":
-						lines := m.Lines
-						if lines <= 0 {
-							lines = 500
-						}
-						cmd := fmt.Sprintf("capture-pane -t %s -p -e -S -%d", sessName, lines)
-						if err := sendTracked(cmd, "scrollback-response"); err != nil {
-							log.Printf("CapturePane error for %s: %v", name, err)
-						}
-					case "live-capture":
-						cmd := fmt.Sprintf("capture-pane -t %s -p -e", sessName)
-						if err := sendTracked(cmd, "live-capture-response"); err != nil {
-							log.Printf("CaptureVisible error for %s: %v", name, err)
-						}
-					default:
-						cmd := core.BuildControlSendKeys(sessName, string(data))
-						if err := sendTracked(cmd, ""); err != nil {
-							log.Printf("SendKeys error for %s: %v", name, err)
-							return
-						}
-					}
-					continue
-				}
-				// Non-JSON text — send as keys
-				cmd := core.BuildControlSendKeys(sessName, string(data))
-				if err := sendTracked(cmd, ""); err != nil {
-					log.Printf("SendKeys error for %s: %v", name, err)
-					return
-				}
-			} else if msgType == websocket.BinaryMessage {
-				cmd := core.BuildControlSendKeys(sessName, string(data))
-				if err := sendTracked(cmd, ""); err != nil {
-					log.Printf("SendKeys error for %s: %v", name, err)
-					return
-				}
-			}
-		}
-	}()
-
-	wg.Wait()
+	newControlRelay(cs, conn, sessName, name).Run()
 }
 
 func startPTY(sessionName string) (*os.File, *exec.Cmd, error) {
