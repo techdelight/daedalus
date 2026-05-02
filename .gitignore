@@ -1,6 +1,7 @@
 .env
 .cache/
 .claude/
+.daedalus/
 /daedalus
 agentenv
 node_modules/
