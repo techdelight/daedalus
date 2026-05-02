@@ -1,5 +1,9 @@
 // Copyright (C) 2026 Techdelight BV
 
+// Package registry manages the on-disk project registry. It is split into
+// topic files: registry.go (CRUD + read/write), migrate.go (schema
+// versioning), cache.go (per-project cache directory lifecycle), and
+// sessions.go (session start/end records).
 package registry
 
 import (
@@ -15,51 +19,6 @@ import (
 // Registry manages the project registry file.
 type Registry struct {
 	FilePath string
-}
-
-// migrateFunc transforms registry data from one version to the next.
-type migrateFunc func(data *core.RegistryData) error
-
-// migrations maps source version → upgrade function.
-var migrations = map[int]migrateFunc{
-	1: migrateV1toV2,
-	2: migrateV2toV3,
-}
-
-// migrateV1toV2 upgrades the registry from v1 to v2.
-// v2 adds DefaultFlags and Sessions fields to ProjectEntry.
-// Zero values (nil) are correct — omitempty keeps JSON clean.
-func migrateV1toV2(data *core.RegistryData) error {
-	data.Version = 2
-	return nil
-}
-
-// migrateV2toV3 upgrades the registry from v2 to v3.
-// v3 adds ProgressPct, Vision, and ProjectVersion fields to ProjectEntry.
-// Zero values (0/"") are correct — omitempty keeps JSON clean.
-func migrateV2toV3(data *core.RegistryData) error {
-	data.Version = 3
-	return nil
-}
-
-// migrate applies all necessary migrations to bring data to CurrentRegistryVersion.
-// Returns true if any migrations were applied.
-func (r *Registry) migrate(data *core.RegistryData) (bool, error) {
-	if data.Version > core.CurrentRegistryVersion {
-		return false, fmt.Errorf("registry version %d is newer than supported version %d", data.Version, core.CurrentRegistryVersion)
-	}
-	changed := false
-	for data.Version < core.CurrentRegistryVersion {
-		fn, ok := migrations[data.Version]
-		if !ok {
-			return changed, fmt.Errorf("no migration from registry version %d", data.Version)
-		}
-		if err := fn(data); err != nil {
-			return changed, fmt.Errorf("migrating from version %d: %w", data.Version, err)
-		}
-		changed = true
-	}
-	return changed, nil
 }
 
 // NewRegistry creates a Registry pointing at the given file path.
@@ -214,79 +173,6 @@ func (r *Registry) RenameProject(oldName, newName string) error {
 	return nil
 }
 
-// renameCache renames the per-project cache directory.
-// Uses copy+remove instead of os.Rename to avoid cross-device and
-// WSL2/bind-mount issues with directory renames.
-// Failures are logged to stderr but not returned as errors.
-func (r *Registry) renameCache(oldName, newName string) {
-	baseDir := filepath.Dir(r.FilePath)
-	oldDir := filepath.Join(baseDir, oldName)
-	newDir := filepath.Join(baseDir, newName)
-	if _, err := os.Stat(oldDir); os.IsNotExist(err) {
-		return
-	}
-	if err := copyDir(oldDir, newDir); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to copy cache directory '%s' to '%s': %v\n", oldDir, newDir, err)
-		return
-	}
-	if err := os.RemoveAll(oldDir); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to remove old cache directory '%s': %v\n", oldDir, err)
-	}
-}
-
-// copyDir recursively copies a directory tree from src to dst.
-// Symlinks are recreated (preserving the link target) rather than followed.
-func copyDir(src, dst string) error {
-	srcInfo, err := os.Stat(src)
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(dst, srcInfo.Mode()); err != nil {
-		return err
-	}
-	entries, err := os.ReadDir(src)
-	if err != nil {
-		return err
-	}
-	for _, entry := range entries {
-		srcPath := filepath.Join(src, entry.Name())
-		dstPath := filepath.Join(dst, entry.Name())
-
-		// Use Lstat to detect symlinks without following them
-		info, err := os.Lstat(srcPath)
-		if err != nil {
-			return err
-		}
-
-		if info.Mode()&os.ModeSymlink != 0 {
-			link, err := os.Readlink(srcPath)
-			if err != nil {
-				return err
-			}
-			if err := os.Symlink(link, dstPath); err != nil {
-				return err
-			}
-			continue
-		}
-
-		if info.IsDir() {
-			if err := copyDir(srcPath, dstPath); err != nil {
-				return err
-			}
-			continue
-		}
-
-		data, err := os.ReadFile(srcPath)
-		if err != nil {
-			return err
-		}
-		if err := os.WriteFile(dstPath, data, info.Mode()); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 // RemoveProject deletes a project from the registry by name and cleans up
 // its per-project cache directory (#23).
 func (r *Registry) RemoveProject(name string) error {
@@ -303,15 +189,6 @@ func (r *Registry) RemoveProject(name string) error {
 	}
 	r.cleanCache(name)
 	return nil
-}
-
-// cleanCache removes the per-project cache directory.
-// Failures are logged to stderr but not returned as errors.
-func (r *Registry) cleanCache(name string) {
-	cacheDir := filepath.Join(filepath.Dir(r.FilePath), name)
-	if err := os.RemoveAll(cacheDir); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to remove cache directory '%s': %v\n", cacheDir, err)
-	}
 }
 
 // RemoveProjects deletes multiple projects in a single read-modify-write cycle (#24).
@@ -377,7 +254,6 @@ func (r *Registry) UpdateDefaultFlags(name string, set map[string]string, unset 
 	for _, k := range unset {
 		delete(entry.DefaultFlags, k)
 	}
-	// Clean up empty map
 	if len(entry.DefaultFlags) == 0 {
 		entry.DefaultFlags = nil
 	}
@@ -412,79 +288,6 @@ func (r *Registry) TouchProject(name string) error {
 	}
 	entry.LastUsed = core.NowUTC()
 	data.Projects[name] = entry
-	return r.write(data)
-}
-
-// maxSessionHistory is the maximum number of session records kept per project.
-const maxSessionHistory = 50
-
-// StartSession records a new session start for the named project.
-// Returns the session ID (monotonic counter based on len(Sessions)+1).
-// Caps history at maxSessionHistory by trimming oldest entries.
-func (r *Registry) StartSession(projectName, resumeID string) (string, error) {
-	data, err := r.read()
-	if err != nil {
-		return "", err
-	}
-	entry, ok := data.Projects[projectName]
-	if !ok {
-		return "", fmt.Errorf("project '%s' not found", projectName)
-	}
-
-	sessionID := fmt.Sprintf("%d", len(entry.Sessions)+1)
-	rec := core.SessionRecord{
-		ID:       sessionID,
-		Started:  core.NowUTC(),
-		ResumeID: resumeID,
-	}
-	entry.Sessions = append(entry.Sessions, rec)
-
-	// Cap at maxSessionHistory
-	if len(entry.Sessions) > maxSessionHistory {
-		entry.Sessions = entry.Sessions[len(entry.Sessions)-maxSessionHistory:]
-	}
-
-	data.Projects[projectName] = entry
-	if err := r.write(data); err != nil {
-		return "", err
-	}
-	return sessionID, nil
-}
-
-// EndSession records the end of a session with timestamp and duration.
-func (r *Registry) EndSession(projectName, sessionID string) error {
-	data, err := r.read()
-	if err != nil {
-		return err
-	}
-	entry, ok := data.Projects[projectName]
-	if !ok {
-		return fmt.Errorf("project '%s' not found", projectName)
-	}
-
-	found := false
-	for i := len(entry.Sessions) - 1; i >= 0; i-- {
-		if entry.Sessions[i].ID == sessionID {
-			now := core.NowUTC()
-			entry.Sessions[i].Ended = now
-			// Calculate duration from Started to now
-			startTime, err := core.ParseUTC(entry.Sessions[i].Started)
-			if err == nil {
-				endTime, err2 := core.ParseUTC(now)
-				if err2 == nil {
-					entry.Sessions[i].Duration = int(endTime.Sub(startTime).Seconds())
-				}
-			}
-			found = true
-			break
-		}
-	}
-
-	if !found {
-		return fmt.Errorf("session '%s' not found for project '%s'", sessionID, projectName)
-	}
-
-	data.Projects[projectName] = entry
 	return r.write(data)
 }
 

@@ -11,6 +11,7 @@ import (
 
 	"github.com/techdelight/daedalus/core"
 	"github.com/techdelight/daedalus/internal/executor"
+	"github.com/techdelight/daedalus/internal/platform"
 )
 
 // Docker manages Docker operations.
@@ -93,6 +94,25 @@ func (d *Docker) ComposeRunCommand(containerName string, claudeArgs []string, ex
 	args = append(args, "claude")
 	args = append(args, claudeArgs...)
 	return args
+}
+
+// BuildSessionCommand returns the tmux send-keys command string that launches
+// the project's container. Used by both the TUI and Web start paths to avoid
+// duplicating the display-args / runner-args / compose-cmd / tmux-cmd
+// composition.
+func (d *Docker) BuildSessionCommand(cfg *core.Config) string {
+	var displayArgs []string
+	if cfg.Display {
+		displayArgs, _ = platform.DisplayArgs(
+			os.Getenv("DISPLAY"),
+			os.Getenv("WAYLAND_DISPLAY"),
+			os.Getenv("XDG_RUNTIME_DIR"),
+		)
+	}
+	extraArgs := core.BuildExtraArgs(cfg, displayArgs, nil)
+	runnerArgs := core.BuildRunnerArgs(cfg)
+	dockerCmd := d.ComposeRunCommand(cfg.ContainerName(), runnerArgs, extraArgs)
+	return core.BuildTmuxCommand(cfg, dockerCmd)
 }
 
 // SetupCacheDir ensures the per-project cache directory exists.
