@@ -12,6 +12,7 @@ All notable changes to this project will be documented in this file.
 - **Large paste kills WebSocket** — pasting text containing newlines (or any multiline input on mobile) terminated the tmux control-mode `send-keys` command at the first `\n`, desyncing the response queue and dropping the WebSocket connection. Added `core.BuildControlSendKeys` which translates newlines to `Enter` keystrokes and uses `send-keys -l` (literal) for non-newline content, keeping the resulting command on a single line. (Backlog #47, #48)
 
 ### Changed
+- **Split `internal/web/web.go` god-object** — the 1196-line file with 31 methods spanning 6 unrelated domains was split into topic files within the `web` package: `projects.go` (lifecycle), `dashboard.go` (dashboard / state / guild), `roadmap.go` (sprints / backlog / strategic-roadmap), `foreman.go`, `programmes.go`, `terminal.go` (PTY + control-mode WebSocket relay). `web.go` is now a 169-line orchestrator: `WebServer` struct, `Run()`, and `registerRoutes()` (which lists every URL in one place). No behaviour change. (Backlog #49)
 - **Deduplicated `ShellQuote`** — removed `internal/session.ShellQuote` (a copy of `core.ShellQuote`) and routed `internal/session` and `internal/web` through `core.ShellQuote`. Per ARCHITECTURE/CONTRIBUTING, command builders belong in `core/`.
 
 ## [0.37.0] - 2026-04-18
