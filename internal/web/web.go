@@ -97,6 +97,16 @@ func (ws *WebServer) HandleRoadmap(w http.ResponseWriter, r *http.Request) {
 	ws.handleRoadmap(w, r)
 }
 
+// HandleBacklog is the exported handler for GET /api/projects/{name}/backlog.
+func (ws *WebServer) HandleBacklog(w http.ResponseWriter, r *http.Request) {
+	ws.handleBacklog(w, r)
+}
+
+// HandleStrategicRoadmap is the exported handler for GET /api/projects/{name}/strategic-roadmap.
+func (ws *WebServer) HandleStrategicRoadmap(w http.ResponseWriter, r *http.Request) {
+	ws.handleStrategicRoadmap(w, r)
+}
+
 // HandleAgentState is the exported handler for GET /api/projects/{name}/state.
 func (ws *WebServer) HandleAgentState(w http.ResponseWriter, r *http.Request) {
 	ws.handleAgentState(w, r)
@@ -122,9 +132,19 @@ type dashboardJSON struct {
 	Created        string `json:"created"`
 }
 
-// roadmapJSON is the JSON response for the roadmap endpoint.
+// roadmapJSON is the JSON response for the sprints (legacy: roadmap) endpoint.
 type roadmapJSON struct {
 	Sprints []core.Sprint `json:"sprints"`
+}
+
+// backlogJSON is the JSON response for the backlog endpoint.
+type backlogJSON struct {
+	Items []core.BacklogItem `json:"items"`
+}
+
+// strategicRoadmapJSON is the JSON response for the strategic-roadmap endpoint.
+type strategicRoadmapJSON struct {
+	Content string `json:"content"`
 }
 
 // guildMemberJSON is the JSON representation of a project for the guild hall view.
@@ -188,6 +208,9 @@ func Run(cfg *core.Config) error {
 	mux.HandleFunc("POST /api/projects/{name}/enter", ws.handleSendEnter)
 	mux.HandleFunc("GET /api/projects/{name}/dashboard", ws.handleDashboard)
 	mux.HandleFunc("GET /api/projects/{name}/roadmap", ws.handleRoadmap)
+	mux.HandleFunc("GET /api/projects/{name}/sprints", ws.handleRoadmap)
+	mux.HandleFunc("GET /api/projects/{name}/backlog", ws.handleBacklog)
+	mux.HandleFunc("GET /api/projects/{name}/strategic-roadmap", ws.handleStrategicRoadmap)
 	mux.HandleFunc("GET /api/projects/{name}/state", ws.handleAgentState)
 	mux.HandleFunc("GET /api/projects/{name}/terminal", ws.handleTerminal)
 	mux.HandleFunc("GET /api/guild", ws.handleGuild)
@@ -456,7 +479,9 @@ func (ws *WebServer) handleRenameProject(w http.ResponseWriter, r *http.Request)
 	json.NewEncoder(w).Encode(map[string]string{"status": "renamed", "oldName": name, "newName": req.NewName})
 }
 
-// handleRoadmap returns parsed roadmap sprints for a project.
+// handleRoadmap returns parsed sprints for a project. Reads SPRINTS.md
+// first, falling back to ROADMAP.md for projects predating the doc split.
+// Registered for both /roadmap (legacy) and /sprints (current frontend).
 func (ws *WebServer) handleRoadmap(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 
@@ -470,22 +495,98 @@ func (ws *WebServer) handleRoadmap(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	roadmapPath := filepath.Join(entry.Directory, "ROADMAP.md")
-	data, err := os.ReadFile(roadmapPath)
+	data, err := readSprints(entry.Directory)
 	if err != nil {
-		if os.IsNotExist(err) {
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(roadmapJSON{Sprints: []core.Sprint{}})
-			return
-		}
-		http.Error(w, fmt.Sprintf("reading roadmap: %v", err), http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf("reading sprints: %v", err), http.StatusInternalServerError)
 		return
 	}
 
-	sprints := core.ParseRoadmap(string(data))
-
+	sprints := core.ParseSprints(string(data))
+	if sprints == nil {
+		sprints = []core.Sprint{}
+	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(roadmapJSON{Sprints: sprints})
+}
+
+// handleBacklog returns parsed BACKLOG.md items for a project.
+func (ws *WebServer) handleBacklog(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+
+	entry, found, err := ws.registry.GetProject(name)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if !found {
+		http.Error(w, fmt.Sprintf("project %q not found", name), http.StatusNotFound)
+		return
+	}
+
+	data, err := os.ReadFile(filepath.Join(entry.Directory, "BACKLOG.md"))
+	if err != nil {
+		if os.IsNotExist(err) {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(backlogJSON{Items: []core.BacklogItem{}})
+			return
+		}
+		http.Error(w, fmt.Sprintf("reading backlog: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	items := core.ParseBacklog(string(data))
+	if items == nil {
+		items = []core.BacklogItem{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(backlogJSON{Items: items})
+}
+
+// handleStrategicRoadmap returns the raw ROADMAP.md content for a project.
+// Empty content (file missing) is returned as 200 with an empty string so
+// the frontend can render its own empty-state without distinguishing 404.
+func (ws *WebServer) handleStrategicRoadmap(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+
+	entry, found, err := ws.registry.GetProject(name)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if !found {
+		http.Error(w, fmt.Sprintf("project %q not found", name), http.StatusNotFound)
+		return
+	}
+
+	data, err := os.ReadFile(filepath.Join(entry.Directory, "ROADMAP.md"))
+	if err != nil && !os.IsNotExist(err) {
+		http.Error(w, fmt.Sprintf("reading strategic roadmap: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(strategicRoadmapJSON{Content: string(data)})
+}
+
+// readSprints reads SPRINTS.md from dir, falling back to ROADMAP.md.
+// Returns (nil, nil) if neither file exists. Mirrors readSprintsFile in
+// cmd/project-mgmt-mcp so MCP tools and the web API behave identically.
+func readSprints(dir string) ([]byte, error) {
+	data, err := os.ReadFile(filepath.Join(dir, "SPRINTS.md"))
+	if err == nil {
+		return data, nil
+	}
+	if !os.IsNotExist(err) {
+		return nil, err
+	}
+	data, err = os.ReadFile(filepath.Join(dir, "ROADMAP.md"))
+	if err == nil {
+		return data, nil
+	}
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	return nil, err
 }
 
 // handleDashboard returns dashboard data for a single project.
