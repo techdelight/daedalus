@@ -7,11 +7,9 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"os"
 
 	"github.com/techdelight/daedalus/core"
 	"github.com/techdelight/daedalus/internal/docker"
-	"github.com/techdelight/daedalus/internal/platform"
 	"github.com/techdelight/daedalus/internal/session"
 )
 
@@ -28,31 +26,6 @@ type projectJSON struct {
 // renameRequest is the JSON body for the rename endpoint.
 type renameRequest struct {
 	NewName string `json:"newName"`
-}
-
-// HandleListProjects is the exported handler for GET /api/projects.
-func (ws *WebServer) HandleListProjects(w http.ResponseWriter, r *http.Request) {
-	ws.handleListProjects(w, r)
-}
-
-// HandleStartProject is the exported handler for POST /api/projects/{name}/start.
-func (ws *WebServer) HandleStartProject(w http.ResponseWriter, r *http.Request) {
-	ws.handleStartProject(w, r)
-}
-
-// HandleStopProject is the exported handler for POST /api/projects/{name}/stop.
-func (ws *WebServer) HandleStopProject(w http.ResponseWriter, r *http.Request) {
-	ws.handleStopProject(w, r)
-}
-
-// HandleRenameProject is the exported handler for POST /api/projects/{name}/rename.
-func (ws *WebServer) HandleRenameProject(w http.ResponseWriter, r *http.Request) {
-	ws.handleRenameProject(w, r)
-}
-
-// HandleSendEnter is the exported handler for POST /api/projects/{name}/enter.
-func (ws *WebServer) HandleSendEnter(w http.ResponseWriter, r *http.Request) {
-	ws.handleSendEnter(w, r)
 }
 
 // handleListProjects returns all registered projects with their running status.
@@ -134,19 +107,7 @@ func (ws *WebServer) handleStartProject(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	var displayArgs []string
-	if projCfg.Display {
-		displayArgs, _ = platform.DisplayArgs(
-			os.Getenv("DISPLAY"),
-			os.Getenv("WAYLAND_DISPLAY"),
-			os.Getenv("XDG_RUNTIME_DIR"),
-		)
-	}
-	extraArgs := core.BuildExtraArgs(projCfg, displayArgs, nil)
-
-	claudeArgs := core.BuildRunnerArgs(projCfg)
-	dockerCmd := ws.docker.ComposeRunCommand(projCfg.ContainerName(), claudeArgs, extraArgs)
-	tmuxCmd := core.BuildTmuxCommand(projCfg, dockerCmd)
+	tmuxCmd := ws.docker.BuildSessionCommand(projCfg)
 
 	if err := sess.SendKeys(tmuxCmd); err != nil {
 		http.Error(w, fmt.Sprintf("sending command to tmux: %v", err), http.StatusInternalServerError)

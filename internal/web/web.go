@@ -75,7 +75,7 @@ func Run(cfg *core.Config) error {
 	}
 
 	mux := http.NewServeMux()
-	ws.registerRoutes(mux)
+	ws.RegisterRoutes(mux)
 
 	// Serve static files (embedded in binary)
 	staticFS, err := fs.Sub(staticFiles, "static")
@@ -130,10 +130,11 @@ func Run(cfg *core.Config) error {
 	return http.ListenAndServe(cfg.WebAddr, handler)
 }
 
-// registerRoutes wires every API route to its handler. Routes are listed
+// RegisterRoutes wires every API route to its handler. Routes are listed
 // here rather than spread across topic files so the URL surface area is
-// visible at a glance.
-func (ws *WebServer) registerRoutes(mux *http.ServeMux) {
+// visible at a glance. Exported so cross-package tests can mount the full
+// route table without redeclaring it.
+func (ws *WebServer) RegisterRoutes(mux *http.ServeMux) {
 	// projects.go
 	mux.HandleFunc("GET /api/projects", ws.handleListProjects)
 	mux.HandleFunc("POST /api/projects/{name}/start", ws.handleStartProject)

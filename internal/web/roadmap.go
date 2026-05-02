@@ -27,21 +27,6 @@ type strategicRoadmapJSON struct {
 	Content string `json:"content"`
 }
 
-// HandleRoadmap is the exported handler for GET /api/projects/{name}/roadmap.
-func (ws *WebServer) HandleRoadmap(w http.ResponseWriter, r *http.Request) {
-	ws.handleRoadmap(w, r)
-}
-
-// HandleBacklog is the exported handler for GET /api/projects/{name}/backlog.
-func (ws *WebServer) HandleBacklog(w http.ResponseWriter, r *http.Request) {
-	ws.handleBacklog(w, r)
-}
-
-// HandleStrategicRoadmap is the exported handler for GET /api/projects/{name}/strategic-roadmap.
-func (ws *WebServer) HandleStrategicRoadmap(w http.ResponseWriter, r *http.Request) {
-	ws.handleStrategicRoadmap(w, r)
-}
-
 // handleRoadmap returns parsed sprints for a project. Reads SPRINTS.md
 // first, falling back to ROADMAP.md for projects predating the doc split.
 // Registered for both /roadmap (legacy) and /sprints (current frontend).

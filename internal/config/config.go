@@ -196,80 +196,14 @@ func ParseArgs(args []string) (*core.Config, error) {
 		}
 	}
 
-	// Handle "remove" subcommand — before the positional switch to allow
-	// arbitrary number of target names (e.g., daedalus remove a b c).
-	if len(positional) > 0 && positional[0] == "remove" {
-		cfg.Subcommand = "remove"
-		cfg.RemoveTargets = positional[1:]
-		return cfg, nil
-	}
-
-	// Handle "rename" subcommand (e.g., daedalus rename old-name new-name).
-	if len(positional) > 0 && positional[0] == "rename" {
-		cfg.Subcommand = "rename"
-		if len(positional) > 1 {
-			cfg.RenameOldName = positional[1]
+	if len(positional) > 0 {
+		if handler, ok := collectorSubcommands[positional[0]]; ok {
+			cfg.Subcommand = positional[0]
+			handler(cfg, positional)
+			return cfg, nil
 		}
-		if len(positional) > 2 {
-			cfg.RenameNewName = positional[2]
-		}
-		return cfg, nil
 	}
 
-	// Handle "config" subcommand
-	if len(positional) > 0 && positional[0] == "config" {
-		cfg.Subcommand = "config"
-		if len(positional) > 1 {
-			cfg.ConfigTarget = positional[1]
-		}
-		return cfg, nil
-	}
-
-	// Handle "completion" subcommand
-	if len(positional) > 0 && positional[0] == "completion" {
-		cfg.Subcommand = "completion"
-		if len(positional) > 1 {
-			cfg.CompletionShell = positional[1]
-		}
-		return cfg, nil
-	}
-
-	// Handle "skills" subcommand (e.g., daedalus skills add file.md)
-	if len(positional) > 0 && positional[0] == "skills" {
-		cfg.Subcommand = "skills"
-		cfg.SkillsArgs = positional[1:]
-		return cfg, nil
-	}
-
-	// Handle "personas" subcommand (e.g., daedalus personas list)
-	if len(positional) > 0 && positional[0] == "personas" {
-		cfg.Subcommand = "personas"
-		cfg.PersonasArgs = positional[1:]
-		return cfg, nil
-	}
-
-	// Handle "runners" subcommand (e.g., daedalus runners list)
-	if len(positional) > 0 && positional[0] == "runners" {
-		cfg.Subcommand = "runners"
-		cfg.RunnersArgs = positional[1:]
-		return cfg, nil
-	}
-
-	// Handle "programmes" subcommand (e.g., daedalus programmes list)
-	if len(positional) > 0 && positional[0] == "programmes" {
-		cfg.Subcommand = "programmes"
-		cfg.ProgrammesArgs = positional[1:]
-		return cfg, nil
-	}
-
-	// Handle "foreman" subcommand (e.g., daedalus foreman start)
-	if len(positional) > 0 && positional[0] == "foreman" {
-		cfg.Subcommand = "foreman"
-		cfg.ForemanArgs = positional[1:]
-		return cfg, nil
-	}
-
-	// Handle positional args
 	switch len(positional) {
 	case 0:
 		if cfg.Build {
@@ -279,20 +213,10 @@ func ParseArgs(args []string) (*core.Config, error) {
 		cfg.Subcommand = "help"
 		return cfg, nil
 	case 1:
-		if positional[0] == "list" || positional[0] == "tui" || positional[0] == "web" || positional[0] == "prune" {
+		if isBareSubcommand(positional[0]) {
 			cfg.Subcommand = positional[0]
 			if positional[0] == "web" {
-				if !hostOverride && platform.IsWSL2() {
-					webHost = "0.0.0.0"
-					cfg.WSL2Detected = true
-				}
-				cfg.WebAddr = webHost + ":" + webPort
-			}
-			// Default auth to true for web subcommand unless --no-auth was set.
-			// We detect this by checking if Auth is still false and no explicit
-			// --no-auth was passed (we track this via a local flag).
-			if positional[0] == "web" && !noAuthExplicit {
-				cfg.Auth = true
+				applyWebDefaults(cfg, webHost, webPort, hostOverride, noAuthExplicit)
 			}
 			return cfg, nil
 		}
@@ -310,6 +234,60 @@ func ParseArgs(args []string) (*core.Config, error) {
 
 	core.NormalizeRunnerTarget(cfg)
 	return cfg, nil
+}
+
+// collectorSubcommands maps each "daedalus <name> [args...]" subcommand to a
+// handler that stores the trailing positional args on the Config. These all
+// follow the same shape: cfg.Subcommand is set to the keyword, the handler
+// captures whatever positional args belong to it, and ParseArgs returns.
+var collectorSubcommands = map[string]func(cfg *core.Config, positional []string){
+	"remove": func(cfg *core.Config, p []string) { cfg.RemoveTargets = p[1:] },
+	"rename": func(cfg *core.Config, p []string) {
+		if len(p) > 1 {
+			cfg.RenameOldName = p[1]
+		}
+		if len(p) > 2 {
+			cfg.RenameNewName = p[2]
+		}
+	},
+	"config": func(cfg *core.Config, p []string) {
+		if len(p) > 1 {
+			cfg.ConfigTarget = p[1]
+		}
+	},
+	"completion": func(cfg *core.Config, p []string) {
+		if len(p) > 1 {
+			cfg.CompletionShell = p[1]
+		}
+	},
+	"skills":     func(cfg *core.Config, p []string) { cfg.SkillsArgs = p[1:] },
+	"personas":   func(cfg *core.Config, p []string) { cfg.PersonasArgs = p[1:] },
+	"runners":    func(cfg *core.Config, p []string) { cfg.RunnersArgs = p[1:] },
+	"programmes": func(cfg *core.Config, p []string) { cfg.ProgrammesArgs = p[1:] },
+	"foreman":    func(cfg *core.Config, p []string) { cfg.ForemanArgs = p[1:] },
+}
+
+// isBareSubcommand reports whether name is a single-positional subcommand that
+// takes no further arguments (list, tui, web, prune).
+func isBareSubcommand(name string) bool {
+	switch name {
+	case "list", "tui", "web", "prune":
+		return true
+	}
+	return false
+}
+
+// applyWebDefaults applies WSL2 host detection and the auth-on-by-default rule
+// when the "web" subcommand was invoked without overrides.
+func applyWebDefaults(cfg *core.Config, webHost, webPort string, hostOverride, noAuthExplicit bool) {
+	if !hostOverride && platform.IsWSL2() {
+		webHost = "0.0.0.0"
+		cfg.WSL2Detected = true
+	}
+	cfg.WebAddr = webHost + ":" + webPort
+	if !noAuthExplicit {
+		cfg.Auth = true
+	}
 }
 
 // validateRunnerName checks whether name is a valid built-in runner.

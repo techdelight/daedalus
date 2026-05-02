@@ -745,9 +745,7 @@ func TestIntegration_WebAPI(t *testing.T) {
 	mock.Results["docker"] = executor.MockResult{Output: "claude-run-alpha\n"}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /api/projects", ws.HandleListProjects)
-	mux.HandleFunc("POST /api/projects/{name}/start", ws.HandleStartProject)
-	mux.HandleFunc("POST /api/projects/{name}/stop", ws.HandleStopProject)
+	ws.RegisterRoutes(mux)
 
 	server := httptest.NewServer(mux)
 	defer server.Close()

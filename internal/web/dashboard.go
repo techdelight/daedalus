@@ -46,16 +46,6 @@ type guildMemberJSON struct {
 	SessionCount int    `json:"sessionCount"`
 }
 
-// HandleDashboard is the exported handler for GET /api/projects/{name}/dashboard.
-func (ws *WebServer) HandleDashboard(w http.ResponseWriter, r *http.Request) {
-	ws.handleDashboard(w, r)
-}
-
-// HandleAgentState is the exported handler for GET /api/projects/{name}/state.
-func (ws *WebServer) HandleAgentState(w http.ResponseWriter, r *http.Request) {
-	ws.handleAgentState(w, r)
-}
-
 // handleDashboard returns dashboard data for a single project.
 func (ws *WebServer) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
