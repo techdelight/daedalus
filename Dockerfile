@@ -31,6 +31,10 @@ COPY --chown=claude:claude entrypoint.sh /opt/claude/bin/entrypoint.sh
 RUN chmod +x /opt/claude/bin/entrypoint.sh
 COPY --chown=claude:claude skill-catalog-mcp /usr/local/bin/skill-catalog-mcp
 COPY --chown=claude:claude project-mgmt-mcp /usr/local/bin/project-mgmt-mcp
+# daedalus-runner is staged in /usr/local/bin/ for phase 6, when the
+# container ENTRYPOINT switches from the tmux-based path to launching
+# the runner via this binary. Currently unused.
+COPY --chown=claude:claude daedalus-runner /usr/local/bin/daedalus-runner
 
 ENV PATH="$PATH:/opt/claude/bin"
 ENV CLAUDE_CONFIG_DIR="/home/claude/.claude-config"

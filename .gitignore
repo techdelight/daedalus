@@ -3,6 +3,7 @@
 .claude/
 .daedalus/
 /daedalus
+/daedalus-runner
 agentenv
 node_modules/
 test-results/
