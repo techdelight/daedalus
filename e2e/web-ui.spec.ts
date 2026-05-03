@@ -61,14 +61,6 @@ test.describe('Web UI — HTML Structure', () => {
     expect(html).toContain('<th>Actions</th>');
   });
 
-  test('index.html contains Foreman view', async ({ request }) => {
-    const html = await (await request.get('/')).text();
-    expect(html).toContain('id="foreman-view"');
-    expect(html).toContain('id="foreman-state-label"');
-    expect(html).toContain('id="foreman-programme-select"');
-    expect(html).toContain('id="foreman-start-btn"');
-  });
-
   test('index.html contains dashboard view', async ({ request }) => {
     const html = await (await request.get('/')).text();
     expect(html).toContain('id="dashboard-view"');
@@ -77,14 +69,6 @@ test.describe('Web UI — HTML Structure', () => {
   test('index.html contains terminal view', async ({ request }) => {
     const html = await (await request.get('/')).text();
     expect(html).toContain('id="terminal-view"');
-  });
-
-  test('index.html contains programme form', async ({ request }) => {
-    const html = await (await request.get('/')).text();
-    expect(html).toContain('id="programme-form-name"');
-    expect(html).toContain('id="programme-form-desc"');
-    expect(html).toContain('id="programme-form-projects"');
-    expect(html).toContain('id="programme-form-deps"');
   });
 
   test('index.html includes favicon link', async ({ request }) => {
@@ -144,26 +128,6 @@ test.describe('Web UI — Project API', () => {
       failOnStatusCode: false,
     });
     expect(resp.status()).toBe(404);
-  });
-});
-
-test.describe('Web UI — Foreman API', () => {
-  test('GET /api/foreman/status returns JSON', async ({ request }) => {
-    const resp = await request.get('/api/foreman/status', { failOnStatusCode: false });
-    expect([200, 500]).toContain(resp.status());
-  });
-
-  test('POST /api/foreman/stop returns JSON', async ({ request }) => {
-    const resp = await request.post('/api/foreman/stop', { failOnStatusCode: false });
-    expect([200, 409, 500]).toContain(resp.status());
-  });
-
-  test('POST /api/foreman/start without programme returns error', async ({ request }) => {
-    const resp = await request.post('/api/foreman/start', {
-      data: {},
-      failOnStatusCode: false,
-    });
-    expect([400, 500]).toContain(resp.status());
   });
 });
 

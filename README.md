@@ -87,7 +87,6 @@ daedalus skills [add <file> | remove <name> | show <name>]
 daedalus runners [list | show <name>]
 daedalus personas [list | show <name> | create <name> | remove <name>]
 daedalus programmes [list | show <name> | create <name> | add-project <prog> <proj> | add-dep <prog> <up> <down> | remove <name>]
-daedalus foreman [start | stop | status]
 daedalus tui
 daedalus web [--port PORT] [--host HOST] [--auth|--no-auth]
 daedalus completion <bash|zsh|fish>
@@ -108,7 +107,6 @@ daedalus --help
 | `runners` | List or show built-in runner profiles (`claude`, `copilot`) |
 | `personas` | List, show, create, or remove named persona configurations |
 | `programmes` | List, show, create, or remove multi-project programmes with dependencies |
-| `foreman` | Start, stop, or check the status of the Foreman agent (runs inside `daedalus web`) |
 | `tui` | Interactive dashboard for managing projects |
 | `web` | Web UI dashboard (default: `localhost:3000`) |
 | `completion <shell>` | Print shell completion script (bash, zsh, fish) |
@@ -465,7 +463,7 @@ Each container includes a `project-mgmt` MCP server that Claude Code can use to 
 
 Progress data is stored in `.daedalus/progress.json` in the project directory, visible to both the container and the host. The Web UI dashboard reads this file to display real-time progress.
 
-Click any project name in the Web UI (or from the Foreman view) to see the project dashboard with progress bar, version, total session time, and vision. The roadmap is automatically loaded and displayed from the project's `ROADMAP.md`. Use the "Hide Roadmap" / "Show Roadmap" button to toggle visibility.
+Click any project name in the Web UI to see the project dashboard with progress bar, version, total session time, and vision. The roadmap is automatically loaded and displayed from the project's `ROADMAP.md`. Use the "Hide Roadmap" / "Show Roadmap" button to toggle visibility.
 
 **MCP roadmap tools (inside the container):**
 
@@ -485,27 +483,10 @@ daedalus programmes add-project my-platform api        # Add a project
 daedalus programmes add-project my-platform frontend   # Add another project
 daedalus programmes add-dep my-platform api frontend   # Declare dependency
 daedalus programmes show my-platform                   # Show with status
-daedalus programmes cascade my-platform --dry-run      # Preview cascade
 daedalus programmes remove my-platform                 # Delete
 ```
 
-Dependencies have cascade strategies: `auto` (Foreman acts), `notify` (human approves), `manual` (skip). Default: `notify`.
-
-## The Foreman
-
-The Foreman is an AI-driven project manager that runs inside `daedalus web`. It monitors a programme, reads roadmaps from member projects, tracks agent state, and reports through the Web UI.
-
-```bash
-# Start the web server (Foreman runs inside it)
-daedalus web
-
-# Manage via REST API
-# POST /api/foreman/start   — body: {"programme": "my-platform"}
-# POST /api/foreman/stop
-# GET  /api/foreman/status   — returns state, plan, cascade log
-```
-
-The Foreman status indicator appears in the Web UI header when active.
+Programmes capture project dependency topology (upstream → downstream) for future orchestration features.
 
 ## Persona Configurations
 

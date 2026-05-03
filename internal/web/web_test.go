@@ -19,10 +19,7 @@ import (
 	"github.com/techdelight/daedalus/internal/agentstate"
 	"github.com/techdelight/daedalus/internal/docker"
 	"github.com/techdelight/daedalus/internal/executor"
-	"github.com/techdelight/daedalus/internal/foreman"
-	"github.com/techdelight/daedalus/internal/mcpclient"
 	"github.com/techdelight/daedalus/internal/progress"
-	"github.com/techdelight/daedalus/internal/programme"
 	"github.com/techdelight/daedalus/internal/registry"
 
 	"github.com/gorilla/websocket"
@@ -1031,76 +1028,6 @@ func TestHandleAgentState_NotFound(t *testing.T) {
 	}
 }
 
-func TestHandleForemanStatus_NoForeman(t *testing.T) {
-	ws, _ := setupWebTest(t)
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /api/foreman/status", ws.handleForemanStatus)
-	req := httptest.NewRequest("GET", "/api/foreman/status", nil)
-	rec := httptest.NewRecorder()
-
-	mux.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
-	}
-	var resp core.ForemanStatus
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("cannot decode response: %v", err)
-	}
-	if resp.State != core.ForemanIdle {
-		t.Errorf("state = %q, want %q", resp.State, core.ForemanIdle)
-	}
-	if resp.Message != "not configured" {
-		t.Errorf("message = %q, want %q", resp.Message, "not configured")
-	}
-}
-
-func TestHandleForemanStart_MissingBody(t *testing.T) {
-	ws, _ := setupWebTest(t)
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("POST /api/foreman/start", ws.handleForemanStart)
-	req := httptest.NewRequest("POST", "/api/foreman/start", strings.NewReader(`{}`))
-	rec := httptest.NewRecorder()
-
-	mux.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusBadRequest, rec.Body.String())
-	}
-}
-
-func TestHandleForemanStart_InvalidJSON(t *testing.T) {
-	ws, _ := setupWebTest(t)
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("POST /api/foreman/start", ws.handleForemanStart)
-	req := httptest.NewRequest("POST", "/api/foreman/start", strings.NewReader(`not json`))
-	rec := httptest.NewRecorder()
-
-	mux.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
-	}
-}
-
-func TestHandleForemanStop_NoForeman(t *testing.T) {
-	ws, _ := setupWebTest(t)
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("POST /api/foreman/stop", ws.handleForemanStop)
-	req := httptest.NewRequest("POST", "/api/foreman/stop", nil)
-	rec := httptest.NewRecorder()
-
-	mux.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusConflict {
-		t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusConflict, rec.Body.String())
-	}
-}
-
 func TestHandleListProgrammes_Empty(t *testing.T) {
 	ws, _ := setupWebTest(t)
 
@@ -1713,42 +1640,6 @@ func TestHandleStrategicRoadmap_ProjectNotFound(t *testing.T) {
 
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
-	}
-}
-
-func TestHandleForemanStop_WithActiveForeman(t *testing.T) {
-	// Arrange
-	ws, _ := setupWebTest(t)
-
-	// Create a real Foreman instance in idle state, then set it on the WebServer.
-	progDir := ws.cfg.ProgrammesDir()
-	if err := os.MkdirAll(progDir, 0755); err != nil {
-		t.Fatal(err)
-	}
-	progStore := programme.New(progDir)
-	mcpClient := mcpclient.New()
-	obs := foreman.NewDefaultObserver(ws.observer)
-	cfg := core.ForemanConfig{Programme: "test-prog", PollSeconds: 30}
-	ws.foreman = foreman.New(cfg, progStore, ws.registry, mcpClient, obs)
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("POST /api/foreman/stop", ws.handleForemanStop)
-	req := httptest.NewRequest("POST", "/api/foreman/stop", nil)
-	rec := httptest.NewRecorder()
-
-	// Act
-	mux.ServeHTTP(rec, req)
-
-	// Assert
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusOK, rec.Body.String())
-	}
-	var resp map[string]string
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("cannot decode response: %v", err)
-	}
-	if resp["status"] != "stopped" {
-		t.Errorf("status = %q, want %q", resp["status"], "stopped")
 	}
 }
 

@@ -203,7 +203,6 @@ function showGuildView() {
     document.getElementById('project-view').classList.add('hidden');
     document.getElementById('dashboard-view').classList.remove('active');
     document.getElementById('terminal-view').classList.remove('active');
-    document.getElementById('foreman-view').classList.remove('active');
 
     // Show guild
     document.getElementById('guild-view').classList.add('active');

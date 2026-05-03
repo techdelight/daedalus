@@ -32,7 +32,7 @@ func main() {
 // run is the top-level dispatcher. Subcommand handlers live in topic
 // files within this package: build.go, launch.go, resolve.go, clone.go,
 // config_cmd.go, list.go, persona.go, runners.go, programmes.go,
-// skills.go, foreman.go, usage.go.
+// skills.go, usage.go.
 func run(args []string) error {
 	cfg, err := config.ParseArgs(args)
 	if err != nil {
@@ -96,9 +96,6 @@ func run(args []string) error {
 	case "programmes":
 		logging.Info("subcommand: programmes")
 		return manageProgrammes(cfg)
-	case "foreman":
-		logging.Info("subcommand: foreman")
-		return manageForeman(cfg)
 	}
 
 	// --- Normal project flow ---

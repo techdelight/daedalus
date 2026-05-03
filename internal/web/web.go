@@ -17,14 +17,13 @@ import (
 	"github.com/techdelight/daedalus/internal/color"
 	"github.com/techdelight/daedalus/internal/docker"
 	"github.com/techdelight/daedalus/internal/executor"
-	"github.com/techdelight/daedalus/internal/foreman"
 	"github.com/techdelight/daedalus/internal/platform"
 	"github.com/techdelight/daedalus/internal/registry"
 )
 
 // WebServer holds the dependencies shared by the topic handlers
-// (projects.go, dashboard.go, roadmap.go, foreman.go, programmes.go,
-// terminal.go). Each handler file owns its routes and JSON shapes.
+// (projects.go, dashboard.go, roadmap.go, programmes.go, terminal.go).
+// Each handler file owns its routes and JSON shapes.
 type WebServer struct {
 	registry         *registry.Registry
 	docker           *docker.Docker
@@ -32,7 +31,6 @@ type WebServer struct {
 	cfg              *core.Config
 	observer         agentstate.Observer
 	activityResolver *activity.Resolver
-	foreman          *foreman.Foreman
 }
 
 // NewWebServerForTest creates a WebServer with injected dependencies.
@@ -155,11 +153,6 @@ func (ws *WebServer) RegisterRoutes(mux *http.ServeMux) {
 
 	// terminal.go
 	mux.HandleFunc("GET /api/projects/{name}/terminal", ws.handleTerminal)
-
-	// foreman.go
-	mux.HandleFunc("GET /api/foreman/status", ws.handleForemanStatus)
-	mux.HandleFunc("POST /api/foreman/start", ws.handleForemanStart)
-	mux.HandleFunc("POST /api/foreman/stop", ws.handleForemanStop)
 
 	// programmes.go
 	mux.HandleFunc("GET /api/programmes", ws.handleListProgrammes)

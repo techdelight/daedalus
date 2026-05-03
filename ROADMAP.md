@@ -2,7 +2,7 @@
 
 ## End Goal
 
-Daedalus is a fully autonomous project manager that governs multiple coding agents across a programme of projects. It reads strategic direction, plans sprints, delegates work to containerised AI agents, monitors progress, and cascades changes through dependency graphs — with zero human intervention for routine work.
+Daedalus orchestrates multiple coding agents (Claude Code, Copilot CLI, ...) across a programme of projects through a layered runtime: a uniform runner-adapter shim, a daedalus-runner process inside each tmux session, a central tmux coordinator, and thin CLI/TUI/Web UIs.
 
 ## Milestones
 
@@ -10,17 +10,17 @@ Daedalus is a fully autonomous project manager that governs multiple coding agen
 
 Single-command project launch with Docker isolation, tmux session management, and three UI surfaces (CLI, TUI, Web). Claude Code runs with `--dangerously-skip-permissions` inside a hardened container.
 
-### Milestone 2: Multi-Agent Governance (Done)
+### Milestone 2: Programme Topology (Done)
 
-Programme-level orchestration: dependency graphs, cascade propagation, Foreman agent with planning/monitoring loop, MCP-based progress reporting, and agent observability.
+Programme definitions with dependency graphs, MCP-based progress reporting, and agent observability.
 
 ### Milestone 3: Terminal Fidelity (In Progress)
 
 tmux control mode (`-C`) for structured terminal I/O: native scrollback, resize handling, live-capture, history mode. Eliminates raw PTY quirks and enables machine-parseable agent events.
 
-### Milestone 4: Agent Protocol Integration
+### Milestone 4: Layered Runner/Coordinator Architecture
 
-Replace container-status-based observation with ACP (Agent Client Protocol) for real-time agent state: thinking, tool use, idle, error. Enables the Foreman to make informed decisions about when to intervene.
+Introduce daedalus-runner (in-tmux process wrapping a runner via per-runner adapter), a central tmux-coordinator daemon with an API, and thin CLI/TUI/Web clients of that API. Replaces the current pattern where each UI talks to tmux directly.
 
 ### Milestone 5: Self-Sustaining Operations
 
@@ -34,8 +34,8 @@ Replace container-status-based observation with ACP (Agent Client Protocol) for 
 
 ```
 M1 (Done) ──► M2 (Done) ──► M3 (In Progress) ──► M4 ──► M5
-Container      Governance     Terminal              ACP     Self-sustaining
-Runtime        & Foreman      Fidelity              Obs     Operations
+Container      Programme      Terminal              Layered  Self-sustaining
+Runtime        Topology       Fidelity              Stack    Operations
 ```
 
 ## Current Focus

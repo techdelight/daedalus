@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Removed
+- **Foreman deprecated** — the in-process AI project manager (`internal/foreman/`, `core/foreman.go`, `internal/web/foreman.go`, `cmd/daedalus/foreman.go`) and its surrounding cascade machinery were removed wholesale. The `daedalus foreman` CLI subcommand, `/api/foreman/*` HTTP routes, `daedalus programmes cascade` subcommand, `CascadeStrategy` type and `DependencyEdge.Strategy` field are all gone. The Web UI's Foreman view (and the programme-management form embedded in it) is removed; programme CRUD remains via CLI and `/api/programmes/*`. Done as preparation for the layered runner-adapter / daedalus-runner / tmux-coordinator architecture.
+
 ### Added
 - **`/sprints`, `/backlog`, `/strategic-roadmap` web endpoints** — three new REST handlers in `internal/web` matching the post doc-split frontend, which had been calling these URLs since v0.37 even though only the legacy `/roadmap` was registered. `/sprints` reads `SPRINTS.md` with fallback to `ROADMAP.md`, `/backlog` parses `BACKLOG.md` via `core.ParseBacklog`, `/strategic-roadmap` returns the raw `ROADMAP.md` content. The legacy `/roadmap` route now also uses the SPRINTS-first fallback and remains as an alias.
 

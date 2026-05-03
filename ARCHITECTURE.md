@@ -22,7 +22,6 @@ Contains types, command builders, and helpers with no side effects.
 | `skills.go` | `StarterSkills()` — embedded starter skill files via `go:embed` |
 | `programme.go` | `Programme`, `DependencyEdge`, `DependencyGraph` types; `NewDependencyGraph()`, `TopologicalSort()`, `DetectCycles()`, `Downstreams()`, `Upstreams()`, `ValidateProgrammeName()` |
 | `sprint.go` | `Sprint`, `SprintItem`, `SprintStatus` types — data model for SPRINTS.md |
-| `foreman.go` | `ForemanConfig`, `ForemanState`, `ForemanPlan`, `ForemanProject`, `ForemanStatus` types |
 | `backlog.go` | `BacklogItem`, `ParseBacklog()` — parses BACKLOG.md into backlog items |
 | `roadmap.go` | `ParseSprints()` — parses SPRINTS.md into `[]Sprint`; `ParseRoadmap()` kept as legacy alias |
 | `time.go` | `NowUTC()`, `ParseUTC()`, `RelativeTime()` |
@@ -31,7 +30,7 @@ Contains types, command builders, and helpers with no side effects.
 
 | File | Responsibility |
 |---|---|
-| `main.go` | `main()`, `run()` dispatcher, project resolution (incl. `parseGitHubURL()`, `cloneGitRepo()`), subcommand handlers (`list`, `prune`, `remove`, `config`, `skills`, `runners`, `personas`, `programmes`, `foreman`) |
+| `main.go` | `main()`, `run()` dispatcher, project resolution (incl. `parseGitHubURL()`, `cloneGitRepo()`), subcommand handlers (`list`, `prune`, `remove`, `config`, `skills`, `runners`, `personas`, `programmes`) |
 
 ### `cmd/skill-catalog-mcp/` — Skill Catalog MCP Server
 
@@ -64,7 +63,7 @@ All side effects (filesystem, shell, network) live here behind interfaces.
 | `docker` | `Docker`, `SetupCacheDir()` | Container lifecycle: build, run, compose, status checks |
 | `session` | `Session`, `TmuxAvailable()`, `ControlSession`, `ParseControlLine()` | tmux session create/attach/send-keys; control mode (`-C`) session with structured message I/O |
 | `tui` | `Run()` | Interactive TUI dashboard (bubbletea + lipgloss) |
-| `web` | `Run()`, `WebServer` | REST API + WebSocket terminal relay, embedded static assets; Foreman management view with programme CRUD |
+| `web` | `Run()`, `WebServer` | REST API + WebSocket terminal relay, embedded static assets |
 | `logging` | `Init()`, `Close()`, `Info()`, `Error()`, `Debug()` | Thread-safe file logging with timestamp and level prefixes |
 | `completions` | `Generate()` | bash/zsh/fish shell completion scripts |
 | `personas` | `Store`, `New()`, `List()`, `Read()`, `Create()`, `Update()`, `Remove()` | User-defined persona configuration CRUD (JSON files) |
@@ -76,7 +75,6 @@ All side effects (filesystem, shell, network) live here behind interfaces.
 | `activity` | `RunnerActivityDetector` interface, `ClaudeCodeDetector`, `NullDetector`, `DetectorRegistry`, `Resolver` | Runner-agnostic activity detection (busy/idle/sleeping) with registry for pluggable detectors |
 | `agentstate` | `State`, `Observer` interface, `ContainerObserver` | Agent state observation via Docker container inspection |
 | `hooks` | `GenerateSettings()` | Renders runner-specific `settings.json` from `HookConfig` templates |
-| `foreman` | `Foreman`, `Planner`, `Monitor`, `AgentObserver`, `DefaultObserver` | Foreman agent: main loop, sprint planning, project monitoring, agent observation |
 | `platform` | `IsWSL2()`, `WSL2IPAddress()`, `DisplayArgs()` | Platform detection (WSL2) and display forwarding argument resolution |
 
 ### Dependency Graph (no cycles)
@@ -99,11 +97,10 @@ registry  → core
 docker    → core, executor
 session   → executor
 completions → core
-foreman   → core, agentstate, mcpclient, programme, registry
 tui       → core, executor, registry, docker, session
-web       → core, executor, registry, docker, session, progress, agentstate, activity, foreman, mcpclient, programme, auth
+web       → core, executor, registry, docker, session, progress, agentstate, activity, mcpclient, programme, auth
   ↑
-cmd/daedalus → all of the above + catalog + personas + programme + foreman + mcpclient
+cmd/daedalus → all of the above + catalog + personas + programme + mcpclient
 cmd/skill-catalog-mcp → catalog (standalone MCP server, uses modelcontextprotocol/go-sdk)
 cmd/project-mgmt-mcp → core, progress (standalone MCP server, uses modelcontextprotocol/go-sdk)
 cmd/generate-manpage → (standalone, reads VERSION file only)
@@ -137,7 +134,7 @@ cmd/generate-manpage → (standalone, reads VERSION file only)
 
 | Protocol | Port | Component | Description |
 |---|---|---|---|
-| HTTP | 3000 (default) | Web UI | REST API (`/api/projects/*`, `/api/foreman/*`, `/api/programmes/*`), `/login` (auth), and static file serving |
+| HTTP | 3000 (default) | Web UI | REST API (`/api/projects/*`, `/api/programmes/*`), `/login` (auth), and static file serving |
 | WebSocket | 3000 (default) | Web UI | Terminal relay at `/api/projects/{name}/terminal`; control mode uses single-reader goroutine with `sendTracked`/`dequeueType` queue for serialised tmux command/response matching |
 | Docker API | Unix socket | Docker client | Container lifecycle via `docker` CLI |
 | tmux | — | Session manager | IPC via `tmux` CLI commands |
