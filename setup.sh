@@ -5,7 +5,14 @@ set -euo pipefail
 # ── Defaults ──────────────────────────────────────────────────────────────────
 PREFIX="$HOME/.local/share/daedalus"
 CREATE_LINK=true
+LINK_NAME="daedalus"
 UNINSTALL=false
+
+# Optional config-isolation overrides for parallel test installs. Empty
+# means "use the daedalus default" (claude-run-/claude-/techdelight/...).
+CONTAINER_PREFIX=""
+TMUX_PREFIX=""
+IMAGE_PREFIX_OVERRIDE=""
 
 # ── Runtime files to install alongside the binary ────────────────────────────
 RUNTIME_FILES=(
@@ -21,19 +28,40 @@ RUNTIME_FILES=(
 # ── Argument parsing ─────────────────────────────────────────────────────────
 usage() {
     cat <<EOF
-Usage: $0 [--prefix <dir>] [--no-link] [--uninstall] [--verbose]
+Usage: $0 [--prefix <dir>] [--link-name <name>] [--no-link]
+          [--container-prefix <p>] [--tmux-prefix <p>] [--image-prefix <p>]
+          [--uninstall] [--verbose]
 
-Options:
-  --prefix <dir>  Installation directory (default: ~/.local/share/daedalus)
-  --no-link       Skip creating a symlink in PATH
-  --uninstall     Remove Daedalus installation (prompts before deleting project data)
-  --verbose       Enable shell tracing (set -x) for debugging
+Install options:
+  --prefix <dir>           Installation directory (default: ~/.local/share/daedalus)
+  --link-name <name>       Symlink name in ~/.local/bin (default: daedalus)
+  --no-link                Skip creating a symlink in PATH
+
+Test-isolation options (for parallel installs alongside production):
+  --container-prefix <p>   Override docker container name prefix (default: claude-run-)
+  --tmux-prefix <p>        Override tmux session name prefix (default: claude-)
+  --image-prefix <p>       Override docker image prefix (default: techdelight/claude-runner)
+
+Maintenance:
+  --uninstall              Remove Daedalus installation (prompts before deleting project data)
+  --verbose                Enable shell tracing (set -x) for debugging
 
 Installs Daedalus binaries and runtime files from WORK_DIR to the prefix
 directory, merges configuration on upgrade, and creates a PATH symlink.
 
+For local-build test installs (e.g. while developing the runner stack):
+
+  ./build.sh
+  WORK_DIR=\$PWD ./setup.sh \\
+      --prefix ~/.local/share/daedalus-test \\
+      --link-name daedalus-test \\
+      --container-prefix test-run- \\
+      --tmux-prefix test-claude- \\
+      --image-prefix test/claude-runner
+
 This script is downloaded as a release asset and invoked by install.sh.
-Set WORK_DIR to the directory containing the downloaded assets.
+Set WORK_DIR to the directory containing the downloaded assets (or
+build artefacts, for a local-source install).
 EOF
     exit 0
 }
@@ -45,9 +73,29 @@ while [[ $# -gt 0 ]]; do
             PREFIX="$2"
             shift 2
             ;;
+        --link-name)
+            [[ $# -lt 2 ]] && { echo "Error: --link-name requires a name argument." >&2; exit 1; }
+            LINK_NAME="$2"
+            shift 2
+            ;;
         --no-link)
             CREATE_LINK=false
             shift
+            ;;
+        --container-prefix)
+            [[ $# -lt 2 ]] && { echo "Error: --container-prefix requires a prefix argument." >&2; exit 1; }
+            CONTAINER_PREFIX="$2"
+            shift 2
+            ;;
+        --tmux-prefix)
+            [[ $# -lt 2 ]] && { echo "Error: --tmux-prefix requires a prefix argument." >&2; exit 1; }
+            TMUX_PREFIX="$2"
+            shift 2
+            ;;
+        --image-prefix)
+            [[ $# -lt 2 ]] && { echo "Error: --image-prefix requires a prefix argument." >&2; exit 1; }
+            IMAGE_PREFIX_OVERRIDE="$2"
+            shift 2
             ;;
         --uninstall)
             UNINSTALL=true
@@ -76,8 +124,9 @@ if [[ "$UNINSTALL" == true ]]; then
 
     echo "Uninstalling Daedalus from $PREFIX..."
 
-    # Remove symlink
-    LINK="$HOME/.local/bin/daedalus"
+    # Remove symlink. Use --link-name (default: "daedalus") so a test
+    # install installed as `daedalus-test` is uninstalled cleanly.
+    LINK="$HOME/.local/bin/$LINK_NAME"
     if [[ -L "$LINK" ]]; then
         rm -f "$LINK"
         echo "  Removed symlink $LINK"
@@ -100,6 +149,7 @@ if [[ "$UNINSTALL" == true ]]; then
         rm -f "$PREFIX/$f"
     done
     rm -f "$PREFIX/daedalus"
+    rm -f "$PREFIX/daedalus-runner"
     rm -f "$PREFIX/skill-catalog-mcp"
     rm -f "$PREFIX/project-mgmt-mcp"
     rm -f "$PREFIX/setup.sh"
@@ -154,6 +204,8 @@ if [[ "$UPGRADING" == true ]]; then
     OLD_DEBUG="$(grep '"debug"' "$OLD_CONFIG" | sed 's/.*"debug": *\([a-z]*\).*/\1/' || true)"
     OLD_NO_TMUX="$(grep '"no-tmux"' "$OLD_CONFIG" | sed 's/.*"no-tmux": *\([a-z]*\).*/\1/' || true)"
     OLD_IMAGE_PREFIX="$(grep '"image-prefix"' "$OLD_CONFIG" | sed 's/.*"image-prefix": *"\([^"]*\)".*/\1/' || true)"
+    OLD_CONTAINER_PREFIX="$(grep '"container-prefix"' "$OLD_CONFIG" | sed 's/.*"container-prefix": *"\([^"]*\)".*/\1/' || true)"
+    OLD_TMUX_PREFIX="$(grep '"tmux-prefix"' "$OLD_CONFIG" | sed 's/.*"tmux-prefix": *"\([^"]*\)".*/\1/' || true)"
     OLD_LOG_FILE="$(grep '"log-file"' "$OLD_CONFIG" | sed 's/.*"log-file": *"\([^"]*\)".*/\1/' || true)"
 else
     echo ""
@@ -168,6 +220,13 @@ cp "$WORK_DIR/skill-catalog-mcp" "$PREFIX/skill-catalog-mcp"
 chmod 755 "$PREFIX/skill-catalog-mcp"
 cp "$WORK_DIR/project-mgmt-mcp" "$PREFIX/project-mgmt-mcp"
 chmod 755 "$PREFIX/project-mgmt-mcp"
+# daedalus-runner is the in-container PID-1 binary used by the
+# DAEDALUS_USE_RUNNER=1 path. The Dockerfile COPYs it from the build
+# context (= PREFIX) at image-build time, so it has to be staged here.
+if [[ -f "$WORK_DIR/daedalus-runner" ]]; then
+    cp "$WORK_DIR/daedalus-runner" "$PREFIX/daedalus-runner"
+    chmod 755 "$PREFIX/daedalus-runner"
+fi
 
 # Copy setup.sh itself so users can run uninstall locally
 SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
@@ -182,18 +241,25 @@ for f in "${RUNTIME_FILES[@]}"; do
     cp "$WORK_DIR/$f" "$PREFIX/$f"
 done
 
-# Write config.json with version and preserved/default settings
+# Write config.json with version and preserved/default settings.
+# CLI flags (--container-prefix, --tmux-prefix, --image-prefix) win
+# over the existing config; otherwise the previous value is preserved
+# on upgrade, and a fresh install gets the documented defaults.
 if [[ "$UPGRADING" == true ]]; then
     DATA_DIR="${OLD_DATA_DIR}"
     DEBUG="${OLD_DEBUG:-false}"
     NO_TMUX="${OLD_NO_TMUX:-false}"
-    IMAGE_PREFIX="${OLD_IMAGE_PREFIX:-techdelight/claude-runner}"
+    IMAGE_PREFIX="${IMAGE_PREFIX_OVERRIDE:-${OLD_IMAGE_PREFIX:-techdelight/claude-runner}}"
+    CONTAINER_PREFIX_VAL="${CONTAINER_PREFIX:-${OLD_CONTAINER_PREFIX:-}}"
+    TMUX_PREFIX_VAL="${TMUX_PREFIX:-${OLD_TMUX_PREFIX:-}}"
     LOG_FILE="${OLD_LOG_FILE:-$DATA_DIR/daedalus.log}"
 else
     DATA_DIR="$PREFIX/.cache"
     DEBUG="false"
     NO_TMUX="false"
-    IMAGE_PREFIX="techdelight/claude-runner"
+    IMAGE_PREFIX="${IMAGE_PREFIX_OVERRIDE:-techdelight/claude-runner}"
+    CONTAINER_PREFIX_VAL="$CONTAINER_PREFIX"
+    TMUX_PREFIX_VAL="$TMUX_PREFIX"
     LOG_FILE="$DATA_DIR/daedalus.log"
 fi
 
@@ -204,6 +270,8 @@ cat > "$PREFIX/config.json" <<EOCFG
   "debug": $DEBUG,
   "no-tmux": $NO_TMUX,
   "image-prefix": "$IMAGE_PREFIX",
+  "container-prefix": "$CONTAINER_PREFIX_VAL",
+  "tmux-prefix": "$TMUX_PREFIX_VAL",
   "log-file": "$LOG_FILE"
 }
 EOCFG
@@ -216,8 +284,8 @@ if [[ "$CREATE_LINK" == true ]]; then
     LINK_DIR="$HOME/.local/bin"
     mkdir -p "$LINK_DIR"
 
-    ln -sf "$PREFIX/daedalus" "$LINK_DIR/daedalus"
-    echo "  Symlinked $LINK_DIR/daedalus -> $PREFIX/daedalus"
+    ln -sf "$PREFIX/daedalus" "$LINK_DIR/$LINK_NAME"
+    echo "  Symlinked $LINK_DIR/$LINK_NAME -> $PREFIX/daedalus"
 
     # Check if the link directory is on PATH
     if [[ ":$PATH:" != *":$LINK_DIR:"* ]]; then
@@ -237,10 +305,13 @@ fi
 echo ""
 echo "  Location: $PREFIX/daedalus"
 if [[ "$CREATE_LINK" == true ]]; then
-    echo "  Symlink:  $LINK_DIR/daedalus"
+    echo "  Symlink:  $LINK_DIR/$LINK_NAME"
 fi
 echo "  Config:   $PREFIX/config.json"
+if [[ -n "$CONTAINER_PREFIX_VAL" || -n "$TMUX_PREFIX_VAL" ]]; then
+    echo "  Container prefix: ${CONTAINER_PREFIX_VAL:-claude-run-}  Tmux prefix: ${TMUX_PREFIX_VAL:-claude-}"
+fi
 echo ""
 echo "  Note: Docker is required at runtime to run projects."
 echo "  Edit config.json to customize settings (data-dir, debug, etc.)."
-echo "  Get started: daedalus my-app /path/to/project"
+echo "  Get started: $LINK_NAME my-app /path/to/project"

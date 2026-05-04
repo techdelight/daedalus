@@ -24,6 +24,8 @@ type Config struct {
 	Force           bool
 	NoColor         bool
 	ImagePrefix     string
+	ContainerPrefix string   // docker container name prefix; default DefaultContainerPrefix
+	TmuxPrefix      string   // tmux session name prefix; default DefaultTmuxPrefix
 	Subcommand      string   // "list", "help", "build", "web", "remove", "rename", "config", "completion", or "" for normal mode
 	RemoveTargets   []string // project names for "remove" subcommand
 	ConfigTarget    string   // project name for "config" subcommand
@@ -85,14 +87,43 @@ func (c *Config) BuildTarget() string {
 	return c.Target
 }
 
+// DefaultContainerPrefix is the prefix prepended to a project name to form
+// the docker container name when no override is configured. Parallel test
+// installs override this via config.json `container-prefix` so containers
+// don't collide with a production install.
+const DefaultContainerPrefix = "claude-run-"
+
+// DefaultTmuxPrefix is the equivalent default for tmux session names on
+// the legacy (pre-runner) launch path.
+const DefaultTmuxPrefix = "claude-"
+
 // ContainerName returns the Docker container name for this project.
 func (c *Config) ContainerName() string {
-	return "claude-run-" + c.ProjectName
+	return ContainerNameFor(c.ContainerPrefix, c.ProjectName)
 }
 
 // TmuxSession returns the tmux session name for this project.
 func (c *Config) TmuxSession() string {
-	return "claude-" + c.ProjectName
+	return TmuxSessionFor(c.TmuxPrefix, c.ProjectName)
+}
+
+// ContainerNameFor builds a container name from a prefix and project name,
+// substituting DefaultContainerPrefix when prefix is empty. Used by
+// callers that have a project name in hand but not a full Config (e.g.
+// internal/web and internal/tui handlers).
+func ContainerNameFor(prefix, projectName string) string {
+	if prefix == "" {
+		prefix = DefaultContainerPrefix
+	}
+	return prefix + projectName
+}
+
+// TmuxSessionFor is the tmux equivalent of ContainerNameFor.
+func TmuxSessionFor(prefix, projectName string) string {
+	if prefix == "" {
+		prefix = DefaultTmuxPrefix
+	}
+	return prefix + projectName
 }
 
 // CacheDir returns the per-project cache directory.

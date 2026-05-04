@@ -101,7 +101,7 @@ func TestLoadProjects_ReturnsRows(t *testing.T) {
 	mock.Results["docker"] = executor.MockResult{Output: "claude-run-alpha\n"}
 	d := docker.NewDocker(mock, "/dev/null")
 
-	cmd := loadProjects(reg, d)
+	cmd := loadProjects(reg, d, "")
 	msg := cmd()
 
 	loaded, ok := msg.(projectsLoadedMsg)
@@ -148,7 +148,7 @@ func TestLoadProjects_DockerError_SurfacesWarning(t *testing.T) {
 	mock.Results["docker"] = executor.MockResult{Err: fmt.Errorf("Cannot connect to Docker daemon")}
 	d := docker.NewDocker(mock, "/dev/null")
 
-	cmd := loadProjects(reg, d)
+	cmd := loadProjects(reg, d, "")
 	msg := cmd()
 
 	loaded, ok := msg.(projectsLoadedMsg)
@@ -174,7 +174,7 @@ func TestLoadProjects_RegistryError(t *testing.T) {
 	mock := executor.NewMockExecutor()
 	d := docker.NewDocker(mock, "/dev/null")
 
-	cmd := loadProjects(reg, d)
+	cmd := loadProjects(reg, d, "")
 	msg := cmd()
 
 	loaded, ok := msg.(projectsLoadedMsg)
@@ -261,7 +261,7 @@ func TestCursorClamp_OnProjectsLoaded(t *testing.T) {
 func TestKillContainer_CallsDockerStop(t *testing.T) {
 	mock := executor.NewMockExecutor()
 
-	cmd := killContainer(mock, "my-app")
+	cmd := killContainer(mock, "my-app", "")
 	msg := cmd()
 
 	result, ok := msg.(actionResultMsg)
@@ -288,7 +288,7 @@ func TestKillContainer_Error(t *testing.T) {
 	mock := executor.NewMockExecutor()
 	mock.Results["docker"] = executor.MockResult{Err: fmt.Errorf("no such container")}
 
-	cmd := killContainer(mock, "ghost")
+	cmd := killContainer(mock, "ghost", "")
 	msg := cmd()
 
 	result, ok := msg.(actionResultMsg)
@@ -319,7 +319,7 @@ func TestAttachSession_ReturnsRequestAttach(t *testing.T) {
 	mock := executor.NewMockExecutor()
 	mock.Results["tmux"] = executor.MockResult{}
 
-	cmd := attachToSession(mock, "my-app")
+	cmd := attachToSession(mock, "my-app", "")
 	msg := cmd()
 
 	attach, ok := msg.(requestAttachMsg)
@@ -335,7 +335,7 @@ func TestAttachSession_NoSession(t *testing.T) {
 	mock := executor.NewMockExecutor()
 	mock.Results["tmux"] = executor.MockResult{Err: fmt.Errorf("no session")}
 
-	cmd := attachToSession(mock, "ghost")
+	cmd := attachToSession(mock, "ghost", "")
 	msg := cmd()
 
 	result, ok := msg.(actionResultMsg)
@@ -412,6 +412,7 @@ func TestKillKey_Running(t *testing.T) {
 		projects: []projectRow{{name: "my-app", running: true}},
 		cursor:   0,
 		executor: executor.NewMockExecutor(),
+		cfg:      &core.Config{},
 	}
 
 	newM, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})

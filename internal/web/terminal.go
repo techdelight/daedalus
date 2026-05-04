@@ -13,6 +13,7 @@ import (
 	"sync"
 	"syscall"
 
+	"github.com/techdelight/daedalus/core"
 	"github.com/techdelight/daedalus/internal/session"
 
 	"github.com/creack/pty"
@@ -60,7 +61,8 @@ func (ws *WebServer) handleTerminal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sess := session.NewSession(ws.executor, "claude-"+name)
+	sessName := core.TmuxSessionFor(ws.cfg.TmuxPrefix, name)
+	sess := session.NewSession(ws.executor, sessName)
 	if !sess.Exists() {
 		http.Error(w, fmt.Sprintf("no tmux session for project %q", name), http.StatusNotFound)
 		return
@@ -73,7 +75,7 @@ func (ws *WebServer) handleTerminal(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close()
 
-	ptmx, cmd, err := startPTY("claude-" + name)
+	ptmx, cmd, err := startPTY(sessName)
 	if err != nil {
 		conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("Failed to attach: %v", err)))
 		return
@@ -105,7 +107,7 @@ func (ws *WebServer) handleTerminalControl(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	sessName := "claude-" + name
+	sessName := core.TmuxSessionFor(ws.cfg.TmuxPrefix, name)
 	sess := session.NewSession(ws.executor, sessName)
 	if !sess.Exists() {
 		http.Error(w, fmt.Sprintf("no tmux session for project %q", name), http.StatusNotFound)

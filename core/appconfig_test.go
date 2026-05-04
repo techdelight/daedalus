@@ -71,6 +71,30 @@ func TestApplyAppConfig_ImagePrefix_CLIWins(t *testing.T) {
 	}
 }
 
+func TestApplyAppConfig_ContainerPrefix_Applied(t *testing.T) {
+	cfg := &Config{ImagePrefix: "techdelight/claude-runner"}
+	ApplyAppConfig(cfg, AppConfig{ContainerPrefix: strPtr("test-run-")})
+	if cfg.ContainerPrefix != "test-run-" {
+		t.Errorf("ContainerPrefix = %q, want %q", cfg.ContainerPrefix, "test-run-")
+	}
+}
+
+func TestApplyAppConfig_ContainerPrefix_AlreadySet(t *testing.T) {
+	cfg := &Config{ContainerPrefix: "preset-"}
+	ApplyAppConfig(cfg, AppConfig{ContainerPrefix: strPtr("config-")})
+	if cfg.ContainerPrefix != "preset-" {
+		t.Errorf("ContainerPrefix = %q, want %q (already set wins)", cfg.ContainerPrefix, "preset-")
+	}
+}
+
+func TestApplyAppConfig_TmuxPrefix_Applied(t *testing.T) {
+	cfg := &Config{}
+	ApplyAppConfig(cfg, AppConfig{TmuxPrefix: strPtr("test-")})
+	if cfg.TmuxPrefix != "test-" {
+		t.Errorf("TmuxPrefix = %q, want %q", cfg.TmuxPrefix, "test-")
+	}
+}
+
 func TestApplyAppConfig_NilPointers_NoChange(t *testing.T) {
 	cfg := &Config{ImagePrefix: "techdelight/claude-runner"}
 	ApplyAppConfig(cfg, AppConfig{})

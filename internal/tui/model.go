@@ -81,7 +81,7 @@ func (m tuiModel) filteredProjects() []projectRow {
 
 func (m tuiModel) Init() tea.Cmd {
 	return tea.Batch(
-		loadProjects(m.registry, m.docker),
+		loadProjects(m.registry, m.docker, m.cfg.ContainerPrefix),
 		doTick(),
 	)
 }
@@ -91,7 +91,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tickMsg:
 		return m, tea.Batch(
-			loadProjects(m.registry, m.docker),
+			loadProjects(m.registry, m.docker, m.cfg.ContainerPrefix),
 			doTick(),
 		)
 
@@ -118,7 +118,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.statusMsg = msg.msg
 		}
-		return m, loadProjects(m.registry, m.docker)
+		return m, loadProjects(m.registry, m.docker, m.cfg.ContainerPrefix)
 
 	case requestAttachMsg:
 		m.pendingAttach = msg.sessionName
@@ -181,7 +181,7 @@ func (m tuiModel) updateBrowse(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.statusMsg = fmt.Sprintf("%s is not running", p.name)
 			return m, nil
 		}
-		return m, attachToSession(m.executor, p.name)
+		return m, attachToSession(m.executor, p.name, m.cfg.TmuxPrefix)
 
 	case "x":
 		if len(fp) == 0 {
@@ -193,11 +193,11 @@ func (m tuiModel) updateBrowse(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.statusMsg = fmt.Sprintf("Stopping %s...", p.name)
-		return m, killContainer(m.executor, p.name)
+		return m, killContainer(m.executor, p.name, m.cfg.ContainerPrefix)
 
 	case "r":
 		m.statusMsg = "Refreshing..."
-		return m, loadProjects(m.registry, m.docker)
+		return m, loadProjects(m.registry, m.docker, m.cfg.ContainerPrefix)
 
 	case "n":
 		m.creating = true

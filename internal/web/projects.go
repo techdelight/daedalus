@@ -38,7 +38,7 @@ func (ws *WebServer) handleListProjects(w http.ResponseWriter, r *http.Request) 
 
 	projects := make([]projectJSON, 0, len(entries))
 	for _, e := range entries {
-		containerName := "claude-run-" + e.Name
+		containerName := core.ContainerNameFor(ws.cfg.ContainerPrefix, e.Name)
 		running, err := ws.docker.IsContainerRunning(containerName)
 		if err != nil {
 			log.Printf("Docker status check failed for %s: %v", e.Name, err)
@@ -136,7 +136,7 @@ func (ws *WebServer) handleStopProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	containerName := "claude-run-" + name
+	containerName := core.ContainerNameFor(ws.cfg.ContainerPrefix, name)
 	if _, err := ws.executor.Output("docker", "stop", containerName); err != nil {
 		http.Error(w, fmt.Sprintf("stopping container: %v", err), http.StatusInternalServerError)
 		return
@@ -160,13 +160,14 @@ func (ws *WebServer) handleSendEnter(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sess := session.NewSession(ws.executor, "claude-"+name)
+	sessName := core.TmuxSessionFor(ws.cfg.TmuxPrefix, name)
+	sess := session.NewSession(ws.executor, sessName)
 	if !sess.Exists() {
 		http.Error(w, fmt.Sprintf("no tmux session for project %q", name), http.StatusNotFound)
 		return
 	}
 
-	if err := ws.executor.Run("tmux", "send-keys", "-t", "claude-"+name, "Enter"); err != nil {
+	if err := ws.executor.Run("tmux", "send-keys", "-t", sessName, "Enter"); err != nil {
 		http.Error(w, fmt.Sprintf("sending Enter to tmux: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -199,7 +200,7 @@ func (ws *WebServer) handleRenameProject(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	containerName := "claude-run-" + name
+	containerName := core.ContainerNameFor(ws.cfg.ContainerPrefix, name)
 	running, err := ws.docker.IsContainerRunning(containerName)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)

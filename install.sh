@@ -26,13 +26,23 @@ UNINSTALL=false
 
 usage() {
     cat <<EOF
-Usage: $0 [--prefix <dir>] [--no-link] [--uninstall] [--verbose]
+Usage: $0 [--prefix <dir>] [--link-name <name>] [--no-link]
+          [--container-prefix <p>] [--tmux-prefix <p>] [--image-prefix <p>]
+          [--uninstall] [--verbose]
 
-Options:
-  --prefix <dir>  Installation directory (default: ~/.local/share/daedalus)
-  --no-link       Skip creating a symlink in PATH
-  --uninstall     Remove Daedalus installation (prompts before deleting project data)
-  --verbose       Enable shell tracing (set -x) for debugging
+Install options:
+  --prefix <dir>           Installation directory (default: ~/.local/share/daedalus)
+  --link-name <name>       Symlink name in ~/.local/bin (default: daedalus)
+  --no-link                Skip creating a symlink in PATH
+
+Test-isolation options (parallel install alongside production):
+  --container-prefix <p>   Override docker container name prefix (default: claude-run-)
+  --tmux-prefix <p>        Override tmux session name prefix (default: claude-)
+  --image-prefix <p>       Override docker image prefix (default: techdelight/claude-runner)
+
+Maintenance:
+  --uninstall              Remove Daedalus installation (prompts before deleting project data)
+  --verbose                Enable shell tracing (set -x) for debugging
 
 Downloads a pre-built Daedalus binary from the latest GitHub Release,
 then invokes setup.sh to install runtime files and create a PATH symlink.
@@ -50,9 +60,29 @@ while [[ $# -gt 0 ]]; do
             FORWARD_ARGS+=("--prefix" "$2")
             shift 2
             ;;
+        --link-name)
+            [[ $# -lt 2 ]] && { echo "Error: --link-name requires a name argument." >&2; exit 1; }
+            FORWARD_ARGS+=("--link-name" "$2")
+            shift 2
+            ;;
         --no-link)
             FORWARD_ARGS+=("--no-link")
             shift
+            ;;
+        --container-prefix)
+            [[ $# -lt 2 ]] && { echo "Error: --container-prefix requires a prefix argument." >&2; exit 1; }
+            FORWARD_ARGS+=("--container-prefix" "$2")
+            shift 2
+            ;;
+        --tmux-prefix)
+            [[ $# -lt 2 ]] && { echo "Error: --tmux-prefix requires a prefix argument." >&2; exit 1; }
+            FORWARD_ARGS+=("--tmux-prefix" "$2")
+            shift 2
+            ;;
+        --image-prefix)
+            [[ $# -lt 2 ]] && { echo "Error: --image-prefix requires a prefix argument." >&2; exit 1; }
+            FORWARD_ARGS+=("--image-prefix" "$2")
+            shift 2
             ;;
         --uninstall)
             UNINSTALL=true

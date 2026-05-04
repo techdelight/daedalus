@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 
+	"github.com/techdelight/daedalus/core"
 	"github.com/techdelight/daedalus/internal/progress"
 )
 
@@ -60,7 +61,7 @@ func (ws *WebServer) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	containerName := "claude-run-" + name
+	containerName := core.ContainerNameFor(ws.cfg.ContainerPrefix, name)
 	running, err := ws.docker.IsContainerRunning(containerName)
 	if err != nil {
 		log.Printf("Docker status check failed for %s: %v", name, err)
@@ -124,7 +125,7 @@ func (ws *WebServer) handleAgentState(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("project %q not found", name), http.StatusNotFound)
 		return
 	}
-	containerName := "claude-run-" + name
+	containerName := core.ContainerNameFor(ws.cfg.ContainerPrefix, name)
 	containerState := ws.observer.GetState(containerName)
 
 	runnerName := entry.DefaultFlags["runner"]
@@ -152,7 +153,7 @@ func (ws *WebServer) handleGuild(w http.ResponseWriter, r *http.Request) {
 
 	members := make([]guildMemberJSON, 0, len(entries))
 	for _, e := range entries {
-		containerName := "claude-run-" + e.Name
+		containerName := core.ContainerNameFor(ws.cfg.ContainerPrefix, e.Name)
 		runnerName := e.Entry.DefaultFlags["runner"]
 		if runnerName == "" {
 			runnerName = "claude"

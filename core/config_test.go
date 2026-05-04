@@ -457,3 +457,44 @@ func TestApplyRegistryEntry_NilDefaultFlags(t *testing.T) {
 		t.Error("DinD = true, want false (nil defaults should not change anything)")
 	}
 }
+
+func TestContainerName_DefaultPrefix(t *testing.T) {
+	c := &Config{ProjectName: "foo"}
+	if got := c.ContainerName(); got != "claude-run-foo" {
+		t.Errorf("ContainerName() = %q, want %q", got, "claude-run-foo")
+	}
+}
+
+func TestContainerName_OverridePrefix(t *testing.T) {
+	c := &Config{ProjectName: "foo", ContainerPrefix: "test-run-"}
+	if got := c.ContainerName(); got != "test-run-foo" {
+		t.Errorf("ContainerName() = %q, want %q", got, "test-run-foo")
+	}
+}
+
+func TestTmuxSession_DefaultPrefix(t *testing.T) {
+	c := &Config{ProjectName: "foo"}
+	if got := c.TmuxSession(); got != "claude-foo" {
+		t.Errorf("TmuxSession() = %q, want %q", got, "claude-foo")
+	}
+}
+
+func TestTmuxSession_OverridePrefix(t *testing.T) {
+	c := &Config{ProjectName: "foo", TmuxPrefix: "daed-"}
+	if got := c.TmuxSession(); got != "daed-foo" {
+		t.Errorf("TmuxSession() = %q, want %q", got, "daed-foo")
+	}
+}
+
+func TestContainerNameFor_EmptyDefaults(t *testing.T) {
+	if got := ContainerNameFor("", "foo"); got != "claude-run-foo" {
+		t.Errorf("ContainerNameFor empty = %q", got)
+	}
+}
+
+func TestTmuxSessionFor_EmptyDefaults(t *testing.T) {
+	if got := TmuxSessionFor("", "foo"); got != "claude-foo" {
+		t.Errorf("TmuxSessionFor empty = %q", got)
+	}
+}
+

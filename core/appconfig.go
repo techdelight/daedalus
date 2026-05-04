@@ -5,17 +5,19 @@ package core
 // AppConfig holds optional application-level configuration loaded from config.json.
 // Pointer fields distinguish "not set" (nil) from zero values.
 type AppConfig struct {
-	Version     *string `json:"version,omitempty"`
-	DataDir     *string `json:"data-dir,omitempty"`
-	Debug       *bool   `json:"debug,omitempty"`
-	NoTmux      *bool   `json:"no-tmux,omitempty"`
-	ImagePrefix *string `json:"image-prefix,omitempty"`
-	LogFile     *string `json:"log-file,omitempty"`
-	Runner      *string `json:"runner,omitempty"`
-	Persona     *string `json:"persona,omitempty"`
-	Agent       *string `json:"agent,omitempty"` // legacy: maps to Runner for backward compat
-	AuthToken   *string `json:"auth-token,omitempty"`
-	AuthExpiry  *int    `json:"auth-expiry,omitempty"` // session expiry in hours
+	Version         *string `json:"version,omitempty"`
+	DataDir         *string `json:"data-dir,omitempty"`
+	Debug           *bool   `json:"debug,omitempty"`
+	NoTmux          *bool   `json:"no-tmux,omitempty"`
+	ImagePrefix     *string `json:"image-prefix,omitempty"`
+	ContainerPrefix *string `json:"container-prefix,omitempty"` // override for parallel test installs
+	TmuxPrefix      *string `json:"tmux-prefix,omitempty"`      // override for parallel test installs (legacy path)
+	LogFile         *string `json:"log-file,omitempty"`
+	Runner          *string `json:"runner,omitempty"`
+	Persona         *string `json:"persona,omitempty"`
+	Agent           *string `json:"agent,omitempty"` // legacy: maps to Runner for backward compat
+	AuthToken       *string `json:"auth-token,omitempty"`
+	AuthExpiry      *int    `json:"auth-expiry,omitempty"` // session expiry in hours
 }
 
 // ApplyAppConfig sets fields on cfg from app only when the cfg field is still
@@ -32,6 +34,12 @@ func ApplyAppConfig(cfg *Config, app AppConfig) {
 	}
 	if cfg.ImagePrefix == "techdelight/claude-runner" && app.ImagePrefix != nil {
 		cfg.ImagePrefix = *app.ImagePrefix
+	}
+	if cfg.ContainerPrefix == "" && app.ContainerPrefix != nil {
+		cfg.ContainerPrefix = *app.ContainerPrefix
+	}
+	if cfg.TmuxPrefix == "" && app.TmuxPrefix != nil {
+		cfg.TmuxPrefix = *app.TmuxPrefix
 	}
 	if cfg.LogFile == "" && app.LogFile != nil {
 		cfg.LogFile = *app.LogFile

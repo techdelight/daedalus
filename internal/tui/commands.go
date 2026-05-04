@@ -25,7 +25,7 @@ func doTick() tea.Cmd {
 	})
 }
 
-func loadProjects(reg *registry.Registry, docker *docker.Docker) tea.Cmd {
+func loadProjects(reg *registry.Registry, docker *docker.Docker, containerPrefix string) tea.Cmd {
 	return func() tea.Msg {
 		entries, err := reg.GetProjectEntries()
 		if err != nil {
@@ -35,7 +35,7 @@ func loadProjects(reg *registry.Registry, docker *docker.Docker) tea.Cmd {
 		var dockerErr error
 		rows := make([]projectRow, 0, len(entries))
 		for _, e := range entries {
-			containerName := "claude-run-" + e.Name
+			containerName := core.ContainerNameFor(containerPrefix, e.Name)
 			running, err := docker.IsContainerRunning(containerName)
 			if err != nil && dockerErr == nil {
 				dockerErr = err
@@ -143,9 +143,9 @@ func removeProject(reg *registry.Registry, name string) tea.Cmd {
 	}
 }
 
-func killContainer(exec executor.Executor, name string) tea.Cmd {
+func killContainer(exec executor.Executor, name, containerPrefix string) tea.Cmd {
 	return func() tea.Msg {
-		containerName := "claude-run-" + name
+		containerName := core.ContainerNameFor(containerPrefix, name)
 		_, err := exec.Output("docker", "stop", containerName)
 		if err != nil {
 			return actionResultMsg{err: fmt.Errorf("stopping %s: %w", containerName, err)}
@@ -154,9 +154,9 @@ func killContainer(exec executor.Executor, name string) tea.Cmd {
 	}
 }
 
-func attachToSession(exec executor.Executor, name string) tea.Cmd {
+func attachToSession(exec executor.Executor, name, tmuxPrefix string) tea.Cmd {
 	return func() tea.Msg {
-		sessionName := "claude-" + name
+		sessionName := core.TmuxSessionFor(tmuxPrefix, name)
 		sess := session.NewSession(exec, sessionName)
 		if !sess.Exists() {
 			return actionResultMsg{msg: fmt.Sprintf("No tmux session for %s", name)}

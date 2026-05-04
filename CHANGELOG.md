@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- **Parallel test installs** — `setup.sh` and `install.sh` now accept
+  `--link-name`, `--container-prefix`, `--tmux-prefix`, and
+  `--image-prefix`. The first lets a second install symlink as
+  `daedalus-test` (or any name) instead of overwriting the
+  production `daedalus` link. The next three populate
+  `container-prefix`, `tmux-prefix`, and `image-prefix` keys in the
+  generated `config.json`, which the CLI reads via `core.AppConfig`
+  and applies through `core.Config.ContainerName()` /
+  `core.Config.TmuxSession()`. `setup.sh` also stages
+  `daedalus-runner` into PREFIX so the Dockerfile COPY succeeds when
+  building the image from a custom location. See CONTRIBUTING.md
+  "Parallel Test Installs" for the full workflow.
+
 ### Removed
 - **Foreman deprecated** — the in-process AI project manager (`internal/foreman/`, `core/foreman.go`, `internal/web/foreman.go`, `cmd/daedalus/foreman.go`) and its surrounding cascade machinery were removed wholesale. The `daedalus foreman` CLI subcommand, `/api/foreman/*` HTTP routes, `daedalus programmes cascade` subcommand, `CascadeStrategy` type and `DependencyEdge.Strategy` field are all gone. The Web UI's Foreman view (and the programme-management form embedded in it) is removed; programme CRUD remains via CLI and `/api/programmes/*`. Done as preparation for the layered runner-adapter / daedalus-runner / tmux-coordinator architecture.
 

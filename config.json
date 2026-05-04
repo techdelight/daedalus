@@ -4,5 +4,7 @@
   "debug": false,
   "no-tmux": false,
   "image-prefix": "techdelight/claude-runner",
+  "container-prefix": "",
+  "tmux-prefix": "",
   "log-file": ""
 }

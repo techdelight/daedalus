@@ -123,6 +123,43 @@ GitHub Actions runs on every push to `master` and on pull requests:
 
 Releases are built automatically when a version tag (`v*`) is pushed.
 
+## Parallel Test Installs
+
+You can install Daedalus alongside a production copy with isolated
+container names, tmux session names, image tags, and data directory.
+Useful when iterating on the runner-stack or any change that touches
+container lifecycle without disturbing your day-to-day install.
+
+```bash
+./build.sh
+WORK_DIR=$PWD ./setup.sh \
+    --prefix ~/.local/share/daedalus-test \
+    --link-name daedalus-test \
+    --container-prefix test-run- \
+    --tmux-prefix test-claude- \
+    --image-prefix test/claude-runner
+```
+
+What this gives you:
+
+- Binary at `~/.local/share/daedalus-test/daedalus`
+- Symlink at `~/.local/bin/daedalus-test` (so `daedalus-test my-proj`)
+- Data directory at `~/.local/share/daedalus-test/.cache/`
+- Containers named `test-run-<project>` (collide-free with prod's `claude-run-<project>`)
+- Tmux sessions named `test-claude-<project>` (legacy path only)
+- Docker image tagged `test/claude-runner:dev` etc.; `daedalus-test build`
+  builds it into that namespace
+
+Uninstall the test copy with the same `--prefix` and `--link-name`:
+
+```bash
+~/.local/share/daedalus-test/setup.sh --uninstall \
+    --prefix ~/.local/share/daedalus-test --link-name daedalus-test
+```
+
+Settings live in `<prefix>/config.json`; `container-prefix`,
+`tmux-prefix`, and `image-prefix` are the keys.
+
 ## Code Quality
 
 ### Naming
