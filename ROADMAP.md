@@ -14,13 +14,13 @@ Single-command project launch with Docker isolation, tmux session management, an
 
 Programme definitions with dependency graphs, MCP-based progress reporting, and agent observability.
 
-### Milestone 3: Terminal Fidelity (In Progress)
+### Milestone 3: Terminal Fidelity (Done)
 
 tmux control mode (`-C`) for structured terminal I/O: native scrollback, resize handling, live-capture, history mode. Eliminates raw PTY quirks and enables machine-parseable agent events.
 
-### Milestone 4: Layered Runner/Coordinator Architecture
+### Milestone 4: Layered Runner/Coordinator Architecture (In Progress)
 
-Introduce daedalus-runner (in-tmux process wrapping a runner via per-runner adapter), a central tmux-coordinator daemon with an API, and thin CLI/TUI/Web clients of that API. Replaces the current pattern where each UI talks to tmux directly.
+Introduce daedalus-runner (in-container PID-1 process wrapping a runner via per-runner adapter), a central coordinator daemon with an API, and thin CLI/TUI/Web clients of that API. Replaces the current pattern where each UI talks to tmux directly.
 
 ### Milestone 5: Self-Sustaining Operations
 
@@ -33,13 +33,15 @@ Introduce daedalus-runner (in-tmux process wrapping a runner via per-runner adap
 ## Phasing
 
 ```
-M1 (Done) ──► M2 (Done) ──► M3 (In Progress) ──► M4 ──► M5
-Container      Programme      Terminal              Layered  Self-sustaining
-Runtime        Topology       Fidelity              Stack    Operations
+M1 (Done) ──► M2 (Done) ──► M3 (Done) ──► M4 (In Progress) ──► M5
+Container      Programme      Terminal      Layered              Self-sustaining
+Runtime        Topology       Fidelity      Stack                Operations
 ```
 
 ## Current Focus
 
-Milestone 3: Terminal Fidelity — tmux control mode is functional with scrollback, resize, history mode, and live-capture. Document structure split complete (ROADMAP/BACKLOG/SPRINTS). Remaining: final polish and stabilisation.
+Milestone 4: Layered Runner / Coordinator Architecture. v0.38.0 shipped the foundation — `daedalus-runner` PID-1 binary inside the container, `runproto` wire protocol, host-side `runclient`, per-runner adapters, and an in-process `coordinator`. CLI (`DAEDALUS_USE_RUNNER=1`) and Web (`?mode=runner`) can both attach through the runner socket today, opt-in.
+
+Remaining for M4: promote the coordinator from in-process to a daemon with a local API and session persistence, migrate the TUI onto the same API, make the runner path the default, and retire the tmux launch path once feature parity is reached.
 
 See `BACKLOG.md` for work items and `SPRINTS.md` for sprint execution.
