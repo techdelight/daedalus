@@ -9,7 +9,7 @@ Goal: promote `internal/coordinator` from an in-process, per-CLI-invocation map 
 | # | Item | Status |
 |---|------|--------|
 | 1 | `internal/coordinator/daemon.go` — HTTP-over-UDS server exposing `POST /sessions`, `GET /sessions`, `GET /sessions/{name}`, `DELETE /sessions/{name}`. Reuses the existing `Coordinator` type. | Done |
-| 2 | Persist `sessions.json` under `DataDir/.daedalus/` — write on change, read on startup. Reconcile against `docker ps` at startup to drop dead entries. | Todo |
+| 2 | Persist `sessions.json` under `DataDir/.daedalus/` — write on change, read on startup. Reconcile against `docker ps` at startup to drop dead entries. | Done |
 | 3 | `internal/coordinator/client.go` — Go client wrapping the HTTP API with the same method shape as `Coordinator`; callers switch by swapping constructor. | Done |
 | 4 | `cmd/daedalus-coordinator` — daemon binary. `daedalus coordinator start/stop/status` subcommands in the main CLI. Systemd unit + launchd plist under `contrib/`. | Done |
 | 5 | Rewire `launchProjectViaRunner` and Web `?mode=runner` to use the daemon client with auto-spawn (ssh-agent style). TUI list deferred — currently uses `docker.IsContainerRunning` directly, not `Coordinator`; migrating it is an enhancement rather than a rewire and can land in a follow-up. | Done |

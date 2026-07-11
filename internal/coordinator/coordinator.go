@@ -11,17 +11,27 @@
 // dial that socket through internal/runclient; the coordinator does
 // not own the attach side.
 //
-// Scope of this first slice: in-process, in-memory, single host. No
-// daemon, no persistence, no IPC. A second process started against
-// the same data dir will not see sessions tracked by the first.
-// Persistence and cross-process discovery are deliberate follow-ups.
+// The package supports two deployment modes:
+//   - in-process, in-memory (no Options.SessionsFile): a single Go
+//     process holds all state; a second process against the same data
+//     dir sees no shared sessions.
+//   - daemon-mode (Options.SessionsFile set): sessions are persisted
+//     to a JSON file and reconciled against `docker ps` on New so a
+//     restarted daemon inherits still-live sessions and forgets dead
+//     ones. This is what cmd/daedalus-coordinator uses.
+//
+// The daemon also exposes an HTTP-over-Unix-socket API (daemon.go),
+// which a Go client (client.go) speaks to.
 package coordinator
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -46,14 +56,23 @@ type Options struct {
 	Executor    executor.Executor
 	ComposeFile string
 	SocketWait  time.Duration
+
+	// SessionsFile, if set, is the path to a JSON file where the
+	// coordinator persists its session map. On New, the file is read
+	// and each recorded session is reconciled against `docker ps` —
+	// only sessions whose container is still running are kept.
+	// Subsequent Start/Stop calls rewrite the file atomically. Empty
+	// means in-memory only (the default before item 2 of Sprint 40).
+	SessionsFile string
 }
 
 // Coordinator tracks the live runner sessions on this host.
 type Coordinator struct {
-	exec        executor.Executor
-	composeFile string
-	socketWait  time.Duration
-	pollEvery   time.Duration
+	exec         executor.Executor
+	composeFile  string
+	socketWait   time.Duration
+	pollEvery    time.Duration
+	sessionsFile string
 
 	mu       sync.Mutex
 	sessions map[string]*Session
@@ -62,6 +81,11 @@ type Coordinator struct {
 // New constructs a Coordinator. Panics if Executor or ComposeFile is
 // missing — both are required for any Start call to succeed and a
 // nil-check at every Start would just defer the failure.
+//
+// When Options.SessionsFile is set, New reads it and reconciles the
+// recorded sessions against `docker ps`. Load or reconcile errors are
+// logged but do not stop New from returning — a corrupt persistence
+// file must not prevent the daemon from starting.
 func New(opts Options) *Coordinator {
 	if opts.Executor == nil {
 		panic("coordinator: Executor is required")
@@ -73,13 +97,20 @@ func New(opts Options) *Coordinator {
 	if wait == 0 {
 		wait = 30 * time.Second
 	}
-	return &Coordinator{
-		exec:        opts.Executor,
-		composeFile: opts.ComposeFile,
-		socketWait:  wait,
-		pollEvery:   100 * time.Millisecond,
-		sessions:    make(map[string]*Session),
+	c := &Coordinator{
+		exec:         opts.Executor,
+		composeFile:  opts.ComposeFile,
+		socketWait:   wait,
+		pollEvery:    100 * time.Millisecond,
+		sessionsFile: opts.SessionsFile,
+		sessions:     make(map[string]*Session),
 	}
+	if c.sessionsFile != "" {
+		if err := c.loadAndReconcile(); err != nil {
+			log.Printf("coordinator: sessions.json load/reconcile: %v (starting with empty state)", err)
+		}
+	}
+	return c
 }
 
 // ErrAlreadyRunning is returned by Start when the coordinator already
@@ -142,6 +173,7 @@ func (c *Coordinator) Start(cfg *core.Config) (*Session, error) {
 	}
 	c.mu.Lock()
 	c.sessions[name] = sess
+	c.persistLocked()
 	c.mu.Unlock()
 	return sess, nil
 }
@@ -198,6 +230,7 @@ func (c *Coordinator) Stop(name string) error {
 
 	c.mu.Lock()
 	delete(c.sessions, name)
+	c.persistLocked()
 	c.mu.Unlock()
 	return nil
 }
@@ -243,5 +276,104 @@ func waitForSocket(path string, timeout, poll time.Duration) error {
 			return fmt.Errorf("daedalus-runner socket %s did not appear within %s", path, timeout)
 		}
 		time.Sleep(poll)
+	}
+}
+
+// loadAndReconcile reads the sessions file and drops any recorded
+// session whose container is not currently reported by `docker ps`.
+// Missing file → clean slate (not an error). Corrupt JSON → treated as
+// clean slate with a returned error so the caller can log. Docker-ps
+// failure is fatal to reconciliation: we prefer "start empty" over
+// "inherit possibly-dead state" when we can't verify.
+func (c *Coordinator) loadAndReconcile() error {
+	data, err := os.ReadFile(c.sessionsFile)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read %s: %w", c.sessionsFile, err)
+	}
+	var stored []Session
+	if err := json.Unmarshal(data, &stored); err != nil {
+		return fmt.Errorf("parse %s: %w", c.sessionsFile, err)
+	}
+	if len(stored) == 0 {
+		return nil
+	}
+
+	running, err := c.dockerRunningContainers()
+	if err != nil {
+		return fmt.Errorf("reconcile via `docker ps`: %w", err)
+	}
+
+	c.mu.Lock()
+	kept := 0
+	for i := range stored {
+		s := stored[i]
+		if running[s.ContainerName] {
+			// Take the address of the loop-local copy so entries don't
+			// alias each other.
+			c.sessions[s.ProjectName] = &s
+			kept++
+		}
+	}
+	// If anything was dropped, rewrite sessions.json now so a crash
+	// before the next Start/Stop doesn't reintroduce the dead entry
+	// on the following boot.
+	if kept < len(stored) {
+		c.persistLocked()
+	}
+	c.mu.Unlock()
+	log.Printf("coordinator: loaded %d session(s) from %s (%d dropped as no longer running)",
+		kept, c.sessionsFile, len(stored)-kept)
+	return nil
+}
+
+// dockerRunningContainers returns a set of currently-running container
+// names as reported by `docker ps --format {{.Names}}`. Called during
+// reconciliation only.
+func (c *Coordinator) dockerRunningContainers() (map[string]bool, error) {
+	out, err := c.exec.Output("docker", "ps", "--format", "{{.Names}}")
+	if err != nil {
+		return nil, err
+	}
+	names := map[string]bool{}
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			names[line] = true
+		}
+	}
+	return names, nil
+}
+
+// persistLocked writes the current sessions map to sessionsFile using
+// a temp file + atomic rename. Called with c.mu held. A write failure
+// is logged, not returned — losing durability on one edge is better
+// than aborting a Start/Stop the caller already committed to.
+func (c *Coordinator) persistLocked() {
+	if c.sessionsFile == "" {
+		return
+	}
+	out := make([]Session, 0, len(c.sessions))
+	for _, s := range c.sessions {
+		out = append(out, *s)
+	}
+	data, err := json.MarshalIndent(out, "", "  ")
+	if err != nil {
+		log.Printf("coordinator: marshal sessions: %v", err)
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(c.sessionsFile), 0o755); err != nil {
+		log.Printf("coordinator: mkdir for sessions.json: %v", err)
+		return
+	}
+	tmp := c.sessionsFile + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		log.Printf("coordinator: write %s: %v", tmp, err)
+		return
+	}
+	if err := os.Rename(tmp, c.sessionsFile); err != nil {
+		log.Printf("coordinator: rename %s → %s: %v", tmp, c.sessionsFile, err)
+		_ = os.Remove(tmp)
 	}
 }

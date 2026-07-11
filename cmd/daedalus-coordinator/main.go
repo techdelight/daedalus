@@ -89,8 +89,9 @@ func main() {
 	}
 
 	coord := coordinator.New(coordinator.Options{
-		Executor:    &executor.RealExecutor{},
-		ComposeFile: cfg.compose,
+		Executor:     &executor.RealExecutor{},
+		ComposeFile:  cfg.compose,
+		SessionsFile: coordinator.DefaultSessionsFile(cfg.dataDir),
 	})
 	server := coordinator.NewServer(coord)
 

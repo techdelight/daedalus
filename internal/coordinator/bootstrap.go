@@ -43,6 +43,14 @@ func DefaultLayout(dataDir, scriptDir string) BootstrapOptions {
 	}
 }
 
+// DefaultSessionsFile returns the standard sessions.json path for the
+// daemon under DataDir. Kept separate from BootstrapOptions because
+// this is a daemon-side concern (only cmd/daedalus-coordinator uses
+// it); the bootstrap layout is client-side.
+func DefaultSessionsFile(dataDir string) string {
+	return filepath.Join(dataDir, ".daedalus", "sessions.json")
+}
+
 // BootstrapOptions tells EnsureRunning how to find the daemon and how
 // to auto-spawn it if missing.
 type BootstrapOptions struct {
