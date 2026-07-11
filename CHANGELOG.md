@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.39.0] - 2026-07-11
+
 Sprint 40 (Coordinator-as-Daemon) — the second Milestone 4 slice.
 Promotes the in-process `internal/coordinator` from v0.38.0 into a
 long-lived host daemon with an HTTP-over-Unix-socket API, a Go
