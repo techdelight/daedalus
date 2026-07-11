@@ -1,0 +1,29 @@
+# daedalus-coordinator — host-side daemon owning runner-attached
+# project container lifecycles. Speaks HTTP over a Unix socket at
+# ~/.local/share/daedalus/.cache/.daedalus/coordinator.sock by default.
+#
+# Install as a user unit (not system-wide — the daemon runs docker
+# commands as the user, and its socket lives under the user's data dir):
+#
+#   mkdir -p ~/.config/systemd/user
+#   cp contrib/systemd/daedalus-coordinator.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now daedalus-coordinator
+#
+# Adjust ExecStart if daedalus is installed somewhere other than
+# ~/.local/share/daedalus.
+
+[Unit]
+Description=Daedalus coordinator daemon
+Documentation=https://github.com/techdelight/daedalus
+After=default.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/share/daedalus/daedalus-coordinator
+Restart=on-failure
+RestartSec=5s
+# systemd tracks the PID itself, so we don't need --pid-file.
+
+[Install]
+WantedBy=default.target

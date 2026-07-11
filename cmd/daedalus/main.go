@@ -96,6 +96,9 @@ func run(args []string) error {
 	case "programmes":
 		logging.Info("subcommand: programmes")
 		return manageProgrammes(cfg)
+	case "coordinator":
+		logging.Info("subcommand: coordinator")
+		return manageCoordinator(cfg)
 	}
 
 	// --- Normal project flow ---

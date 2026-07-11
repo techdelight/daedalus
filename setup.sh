@@ -150,6 +150,7 @@ if [[ "$UNINSTALL" == true ]]; then
     done
     rm -f "$PREFIX/daedalus"
     rm -f "$PREFIX/daedalus-runner"
+    rm -f "$PREFIX/daedalus-coordinator"
     rm -f "$PREFIX/skill-catalog-mcp"
     rm -f "$PREFIX/project-mgmt-mcp"
     rm -f "$PREFIX/setup.sh"
@@ -226,6 +227,14 @@ chmod 755 "$PREFIX/project-mgmt-mcp"
 if [[ -f "$WORK_DIR/daedalus-runner" ]]; then
     cp "$WORK_DIR/daedalus-runner" "$PREFIX/daedalus-runner"
     chmod 755 "$PREFIX/daedalus-runner"
+fi
+# daedalus-coordinator is the host-side daemon that owns runner-attached
+# container lifecycles. `daedalus coordinator start` expects it to sit
+# next to the main binary in PREFIX. Conditional because older release
+# tarballs won't ship it.
+if [[ -f "$WORK_DIR/daedalus-coordinator" ]]; then
+    cp "$WORK_DIR/daedalus-coordinator" "$PREFIX/daedalus-coordinator"
+    chmod 755 "$PREFIX/daedalus-coordinator"
 fi
 
 # Copy setup.sh itself so users can run uninstall locally

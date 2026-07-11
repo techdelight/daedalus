@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  daedalus-coordinator — host-side daemon owning runner-attached
+  project container lifecycles. Speaks HTTP over a Unix socket at
+  ~/Library/Application Support/daedalus/.cache/.daedalus/coordinator.sock
+  by default (varies with your config.json data-dir).
+
+  Install as a per-user agent (launchd tracks the process; no --pid-file
+  required):
+
+    cp contrib/launchd/dev.techdelight.daedalus-coordinator.plist \
+       ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/dev.techdelight.daedalus-coordinator.plist
+
+  Adjust ProgramArguments and paths if daedalus is installed somewhere
+  other than ~/.local/share/daedalus. `$HOME` in this file must be
+  expanded by hand before install — launchd does not interpolate it.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>dev.techdelight.daedalus-coordinator</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/YOUR_USERNAME/.local/share/daedalus/daedalus-coordinator</string>
+    </array>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/daedalus-coordinator.out.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/tmp/daedalus-coordinator.err.log</string>
+</dict>
+</plist>

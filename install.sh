@@ -205,6 +205,7 @@ trap cleanup EXIT
 BINARY_NAME="daedalus-${OS}-${ARCH}"
 SKILL_MCP_NAME="skill-catalog-mcp-${OS}-${ARCH}"
 PROJ_MCP_NAME="project-mgmt-mcp-${OS}-${ARCH}"
+COORD_NAME="daedalus-coordinator-${OS}-${ARCH}"
 echo ""
 echo "Downloading ${BINARY_NAME}..."
 curl -fsSL -o "$WORK_DIR/daedalus" "${DOWNLOAD_BASE}/${BINARY_NAME}"
@@ -217,6 +218,17 @@ chmod 755 "$WORK_DIR/skill-catalog-mcp"
 echo "Downloading ${PROJ_MCP_NAME}..."
 curl -fsSL -o "$WORK_DIR/project-mgmt-mcp" "${DOWNLOAD_BASE}/${PROJ_MCP_NAME}"
 chmod 755 "$WORK_DIR/project-mgmt-mcp"
+
+# Coordinator daemon (best-effort — v0.38.0 and older don't ship it).
+# curl -f treats a 404 as an error, so tolerate a missing asset without
+# aborting the install.
+echo "Downloading ${COORD_NAME} (optional)..."
+if curl -fsSL -o "$WORK_DIR/daedalus-coordinator" "${DOWNLOAD_BASE}/${COORD_NAME}"; then
+    chmod 755 "$WORK_DIR/daedalus-coordinator"
+else
+    echo "  ${COORD_NAME} not published for this release; skipping."
+    rm -f "$WORK_DIR/daedalus-coordinator"
+fi
 
 echo "Downloading setup.sh..."
 curl -fsSL -o "$WORK_DIR/setup.sh" "${DOWNLOAD_BASE}/setup.sh"
