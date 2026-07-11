@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- **`internal/coordinator` package** — host-side lifecycle owner for
+  runner-attached containers. The `Coordinator` type tracks live
+  sessions in-process (no daemon, no persistence yet) and exposes
+  `Start(cfg) → *Session`, `Get(name)`, `List()`, `Stop(name)`. Start
+  prepares the runner socket directory, runs `docker compose run --rm
+  --detach` with `DAEDALUS_RUNNER=1`, and waits for the bind-mounted
+  socket to appear before returning. Replaces what tmux used to do
+  for the legacy launch path — owning "where this session lives, how
+  to find it" — without any tmux involvement. Covered by 12 unit
+  tests using a spy executor that materialises the socket on demand,
+  including a real `net.Listen("unix",…)` smoke test for the
+  socket-readiness wait.
 - **Parallel test installs** — `setup.sh` and `install.sh` now accept
   `--link-name`, `--container-prefix`, `--tmux-prefix`, and
   `--image-prefix`. The first lets a second install symlink as
@@ -17,6 +29,22 @@ All notable changes to this project will be documented in this file.
   `daedalus-runner` into PREFIX so the Dockerfile COPY succeeds when
   building the image from a custom location. See CONTRIBUTING.md
   "Parallel Test Installs" for the full workflow.
+
+### Changed
+- **`launchProjectViaRunner` delegates to coordinator** — the
+  `cmd/daedalus/launch.go` runner-detached path no longer inlines
+  `docker compose run --detach` or the env-var assembly. It calls
+  `coordinator.Start(cfg)` and attaches to the returned
+  `Session.SocketPath` via runclient. The lifecycle now lives in
+  one testable place.
+
+### Fixed
+- **Runner-attach race on `DAEDALUS_USE_RUNNER=1`** — the runner-
+  detached launch used to dial the bind-mounted socket immediately
+  after `docker compose run --detach` returned, but `runclient.Dial`
+  does not retry, so a slow container start would fail the attach.
+  `coordinator.Start` now waits for the socket to appear (poll, 30s
+  default) before returning, closing the race.
 
 ### Removed
 - **Foreman deprecated** — the in-process AI project manager (`internal/foreman/`, `core/foreman.go`, `internal/web/foreman.go`, `cmd/daedalus/foreman.go`) and its surrounding cascade machinery were removed wholesale. The `daedalus foreman` CLI subcommand, `/api/foreman/*` HTTP routes, `daedalus programmes cascade` subcommand, `CascadeStrategy` type and `DependencyEdge.Strategy` field are all gone. The Web UI's Foreman view (and the programme-management form embedded in it) is removed; programme CRUD remains via CLI and `/api/programmes/*`. Done as preparation for the layered runner-adapter / daedalus-runner / tmux-coordinator architecture.

@@ -105,6 +105,15 @@ func TestConfig_ContainerLogPath(t *testing.T) {
 	}
 }
 
+func TestConfig_RunnerSocketPath(t *testing.T) {
+	cfg := &Config{DataDir: "/data/daedalus", ProjectName: "my-app"}
+	got := cfg.RunnerSocketPath()
+	want := filepath.Join("/data/daedalus", "my-app", ".daedalus", "runner.sock")
+	if got != want {
+		t.Errorf("RunnerSocketPath() = %q, want %q", got, want)
+	}
+}
+
 func TestConfig_UseTmux(t *testing.T) {
 	tests := []struct {
 		name   string

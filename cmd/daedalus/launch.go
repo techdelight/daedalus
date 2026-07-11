@@ -5,12 +5,13 @@ package main
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 
 	"github.com/techdelight/daedalus/core"
 	"github.com/techdelight/daedalus/internal/color"
+	"github.com/techdelight/daedalus/internal/coordinator"
 	"github.com/techdelight/daedalus/internal/docker"
+	"github.com/techdelight/daedalus/internal/executor"
 	"github.com/techdelight/daedalus/internal/logging"
 	"github.com/techdelight/daedalus/internal/platform"
 	"github.com/techdelight/daedalus/internal/registry"
@@ -21,11 +22,9 @@ import (
 // directly. It handles session tracking and DinD socket mounting.
 //
 // When DAEDALUS_USE_RUNNER=1 is set in the environment, the function
-// short-circuits to the runner-detached path: docker compose run is
-// launched with --detach and an entrypoint override that boots
-// daedalus-runner inside the container; the host then attaches via
-// the runclient Unix-socket bridge instead of tmux. This is the
-// migration scaffolding for the new architecture.
+// short-circuits to launchProjectViaRunner, which delegates the container
+// lifecycle to internal/coordinator and attaches through the runclient
+// Unix-socket bridge instead of tmux.
 func launchProject(cfg *core.Config, d *docker.Docker, reg *registry.Registry, sess *session.Session, useTmux bool) error {
 	if os.Getenv("DAEDALUS_USE_RUNNER") == "1" {
 		return launchProjectViaRunner(cfg, reg)
@@ -107,70 +106,36 @@ func launchProject(cfg *core.Config, d *docker.Docker, reg *registry.Registry, s
 	return runErr
 }
 
-// launchProjectViaRunner is the DAEDALUS_USE_RUNNER=1 path: spawn the
-// project container in detached mode with daedalus-runner as its
-// entrypoint, then attach via the runclient socket bridge. tmux is
-// not involved.
+// launchProjectViaRunner is the DAEDALUS_USE_RUNNER=1 path: ask the
+// coordinator to spawn the project container with daedalus-runner as
+// its entrypoint, then attach via the runclient socket bridge. tmux
+// is not involved.
 //
-// Lifecycle:
-//   - sets DAEDALUS_RUNNER and DAEDALUS_SOCKET in the compose env so
-//     entrypoint.sh dispatches to /usr/local/bin/daedalus-runner;
-//   - launches with `docker compose run --rm --detach`, leaving the
-//     container running as long as daedalus-runner is alive;
-//   - attaches to the bind-mounted Unix socket and drives stdio /
-//     resize / Ctrl-D detach against it;
-//   - exit code from the runner becomes the CLI's exit code.
+// The coordinator handles the lifecycle (compose env, `docker compose
+// run --rm --detach`, socket-readiness wait); attachToRunner handles
+// the host-terminal bridge to the returned socket.
 func launchProjectViaRunner(cfg *core.Config, reg *registry.Registry) error {
 	sessionID, sessionErr := reg.StartSession(cfg.ProjectName, cfg.Resume)
 	if sessionErr != nil {
 		fmt.Fprintf(os.Stderr, "%s session tracking: %v\n", color.Yellow("Warning:"), sessionErr)
 	}
 
-	// Socket lives under the per-project cache dir, which is bind-
-	// mounted at /home/claude inside the container. Same path on both
-	// sides modulo the bind-mount prefix.
-	sockHostDir := filepath.Join(cfg.CacheDir(), ".daedalus")
-	if err := os.MkdirAll(sockHostDir, 0o755); err != nil {
-		return fmt.Errorf("creating socket directory: %w", err)
-	}
-	sockHostPath := filepath.Join(sockHostDir, "runner.sock")
-	_ = os.Remove(sockHostPath) // stale socket from a previous run blocks bind
-
-	composeEnv := []string{
-		"PROJECT_DIR=" + cfg.ProjectDir,
-		"CACHE_DIR=" + cfg.CacheDir(),
-		"TARGET=" + cfg.Target,
-		"IMAGE=" + cfg.Image(),
-		"RUNNER=" + core.ResolveRunnerName(cfg),
-		"DAEDALUS_RUNNER=1",
-		"DAEDALUS_SOCKET=/home/claude/.daedalus/runner.sock",
-	}
-	if cfg.Debug {
-		composeEnv = append(composeEnv, "DAEDALUS_DEBUG=1")
-	}
-	if cfg.Resume != "" {
-		composeEnv = append(composeEnv, "DAEDALUS_RESUME="+cfg.Resume)
-	}
-	if cfg.Prompt != "" {
-		composeEnv = append(composeEnv, "DAEDALUS_PROMPT="+cfg.Prompt)
-	}
-
-	composeFile := filepath.Join(cfg.ScriptDir, "docker-compose.yml")
-	cmd := exec.Command(
-		"docker", "compose", "-f", composeFile,
-		"run", "--rm", "--detach", "--name", cfg.ContainerName(),
-		"claude",
-	)
-	cmd.Env = append(os.Environ(), composeEnv...)
-	cmd.Stdout = os.Stderr // container ID lands on stderr; keep stdout clean
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("docker compose run --detach: %w", err)
+	// The coordinator's session map is process-scoped: this CLI invocation
+	// owns exactly one runner session and exits when the user detaches.
+	// No coord.Stop on the way out — the container survives detach so the
+	// user can reattach (CLI or Web), and the in-memory map dies with us.
+	coord := coordinator.New(coordinator.Options{
+		Executor:    &executor.RealExecutor{},
+		ComposeFile: filepath.Join(cfg.ScriptDir, "docker-compose.yml"),
+	})
+	sess, err := coord.Start(cfg)
+	if err != nil {
+		return err
 	}
 
 	fmt.Fprintf(os.Stderr, "%s container started; attaching. Press Ctrl-D to detach.\n", color.Green("OK:"))
 
-	code, attachErr := attachToRunner(sockHostPath)
+	code, attachErr := attachToRunner(sess.SocketPath)
 
 	if sessionErr == nil {
 		if err := reg.EndSession(cfg.ProjectName, sessionID); err != nil {

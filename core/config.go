@@ -151,6 +151,16 @@ func (c *Config) ContainerLogPath() string {
 	return filepath.Join(c.DataDir, c.ProjectName, "container.log")
 }
 
+// RunnerSocketPath returns the host-side path of the daedalus-runner Unix
+// socket for this project. The path is bind-mounted into the container at
+// /home/claude/.daedalus/runner.sock; both sides agree because the parent
+// is just CacheDir() with a stable suffix. Used by the CLI runner-attach
+// path and the Web runner-mode handler so they stay in sync if the layout
+// ever moves.
+func (c *Config) RunnerSocketPath() string {
+	return filepath.Join(c.CacheDir(), ".daedalus", "runner.sock")
+}
+
 // UseTmux returns true if tmux should be used for this session.
 func (c *Config) UseTmux() bool {
 	if c.Prompt != "" || c.NoTmux {
