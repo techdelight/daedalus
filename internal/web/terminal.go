@@ -4,6 +4,7 @@ package web
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -14,6 +15,7 @@ import (
 	"syscall"
 
 	"github.com/techdelight/daedalus/core"
+	"github.com/techdelight/daedalus/internal/coordinator"
 	"github.com/techdelight/daedalus/internal/runclient"
 	"github.com/techdelight/daedalus/internal/session"
 
@@ -144,33 +146,38 @@ func (ws *WebServer) handleTerminalControl(w http.ResponseWriter, r *http.Reques
 }
 
 // handleTerminalRunner is the runner-mode alternative to handleTerminal.
-// It dials the project's daedalus-runner Unix socket via runclient and
-// bridges it with the WebSocket through runnerRelay. Activated by
-// ?mode=runner on the terminal WebSocket endpoint. Mirrors the CLI
-// runner-detached path in cmd/daedalus/launch.go.
+// It asks the coordinator daemon for the session's runner socket, dials
+// it via runclient, and bridges the WebSocket through runnerRelay.
+// Activated by ?mode=runner on the terminal WebSocket endpoint.
+//
+// The daemon is the source of truth for "does a runner session exist
+// for this project", so a stale socket file left over from a crashed
+// prior container no longer produces a misleading 200. Auto-spawns
+// the daemon if not already running (ssh-agent style), mirroring the
+// CLI runner-detached path in cmd/daedalus/launch.go.
 func (ws *WebServer) handleTerminalRunner(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 
-	entry, found, err := ws.registry.GetProject(name)
-	if err != nil {
+	if _, found, err := ws.registry.GetProject(name); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
-	}
-	if !found {
+	} else if !found {
 		http.Error(w, fmt.Sprintf("project %q not found", name), http.StatusNotFound)
 		return
 	}
 
-	projCfg := &core.Config{
-		ProjectName: name,
-		ScriptDir:   ws.cfg.ScriptDir,
-		DataDir:     ws.cfg.DataDir,
+	client, err := coordinator.EnsureRunning(coordinator.DefaultLayout(ws.cfg.DataDir, ws.cfg.ScriptDir))
+	if err != nil {
+		http.Error(w, fmt.Sprintf("coordinator unavailable: %v", err), http.StatusServiceUnavailable)
+		return
 	}
-	core.ApplyRegistryEntry(projCfg, entry)
-	sockPath := projCfg.RunnerSocketPath()
-
-	if _, statErr := os.Stat(sockPath); statErr != nil {
-		http.Error(w, fmt.Sprintf("no daedalus-runner socket for project %q at %s", name, sockPath), http.StatusNotFound)
+	sess, err := client.Get(name)
+	if err != nil {
+		if errors.Is(err, coordinator.ErrNotFound) {
+			http.Error(w, fmt.Sprintf("no runner session for project %q — start one with `DAEDALUS_USE_RUNNER=1 daedalus %s`", name, name), http.StatusNotFound)
+			return
+		}
+		http.Error(w, fmt.Sprintf("coordinator error: %v", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -181,7 +188,7 @@ func (ws *WebServer) handleTerminalRunner(w http.ResponseWriter, r *http.Request
 	}
 	defer conn.Close()
 
-	rc, err := runclient.Dial(sockPath)
+	rc, err := runclient.Dial(sess.SocketPath)
 	if err != nil {
 		conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("Failed to attach to runner: %v", err)))
 		conn.WriteMessage(websocket.CloseMessage,

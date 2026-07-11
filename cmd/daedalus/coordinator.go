@@ -5,8 +5,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -45,15 +43,13 @@ func manageCoordinator(cfg *core.Config) error {
 	}
 }
 
-// coordinatorPaths returns the well-known filesystem locations the
-// three subcommands share. Kept in one place so a future change to
-// the layout only edits here.
+// coordinatorPaths unpacks the shared coordinator.DefaultLayout into
+// the four fields the subcommands print in status messages. Layout
+// changes belong in coordinator.DefaultLayout — this helper only
+// projects them.
 func coordinatorPaths(cfg *core.Config) (sockPath, pidPath, logPath, daemonBin string) {
-	sockPath = coordinator.DefaultSocketPath(cfg.DataDir)
-	pidPath = filepath.Join(cfg.DataDir, ".daedalus", "coordinator.pid")
-	logPath = filepath.Join(cfg.DataDir, ".daedalus", "coordinator.log")
-	daemonBin = filepath.Join(cfg.ScriptDir, "daedalus-coordinator")
-	return
+	opts := coordinator.DefaultLayout(cfg.DataDir, cfg.ScriptDir)
+	return opts.SocketPath, opts.PIDPath, opts.LogPath, opts.DaemonBin
 }
 
 func coordinatorStart(cfg *core.Config) error {
@@ -64,57 +60,31 @@ func coordinatorStart(cfg *core.Config) error {
 		return nil
 	}
 
-	if _, err := os.Stat(daemonBin); err != nil {
-		return fmt.Errorf("daedalus-coordinator binary not found at %s: %w\nHint: rerun install.sh (v0.39.0+ ships the binary)", daemonBin, err)
+	if _, err := coordinator.EnsureRunning(bootstrapOpts(cfg)); err != nil {
+		return err
 	}
 
-	if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
-		return fmt.Errorf("create coordinator directory: %w", err)
-	}
-	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
-		return fmt.Errorf("open coordinator log: %w", err)
-	}
-	defer logFile.Close()
+	// EnsureRunning has already waited for the socket, so the pidfile
+	// is fresh by the time we get here.
+	pid, _ := readPIDIfAlive(pidPath)
+	fmt.Printf("%s coordinator started (PID %d, socket %s)\n", color.Green("OK:"), pid, sockPath)
+	fmt.Printf("       log: %s\n", logPath)
+	_ = daemonBin // referenced only through bootstrapOpts now
+	return nil
+}
 
-	cmd := exec.Command(daemonBin,
-		"--socket", sockPath,
-		"--data-dir", cfg.DataDir,
-		"--pid-file", pidPath,
-	)
-	// Setsid detaches from the CLI's process group so Ctrl-C on the
-	// spawning shell doesn't propagate to the daemon.
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-	cmd.Stdin = nil
-	cmd.Stdout = logFile
-	cmd.Stderr = logFile
+// ensureCoordinatorClient is the ssh-agent-style entry point for
+// callers that need a Client (launch flow, potentially the Web
+// runner-mode handler). Spawns the daemon if it isn't already up.
+func ensureCoordinatorClient(cfg *core.Config) (*coordinator.Client, error) {
+	return coordinator.EnsureRunning(bootstrapOpts(cfg))
+}
 
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("spawn daedalus-coordinator: %w", err)
-	}
-	// Release the child so it isn't zombied when the CLI exits.
-	if err := cmd.Process.Release(); err != nil {
-		// Non-fatal: the daemon is still running, we just leaked the
-		// handle. Note it and continue.
-		fmt.Fprintf(os.Stderr, "%s release child: %v\n", color.Yellow("Warning:"), err)
-	}
-
-	// Wait for the socket to appear before reporting success. The
-	// daemon's own startup path binds it before Serve loops, so this
-	// races only if the binary crashes on startup — in which case the
-	// deadline is the honest signal to point the user at the log.
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		if _, err := os.Stat(sockPath); err == nil {
-			fmt.Printf("%s coordinator started (PID %d, socket %s)\n", color.Green("OK:"), cmd.Process.Pid, sockPath)
-			fmt.Printf("       log: %s\n", logPath)
-			return nil
-		}
-		if time.Now().After(deadline) {
-			return fmt.Errorf("daemon did not open socket %s within 5s; check %s", sockPath, logPath)
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
+// bootstrapOpts is a thin passthrough to coordinator.DefaultLayout —
+// kept because the CLI has three call sites and this reads better than
+// inlining the layout construction each time.
+func bootstrapOpts(cfg *core.Config) coordinator.BootstrapOptions {
+	return coordinator.DefaultLayout(cfg.DataDir, cfg.ScriptDir)
 }
 
 func coordinatorStop(cfg *core.Config) error {

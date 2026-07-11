@@ -5,13 +5,10 @@ package main
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/techdelight/daedalus/core"
 	"github.com/techdelight/daedalus/internal/color"
-	"github.com/techdelight/daedalus/internal/coordinator"
 	"github.com/techdelight/daedalus/internal/docker"
-	"github.com/techdelight/daedalus/internal/executor"
 	"github.com/techdelight/daedalus/internal/logging"
 	"github.com/techdelight/daedalus/internal/platform"
 	"github.com/techdelight/daedalus/internal/registry"
@@ -107,28 +104,26 @@ func launchProject(cfg *core.Config, d *docker.Docker, reg *registry.Registry, s
 }
 
 // launchProjectViaRunner is the DAEDALUS_USE_RUNNER=1 path: ask the
-// coordinator to spawn the project container with daedalus-runner as
-// its entrypoint, then attach via the runclient socket bridge. tmux
-// is not involved.
+// coordinator daemon to spawn the project container with daedalus-runner
+// as its entrypoint, then attach via the runclient socket bridge.
+// tmux is not involved.
 //
-// The coordinator handles the lifecycle (compose env, `docker compose
-// run --rm --detach`, socket-readiness wait); attachToRunner handles
-// the host-terminal bridge to the returned socket.
+// The daemon owns the container lifecycle across CLI invocations, so
+// a second `daedalus <project>` invocation sees the existing session
+// via the daemon's Get. Auto-spawn (ssh-agent style) means the user
+// doesn't need to have started the daemon by hand.
 func launchProjectViaRunner(cfg *core.Config, reg *registry.Registry) error {
 	sessionID, sessionErr := reg.StartSession(cfg.ProjectName, cfg.Resume)
 	if sessionErr != nil {
 		fmt.Fprintf(os.Stderr, "%s session tracking: %v\n", color.Yellow("Warning:"), sessionErr)
 	}
 
-	// The coordinator's session map is process-scoped: this CLI invocation
-	// owns exactly one runner session and exits when the user detaches.
-	// No coord.Stop on the way out — the container survives detach so the
-	// user can reattach (CLI or Web), and the in-memory map dies with us.
-	coord := coordinator.New(coordinator.Options{
-		Executor:    &executor.RealExecutor{},
-		ComposeFile: filepath.Join(cfg.ScriptDir, "docker-compose.yml"),
-	})
-	sess, err := coord.Start(cfg)
+	client, err := ensureCoordinatorClient(cfg)
+	if err != nil {
+		return fmt.Errorf("coordinator: %w", err)
+	}
+
+	sess, err := client.Start(cfg)
 	if err != nil {
 		return err
 	}
