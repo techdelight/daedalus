@@ -2,23 +2,35 @@
 
 ## Current Sprint
 
-### Sprint 40: Coordinator-as-Daemon (v0.39.0)
+### Sprint 41: Trust-Prompt & Runner Terminal Fidelity (v0.40.0)
 
-Goal: promote `internal/coordinator` from an in-process, per-CLI-invocation map into a long-lived host daemon exposing a small local HTTP API over a Unix socket, so multiple UI processes (CLI, TUI, Web) discover and share the same set of live runner sessions. Second slice of Milestone 4.
+Goal: close the Web-UI-hangs-on-trust-prompt gap (Backlog #38) that blocks making the runner path the default. Two layers — (1) eliminate the redundant workspace-trust prompt inside the container (the container is already the trust boundary); (2) make the runner relay robust to any early one-shot full-screen prompt via initial PTY sizing and repaint-on-attach — then flip the runner path to default and retire the tmux launch path. Milestone 4 endgame.
 
 | # | Item | Status |
 |---|------|--------|
-| 1 | `internal/coordinator/daemon.go` — HTTP-over-UDS server exposing `POST /sessions`, `GET /sessions`, `GET /sessions/{name}`, `DELETE /sessions/{name}`. Reuses the existing `Coordinator` type. | Done |
-| 2 | Persist `sessions.json` under `DataDir/.daedalus/` — write on change, read on startup. Reconcile against `docker ps` at startup to drop dead entries. | Done |
-| 3 | `internal/coordinator/client.go` — Go client wrapping the HTTP API with the same method shape as `Coordinator`; callers switch by swapping constructor. | Done |
-| 4 | `cmd/daedalus-coordinator` — daemon binary. `daedalus coordinator start/stop/status` subcommands in the main CLI. Systemd unit + launchd plist under `contrib/`. | Done |
-| 5 | Rewire `launchProjectViaRunner` and Web `?mode=runner` to use the daemon client with auto-spawn (ssh-agent style). TUI list deferred — currently uses `docker.IsContainerRunning` directly, not `Coordinator`; migrating it is an enhancement rather than a rewire and can land in a follow-up. | Done |
-| 6 | Deprecate the in-process code path once callers are migrated; keep `Coordinator` intact as the daemon's internal engine. Achieved by absence of non-daemon callers — audit confirms `coordinator.New` has exactly one non-test caller (`cmd/daedalus-coordinator/main.go`). No API removed; the constructor is retained as the daemon's engine per plan. | Done |
-| 7 | Tests: real Unix-socket integration test that boots the daemon binary (`go build ./cmd/daedalus-coordinator`), spins up a mock `docker` shell script on PATH, and drives the full stack via the real Go client through Start / List / Get / duplicate-Start (ErrAlreadyRunning) / Stop / post-Stop-Get (ErrNotFound), then verifies sessions.json ends up empty. The fake HTTP transport variant was covered by the existing `newClient(url, http.Client)` seam plus httptest-backed daemon-handler tests in client_test.go. | Done |
+| 1 | Layer 1 — pre-seed workspace trust in the default `claude.json` (`projects["/workspace"].hasTrustDialogAccepted`) so Claude's "trust this folder?" dialog never fires inside the container | Done |
+| 2 | Layer 2a — initial PTY sizing in `daedalus-runner`: size the PTY at startup (default 80×24, `--cols`/`--rows`) instead of creack/pty's 0×0 default, routed through the hub, with unit tests | Done |
+| 3 | Layer 2b — repaint-on-attach: force a redraw / re-assert size when a client attaches (including same-size reattach) so one-shot dialogs render for late or second viewers | Todo |
+| 4 | End-to-end verification on real Docker + Claude — reproduce the hang, confirm both layers, parity checklist across CLI + Web (trust, `--resume` picker, credentials, copilot) | Todo |
+| 5 | Flip the runner path to default (drop `DAEDALUS_USE_RUNNER=1`) and retire the tmux launch path once parity is reached | Todo |
 
 ---
 
 ## Sprint History
+
+### Sprint 40: Coordinator-as-Daemon (v0.39.0)
+
+Delivered 2026-07-11. Second slice of Milestone 4. Promoted `internal/coordinator` from an in-process, per-CLI map into a long-lived host daemon (`daedalus-coordinator`) exposing an HTTP-over-Unix-socket API, with a Go client, ssh-agent-style auto-spawn, and `sessions.json` persistence reconciled against `docker ps` across restarts. CLI and Web both attach through the daemon, so runner sessions are host-wide discoverable.
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | `internal/coordinator/daemon.go` — HTTP-over-UDS server (`POST`/`GET`/`GET {name}`/`DELETE /sessions`), reusing the `Coordinator` type | Done |
+| 2 | `sessions.json` persistence under `DataDir/.daedalus/` — write-on-change, load + `docker ps` reconcile at startup | Done |
+| 3 | `internal/coordinator/client.go` — Go client mirroring the `Coordinator` method shape; swap by constructor | Done |
+| 4 | `cmd/daedalus-coordinator` daemon binary + `daedalus coordinator start/stop/status`; systemd unit + launchd plist under `contrib/` | Done |
+| 5 | Rewire CLI `launchProjectViaRunner` and Web `?mode=runner` to the daemon client with ssh-agent-style auto-spawn (TUI list deferred) | Done |
+| 6 | Deprecate the in-process path; retain `Coordinator` as the daemon's engine (one non-test caller) | Done |
+| 7 | Real Unix-socket integration test booting the daemon binary against a mock `docker` on PATH, driving Start/List/Get/dup-Start/Stop/Get | Done |
 
 ### Sprint 39: Runner Foundation & Foreman Removal (v0.38.0)
 

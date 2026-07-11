@@ -4,6 +4,34 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+Sprint 41 (Trust-Prompt & Runner Terminal Fidelity) — Milestone 4
+endgame groundwork. Closes the first two layers of the
+Web-UI-hangs-on-trust-prompt gap (Backlog #38) that blocks making the
+runner path the default. Still opt-in via `DAEDALUS_USE_RUNNER=1`.
+
+### Added
+- **Workspace trust pre-seeded in the default `claude.json`** —
+  `projects["/workspace"].hasTrustDialogAccepted` (plus
+  `hasCompletedProjectOnboarding`) so Claude's "Do you trust the files
+  in this folder?" dialog never fires inside the container. The
+  container is already the trust boundary (non-root, all caps dropped,
+  `no-new-privileges`, user-opted-in), so the prompt is redundant.
+- **`daedalus-runner --cols/--rows` flags** (default 80×24). The PTY is
+  now sized at startup, before the agent launches, instead of
+  inheriting creack/pty's 0×0 default — so a one-shot startup prompt
+  (e.g. the trust dialog) renders into a real terminal rather than a
+  void. Routed through the hub to preserve its "hub owns all PTY-size
+  mutations" invariant; covered by two new hub tests.
+
+### Notes
+- Pre-seeded trust is not always honoured across Claude Code versions
+  (upstream anthropics/claude-code#9113), so it is a first line of
+  defence paired with the runner-side sizing fix, not relied on alone.
+- Remaining for #38 and the runner-default switch: repaint-on-attach
+  (force a redraw when a client attaches, including same-size reattach),
+  end-to-end verification on real Docker + Claude, then flipping the
+  runner path to default and retiring the tmux launch path.
+
 ## [0.39.0] - 2026-07-11
 
 Sprint 40 (Coordinator-as-Daemon) — the second Milestone 4 slice.
