@@ -128,9 +128,11 @@ var ErrNotFound = errors.New("coordinator: no session for project")
 //
 // Lifecycle:
 //   - mkdir + cleanup of the socket directory (stale sockets block bind);
-//   - `docker compose -f <file> run --rm --detach --name <ctr> claude`
-//     with DAEDALUS_RUNNER=1 and DAEDALUS_SOCKET set in the env, so
-//     entrypoint.sh dispatches to /usr/local/bin/daedalus-runner;
+//   - `docker compose -f <file> run --rm --detach -e DAEDALUS_RUNNER=1
+//     -e DAEDALUS_SOCKET=... --name <ctr> claude`, so entrypoint.sh
+//     dispatches to /usr/local/bin/daedalus-runner. The DAEDALUS_* vars
+//     must be -e flags — docker-compose.yml references none of them, so
+//     the docker CLI's process env alone never reaches the container;
 //   - poll for the host-visible socket file until it appears or the
 //     SocketWait deadline expires (the container may still be coming up
 //     after `run --detach` returns).
@@ -152,11 +154,14 @@ func (c *Coordinator) Start(cfg *core.Config) (*Session, error) {
 	_ = os.Remove(sockPath) // stale socket from a previous run blocks bind
 
 	env := composeEnv(cfg)
-	args := []string{
-		"compose", "-f", c.composeFile,
-		"run", "--rm", "--detach", "--name", containerName,
-		"claude",
+	args := []string{"compose", "-f", c.composeFile, "run", "--rm", "--detach"}
+	// The DAEDALUS_* vars must reach the CONTAINER, so they are -e flags,
+	// not process env: docker-compose.yml interpolates none of them, so
+	// composeEnv alone would leave the entrypoint on the classic path.
+	for _, kv := range runnerContainerEnv(cfg) {
+		args = append(args, "-e", kv)
 	}
+	args = append(args, "--name", containerName, "claude")
 	if err := c.exec.RunWithEnv(env, "docker", args...); err != nil {
 		return nil, fmt.Errorf("docker compose run --detach: %w", err)
 	}
@@ -235,32 +240,51 @@ func (c *Coordinator) Stop(name string) error {
 	return nil
 }
 
-// composeEnv builds the env-var slice the runner-detached compose run
-// needs. PROJECT_DIR / CACHE_DIR / TARGET / IMAGE / RUNNER mirror the
-// regular compose path; DAEDALUS_RUNNER + DAEDALUS_SOCKET tell the
-// container's entrypoint to launch daedalus-runner instead of the
-// runner CLI directly. DAEDALUS_DEBUG / RESUME / PROMPT are forwarded
-// when set so the runner can wire them into the agent.
+// containerSocketPath is where daedalus-runner binds its Unix socket
+// INSIDE the container. The compose mount `${CACHE_DIR}:/home/claude`
+// maps it to the host path cfg.RunnerSocketPath(), which Start polls.
+const containerSocketPath = "/home/claude/.daedalus/runner.sock"
+
+// composeEnv builds the process environment for the `docker` CLI. These
+// vars are consumed by docker-compose for ${VAR} interpolation inside
+// docker-compose.yml (IMAGE, the volume mounts, RUNNER) — they do NOT
+// automatically reach the container. Anything the *container* must see
+// has to be an explicit `-e` flag on `docker compose run`; see
+// runnerContainerEnv.
 func composeEnv(cfg *core.Config) []string {
-	env := []string{
+	return []string{
 		"PROJECT_DIR=" + cfg.ProjectDir,
 		"CACHE_DIR=" + cfg.CacheDir(),
 		"TARGET=" + cfg.Target,
 		"IMAGE=" + cfg.Image(),
 		"RUNNER=" + core.ResolveRunnerName(cfg),
+	}
+}
+
+// runnerContainerEnv returns the KEY=VALUE pairs that must be injected
+// INTO the container so entrypoint.sh dispatches to daedalus-runner
+// instead of exec'ing claude directly. They are passed as
+// `docker compose run -e KEY=VALUE` flags — deliberately NOT via
+// composeEnv: that slice is only the docker CLI's process environment,
+// which compose uses solely for ${VAR} interpolation, and
+// docker-compose.yml references none of these. Passing them as -e is
+// what actually reaches the container (and, unlike interpolation, is
+// assertable in a unit test).
+func runnerContainerEnv(cfg *core.Config) []string {
+	kv := []string{
 		"DAEDALUS_RUNNER=1",
-		"DAEDALUS_SOCKET=/home/claude/.daedalus/runner.sock",
+		"DAEDALUS_SOCKET=" + containerSocketPath,
 	}
 	if cfg.Debug {
-		env = append(env, "DAEDALUS_DEBUG=1")
+		kv = append(kv, "DAEDALUS_DEBUG=1")
 	}
 	if cfg.Resume != "" {
-		env = append(env, "DAEDALUS_RESUME="+cfg.Resume)
+		kv = append(kv, "DAEDALUS_RESUME="+cfg.Resume)
 	}
 	if cfg.Prompt != "" {
-		env = append(env, "DAEDALUS_PROMPT="+cfg.Prompt)
+		kv = append(kv, "DAEDALUS_PROMPT="+cfg.Prompt)
 	}
-	return env
+	return kv
 }
 
 // waitForSocket polls for path to appear on disk. The runner-detached

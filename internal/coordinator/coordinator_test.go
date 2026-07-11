@@ -107,10 +107,10 @@ func TestStart_PassesRunnerEnv(t *testing.T) {
 	cfg.Prompt = "fix the bug"
 	cfg.Debug = true
 
-	var capturedEnv []string
+	var capturedArgs []string
 	exec := newSpyExec()
-	exec.onRunWithEnv = func(env []string, _ string, _ ...string) {
-		capturedEnv = append([]string(nil), env...)
+	exec.onRunWithEnv = func(_ []string, _ string, args ...string) {
+		capturedArgs = append([]string(nil), args...)
 		touchSocket(t, cfg.RunnerSocketPath())
 	}
 	c := newTestCoordinator(t, exec)
@@ -119,21 +119,28 @@ func TestStart_PassesRunnerEnv(t *testing.T) {
 		t.Fatalf("Start: %v", err)
 	}
 
+	// The runner env must reach the CONTAINER as `docker compose run -e`
+	// flags. Passing them only as the docker CLI's process env (which
+	// docker-compose.yml never interpolates) leaves the entrypoint on the
+	// classic path and the runner socket never appears — the exact bug
+	// this guards against.
 	want := map[string]bool{
-		"DAEDALUS_RUNNER=1":                              false,
+		"DAEDALUS_RUNNER=1":                                  false,
 		"DAEDALUS_SOCKET=/home/claude/.daedalus/runner.sock": false,
-		"DAEDALUS_DEBUG=1":                               false,
-		"DAEDALUS_RESUME=abc123":                         false,
-		"DAEDALUS_PROMPT=fix the bug":                    false,
+		"DAEDALUS_DEBUG=1":                                   false,
+		"DAEDALUS_RESUME=abc123":                             false,
+		"DAEDALUS_PROMPT=fix the bug":                        false,
 	}
-	for _, e := range capturedEnv {
-		if _, ok := want[e]; ok {
-			want[e] = true
+	for i, a := range capturedArgs {
+		if a == "-e" && i+1 < len(capturedArgs) {
+			if _, ok := want[capturedArgs[i+1]]; ok {
+				want[capturedArgs[i+1]] = true
+			}
 		}
 	}
 	for k, seen := range want {
 		if !seen {
-			t.Errorf("missing env var %q", k)
+			t.Errorf("runner env %q not passed as a `-e` flag to `docker compose run`", k)
 		}
 	}
 }
