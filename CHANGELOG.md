@@ -4,74 +4,138 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.38.0] - 2026-07-11
+
+Foundation release for Milestone 4 (Layered Runner / Coordinator
+Architecture). A new `daedalus-runner` PID-1 binary runs inside the
+project container and speaks a socket-based wire protocol to the
+host; CLI and Web can both attach through it. The runner path is
+opt-in via `DAEDALUS_USE_RUNNER=1` — the default launch path is
+unchanged. Foreman was removed to clear the way. Ships alongside
+large refactors of `main.go`, `web.go`, `tui/`, and `registry.go`
+into topic files, plus support for parallel test installs.
+
 ### Added
-- **`internal/coordinator` package** — host-side lifecycle owner for
-  runner-attached containers. The `Coordinator` type tracks live
-  sessions in-process (no daemon, no persistence yet) and exposes
-  `Start(cfg) → *Session`, `Get(name)`, `List()`, `Stop(name)`. Start
-  prepares the runner socket directory, runs `docker compose run --rm
-  --detach` with `DAEDALUS_RUNNER=1`, and waits for the bind-mounted
-  socket to appear before returning. Replaces what tmux used to do
-  for the legacy launch path — owning "where this session lives, how
-  to find it" — without any tmux involvement. Covered by 12 unit
-  tests using a spy executor that materialises the socket on demand,
-  including a real `net.Listen("unix",…)` smoke test for the
-  socket-readiness wait.
-- **Web terminal `?mode=runner`** — third terminal mode alongside the
-  default PTY relay and `?mode=control` (tmux control mode). Dials the
-  project's `daedalus-runner` Unix socket via `internal/runclient` and
-  bridges it with the WebSocket through a new `runnerRelay`
-  (`internal/web/runner_relay.go`). Mirrors the CLI runner-detached
-  path that already lives behind `DAEDALUS_USE_RUNNER=1`, so a project
-  launched via the runner can be attached from CLI and Web at the same
-  time. Requires the project to have been started with the runner path;
-  the handler returns 404 if the host-side socket isn't present yet.
-  Uses `core.Config.RunnerSocketPath()` so the CLI launch path and the
-  Web handler agree on the layout.
-- **Parallel test installs** — `setup.sh` and `install.sh` now accept
+- **`daedalus-runner`** — standalone PID-1 binary that owns the PTY
+  inside the project container and fans its output out to any number
+  of connected UNIX-socket clients. Installed into the container
+  image at build time.
+- **`internal/runproto`** — host ↔ runner wire protocol: `Hello`,
+  `Output`, `Input`, `Resize`, length-prefixed on a single Unix
+  socket.
+- **`internal/runclient`** — host-side socket client. Dials the
+  runner, replays scrollback from the hello frame, and exposes
+  `Read` / `Write` / `Resize` / `Detach`.
+- **Per-runner adapter layer (`internal/runner`)** — `Adapter`
+  interface with `claude` and `copilot` implementations. Decouples
+  the runner binary from the specific coding agent it launches.
+- **`internal/coordinator`** — host-side lifecycle owner for
+  runner-attached containers. `Coordinator.{Start,Get,List,Stop}`
+  prepares the socket directory, runs `docker compose run --rm
+  --detach` with `DAEDALUS_RUNNER=1`, waits for the bind-mounted
+  socket to appear, and tracks live sessions in-process (no daemon,
+  no persistence yet). Replaces the "where does this session live"
+  role tmux used to play. Covered by 12 unit tests including a real
+  `net.Listen("unix", …)` smoke test.
+- **CLI runner path** — `DAEDALUS_USE_RUNNER=1` short-circuits
+  `launchProject` to `launchProjectViaRunner`: the coordinator
+  spawns the container, the host attaches through runclient. tmux is
+  not involved.
+- **Web terminal `?mode=runner`** — third terminal mode alongside
+  the default PTY relay and `?mode=control` (tmux control mode).
+  Dials the project's `daedalus-runner` Unix socket via
+  `internal/runclient` and bridges it with the WebSocket through
+  `runnerRelay`. Requires the project to have been started with the
+  runner path; the handler returns 404 otherwise. Concurrent CLI +
+  Web attach works because the runner fans out.
+- **Parallel test installs** — `install.sh` and `setup.sh` accept
   `--link-name`, `--container-prefix`, `--tmux-prefix`, and
-  `--image-prefix`. The first lets a second install symlink as
-  `daedalus-test` (or any name) instead of overwriting the
-  production `daedalus` link. The next three populate
-  `container-prefix`, `tmux-prefix`, and `image-prefix` keys in the
-  generated `config.json`, which the CLI reads via `core.AppConfig`
-  and applies through `core.Config.ContainerName()` /
-  `core.Config.TmuxSession()`. `setup.sh` also stages
-  `daedalus-runner` into PREFIX so the Dockerfile COPY succeeds when
-  building the image from a custom location. See CONTRIBUTING.md
-  "Parallel Test Installs" for the full workflow.
+  `--image-prefix`. Populates `container-prefix` / `tmux-prefix` /
+  `image-prefix` keys in `config.json`; `core.Config` honours them
+  via `ContainerName()` and `TmuxSession()`. `setup.sh` also stages
+  `daedalus-runner` into `PREFIX` so the Dockerfile COPY succeeds
+  when building the image from a custom location. See CONTRIBUTING.md
+  "Parallel Test Installs".
+- **`/sprints`, `/backlog`, `/strategic-roadmap` Web endpoints** —
+  three REST handlers matching the post doc-split frontend, which had
+  been calling these URLs since v0.37 even though only the legacy
+  `/roadmap` was registered. `/sprints` reads `SPRINTS.md` with
+  fallback to `ROADMAP.md`, `/backlog` parses `BACKLOG.md` via
+  `core.ParseBacklog`, `/strategic-roadmap` returns the raw
+  `ROADMAP.md` content. `/roadmap` remains as an alias with the same
+  SPRINTS-first fallback.
+- **`core.Config.RunnerSocketPath()`** — single source of truth for
+  the runner socket path; CLI and Web share it.
+- **`.daedalus/` runtime state** — now covered by `.gitignore`.
 
 ### Changed
 - **`launchProjectViaRunner` delegates to coordinator** — the
-  `cmd/daedalus/launch.go` runner-detached path no longer inlines
-  `docker compose run --detach` or the env-var assembly. It calls
-  `coordinator.Start(cfg)` and attaches to the returned
-  `Session.SocketPath` via runclient. The lifecycle now lives in
-  one testable place.
+  inline compose env, `--detach`, and socket-poll are gone from
+  `cmd/daedalus/launch.go`; the lifecycle lives in
+  `internal/coordinator` in one testable place.
+- **Split `cmd/daedalus/main.go` dispatcher** — 1674-line file with
+  all 13 subcommand handlers inlined → 12 topic files
+  (`build.go`, `launch.go`, `resolve.go`, `clone.go`,
+  `config_cmd.go`, `usage.go`, `list.go`, `persona.go`, `runners.go`,
+  `programmes.go`, `skills.go`, `foreman.go`) plus a 171-line
+  dispatcher. No behaviour change. (Backlog #50)
+- **Split `internal/web/web.go` god-object** — 1196 lines / 31
+  methods across 6 unrelated domains → topic files
+  (`projects.go`, `dashboard.go`, `roadmap.go`, `programmes.go`,
+  `terminal.go`, `control_relay.go`, `runner_relay.go`). `web.go` is
+  now a 169-line orchestrator listing every route in one place.
+  No behaviour change. (Backlog #49)
+- **Extracted `controlRelay` from `handleTerminalControl`** — the
+  ~200-line WebSocket handler that mixed protocol handling with the
+  tmux control-mode relay became `controlRelay` in
+  `internal/web/control_relay.go` with focused methods.
+  `handleTerminalControl` is now ~40 lines. No behaviour change.
+- **Split `internal/tui/tui.go` and `core/registry.go`** — the same
+  topic-file treatment for the TUI (`commands.go`, `model.go`,
+  `view.go`, mode files, `styles.go`) and registry. No behaviour
+  change.
+- **Deduplicated `ShellQuote`** — removed
+  `internal/session.ShellQuote` (a copy of `core.ShellQuote`) and
+  routed `internal/session` and `internal/web` through
+  `core.ShellQuote`. Per ARCHITECTURE/CONTRIBUTING, command builders
+  belong in `core/`.
 
 ### Fixed
-- **Runner-attach race on `DAEDALUS_USE_RUNNER=1`** — the runner-
-  detached launch used to dial the bind-mounted socket immediately
-  after `docker compose run --detach` returned, but `runclient.Dial`
-  does not retry, so a slow container start would fail the attach.
-  `coordinator.Start` now waits for the socket to appear (poll, 30s
-  default) before returning, closing the race.
+- **Runner-attach race on `DAEDALUS_USE_RUNNER=1`** —
+  `runclient.Dial` did not retry, so a slow container start could
+  fail the attach. `coordinator.Start` now waits for the socket to
+  appear (30s poll) before returning.
+- **Large paste kills WebSocket** — pasting text containing newlines
+  (or any multiline input on mobile) terminated the tmux control-mode
+  `send-keys` command at the first `\n`, desyncing the response
+  queue and dropping the WebSocket connection. Added
+  `core.BuildControlSendKeys` which translates newlines to `Enter`
+  keystrokes and uses `send-keys -l` (literal) for non-newline
+  content, keeping the resulting command on one line.
+  (Backlog #47, #48)
+- **Project-detail roadmap panels stayed empty** — after the v0.37
+  doc split, the project-detail view fetched `/sprints`, `/backlog`,
+  and `/strategic-roadmap`, all of which 404'd because only the old
+  `/roadmap` route was wired up. Adding the three handlers restores
+  the panels. (Backlog #34)
+- **`install.sh` recorded `"version": "unknown"`** — the shipped
+  `config.json` template had an empty `"version"` field and no code
+  patched it before handing off to `setup.sh`. `install.sh` now
+  sed's the release tag (with the leading `v` stripped) into
+  `config.json` before invoking `setup.sh`.
 
 ### Removed
-- **Foreman deprecated** — the in-process AI project manager (`internal/foreman/`, `core/foreman.go`, `internal/web/foreman.go`, `cmd/daedalus/foreman.go`) and its surrounding cascade machinery were removed wholesale. The `daedalus foreman` CLI subcommand, `/api/foreman/*` HTTP routes, `daedalus programmes cascade` subcommand, `CascadeStrategy` type and `DependencyEdge.Strategy` field are all gone. The Web UI's Foreman view (and the programme-management form embedded in it) is removed; programme CRUD remains via CLI and `/api/programmes/*`. Done as preparation for the layered runner-adapter / daedalus-runner / tmux-coordinator architecture.
-
-### Added
-- **`/sprints`, `/backlog`, `/strategic-roadmap` web endpoints** — three new REST handlers in `internal/web` matching the post doc-split frontend, which had been calling these URLs since v0.37 even though only the legacy `/roadmap` was registered. `/sprints` reads `SPRINTS.md` with fallback to `ROADMAP.md`, `/backlog` parses `BACKLOG.md` via `core.ParseBacklog`, `/strategic-roadmap` returns the raw `ROADMAP.md` content. The legacy `/roadmap` route now also uses the SPRINTS-first fallback and remains as an alias.
-
-### Fixed
-- **Project-detail roadmap panels stayed empty** — after the v0.37 doc split, the project-detail view fetched `/sprints`, `/backlog`, and `/strategic-roadmap`, all of which 404'd because only the old `/roadmap` route was wired up. Panels stayed hidden or showed "not found". Adding the three handlers restores the panels. (Backlog #34)
-- **Large paste kills WebSocket** — pasting text containing newlines (or any multiline input on mobile) terminated the tmux control-mode `send-keys` command at the first `\n`, desyncing the response queue and dropping the WebSocket connection. Added `core.BuildControlSendKeys` which translates newlines to `Enter` keystrokes and uses `send-keys -l` (literal) for non-newline content, keeping the resulting command on a single line. (Backlog #47, #48)
-
-### Changed
-- **Split `cmd/daedalus/main.go` dispatcher** — the 1674-line file inlined all 13 subcommand handlers, the project-resolution flow, git cloning, build orchestration, and persona overlay logic. Split into 12 topic files within the `main` package: `build.go`, `launch.go`, `resolve.go`, `clone.go`, `config_cmd.go`, `usage.go`, `list.go` (list/prune/remove/rename), `persona.go`, `runners.go`, `programmes.go`, `skills.go`, `foreman.go`. `main.go` is now a 171-line dispatcher: `main()` and `run()` only. No behaviour change. (Backlog #50)
-- **Extracted `controlRelay` from `handleTerminalControl`** — the 200-line WebSocket handler in `internal/web/terminal.go` mixed protocol handling with the tmux control-mode relay (FIFO response-type queue, reader goroutine, writer goroutine). Moved the relay into a new `controlRelay` type in `internal/web/control_relay.go` with focused methods (`Run`, `sendTracked`, `dequeueType`, `readTmux`, `readWebSocket`, `dispatchTextMessage`, `sendKeys`). `handleTerminalControl` is now ~40 lines: project lookup, WebSocket upgrade, ControlSession setup, then `newControlRelay(...).Run()`. No behaviour change.
-- **Split `internal/web/web.go` god-object** — the 1196-line file with 31 methods spanning 6 unrelated domains was split into topic files within the `web` package: `projects.go` (lifecycle), `dashboard.go` (dashboard / state / guild), `roadmap.go` (sprints / backlog / strategic-roadmap), `foreman.go`, `programmes.go`, `terminal.go` (PTY + control-mode WebSocket relay). `web.go` is now a 169-line orchestrator: `WebServer` struct, `Run()`, and `registerRoutes()` (which lists every URL in one place). No behaviour change. (Backlog #49)
-- **Deduplicated `ShellQuote`** — removed `internal/session.ShellQuote` (a copy of `core.ShellQuote`) and routed `internal/session` and `internal/web` through `core.ShellQuote`. Per ARCHITECTURE/CONTRIBUTING, command builders belong in `core/`.
+- **Foreman** — the in-process AI project manager
+  (`internal/foreman/`, `core/foreman.go`,
+  `internal/web/foreman.go`, `cmd/daedalus/foreman.go`) and the
+  surrounding cascade machinery were removed wholesale. The
+  `daedalus foreman` CLI subcommand, `/api/foreman/*` HTTP routes,
+  `daedalus programmes cascade` subcommand, `CascadeStrategy` type,
+  and `DependencyEdge.Strategy` field are all gone. The Web UI's
+  Foreman view (and the programme-management form embedded in it) is
+  removed; programme CRUD remains via CLI and `/api/programmes/*`.
+  Done to clear the way for the runner-adapter / daedalus-runner /
+  coordinator architecture.
 
 ## [0.37.0] - 2026-04-18
 

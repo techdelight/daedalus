@@ -2,9 +2,40 @@
 
 ## Current Sprint
 
+_Planning in progress — see BACKLOG.md and ROADMAP.md Milestone 4 for candidate work._
+
+---
+
+## Sprint History
+
+### Sprint 39: Runner Foundation & Foreman Removal (v0.38.0)
+
+Delivered 2026-07-11. First slice of Milestone 4 (Layered Runner / Coordinator Architecture). New `daedalus-runner` PID-1 binary inside the container, `runproto` wire protocol, host-side `runclient` and `coordinator`, and CLI + Web attach paths (`DAEDALUS_USE_RUNNER=1`, `?mode=runner`). Foreman removed wholesale. Large god-object refactors of `main.go`, `web.go`, `tui/`, and `registry.go`. Parallel test installs. `install.sh` version-recording fix.
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | `internal/runproto` — host ↔ runner wire protocol (`Hello`, `Output`, `Input`, `Resize`) | Done |
+| 2 | `cmd/daedalus-runner` — PID-1 binary owning the container PTY with socket fanout | Done |
+| 3 | `internal/runclient` — host-side socket client with scrollback replay and detach | Done |
+| 4 | `internal/runner` — per-runner `Adapter` interface plus `claude` and `copilot` implementations | Done |
+| 5 | `internal/coordinator` — host-side lifecycle owner: `Start` / `Get` / `List` / `Stop` with docker-compose-run and socket-readiness wait | Done |
+| 6 | CLI runner path — `DAEDALUS_USE_RUNNER=1` short-circuits `launchProject` to `launchProjectViaRunner`, attaching via runclient | Done |
+| 7 | Web terminal `?mode=runner` — `runnerRelay` bridges the runner socket to the browser WebSocket | Done |
+| 8 | Foreman deprecated wholesale — CLI subcommand, HTTP routes, cascade machinery, Web view all removed | Done |
+| 9 | Refactor: split `cmd/daedalus/main.go` (1674 → 171 line dispatcher + 12 topic files) (Backlog #50) | Done |
+| 10 | Refactor: split `internal/web/web.go` god-object (1196 lines / 31 methods → topic files) (Backlog #49) | Done |
+| 11 | Refactor: extract `controlRelay` from `handleTerminalControl` | Done |
+| 12 | Refactor: split `internal/tui/tui.go` and `core/registry.go` into topic files | Done |
+| 13 | Refactor: deduplicate `ShellQuote` — route `session` and `web` through `core` | Done |
+| 14 | Parallel test installs — `--link-name`, `--container-prefix`, `--tmux-prefix`, `--image-prefix` on `install.sh`/`setup.sh` with matching `core.Config` support | Done |
+| 15 | Web endpoints `/sprints`, `/backlog`, `/strategic-roadmap` to match post doc-split frontend (Backlog #34) | Done |
+| 16 | Fix: runner-attach race — coordinator waits for socket before returning | Done |
+| 17 | Fix: large paste kills WebSocket in tmux control mode (Backlog #47, #48) | Done |
+| 18 | Fix: `install.sh` recorded `"version": "unknown"` — patch release tag into `config.json` before `setup.sh` | Done |
+
 ### Sprint 38: Document Structure Split (v0.37.0)
 
-Goal: separate the monolithic ROADMAP.md into three purpose-specific files — ROADMAP.md (strategic milestones), BACKLOG.md (prioritised work items), SPRINTS.md (sprint execution) — and update all parsers, MCP tools, and MCP client to support the new structure.
+Delivered 2026-04-18. Separated the monolithic ROADMAP.md into three purpose-specific files — ROADMAP.md (strategic milestones), BACKLOG.md (prioritised work items), SPRINTS.md (sprint execution) — and updated all parsers, MCP tools, and the MCP client to support the new structure.
 
 | # | Item | Status |
 |---|------|--------|
@@ -14,10 +45,6 @@ Goal: separate the monolithic ROADMAP.md into three purpose-specific files — R
 | 4 | `cmd/project-mgmt-mcp/` — new `get_sprints`, `get_backlog`, `get_strategic_roadmap` MCP tools with `readSprintsFile()` fallback (SPRINTS.md → ROADMAP.md), with tests | Done |
 | 5 | `internal/mcpclient/` — update MCP client methods for new tool names and add new methods for backlog and strategic roadmap, with tests | Done |
 | 6 | Documentation — SPRINTS.md structure cleanup, VERSION, CHANGELOG | Done |
-
----
-
-## Sprint History
 
 ### Sprint 37: History Mode UX & Bug Fixes (v0.33.0)
 
