@@ -2,7 +2,7 @@
 
 ## End Goal
 
-Daedalus orchestrates multiple coding agents (Claude Code, Copilot CLI, ...) across a programme of projects through a layered runtime: a uniform runner-adapter shim, a daedalus-runner process inside each tmux session, a central tmux coordinator, and thin CLI/TUI/Web UIs.
+Daedalus orchestrates multiple coding agents (Claude Code, Copilot CLI, ...) across a programme of projects through a layered runtime: a uniform runner-adapter shim, a `daedalus-runner` PID-1 process inside each container, a host-side `daedalus-coordinator` daemon that owns session lifecycles, and thin CLI/TUI/Web UIs that discover sessions through the daemon's HTTP-over-UDS API.
 
 ## Milestones
 
@@ -40,8 +40,11 @@ Runtime        Topology       Fidelity      Stack                Operations
 
 ## Current Focus
 
-Milestone 4: Layered Runner / Coordinator Architecture. v0.38.0 shipped the foundation — `daedalus-runner` PID-1 binary inside the container, `runproto` wire protocol, host-side `runclient`, per-runner adapters, and an in-process `coordinator`. CLI (`DAEDALUS_USE_RUNNER=1`) and Web (`?mode=runner`) can both attach through the runner socket today, opt-in.
+Milestone 4: Layered Runner / Coordinator Architecture, mid-flight.
 
-Remaining for M4: promote the coordinator from in-process to a daemon with a local API and session persistence, migrate the TUI onto the same API, make the runner path the default, and retire the tmux launch path once feature parity is reached.
+- **v0.38.0** shipped the runner foundation — `daedalus-runner` PID-1 binary, `runproto` wire protocol, host-side `runclient`, per-runner adapters, and an in-process `coordinator`. CLI (`DAEDALUS_USE_RUNNER=1`) and Web (`?mode=runner`) can attach through the runner socket today, opt-in.
+- **v0.39.0** (Sprint 40, complete on `master` awaiting release) promoted the coordinator to a real daemon: `daedalus-coordinator` binary with an HTTP-over-Unix-socket API, a Go client, ssh-agent-style auto-spawn, and `sessions.json` persistence with `docker ps` reconciliation across restarts. The CLI and Web both go through the daemon; sessions are now host-wide discoverable.
+
+Remaining for M4: migrate the TUI list to the coordinator client, make the runner path the default (drop `DAEDALUS_USE_RUNNER=1`), retire the tmux launch path once feature parity is reached, and address the trust-prompt handling gap that surfaces under the runner path (Backlog #38).
 
 See `BACKLOG.md` for work items and `SPRINTS.md` for sprint execution.

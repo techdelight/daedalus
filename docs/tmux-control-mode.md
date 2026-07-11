@@ -1,6 +1,19 @@
 # tmux Control Mode Integration — Design Document
 
-## Status: Approved for phased implementation
+## Status: Delivered (v0.31.0 – v0.33.0, Sprints 35–37 / Milestone 3)
+
+Shipped in `internal/session/control.go` (parser + `ControlSession` type)
+and `internal/web/control_relay.go` (Web UI relay). Activate in the
+browser via `?mode=control` on the terminal WebSocket endpoint.
+
+The runner path introduced in v0.38.0 (Milestone 4) is the successor
+architecture — it replaces both the raw PTY relay and control mode with
+a per-container `daedalus-runner` PID-1 process. Control mode remains
+active for the classic tmux launch path and will be retired alongside
+that path once the runner path reaches feature parity.
+
+---
+
 
 ## Problem
 

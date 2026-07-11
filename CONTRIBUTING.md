@@ -222,16 +222,37 @@ It contains:
 - Command builders (`ComposeRunArgs`, `ShellQuote`, `BuildTmuxCommand`)
 - Time helpers (`RelativeTime`)
 
-### Main Package (I/O Boundary)
+### I/O Boundary Packages (`internal/`)
 
-All side effects live in the main package:
-- `Executor` interface abstracts shell commands (with `MockExecutor` for tests)
-- `Registry` reads/writes JSON files
-- `DockerClient` runs `docker` commands
-- `SessionManager` manages tmux sessions
-- `WebServer` handles HTTP/WebSocket
+All side effects live under `internal/`:
 
-**Rule**: If a function needs `os`, `exec`, or `net`, it belongs in the main package, not `core/`.
+- `executor` — shell command abstraction with `MockExecutor` for tests
+- `registry` — project registry JSON I/O
+- `docker` — `docker` CLI wrapper
+- `session` — tmux session management (classic launch path)
+- `coordinator` — host-side runner-container lifecycle owner. In-process
+  `Coordinator` (used by `cmd/daedalus-coordinator`), HTTP-over-UDS
+  `Server`, Go `Client`, and `EnsureRunning` ssh-agent-style bootstrap.
+- `runclient` — host-side runner socket client using `runproto` framing
+- `runproto` — host↔runner wire protocol (Hello / Output / Input /
+  Resize)
+- `runner` — per-agent adapter interface (`claude`, `copilot`)
+- `web` — HTTP + WebSocket relays
+- `tui` — bubbletea dashboard
+
+**Rule**: If a function needs `os`, `exec`, or `net`, it belongs under
+`internal/`, not `core/`.
+
+### Binaries (`cmd/`)
+
+- `daedalus` — main CLI, dispatches to topic files
+- `daedalus-coordinator` — host-side daemon (Sprint 40)
+- `daedalus-runner` — in-container PID-1 (Sprint 39)
+- `skill-catalog-mcp` and `project-mgmt-mcp` — MCP servers
+- `generate-manpage` — man page generator
+
+For diagrams and full component descriptions, see
+[ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Web Technology
 

@@ -4,6 +4,98 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+Sprint 40 (Coordinator-as-Daemon) — the second Milestone 4 slice.
+Promotes the in-process `internal/coordinator` from v0.38.0 into a
+long-lived host daemon with an HTTP-over-Unix-socket API, a Go
+client, ssh-agent-style auto-spawn, and persistent sessions across
+daemon restarts. Both the CLI (`launchProjectViaRunner`) and Web
+(`?mode=runner`) now go through the daemon, so a session started
+from one is visible from the other. Still opt-in via
+`DAEDALUS_USE_RUNNER=1`; the tmux path is unchanged.
+
+### Added
+- **`daedalus-coordinator` daemon binary** (`cmd/daedalus-coordinator`).
+  Reads config.json for defaults, binds an HTTP handler on a Unix
+  socket, handles SIGINT/SIGTERM for graceful shutdown, writes a
+  pidfile when given `--pid-file`. Flags: `--socket`, `--compose`,
+  `--data-dir`, `--pid-file`.
+- **`daedalus coordinator start|stop|status`** CLI subcommand.
+  `start` forks the daemon in a new session (Setsid), streams
+  stdout/stderr to `<DataDir>/.daedalus/coordinator.log`, writes a
+  pidfile at `<DataDir>/.daedalus/coordinator.pid`, waits up to 5s
+  for the socket to appear. `stop` SIGTERMs the daemon and polls for
+  exit. `status` reports PID + socket + calls the daemon's List for
+  the tracked session summary.
+- **`internal/coordinator/daemon.go`** — HTTP-over-UDS server.
+  `POST /sessions` (Start), `GET /sessions` (List), `GET /sessions/{name}`
+  (Get), `DELETE /sessions/{name}` (Stop). 4xx/5xx errors carry a
+  JSON envelope; `List` always returns `[]`, never `null`.
+- **`internal/coordinator/client.go`** — Go client wrapping the wire
+  API with the same method shape as the in-process `Coordinator`.
+  Domain sentinels survive the wire crossing: 409 → `ErrAlreadyRunning`,
+  404 → `ErrNotFound`. Transport failures become non-sentinel wrapped
+  errors so callers can distinguish "not found" from "server
+  unreachable".
+- **`internal/coordinator/bootstrap.go`** — `EnsureRunning(opts)`
+  returns a Client, spawning the daemon detached if a fast liveness
+  check (pidfile alive + socket dialable) fails. `DefaultLayout` and
+  `DefaultSessionsFile` give every UI process one place to compute
+  the standard `<DataDir>/.daedalus/` paths.
+- **`sessions.json` persistence** — `Coordinator.Options.SessionsFile`
+  turns on write-on-change (atomic temp-file + rename) plus
+  load-and-reconcile at construction. On startup the coordinator
+  runs `docker ps --format {{.Names}}` and drops any recorded
+  session whose container is no longer running, then rewrites the
+  file so a subsequent boot doesn't reinherit dead state.
+- **`contrib/systemd/daedalus-coordinator.service`** — user-scope
+  systemd unit for the daemon.
+- **`contrib/launchd/dev.techdelight.daedalus-coordinator.plist`** —
+  per-user launchd agent plist for the daemon (edit `$HOME` first).
+- **Real-daemon integration test**
+  (`cmd/daedalus-coordinator/integration_test.go`) — builds the
+  daemon binary, spins up a POSIX-sh mock `docker` on PATH, drives
+  the full stack via `coordinator.NewClient` through
+  Start → List → Get → duplicate-Start (ErrAlreadyRunning) → Stop →
+  post-Stop-Get (ErrNotFound), then verifies `sessions.json` ends
+  up empty. Skipped under `-short` and on non-Unix.
+
+### Changed
+- **`launchProjectViaRunner` now uses the daemon** — the CLI runner
+  path no longer constructs an in-process `Coordinator`; it calls
+  `ensureCoordinatorClient(cfg)` and drives `client.Start(cfg)`.
+  A second CLI invocation for the same project sees the existing
+  session via the shared daemon.
+- **Web `?mode=runner` handler now uses the daemon** — instead of
+  stat'ing the runner socket file, `handleTerminalRunner` calls
+  `coordinator.EnsureRunning` then `client.Get(name)`. Stale socket
+  files left over from crashed prior containers no longer produce a
+  misleading 200; a missing session cleanly returns 404 with a hint
+  to start one via `DAEDALUS_USE_RUNNER=1 daedalus <name>`.
+- **`coordinator` package documentation** — now describes both
+  deployment modes: in-memory (test-only / no `SessionsFile`) and
+  daemon-mode (persistent + reconciled). Points at daemon.go +
+  client.go as the daemon-mode surfaces.
+- **CLI dispatcher** — new `coordinator` subcommand registered in
+  `internal/config/config.go`'s `collectorSubcommands` and dispatched
+  from `cmd/daedalus/main.go`. `core.Config` gains `CoordinatorArgs`
+  to receive the positional after "coordinator".
+
+### Fixed
+- **Web runner-mode 404 truthfulness** — the pre-Sprint-40 handler
+  returned 200 whenever the socket file existed on disk, even if
+  the container behind it had crashed. Going through the daemon
+  makes "session is tracked" the source of truth.
+
+### Infrastructure
+- **`daedalus-coordinator` staged into `PREFIX` by `setup.sh`**
+  (mirrors the existing `daedalus-runner` staging) and downloaded
+  best-effort by `install.sh` — a 404 for older releases skips
+  cleanly without aborting the install.
+- **Release workflows** (`release.yml`, `dev-release.yml`) now build
+  `daedalus-coordinator` in the 4-arch matrix and publish it as a
+  release asset. Narrowed the previously overly-broad `daedalus-*`
+  glob so `daedalus-coordinator-*` doesn't get double-copied.
+
 ## [0.38.0] - 2026-07-11
 
 Foundation release for Milestone 4 (Layered Runner / Coordinator

@@ -6,6 +6,8 @@
 
 A Docker environment for running AI coding agents ([Claude Code](https://claude.ai/code), [GitHub Copilot CLI](https://github.com/features/copilot)) autonomously without permission prompts. The container isolates the agent with write access only to the mounted project directory.
 
+Daedalus ships two launch paths: a classic tmux path (default, one tmux session per project) and an experimental **runner path** where a `daedalus-runner` PID-1 binary inside the container fans PTY I/O over a Unix socket, and a host-side `daedalus-coordinator` daemon owns session lifecycles. The runner path is opt-in via `DAEDALUS_USE_RUNNER=1` — see [Runner Path](#runner-path-opt-in) below and [ARCHITECTURE.md](ARCHITECTURE.md) for the design.
+
 ## Why
 
 Claude Code is powerful, but using it day-to-day has real friction:
@@ -28,7 +30,7 @@ daedalus my-awesome-app /path/to/project
 
 ## Basic Usage
 
-Daedalus wraps each container session in tmux. A few essentials:
+The default launch path wraps each container session in tmux. A few essentials:
 
 | Action | Keys |
 |---|---|
@@ -37,6 +39,8 @@ Daedalus wraps each container session in tmux. A few essentials:
 | Reattach | `daedalus <project-name>` — auto-attaches to existing session |
 
 Full tmux reference: [tmuxcheatsheet.com](https://tmuxcheatsheet.com/)
+
+Under the opt-in runner path (`DAEDALUS_USE_RUNNER=1`) there's no tmux — detach is `Ctrl-D`, reattach is any `daedalus <project-name>` invocation, and multiple UIs can attach to the same session in parallel. See [Runner Path](#runner-path-opt-in).
 
 ## Installation
 
@@ -87,6 +91,7 @@ daedalus skills [add <file> | remove <name> | show <name>]
 daedalus runners [list | show <name>]
 daedalus personas [list | show <name> | create <name> | remove <name>]
 daedalus programmes [list | show <name> | create <name> | add-project <prog> <proj> | add-dep <prog> <up> <down> | remove <name>]
+daedalus coordinator [start | stop | status]
 daedalus tui
 daedalus web [--port PORT] [--host HOST] [--auth|--no-auth]
 daedalus completion <bash|zsh|fish>
@@ -107,6 +112,7 @@ daedalus --help
 | `runners` | List or show built-in runner profiles (`claude`, `copilot`) |
 | `personas` | List, show, create, or remove named persona configurations |
 | `programmes` | List, show, create, or remove multi-project programmes with dependencies |
+| `coordinator` | Manage the host-side runner daemon (`start`, `stop`, `status`) — see [Runner Path](#runner-path-opt-in) |
 | `tui` | Interactive dashboard for managing projects |
 | `web` | Web UI dashboard (default: `localhost:3000`) |
 | `completion <shell>` | Print shell completion script (bash, zsh, fish) |
@@ -263,6 +269,57 @@ wsl2-network.bat disable
 ```
 
 > **Note:** WSL2's internal IP changes on reboot. Re-run `enable` after restarting WSL2 to update the forwarding rule.
+
+## Runner Path (opt-in)
+
+The classic launch path wraps each project in a tmux session on the host. The **runner path** replaces that with a `daedalus-runner` PID-1 binary *inside* the container that owns the PTY, plus a host-side `daedalus-coordinator` daemon that tracks every project's live session and hands out the runner socket to any UI that wants to attach. No tmux involved.
+
+Why bother:
+
+- The CLI, Web UI, and future TUI all attach to **the same session at the same time** — the runner fans PTY output out to every connected socket.
+- The daemon persists session state, so a host reboot doesn't lose track of running containers (it reconciles against `docker ps` on startup and drops anything that vanished).
+- Detach/reattach is lossless — the runner replays recent scrollback to a fresh connection instead of dropping the pane blank.
+
+Enable it per invocation:
+
+```bash
+# Launch a project via the runner path
+DAEDALUS_USE_RUNNER=1 daedalus my-app
+```
+
+The first call auto-spawns the coordinator daemon (ssh-agent style) if it isn't already running. You can also manage the daemon explicitly:
+
+```bash
+daedalus coordinator start         # Spawn detached (also happens automatically)
+daedalus coordinator status        # Print PID + list tracked sessions
+daedalus coordinator stop          # SIGTERM and wait
+```
+
+Or run the daemon under a service manager. Sample units are shipped under `contrib/`:
+
+```bash
+# systemd user unit
+cp contrib/systemd/daedalus-coordinator.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now daedalus-coordinator
+
+# launchd per-user agent (macOS) — edit the plist to expand $HOME first
+cp contrib/launchd/dev.techdelight.daedalus-coordinator.plist ~/Library/LaunchAgents/
+launchctl load ~/Library/LaunchAgents/dev.techdelight.daedalus-coordinator.plist
+```
+
+The daemon lives under `<DataDir>/.daedalus/`:
+
+| File | Purpose |
+|---|---|
+| `coordinator.sock` | HTTP-over-Unix-socket API surface |
+| `coordinator.pid` | Pidfile (used by `daedalus coordinator start/stop/status`) |
+| `coordinator.log` | Daemon stdout+stderr |
+| `sessions.json` | Persistent session map (reconciled against `docker ps` on startup) |
+
+Under the runner path, the Web UI's terminal accepts a `?mode=runner` query on the terminal WebSocket endpoint — the same handler that used to only speak to tmux now speaks to the runner socket. See [ARCHITECTURE.md](ARCHITECTURE.md#runner-attach-launch-flow) for the full sequence.
+
+**Status:** experimental. The default `daedalus <project>` launch still uses tmux; the runner path is in the process of reaching feature parity before becoming the default (Milestone 4 on the [roadmap](ROADMAP.md)).
 
 ## Build Targets
 
