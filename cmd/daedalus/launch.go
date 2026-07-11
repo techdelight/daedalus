@@ -3,11 +3,13 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
 	"github.com/techdelight/daedalus/core"
 	"github.com/techdelight/daedalus/internal/color"
+	"github.com/techdelight/daedalus/internal/coordinator"
 	"github.com/techdelight/daedalus/internal/docker"
 	"github.com/techdelight/daedalus/internal/logging"
 	"github.com/techdelight/daedalus/internal/platform"
@@ -124,11 +126,22 @@ func launchProjectViaRunner(cfg *core.Config, reg *registry.Registry) error {
 	}
 
 	sess, err := client.Start(cfg)
-	if err != nil {
+	switch {
+	case errors.Is(err, coordinator.ErrAlreadyRunning):
+		// A session for this project is already live — a second shell, or
+		// a re-attach after Ctrl-D. daedalus-runner fans its PTY out to
+		// every connected client, so attach to the existing session
+		// rather than failing (ssh-agent-style start-or-attach).
+		sess, err = client.Get(cfg.ProjectName)
+		if err != nil {
+			return fmt.Errorf("attach to existing session: %w", err)
+		}
+		fmt.Fprintf(os.Stderr, "%s attaching to existing session. Press Ctrl-D to detach.\n", color.Green("OK:"))
+	case err != nil:
 		return err
+	default:
+		fmt.Fprintf(os.Stderr, "%s container started; attaching. Press Ctrl-D to detach.\n", color.Green("OK:"))
 	}
-
-	fmt.Fprintf(os.Stderr, "%s container started; attaching. Press Ctrl-D to detach.\n", color.Green("OK:"))
 
 	code, attachErr := attachToRunner(sess.SocketPath)
 
