@@ -87,7 +87,7 @@ func drain(t *testing.T, c *Client, expectAtLeast int) []runproto.Message {
 
 func TestHub_HelloOnConnect(t *testing.T) {
 	pty := &fakePty{}
-	h := NewHub(pty, pty.setSize, 1024)
+	h := NewHub(pty, pty.setSize, 1024, 0, 0)
 	go h.Run()
 	defer h.Stop()
 
@@ -110,9 +110,43 @@ func TestHub_HelloOnConnect(t *testing.T) {
 	}
 }
 
+func TestHub_InitialSizeAppliedOnStartup(t *testing.T) {
+	pty := &fakePty{}
+	// Non-zero initial dimensions: the hub must size the PTY at startup,
+	// before any client connects, so the agent renders into a real
+	// terminal instead of the 0x0 default (see hub.applyInitialSize).
+	h := NewHub(pty, pty.setSize, 1024, 80, 24)
+	go h.Run()
+	defer h.Stop()
+
+	deadline := time.Now().Add(200 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if last, ok := pty.lastResize(); ok && last.cols == 80 && last.rows == 24 {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	last, ok := pty.lastResize()
+	t.Errorf("startup resize = %+v (ok=%v), want cols=80 rows=24", last, ok)
+}
+
+func TestHub_NoInitialResizeWhenZero(t *testing.T) {
+	pty := &fakePty{}
+	// Zero on either axis disables startup sizing; nothing should reach
+	// setSize until a client negotiates real dimensions.
+	h := NewHub(pty, pty.setSize, 1024, 0, 0)
+	go h.Run()
+	defer h.Stop()
+
+	time.Sleep(50 * time.Millisecond)
+	if last, ok := pty.lastResize(); ok {
+		t.Errorf("unexpected startup resize %+v; want none", last)
+	}
+}
+
 func TestHub_BroadcastsToMultipleClients(t *testing.T) {
 	pty := &fakePty{}
-	h := NewHub(pty, pty.setSize, 1024)
+	h := NewHub(pty, pty.setSize, 1024, 0, 0)
 	go h.Run()
 	defer h.Stop()
 
@@ -139,7 +173,7 @@ func TestHub_BroadcastsToMultipleClients(t *testing.T) {
 
 func TestHub_InputForwardedToPty(t *testing.T) {
 	pty := &fakePty{}
-	h := NewHub(pty, pty.setSize, 1024)
+	h := NewHub(pty, pty.setSize, 1024, 0, 0)
 	go h.Run()
 	defer h.Stop()
 
@@ -157,7 +191,7 @@ func TestHub_InputForwardedToPty(t *testing.T) {
 
 func TestHub_ResizePicksMin(t *testing.T) {
 	pty := &fakePty{}
-	h := NewHub(pty, pty.setSize, 1024)
+	h := NewHub(pty, pty.setSize, 1024, 0, 0)
 	go h.Run()
 	defer h.Stop()
 
@@ -183,7 +217,7 @@ func TestHub_ResizePicksMin(t *testing.T) {
 
 func TestHub_ResizeIgnoredUntilTwoDimensions(t *testing.T) {
 	pty := &fakePty{}
-	h := NewHub(pty, pty.setSize, 1024)
+	h := NewHub(pty, pty.setSize, 1024, 0, 0)
 	go h.Run()
 	defer h.Stop()
 
@@ -201,7 +235,7 @@ func TestHub_ResizeIgnoredUntilTwoDimensions(t *testing.T) {
 
 func TestHub_DropsSlowClient(t *testing.T) {
 	pty := &fakePty{}
-	h := NewHub(pty, pty.setSize, 1024)
+	h := NewHub(pty, pty.setSize, 1024, 0, 0)
 	go h.Run()
 	defer h.Stop()
 
@@ -235,7 +269,7 @@ func TestHub_DropsSlowClient(t *testing.T) {
 
 func TestHub_RunnerExitBroadcasts(t *testing.T) {
 	pty := &fakePty{}
-	h := NewHub(pty, pty.setSize, 1024)
+	h := NewHub(pty, pty.setSize, 1024, 0, 0)
 	go h.Run()
 
 	c := NewClient()

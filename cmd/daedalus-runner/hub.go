@@ -47,6 +47,13 @@ type Hub struct {
 	cols    int
 	rows    int
 
+	// initCols/initRows are the PTY dimensions applied once when Run
+	// starts, before any client attaches, so the agent renders into a
+	// real terminal instead of the 0x0 default creack/pty leaves. Zero
+	// on either axis disables the behaviour.
+	initCols int
+	initRows int
+
 	stopOnce sync.Once
 	stopped  chan struct{}
 }
@@ -63,12 +70,16 @@ type resizeRequest struct {
 // NewHub constructs a Hub. ptyIn is the writable side of the runner's
 // PTY (typically *os.File from creack/pty). setSize is invoked when
 // the negotiated min size across all attached clients changes; pass
-// nil to disable resize forwarding (useful in tests).
-func NewHub(ptyIn io.Writer, setSize func(cols, rows int) error, scrollbackBytes int) *Hub {
+// nil to disable resize forwarding (useful in tests). initialCols and
+// initialRows size the PTY once at startup, before any client attaches;
+// pass 0 on either axis to leave the PTY at its creack/pty default.
+func NewHub(ptyIn io.Writer, setSize func(cols, rows int) error, scrollbackBytes, initialCols, initialRows int) *Hub {
 	return &Hub{
 		ptyIn:      ptyIn,
 		setSize:    setSize,
 		scroll:     newRingBuffer(scrollbackBytes),
+		initCols:   initialCols,
+		initRows:   initialRows,
 		add:        make(chan *Client),
 		remove:     make(chan *Client),
 		fromPty:    make(chan []byte, 64),
@@ -83,6 +94,7 @@ func NewHub(ptyIn io.Writer, setSize func(cols, rows int) error, scrollbackBytes
 // Run drives the event loop. Returns when the runner has exited and
 // all clients have been notified, or when Stop is called.
 func (h *Hub) Run() {
+	h.applyInitialSize()
 	for {
 		select {
 		case <-h.stopped:
@@ -112,6 +124,22 @@ func (h *Hub) Run() {
 			rq.client.rows = rq.rows
 			h.recomputeSize()
 		}
+	}
+}
+
+// applyInitialSize sizes the PTY to the configured startup dimensions
+// once, before the event loop accepts any client. Without it the agent
+// renders into the 0x0 terminal creack/pty leaves until the first client
+// negotiates a size, so a one-shot startup prompt (e.g. Claude's "trust
+// this folder?" dialog) draws into a void and never repaints. A zero
+// initCols/initRows (as tests pass) disables the behaviour.
+func (h *Hub) applyInitialSize() {
+	if h.initCols <= 0 || h.initRows <= 0 || h.setSize == nil {
+		return
+	}
+	h.cols, h.rows = h.initCols, h.initRows
+	if err := h.setSize(h.initCols, h.initRows); err != nil {
+		log.Printf("daedalus-runner: initial pty setsize(%d,%d): %v", h.initCols, h.initRows, err)
 	}
 }
 

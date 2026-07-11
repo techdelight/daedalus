@@ -32,7 +32,15 @@ import (
 	"github.com/techdelight/daedalus/internal/runner"
 )
 
-const defaultScrollback = 1 << 20 // 1 MiB
+const (
+	defaultScrollback = 1 << 20 // 1 MiB
+	// Default PTY dimensions applied at startup, before any UI client
+	// negotiates a size. Without a non-zero initial size the agent would
+	// render into the 0x0 terminal creack/pty leaves until the first
+	// client attaches — which garbles one-shot startup prompts.
+	defaultCols = 80
+	defaultRows = 24
+)
 
 func main() {
 	cfg := parseFlags()
@@ -60,7 +68,7 @@ func main() {
 		fatalf("starting pty: %v", err)
 	}
 
-	hub := NewHub(ptmx, ptyResizer(ptmx), cfg.scrollback)
+	hub := NewHub(ptmx, ptyResizer(ptmx), cfg.scrollback, cfg.cols, cfg.rows)
 	go hub.Run()
 
 	// PTY → hub: stream the runner's output bytes into the broadcast
@@ -166,6 +174,8 @@ type runnerConfig struct {
 	socket     string
 	workdir    string
 	scrollback int
+	cols       int
+	rows       int
 	debug      bool
 	resume     string
 	prompt     string
@@ -175,11 +185,15 @@ func parseFlags() runnerConfig {
 	cfg := runnerConfig{
 		workdir:    "/workspace",
 		scrollback: defaultScrollback,
+		cols:       defaultCols,
+		rows:       defaultRows,
 	}
 	flag.StringVar(&cfg.adapter, "adapter", "", "runner adapter to launch (e.g. claude, copilot)")
 	flag.StringVar(&cfg.socket, "socket", "", "unix socket path to listen on")
 	flag.StringVar(&cfg.workdir, "workdir", cfg.workdir, "working directory for the runner subprocess")
 	flag.IntVar(&cfg.scrollback, "scrollback", cfg.scrollback, "scrollback buffer size in bytes")
+	flag.IntVar(&cfg.cols, "cols", cfg.cols, "initial PTY width before a client negotiates size")
+	flag.IntVar(&cfg.rows, "rows", cfg.rows, "initial PTY height before a client negotiates size")
 	flag.BoolVar(&cfg.debug, "debug", false, "enable runner debug mode (if supported)")
 	flag.StringVar(&cfg.resume, "resume", "", "session id to resume")
 	flag.StringVar(&cfg.prompt, "prompt", "", "headless one-shot prompt; empty = interactive")

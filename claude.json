@@ -1,6 +1,12 @@
 {
   "hasCompletedOnboarding": true,
   "bypassPermissionsModeAccepted": true,
+  "projects": {
+    "/workspace": {
+      "hasTrustDialogAccepted": true,
+      "hasCompletedProjectOnboarding": true
+    }
+  },
   "mcpServers": {
     "skill-catalog": {
       "command": "/usr/local/bin/skill-catalog-mcp",
