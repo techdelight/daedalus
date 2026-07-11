@@ -229,6 +229,21 @@ done
 
 echo "  Downloaded 3 binaries, setup.sh, and ${#RUNTIME_FILES[@]} runtime files."
 
+# ── Patch version into config.json ───────────────────────────────────────────
+# The shipped config.json template has "version": "" — setup.sh reads the
+# version from it, so without this patch we would end up recording "unknown"
+# in the installed config. Strip the leading 'v' from the tag ("v0.8.0" →
+# "0.8.0"). Portable sed -i wrapper for BSD (macOS) vs GNU (Linux).
+sed_inplace() {
+    if sed --version >/dev/null 2>&1; then
+        sed -i "$@"
+    else
+        sed -i '' "$@"
+    fi
+}
+VERSION="${TAG#v}"
+sed_inplace 's/"version": *""/"version": "'"$VERSION"'"/' "$WORK_DIR/config.json"
+
 # ── Hand off to setup.sh ─────────────────────────────────────────────────────
 export WORK_DIR
 exec "$WORK_DIR/setup.sh" ${FORWARD_ARGS[@]+"${FORWARD_ARGS[@]}"}
