@@ -31,12 +31,13 @@ import (
 
 // Session describes one running runner-attached project container.
 // Returned by Start, Get, and List. SocketPath is the host-side path
-// callers pass to runclient.Dial.
+// callers pass to runclient.Dial. JSON tags exist so the daemon HTTP
+// surface (daemon.go) can marshal Session directly to clients.
 type Session struct {
-	ProjectName   string
-	ContainerName string
-	SocketPath    string
-	StartedAt     time.Time
+	ProjectName   string    `json:"project_name"`
+	ContainerName string    `json:"container_name"`
+	SocketPath    string    `json:"socket_path"`
+	StartedAt     time.Time `json:"started_at"`
 }
 
 // Options configures a Coordinator. Executor and ComposeFile are
