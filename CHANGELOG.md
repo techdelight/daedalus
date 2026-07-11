@@ -17,6 +17,17 @@ All notable changes to this project will be documented in this file.
   tests using a spy executor that materialises the socket on demand,
   including a real `net.Listen("unix",…)` smoke test for the
   socket-readiness wait.
+- **Web terminal `?mode=runner`** — third terminal mode alongside the
+  default PTY relay and `?mode=control` (tmux control mode). Dials the
+  project's `daedalus-runner` Unix socket via `internal/runclient` and
+  bridges it with the WebSocket through a new `runnerRelay`
+  (`internal/web/runner_relay.go`). Mirrors the CLI runner-detached
+  path that already lives behind `DAEDALUS_USE_RUNNER=1`, so a project
+  launched via the runner can be attached from CLI and Web at the same
+  time. Requires the project to have been started with the runner path;
+  the handler returns 404 if the host-side socket isn't present yet.
+  Uses `core.Config.RunnerSocketPath()` so the CLI launch path and the
+  Web handler agree on the layout.
 - **Parallel test installs** — `setup.sh` and `install.sh` now accept
   `--link-name`, `--container-prefix`, `--tmux-prefix`, and
   `--image-prefix`. The first lets a second install symlink as

@@ -14,6 +14,7 @@ import (
 	"syscall"
 
 	"github.com/techdelight/daedalus/core"
+	"github.com/techdelight/daedalus/internal/runclient"
 	"github.com/techdelight/daedalus/internal/session"
 
 	"github.com/creack/pty"
@@ -43,9 +44,13 @@ type scrollbackResponse struct {
 }
 
 func (ws *WebServer) handleTerminal(w http.ResponseWriter, r *http.Request) {
-	// Route to control mode if ?mode=control is set
-	if r.URL.Query().Get("mode") == "control" {
+	// Route to control or runner mode based on ?mode=...
+	switch r.URL.Query().Get("mode") {
+	case "control":
 		ws.handleTerminalControl(w, r)
+		return
+	case "runner":
+		ws.handleTerminalRunner(w, r)
 		return
 	}
 
@@ -136,6 +141,56 @@ func (ws *WebServer) handleTerminalControl(w http.ResponseWriter, r *http.Reques
 	}
 
 	newControlRelay(cs, conn, sessName, name).Run()
+}
+
+// handleTerminalRunner is the runner-mode alternative to handleTerminal.
+// It dials the project's daedalus-runner Unix socket via runclient and
+// bridges it with the WebSocket through runnerRelay. Activated by
+// ?mode=runner on the terminal WebSocket endpoint. Mirrors the CLI
+// runner-detached path in cmd/daedalus/launch.go.
+func (ws *WebServer) handleTerminalRunner(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+
+	entry, found, err := ws.registry.GetProject(name)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if !found {
+		http.Error(w, fmt.Sprintf("project %q not found", name), http.StatusNotFound)
+		return
+	}
+
+	projCfg := &core.Config{
+		ProjectName: name,
+		ScriptDir:   ws.cfg.ScriptDir,
+		DataDir:     ws.cfg.DataDir,
+	}
+	core.ApplyRegistryEntry(projCfg, entry)
+	sockPath := projCfg.RunnerSocketPath()
+
+	if _, statErr := os.Stat(sockPath); statErr != nil {
+		http.Error(w, fmt.Sprintf("no daedalus-runner socket for project %q at %s", name, sockPath), http.StatusNotFound)
+		return
+	}
+
+	conn, err := wsUpgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Printf("WebSocket upgrade failed for %s: %v", name, err)
+		return
+	}
+	defer conn.Close()
+
+	rc, err := runclient.Dial(sockPath)
+	if err != nil {
+		conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("Failed to attach to runner: %v", err)))
+		conn.WriteMessage(websocket.CloseMessage,
+			websocket.FormatCloseMessage(websocket.CloseInternalServerErr, "runner dial failed"))
+		return
+	}
+	defer rc.Close()
+
+	newRunnerRelay(rc, conn, name).Run()
 }
 
 func startPTY(sessionName string) (*os.File, *exec.Cmd, error) {
