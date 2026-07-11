@@ -206,6 +206,7 @@ BINARY_NAME="daedalus-${OS}-${ARCH}"
 SKILL_MCP_NAME="skill-catalog-mcp-${OS}-${ARCH}"
 PROJ_MCP_NAME="project-mgmt-mcp-${OS}-${ARCH}"
 COORD_NAME="daedalus-coordinator-${OS}-${ARCH}"
+RUNNER_NAME="daedalus-runner-${OS}-${ARCH}"
 echo ""
 echo "Downloading ${BINARY_NAME}..."
 curl -fsSL -o "$WORK_DIR/daedalus" "${DOWNLOAD_BASE}/${BINARY_NAME}"
@@ -219,7 +220,21 @@ echo "Downloading ${PROJ_MCP_NAME}..."
 curl -fsSL -o "$WORK_DIR/project-mgmt-mcp" "${DOWNLOAD_BASE}/${PROJ_MCP_NAME}"
 chmod 755 "$WORK_DIR/project-mgmt-mcp"
 
-# Coordinator daemon (best-effort — v0.38.0 and older don't ship it).
+# daedalus-runner is the in-container PID-1 binary. The Dockerfile
+# COPYs it from PREFIX at image-build time, so `daedalus --build`
+# fails without it. Best-effort because older releases (pre-v0.38.0)
+# don't ship it; on those, --build only works if the user staged it
+# in some other way. On v0.38.0+ this download must succeed.
+echo "Downloading ${RUNNER_NAME}..."
+if curl -fsSL -o "$WORK_DIR/daedalus-runner" "${DOWNLOAD_BASE}/${RUNNER_NAME}"; then
+    chmod 755 "$WORK_DIR/daedalus-runner"
+else
+    echo "  ${RUNNER_NAME} not published for this release; skipping."
+    echo "  \`daedalus --build\` will fail until the runner is staged manually."
+    rm -f "$WORK_DIR/daedalus-runner"
+fi
+
+# Coordinator daemon (best-effort — pre-v0.39.0 releases don't ship it).
 # curl -f treats a 404 as an error, so tolerate a missing asset without
 # aborting the install.
 echo "Downloading ${COORD_NAME} (optional)..."
