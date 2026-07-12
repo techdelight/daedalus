@@ -299,17 +299,50 @@ func (s *sizeRecorder) deltaSince(since int) bool {
 
 const settle = 400 * time.Millisecond
 
-// TestRepaint_ResizedAttach_Repaints is the good path: a client whose
-// terminal differs from the runner's startup size (the common case, e.g.
-// a maximized 120x30 window) provokes a size delta on attach, the hub
-// forwards it, the kernel raises SIGWINCH, and the fake agent repaints —
-// so the attaching client sees the dialog live. This is the mechanism the
-// design doc credits Layers 1+2a with, and it confirms it end to end.
-func TestRepaint_ResizedAttach_Repaints(t *testing.T) {
+// startsAtScreenBoundary reports whether b begins with a screen-establishing
+// sequence — i.e. whether ScreenSnapshot trimmed it to a boundary so a fresh
+// terminal renders it cleanly instead of mid-scrollback.
+func startsAtScreenBoundary(b []byte) bool {
+	for _, m := range append(append([][]byte{}, altScreenEnter...), screenClears...) {
+		if bytes.HasPrefix(b, m) {
+			return true
+		}
+	}
+	return false
+}
+
+// assertReconstructs is the property #38 needs: whatever else happened, an
+// attaching client's snapshot both begins at a screen boundary and contains
+// the current dialog, so rendering it reproduces the live screen.
+func assertReconstructs(t *testing.T, c *runclient.Conn, cols, rows int) {
+	t.Helper()
+	sb := c.Hello().Scrollback
+	if !startsAtScreenBoundary(sb) {
+		t.Fatalf("snapshot should begin at a screen boundary; got prefix %q", headStr(sb, 12))
+	}
+	if want := banner(cols, rows); !bytes.Contains(sb, []byte(want)) {
+		t.Fatalf("snapshot should reconstruct the dialog %q; got %q", want, sb)
+	}
+}
+
+func headStr(b []byte, n int) string {
+	if len(b) < n {
+		n = len(b)
+	}
+	return string(b[:n])
+}
+
+// TestRepaint_ResizedAttach_LiveRepaint is the SIGWINCH path: a client whose
+// terminal differs from the startup size (e.g. a maximized 120x30 window)
+// provokes a size delta on attach, the kernel raises SIGWINCH, and the agent
+// repaints live at the new size. Confirms Layers 1+2a end to end; the snapshot
+// (captured at Dial, before the resize) still reconstructs the startup screen.
+func TestRepaint_ResizedAttach_LiveRepaint(t *testing.T) {
 	h := startHarness(t, defaultCols, defaultRows) // 80x24 startup
 	c, before := h.attach(t, 120, 30)
 	defer c.Close()
 
+	assertReconstructs(t, c, defaultCols, defaultRows) // snapshot = startup screen
 	out := live(t, c, settle)
 
 	if !h.sizes.deltaSince(before) {
@@ -320,96 +353,64 @@ func TestRepaint_ResizedAttach_Repaints(t *testing.T) {
 	}
 }
 
-// TestRepaint_SameSizeAttach_Gap characterizes the residual gap the design
-// doc names: a client attaching at *exactly* the runner's current size
-// produces no delta, no SIGWINCH, and therefore no live repaint. The
-// dialog survives only in the raw byte-ring scrollback — which for a real
-// full-screen / alt-screen UI does not faithfully reconstruct the live
-// screen. This test passes today (it asserts the gap) and is the thing
-// Layer 2b / the startup-size hedge must change.
-func TestRepaint_SameSizeAttach_Gap(t *testing.T) {
+// TestRepaint_SameSizeAttach_ReconstructsViaSnapshot is the case that used to
+// be #38: a client attaching at exactly the runner's current size produces no
+// delta and no SIGWINCH, so there is no *live* repaint. It sees the dialog
+// anyway because ScreenSnapshot replays from the last screen boundary — the
+// fix, proven end to end over a real socket.
+func TestRepaint_SameSizeAttach_ReconstructsViaSnapshot(t *testing.T) {
 	h := startHarness(t, defaultCols, defaultRows)
 	c, before := h.attach(t, defaultCols, defaultRows) // identical size
 	defer c.Close()
 
-	out := live(t, c, settle)
+	assertReconstructs(t, c, defaultCols, defaultRows)
 
+	// The reconstruction is via the snapshot, not a live repaint: confirm we
+	// did NOT resort to poking the shared PTY.
 	if h.sizes.deltaSince(before) {
-		t.Fatalf("expected NO size delta on same-size attach, but the hub applied one")
+		t.Fatalf("same-size attach should not resize the shared PTY, but the hub did")
 	}
-	if strings.Contains(out, dialogMarker) {
-		t.Fatalf("expected no live repaint on same-size attach (the #38 gap), but got a fresh draw: %q", out)
-	}
-	// The dialog is reachable only via replayed scrollback, not live.
-	if sb := string(c.Hello().Scrollback); !strings.Contains(sb, banner(defaultCols, defaultRows)) {
-		t.Fatalf("startup dialog missing even from scrollback: %q", sb)
+	if out := live(t, c, settle); strings.Contains(out, dialogMarker) {
+		t.Fatalf("expected reconstruction via snapshot, not a live repaint; live output = %q", out)
 	}
 }
 
-// TestRepaint_SecondClientSameSize_Gap is the multi-viewer face of the
-// same gap: with a first client already holding the PTY at 120x30, a
-// second client attaching at the same 120x30 negotiates no change, so it
-// too gets no live repaint. Demonstrates why Options A/B (nudge the shared
-// PTY) are wrong — they would disturb the first client — and why only a
-// per-attach screen snapshot (Option C) serves the second viewer.
-func TestRepaint_SecondClientSameSize_Gap(t *testing.T) {
+// TestRepaint_SecondClientSameSize_ReconstructsViaSnapshot is the multi-viewer
+// case: with a first client holding the PTY at 120x30, a second client
+// attaching at the same 120x30 gets its own snapshot reconstruction — without
+// any resize, so the first client is never disturbed. This is exactly what a
+// per-attach snapshot buys that a shared-PTY nudge (Options A/B) cannot.
+func TestRepaint_SecondClientSameSize_ReconstructsViaSnapshot(t *testing.T) {
 	h := startHarness(t, defaultCols, defaultRows)
 
 	first, _ := h.attach(t, 120, 30) // drives the PTY to 120x30 and repaints
 	defer first.Close()
-	// Let the first client's resize + repaint settle.
-	_ = live(t, first, settle)
+	_ = live(t, first, settle) // let the repaint settle into scrollback
 
 	second, before := h.attach(t, 120, 30) // same negotiated size
 	defer second.Close()
-	out := live(t, second, settle)
+
+	assertReconstructs(t, second, 120, 30)
 
 	if h.sizes.deltaSince(before) {
-		t.Fatalf("expected NO size delta for a same-size second client, but the hub applied one")
+		t.Fatalf("a same-size second client should not resize the shared PTY, but the hub did")
 	}
-	if strings.Contains(out, dialogMarker) {
-		t.Fatalf("expected no live repaint for the second client (shared-PTY gap), got: %q", out)
+	if out := live(t, second, settle); strings.Contains(out, dialogMarker) {
+		t.Fatalf("second client should reconstruct via snapshot, not a live repaint; got: %q", out)
 	}
 }
 
-// TestRepaint_StockTerminalUserExpectation is the acceptance criterion for
-// the startup-size hedge, expressed from the user's point of view: a user
-// on a stock 80x24 terminal should see the live trust prompt on attach.
-//
-// It derives its expectation from the production constants so it stays
-// green across the hedge instead of flip-flopping:
-//   - while the startup size IS 80x24 (today), a stock 80x24 attach
-//     collides with it -> no live repaint -> this is the #38 bug, and the
-//     test records it as the known gap.
-//   - once the hedge moves the startup size off 80x24, the same attach
-//     produces a delta -> live repaint -> the test asserts the prompt is
-//     visible.
-//
-// Either way the suite is green; the branch that fires tells you whether
-// the hedge has landed.
-func TestRepaint_StockTerminalUserExpectation(t *testing.T) {
+// TestRepaint_StockTerminalSeesPrompt is the user-visible acceptance criterion:
+// a user on a stock 80x24 terminal — the size that collides with the 80x24
+// startup and used to hang the Web UI (#38) — sees the live trust prompt on
+// attach. With smart replay this holds unconditionally, via the snapshot, with
+// no dependence on the startup size dodging any particular client dimension.
+func TestRepaint_StockTerminalSeesPrompt(t *testing.T) {
 	const stockCols, stockRows = 80, 24
 	h := startHarness(t, defaultCols, defaultRows)
 
-	c, before := h.attach(t, stockCols, stockRows)
+	c, _ := h.attach(t, stockCols, stockRows)
 	defer c.Close()
-	out := live(t, c, settle)
 
-	collides := defaultCols == stockCols && defaultRows == stockRows
-	repainted := h.sizes.deltaSince(before) && strings.Contains(out, banner(stockCols, stockRows))
-
-	if collides {
-		if repainted {
-			t.Fatalf("startup size still %dx%d yet a stock terminal repainted — unexpected", defaultCols, defaultRows)
-		}
-		t.Logf("KNOWN GAP (#38): startup size %dx%d collides with a stock %dx%d terminal, "+
-			"so the trust prompt does NOT repaint on attach. The startup-size hedge closes this.",
-			defaultCols, defaultRows, stockCols, stockRows)
-		return
-	}
-
-	if !repainted {
-		t.Fatalf("startup size %dx%d no longer collides with %dx%d, so a stock terminal MUST see the "+
-			"live prompt on attach, but it did not; live output = %q", defaultCols, defaultRows, stockCols, stockRows, out)
-	}
+	assertReconstructs(t, c, defaultCols, defaultRows)
 }

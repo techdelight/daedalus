@@ -105,3 +105,34 @@ Sprint 41:
 
 Layer 2b, if built, gives the runner path tmux-equivalent attach fidelity — the
 precondition for retiring the tmux launch path (item 5).
+
+## Decision (Sprint 41)
+
+Built **smart replay-from-boundary** — a lightweight middle ground between the
+raw byte ring and a full VT emulator. On attach, the hub replays scrollback
+from the last screen-establishing boundary (alt-screen enter, `\e[2J`/`\e[3J`,
+RIS) instead of from the ring's oldest byte, so a one-shot dialog reconstructs
+for *every* viewer (first, second, same-size, reattach) with no SIGWINCH trick,
+no shared-PTY poke, and no dependence on the app repainting. It falls back to
+the raw snapshot when no boundary is retained, so it is never worse than
+before. Code: `cmd/daedalus-runner/screen.go` (`ScreenSnapshot`), wired into the
+hub's `Hello`; unit tests in `screen_test.go`; end-to-end proof in
+`repaint_e2e_test.go` (run via `e2e/run-repaint.sh`).
+
+It does not reconstruct SGR/cursor state set *before* the boundary — the full
+Option C emulator would. That is deferred until the real-Docker+Claude parity
+pass (`e2e/runner-parity-runbook.md`) shows it is actually needed.
+
+Two cheaper hedges were considered and rejected:
+
+- **Fixed non-80×24 startup size** (e.g. 81×24) so a stock terminal's attach
+  always deltas → SIGWINCH → repaint. Reliable but a magic constant, and only
+  helps the *first* attach (not a second same-size client or a same-size
+  reattach).
+- **Size-toggle on first attach** to force a SIGWINCH. Empirically a same-size
+  `TIOCSWINSZ` delivers **no** SIGWINCH (verified on Linux: same-size ×3 → 0
+  signals; a real change → 1), so it requires a visible shrink-and-restore
+  toggle that Ink may debounce away — fragile, and it disturbs the shared PTY.
+
+Smart replay avoids both failure modes and serves all viewer cases, so it was
+chosen over either hedge.
