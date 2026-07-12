@@ -44,6 +44,11 @@ const (
 	// fakeAgentEnv, when set on the re-exec'd test binary, makes it run
 	// as the fake agent instead of the test suite.
 	fakeAgentEnv = "DAEDALUS_FAKE_AGENT"
+	// fakeAgentModeEnv selects which scripted agent behaviour to run,
+	// so one helper binary can stand in for several agent shapes (the
+	// alt-screen trust dialog, a --resume picker, a primary-clear adapter,
+	// an SGR-before-clear sequence). Empty defaults to the trust dialog.
+	fakeAgentModeEnv = "DAEDALUS_FAKE_AGENT_MODE"
 	// dialogMarker is the sentinel the fake agent draws; each draw also
 	// carries the size it rendered at, so tests can tell a stale scrollback
 	// draw (80x24) apart from a fresh live repaint (e.g. 120x30).
@@ -61,12 +66,43 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-// fakeAgentMain stands in for `claude`. Its stdin/stdout are the PTY
-// slave. It draws the dialog once, then repaints only when it receives
-// SIGWINCH — the same "render once and idle" behaviour that makes #38's
-// trust prompt vanish for a client that attaches without provoking a
-// resize.
+// fakeAgentMain stands in for `claude` (and, in other modes, other
+// agents). Its stdin/stdout are the PTY slave. It dispatches on
+// fakeAgentModeEnv so one helper binary can reproduce several real agent
+// shapes end to end.
 func fakeAgentMain() {
+	switch os.Getenv(fakeAgentModeEnv) {
+	case "", "trust":
+		fakeAgentTrust()
+	case "resume":
+		// A --resume picker preceded by ordinary REPL scrollback, then the
+		// picker itself replaced by a second full-screen clear (as if the
+		// user paged it). Two screen boundaries: only the last is current.
+		fmt.Fprint(os.Stdout, "$ claude --resume\r\nearlier repl output line\r\n")
+		fmt.Fprint(os.Stdout, "\x1b[2J\x1b[HRESUME-PICKER screen-1 (superseded)\r\n")
+		fmt.Fprint(os.Stdout, "\x1b[2J\x1b[HRESUME-PICKER screen-2 (current)\r\n")
+		idleUntilTerm()
+	case "copilot":
+		// An adapter whose full-screen UI uses a primary-screen clear
+		// (\e[2J) rather than the alternate screen — smart replay must
+		// reconstruct it just the same, i.e. parity across adapters.
+		fmt.Fprint(os.Stdout, "copilot boot noise\r\n\x1b[2J\x1b[HCOPILOT-BANNER ready\r\n")
+		idleUntilTerm()
+	case "sgr":
+		// Colour set BEFORE the clear, then body text that relies on it.
+		// A real terminal keeps the SGR across \e[2J; smart replay anchors
+		// after the clear and so drops it — the documented limitation.
+		fmt.Fprint(os.Stdout, "\x1b[31m")                      // red, before the boundary
+		fmt.Fprint(os.Stdout, "\x1b[2J\x1b[HSGR-BODY text\r\n") // relies on the red above
+		idleUntilTerm()
+	}
+}
+
+// fakeAgentTrust draws Claude's one-shot alt-screen trust dialog once,
+// then repaints only on SIGWINCH — the "render once and idle" behaviour
+// that makes #38's prompt vanish for a client that attaches without
+// provoking a resize.
+func fakeAgentTrust() {
 	draw := func() {
 		// pty.Getsize reports the current window size of our controlling
 		// terminal (the PTY slave on fd 0). Mirrors how a real TUI reads
@@ -99,6 +135,15 @@ func fakeAgentMain() {
 	}
 }
 
+// idleUntilTerm blocks a scripted (non-repainting) fake agent until the
+// harness kills it, so its one-shot output stays the current screen.
+func idleUntilTerm() {
+	term := make(chan os.Signal, 1)
+	signal.Notify(term, syscall.SIGTERM, syscall.SIGINT)
+	<-term
+	os.Exit(0)
+}
+
 // banner returns the exact string the fake agent emits for a given size.
 func banner(cols, rows int) string {
 	return fmt.Sprintf("%s cols=%d rows=%d", dialogMarker, cols, rows)
@@ -111,9 +156,16 @@ type harness struct {
 	sizes    *sizeRecorder
 }
 
-// startHarness launches the fake agent on a real PTY sized to
-// (initCols, initRows), builds the real Hub configured with the same
-// initial size, and serves the real runner socket.
+// startHarness launches the default (trust-dialog) fake agent and waits
+// for its startup draw. Most tests want this.
+func startHarness(t *testing.T, initCols, initRows int) *harness {
+	return startHarnessMode(t, initCols, initRows, "trust", banner(initCols, initRows))
+}
+
+// startHarnessMode launches the fake agent in the given mode on a real PTY
+// sized to (initCols, initRows), builds the real Hub configured with the
+// same initial size, serves the real runner socket, and blocks until
+// readyMarker appears in scrollback so the startup draw isn't raced.
 //
 // The PTY is started already at the initial size so the *startup* render
 // is deterministic; Layer 2a's 0x0->NxN startup sizing is already covered
@@ -122,7 +174,7 @@ type harness struct {
 // the dialog. The hub is still constructed with initCols/initRows so its
 // notion of the current size matches the PTY and the delta logic under
 // test is the production one.
-func startHarness(t *testing.T, initCols, initRows int) *harness {
+func startHarnessMode(t *testing.T, initCols, initRows int, mode, readyMarker string) *harness {
 	t.Helper()
 
 	self, err := os.Executable()
@@ -130,7 +182,7 @@ func startHarness(t *testing.T, initCols, initRows int) *harness {
 		t.Fatalf("locating test binary: %v", err)
 	}
 	cmd := exec.Command(self)
-	cmd.Env = append(os.Environ(), fakeAgentEnv+"=1")
+	cmd.Env = append(os.Environ(), fakeAgentEnv+"=1", fakeAgentModeEnv+"="+mode)
 
 	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{Cols: uint16(initCols), Rows: uint16(initRows)})
 	if err != nil {
@@ -190,8 +242,8 @@ func startHarness(t *testing.T, initCols, initRows int) *harness {
 	})
 
 	// Give the fake agent a beat to perform its initial draw so the
-	// startup dialog is in scrollback before any client attaches.
-	waitForScrollback(t, sockPath, banner(initCols, initRows))
+	// startup screen is in scrollback before any client attaches.
+	waitForScrollback(t, sockPath, readyMarker)
 
 	return &harness{sockPath: sockPath, sizes: sizes}
 }
@@ -413,4 +465,73 @@ func TestRepaint_StockTerminalSeesPrompt(t *testing.T) {
 	defer c.Close()
 
 	assertReconstructs(t, c, defaultCols, defaultRows)
+}
+
+// TestRepaint_ResumePicker_ReconstructsLatestScreen covers a multi-screen
+// surface (the --resume picker preceded by REPL scrollback and a superseded
+// first picker screen). Smart replay anchors on the LAST screen boundary, so
+// an attaching client reconstructs only the current screen — not the earlier
+// REPL output, and not the superseded picker page.
+func TestRepaint_ResumePicker_ReconstructsLatestScreen(t *testing.T) {
+	h := startHarnessMode(t, defaultCols, defaultRows, "resume", "RESUME-PICKER screen-2")
+	c, _ := h.attach(t, defaultCols, defaultRows)
+	defer c.Close()
+
+	sb := c.Hello().Scrollback
+	if !startsAtScreenBoundary(sb) {
+		t.Fatalf("snapshot should begin at the last screen boundary; got prefix %q", headStr(sb, 12))
+	}
+	if !bytes.Contains(sb, []byte("RESUME-PICKER screen-2 (current)")) {
+		t.Fatalf("snapshot should reconstruct the current picker screen; got %q", sb)
+	}
+	if bytes.Contains(sb, []byte("screen-1")) {
+		t.Fatalf("snapshot should not carry the superseded picker screen; got %q", sb)
+	}
+	if bytes.Contains(sb, []byte("earlier repl output")) {
+		t.Fatalf("snapshot should not carry pre-boundary REPL scrollback; got %q", sb)
+	}
+}
+
+// TestRepaint_PrimaryClearAdapter_Reconstructs is adapter parity: an agent
+// whose full-screen UI uses a primary-screen clear (\e[2J) instead of the
+// alternate screen — a different adapter shape (copilot-style) — reconstructs
+// on attach just like the alt-screen trust dialog. The heuristic is byte-level
+// and agent-agnostic; this pins that.
+func TestRepaint_PrimaryClearAdapter_Reconstructs(t *testing.T) {
+	h := startHarnessMode(t, defaultCols, defaultRows, "copilot", "COPILOT-BANNER ready")
+	c, _ := h.attach(t, defaultCols, defaultRows)
+	defer c.Close()
+
+	sb := c.Hello().Scrollback
+	if !startsAtScreenBoundary(sb) {
+		t.Fatalf("snapshot should begin at the primary-screen clear; got prefix %q", headStr(sb, 12))
+	}
+	if !bytes.Contains(sb, []byte("COPILOT-BANNER ready")) {
+		t.Fatalf("snapshot should reconstruct the adapter banner; got %q", sb)
+	}
+	if bytes.Contains(sb, []byte("boot noise")) {
+		t.Fatalf("snapshot should not carry pre-clear boot noise; got %q", sb)
+	}
+}
+
+// TestRepaint_SGRBeforeBoundary_KnownLimitation pins the documented limit of
+// smart replay: colour/attribute (SGR) state set BEFORE the screen boundary is
+// not restored, because the snapshot begins at the boundary. A real terminal
+// keeps SGR across \e[2J, so the reconstructed screen can lose colour a full VT
+// emulator (Option C) would preserve. This is a deliberate, tested contract —
+// if it ever changes, this test should change with it.
+func TestRepaint_SGRBeforeBoundary_KnownLimitation(t *testing.T) {
+	h := startHarnessMode(t, defaultCols, defaultRows, "sgr", "SGR-BODY text")
+	c, _ := h.attach(t, defaultCols, defaultRows)
+	defer c.Close()
+
+	sb := c.Hello().Scrollback
+	if !bytes.Contains(sb, []byte("SGR-BODY text")) {
+		t.Fatalf("snapshot should reconstruct the body text; got %q", sb)
+	}
+	if bytes.Contains(sb, []byte("\x1b[31m")) {
+		t.Fatalf("expected the pre-boundary SGR to be dropped by smart replay (known limitation), but it survived: %q", sb)
+	}
+	t.Logf("KNOWN LIMITATION: SGR set before the screen boundary is not restored by " +
+		"smart replay; a full VT emulator (Option C) would. See docs/runner-repaint-design.md.")
 }
