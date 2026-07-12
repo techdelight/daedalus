@@ -10,9 +10,9 @@ Goal: close the Web-UI-hangs-on-trust-prompt gap (Backlog #38) that blocks makin
 |---|------|--------|
 | 1 | Layer 1 — pre-seed workspace trust in the default `claude.json` (`projects["/workspace"].hasTrustDialogAccepted`) so Claude's "trust this folder?" dialog never fires inside the container | Done |
 | 2 | Layer 2a — initial PTY sizing in `daedalus-runner`: size the PTY at startup (default 80×24, `--cols`/`--rows`) instead of creack/pty's 0×0 default, routed through the hub, with unit tests | Done |
-| 3 | Layer 2b — repaint-on-attach: force a redraw / re-assert size when a client attaches (including same-size reattach) so one-shot dialogs render for late or second viewers | Todo |
-| 4 | End-to-end verification on real Docker + Claude — reproduce the hang, confirm both layers, parity checklist across CLI + Web (trust, `--resume` picker, credentials, copilot) | Todo |
-| 5 | Flip the runner path to default (drop `DAEDALUS_USE_RUNNER=1`) and retire the tmux launch path once parity is reached | Todo |
+| 3 | Layer 2b — repaint-on-attach: reconstruct the current screen on attach so one-shot dialogs render for late/second/same-size viewers. Delivered as **smart replay-from-boundary** (`ScreenSnapshot` replays scrollback from the last screen boundary) rather than a SIGWINCH nudge; see `docs/runner-repaint-design.md#decision-sprint-41` | Done |
+| 4 | End-to-end verification — automatable half done (`cmd/daedalus-runner/repaint_e2e_test.go` + `e2e/run-repaint.sh` reproduce #38 over a real socket; `e2e/runner-parity-runbook.md` for the manual pass). **Real Docker + Claude parity pass still pending** (trust, `--resume` picker, credentials, copilot; CLI + Web) | In progress |
+| 5 | Flip the runner path to default (drop `DAEDALUS_USE_RUNNER=1`) and retire the tmux launch path once parity is reached — gated on item 4's real-Docker pass | Todo |
 
 ---
 
