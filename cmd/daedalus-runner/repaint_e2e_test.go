@@ -19,7 +19,11 @@
 //
 // It needs a real PTY + signals, so it is gated behind the `e2e` build
 // tag and excluded from the default `go test ./...`. Run it with
-// `./e2e/run-repaint.sh` or `go test -tags e2e ./cmd/daedalus-runner`.
+// `./e2e/run-repaint.sh` — the canonical, toolchain-independent path,
+// which runs inside the same golang:1.25 image build.sh uses. Running
+// `go test -tags e2e ./cmd/daedalus-runner` directly also works, but only
+// if your local Go matches go.mod's toolchain (>= 1.25); an older local
+// Go rejects the module version before any test runs.
 package main
 
 import (
