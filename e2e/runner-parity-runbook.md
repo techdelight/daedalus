@@ -83,13 +83,20 @@ needed), and **without** answering it in T1:
 
 ## Part C — Web UI parity
 
-7. [ ] With a runner session on the trust prompt, open the Web UI terminal
-       for the project (it uses `?mode=runner`).
+7. [ ] Start the Web UI: `daedalus web` → open **`http://localhost:3000/?mode=runner`**
+       (the `?mode=runner` query opts the browser terminal into the runner
+       relay; without it the UI uses the default tmux control mode). Select
+       the project that has a runner session on the trust prompt.
 8. [ ] **Expected:** the browser terminal shows the live trust prompt, not
        a hang. This is the exact #38 symptom — verify it is resolved.
        Result: ______
 9. [ ] Answer from the browser; confirm a CLI client on the same session
        reflects it.
+
+> The tmux-only history/scrollback button is inert in runner mode (the
+> runner replays its screen automatically via the hello frame). If no runner
+> session exists, the server returns a clear 404 telling you to start one
+> with `DAEDALUS_USE_RUNNER=1 daedalus <project>`, rather than hanging.
 
 ## Part D — Other one-shot / full-screen surfaces (parity checklist)
 

@@ -7,6 +7,15 @@ let ws = null;
 let fitAddon = null;
 let cleanupListeners = null;
 let inHistoryMode = false;
+// runnerMode selects the runner Unix-socket relay (?mode=runner) over the
+// default tmux control-mode relay. Opt-in via the dashboard URL so the
+// shipped default stays control until the runner path is flipped by default
+// (Sprint 41 item 5). In runner mode the relay forwards any non-resize text
+// frame straight to the PTY as input, so the tmux-only control frames
+// (live-capture, scrollback) must NOT be sent — they would be injected as
+// keystrokes. The runner replays its screen automatically via the hello
+// frame, so those frames are unnecessary there anyway.
+let runnerMode = false;
 
 function isMobileView() {
     return window.matchMedia('(max-width: 768px)').matches;
@@ -52,9 +61,13 @@ function connectTerminal(projectName) {
     fitAddon.fit();
     requestAnimationFrame(function() { if (fitAddon) fitAddon.fit(); });
 
-    // Connect WebSocket — use control mode for scrollback support
+    // Pick the relay: runner Unix-socket bridge if opted in via ?mode=runner
+    // on the dashboard URL, otherwise the default tmux control-mode relay.
+    runnerMode = new URLSearchParams(location.search).get('mode') === 'runner';
+    const wsMode = runnerMode ? 'runner' : 'control';
+
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${proto}//${location.host}/api/projects/${encodeURIComponent(projectName)}/terminal?mode=control`;
+    const wsUrl = `${proto}//${location.host}/api/projects/${encodeURIComponent(projectName)}/terminal?mode=${wsMode}`;
     ws = new WebSocket(wsUrl);
     ws.binaryType = 'arraybuffer';
 
@@ -65,8 +78,13 @@ function connectTerminal(projectName) {
             cols: term.cols,
             rows: term.rows
         }));
-        // Request current terminal content so attach shows existing output
-        ws.send(JSON.stringify({ type: 'live-capture' }));
+        // Request current terminal content so attach shows existing output.
+        // Control-mode only: in runner mode the hello frame already replays
+        // the screen, and this text frame would be forwarded to the PTY as
+        // input.
+        if (!runnerMode) {
+            ws.send(JSON.stringify({ type: 'live-capture' }));
+        }
     };
 
     ws.onmessage = function(event) {
@@ -289,13 +307,18 @@ function exitHistoryMode() {
     if (banner) banner.classList.remove('active');
     var btn = document.querySelector('.btn-history');
     if (btn) btn.classList.remove('active');
-    // Request live terminal content to restore the viewport
-    if (ws && ws.readyState === WebSocket.OPEN) {
+    // Request live terminal content to restore the viewport. Control-mode
+    // only — the runner relay would forward this as PTY input.
+    if (!runnerMode && ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: 'live-capture' }));
     }
 }
 
+// requestScrollback drives tmux control-mode history. The runner path has no
+// scrollback-request protocol (it replays via the hello frame), and sending
+// this would be injected into the PTY, so it is a no-op in runner mode.
 function requestScrollback(lines) {
+    if (runnerMode) return;
     if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: 'scrollback', lines: lines || 500 }));
     }
