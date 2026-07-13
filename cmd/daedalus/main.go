@@ -134,33 +134,44 @@ func run(args []string) error {
 		fmt.Fprintf(os.Stderr, "%s could not initialize skill catalog: %v\n", color.Yellow("Warning:"), err)
 	}
 
-	// --- tmux session management ---
-	useTmux := cfg.UseTmux()
-
-	if useTmux && !session.TmuxAvailable(exec) {
-		fmt.Fprintln(os.Stderr, color.Yellow("Warning:")+" tmux not found. Running without session management.")
-		fmt.Fprintln(os.Stderr, color.Cyan("Hint:")+" install tmux for detach/reattach support: apt install tmux")
-		useTmux = false
-	}
-
-	sess := session.NewSession(exec, cfg.TmuxSession())
-
-	if useTmux && sess.Exists() {
-		fmt.Printf("Attaching to existing session '%s'...\n", cfg.TmuxSession())
-		fmt.Println("  " + color.Dim("(Detach with Ctrl-B d)"))
-		return sess.Attach()
-	}
-
-	// --- Container duplicate detection ---
 	d := docker.NewDocker(exec, filepath.Join(cfg.ScriptDir, "docker-compose.yml"))
 
-	running, err := d.IsContainerRunning(cfg.ContainerName())
-	if err != nil {
-		return err
-	}
-	if running {
-		return fmt.Errorf("project '%s' is already running (container: %s)\n%s attach with 'daedalus %s' or stop with 'docker stop %s'",
-			cfg.ProjectName, cfg.ContainerName(), color.Cyan("Hint:"), cfg.ProjectName, cfg.ContainerName())
+	// tmux session management and the single-container guard below are
+	// classic-path concerns. The runner path (DAEDALUS_USE_RUNNER=1) fans
+	// one PTY out to many clients and does its own start-or-attach through
+	// the coordinator (launchProjectViaRunner), so it has no tmux session
+	// and a running container is an attach target, not a duplicate error.
+	// Skipping these here is what lets a second `daedalus <project>` attach
+	// instead of failing with "already running". Must agree with the same
+	// env check in launchProject.
+	useRunner := os.Getenv("DAEDALUS_USE_RUNNER") == "1"
+
+	// --- tmux session management ---
+	useTmux := cfg.UseTmux()
+	sess := session.NewSession(exec, cfg.TmuxSession())
+
+	if !useRunner {
+		if useTmux && !session.TmuxAvailable(exec) {
+			fmt.Fprintln(os.Stderr, color.Yellow("Warning:")+" tmux not found. Running without session management.")
+			fmt.Fprintln(os.Stderr, color.Cyan("Hint:")+" install tmux for detach/reattach support: apt install tmux")
+			useTmux = false
+		}
+
+		if useTmux && sess.Exists() {
+			fmt.Printf("Attaching to existing session '%s'...\n", cfg.TmuxSession())
+			fmt.Println("  " + color.Dim("(Detach with Ctrl-B d)"))
+			return sess.Attach()
+		}
+
+		// --- Container duplicate detection ---
+		running, err := d.IsContainerRunning(cfg.ContainerName())
+		if err != nil {
+			return err
+		}
+		if running {
+			return fmt.Errorf("project '%s' is already running (container: %s)\n%s attach with 'daedalus %s' or stop with 'docker stop %s'",
+				cfg.ProjectName, cfg.ContainerName(), color.Cyan("Hint:"), cfg.ProjectName, cfg.ContainerName())
+		}
 	}
 
 	if err := ensureImageBuilt(cfg, d); err != nil {
