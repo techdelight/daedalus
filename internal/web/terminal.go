@@ -234,6 +234,21 @@ func (ws *WebServer) startRunnerSession(w http.ResponseWriter, name string, entr
 		return nil
 	}
 
+	// A container under this name from a non-runner launch (e.g. the tmux
+	// control path) is not a coordinator session, so Get above missed it —
+	// but its name would collide with the coordinator's `docker compose run
+	// --name`, failing Start with a cryptic docker error. Detect it and say
+	// so plainly. Mirrors handleStartProject's already-running guard.
+	container := projCfg.ContainerName()
+	if running, err := ws.docker.IsContainerRunning(container); err != nil {
+		log.Printf("runner start %s: checking container %s: %v", name, container, err)
+		http.Error(w, fmt.Sprintf("checking existing container: %v", err), http.StatusInternalServerError)
+		return nil
+	} else if running {
+		http.Error(w, fmt.Sprintf("container %q is already running outside the runner path (e.g. started in the tmux/control UI) — stop it first with `daedalus stop %s` or `docker stop %s`, then attach in runner mode", container, name, container), http.StatusConflict)
+		return nil
+	}
+
 	sess, err := client.Start(projCfg)
 	if errors.Is(err, coordinator.ErrAlreadyRunning) {
 		// Raced with another attach (or a CLI launch) that started it first;
@@ -241,6 +256,10 @@ func (ws *WebServer) startRunnerSession(w http.ResponseWriter, name string, entr
 		sess, err = client.Get(name)
 	}
 	if err != nil {
+		// Surface the real reason server-side: a failed WebSocket handshake
+		// discards the HTTP body, so without this the operator sees only a
+		// closed connection in the browser and nothing in the logs.
+		log.Printf("runner start %s: %v", name, err)
 		http.Error(w, fmt.Sprintf("failed to start runner session for %q: %v", name, err), http.StatusInternalServerError)
 		return nil
 	}
