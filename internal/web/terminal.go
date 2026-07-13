@@ -158,10 +158,12 @@ func (ws *WebServer) handleTerminalControl(w http.ResponseWriter, r *http.Reques
 func (ws *WebServer) handleTerminalRunner(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 
-	if _, found, err := ws.registry.GetProject(name); err != nil {
+	entry, found, err := ws.registry.GetProject(name)
+	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
-	} else if !found {
+	}
+	if !found {
 		http.Error(w, fmt.Sprintf("project %q not found", name), http.StatusNotFound)
 		return
 	}
@@ -171,12 +173,18 @@ func (ws *WebServer) handleTerminalRunner(w http.ResponseWriter, r *http.Request
 		http.Error(w, fmt.Sprintf("coordinator unavailable: %v", err), http.StatusServiceUnavailable)
 		return
 	}
+
 	sess, err := client.Get(name)
-	if err != nil {
-		if errors.Is(err, coordinator.ErrNotFound) {
-			http.Error(w, fmt.Sprintf("no runner session for project %q — start one with `DAEDALUS_USE_RUNNER=1 daedalus %s`", name, name), http.StatusNotFound)
+	if errors.Is(err, coordinator.ErrNotFound) {
+		// No runner session yet — launch one, so the web is self-sufficient
+		// instead of telling the user to start it from the CLI. Mirrors the
+		// CLI runner launch (launchProjectViaRunner) and the control-mode
+		// start button (handleStartProject). startRunnerSession writes the
+		// HTTP error itself and returns nil on failure, before any upgrade.
+		if sess = ws.startRunnerSession(w, name, entry, client); sess == nil {
 			return
 		}
+	} else if err != nil {
 		http.Error(w, fmt.Sprintf("coordinator error: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -198,6 +206,49 @@ func (ws *WebServer) handleTerminalRunner(w http.ResponseWriter, r *http.Request
 	defer rc.Close()
 
 	newRunnerRelay(rc, conn, name).Run()
+}
+
+// startRunnerSession launches a runner container for the project via the
+// coordinator and returns its session. It builds the project config from the
+// registry entry the same way the control-mode start button does
+// (handleStartProject) and the CLI runner launch does, so the web can start a
+// runner session on its own — no `DAEDALUS_USE_RUNNER=1 daedalus <project>`
+// step required first.
+//
+// It writes the HTTP error and returns nil on failure, and must be called
+// before the WebSocket upgrade so those errors reach the browser as real
+// status codes. Container boot can take a few seconds; the browser's WS
+// handshake stays pending until it completes.
+func (ws *WebServer) startRunnerSession(w http.ResponseWriter, name string, entry core.ProjectEntry, client *coordinator.Client) *coordinator.Session {
+	projCfg := &core.Config{
+		ProjectName:     name,
+		ScriptDir:       ws.cfg.ScriptDir,
+		DataDir:         ws.cfg.DataDir,
+		ImagePrefix:     ws.cfg.ImagePrefix,
+		ContainerPrefix: ws.cfg.ContainerPrefix,
+	}
+	core.ApplyRegistryEntry(projCfg, entry)
+
+	if !ws.docker.ImageExists(projCfg.Image()) {
+		http.Error(w, fmt.Sprintf("image %s not found — run `daedalus --build %s` first", projCfg.Image(), name), http.StatusPreconditionFailed)
+		return nil
+	}
+
+	sess, err := client.Start(projCfg)
+	if errors.Is(err, coordinator.ErrAlreadyRunning) {
+		// Raced with another attach (or a CLI launch) that started it first;
+		// use the existing session rather than failing.
+		sess, err = client.Get(name)
+	}
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to start runner session for %q: %v", name, err), http.StatusInternalServerError)
+		return nil
+	}
+
+	if err := ws.registry.TouchProject(name); err != nil {
+		log.Printf("Failed to update timestamp for %s: %v", name, err)
+	}
+	return sess
 }
 
 func startPTY(sessionName string) (*os.File, *exec.Cmd, error) {

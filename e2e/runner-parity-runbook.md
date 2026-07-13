@@ -86,17 +86,20 @@ needed), and **without** answering it in T1:
 7. [ ] Start the Web UI: `daedalus web` → open **`http://localhost:3000/?mode=runner`**
        (the `?mode=runner` query opts the browser terminal into the runner
        relay; without it the UI uses the default tmux control mode). Select
-       the project that has a runner session on the trust prompt.
+       the project. The web now **launches the runner session itself** if one
+       isn't already running — no `DAEDALUS_USE_RUNNER=1 daedalus <project>`
+       step required first (the first connect waits a few seconds while the
+       container boots).
 8. [ ] **Expected:** the browser terminal shows the live trust prompt, not
        a hang. This is the exact #38 symptom — verify it is resolved.
        Result: ______
 9. [ ] Answer from the browser; confirm a CLI client on the same session
-       reflects it.
+       reflects it (`daedalus <project>` from a terminal, sharing the PTY).
 
 > The tmux-only history/scrollback button is inert in runner mode (the
-> runner replays its screen automatically via the hello frame). If no runner
-> session exists, the server returns a clear 404 telling you to start one
-> with `DAEDALUS_USE_RUNNER=1 daedalus <project>`, rather than hanging.
+> runner replays its screen automatically via the hello frame). If the
+> project's image isn't built, the web returns a clear 412 ("run
+> `daedalus --build <project>` first") instead of hanging.
 
 ## Part D — Other one-shot / full-screen surfaces (parity checklist)
 
