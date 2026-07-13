@@ -101,6 +101,34 @@ func TestStart_HappyPath(t *testing.T) {
 	}
 }
 
+func TestStart_ReapsStaleContainerBeforeRun(t *testing.T) {
+	cfg := configFor(t, "my-app")
+	exec := newSpyExec()
+	exec.onRunWithEnv = func(_ []string, _ string, _ ...string) {
+		touchSocket(t, cfg.RunnerSocketPath())
+	}
+	c := newTestCoordinator(t, exec)
+
+	if _, err := c.Start(cfg); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	// `docker compose run --rm --detach` does not auto-remove the container,
+	// so a prior run's container lingers and its name collides. Start must
+	// reap it first with `docker rm <container>`.
+	want := cfg.ContainerName()
+	found := false
+	for _, call := range exec.Calls {
+		if call.Name == "docker" && len(call.Args) == 2 && call.Args[0] == "rm" && call.Args[1] == want {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("Start did not `docker rm %s` to reap a stale container; calls = %+v", want, exec.Calls)
+	}
+}
+
 func TestStart_PassesRunnerEnv(t *testing.T) {
 	cfg := configFor(t, "my-app")
 	cfg.Resume = "abc123"

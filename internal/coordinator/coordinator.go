@@ -153,6 +153,17 @@ func (c *Coordinator) Start(cfg *core.Config) (*Session, error) {
 	}
 	_ = os.Remove(sockPath) // stale socket from a previous run blocks bind
 
+	// Reap a stale container under this name before creating a new one.
+	// `docker compose run --rm --detach` does NOT auto-remove the container
+	// (--rm is ineffective when detached), so a prior run's container lingers
+	// after it stops and its name collides with `--name` here. `docker rm`
+	// without -f only removes a stopped leftover and harmlessly refuses a
+	// running container — so an actively running container (a foreign tmux
+	// session, or a live runner) is never killed, and that case still
+	// surfaces as the usual name-conflict error. Best-effort: the common
+	// "No such container" is expected and ignored.
+	_ = c.exec.Run("docker", "rm", containerName)
+
 	env := composeEnv(cfg)
 	args := []string{"compose", "-f", c.composeFile, "run", "--rm", "--detach"}
 	// The DAEDALUS_* vars must reach the CONTAINER, so they are -e flags,
