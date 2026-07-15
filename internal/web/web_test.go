@@ -1680,3 +1680,23 @@ func TestHandleGuild(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderIndexHTML_InjectsVersionAndRunnerFlag(t *testing.T) {
+	raw := []byte(`<title>Daedalus</title><script>window.DAEDALUS_RUNNER_MODE=(function(){var v="__RUNNER_MODE__";return v==="true";})();</script>`)
+
+	on := renderIndexHTML(raw, "1.2.3", true)
+	if !strings.Contains(on, "Daedalus [1.2.3]") {
+		t.Errorf("version not injected into title: %q", on)
+	}
+	if !strings.Contains(on, `var v="true"`) {
+		t.Errorf("runner flag not injected as true: %q", on)
+	}
+	if strings.Contains(on, "__RUNNER_MODE__") {
+		t.Errorf("runner placeholder left unreplaced: %q", on)
+	}
+
+	off := renderIndexHTML(raw, "9.9.9", false)
+	if !strings.Contains(off, `var v="false"`) {
+		t.Errorf("runner flag not injected as false: %q", off)
+	}
+}

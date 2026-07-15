@@ -61,9 +61,11 @@ function connectTerminal(projectName) {
     fitAddon.fit();
     requestAnimationFrame(function() { if (fitAddon) fitAddon.fit(); });
 
-    // Pick the relay: runner Unix-socket bridge if opted in via ?mode=runner
-    // on the dashboard URL, otherwise the default tmux control-mode relay.
-    runnerMode = new URLSearchParams(location.search).get('mode') === 'runner';
+    // Pick the relay. A ?mode= query on the URL wins (per-terminal override);
+    // otherwise fall back to the server default (DAEDALUS_USE_RUNNER=1 →
+    // window.DAEDALUS_RUNNER_MODE). Default is the tmux control-mode relay.
+    const urlMode = new URLSearchParams(location.search).get('mode');
+    runnerMode = urlMode ? (urlMode === 'runner') : (window.DAEDALUS_RUNNER_MODE === true);
     const wsMode = runnerMode ? 'runner' : 'control';
 
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';

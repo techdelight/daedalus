@@ -317,7 +317,7 @@ The daemon lives under `<DataDir>/.daedalus/`:
 | `coordinator.log` | Daemon stdout+stderr |
 | `sessions.json` | Persistent session map (reconciled against `docker ps` on startup) |
 
-Under the runner path, the Web UI's terminal accepts a `?mode=runner` query on the terminal WebSocket endpoint — the same handler that used to only speak to tmux now speaks to the runner socket. See [ARCHITECTURE.md](ARCHITECTURE.md#runner-attach-launch-flow) for the full sequence.
+Under the runner path, start the Web UI with `DAEDALUS_USE_RUNNER=1 daedalus web`: the dashboard shows a **runner mode** badge, each project's action becomes **Open** (which launches a runner session via the coordinator and attaches — no CLI pre-launch), and the terminal connects over the runner socket instead of tmux. Per-terminal, a `?mode=runner` query on the URL overrides the default either way. See [ARCHITECTURE.md](ARCHITECTURE.md#runner-attach-launch-flow) for the full sequence.
 
 **Status:** experimental. The default `daedalus <project>` launch still uses tmux; the runner path is in the process of reaching feature parity before becoming the default (Milestone 4 on the [roadmap](ROADMAP.md)).
 

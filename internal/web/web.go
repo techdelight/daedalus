@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -21,6 +22,19 @@ import (
 	"github.com/techdelight/daedalus/internal/registry"
 )
 
+// renderIndexHTML injects the runtime values the served index.html needs:
+// the version into the title and the runner-mode flag into the
+// window.DAEDALUS_RUNNER_MODE placeholder. Kept as a pure function so the
+// substitution contract is unit-testable without booting the server.
+func renderIndexHTML(raw []byte, version string, runnerMode bool) string {
+	runnerFlag := "false"
+	if runnerMode {
+		runnerFlag = "true"
+	}
+	html := strings.Replace(string(raw), ">Daedalus<", ">Daedalus ["+version+"]<", 1)
+	return strings.Replace(html, "__RUNNER_MODE__", runnerFlag, 1)
+}
+
 // WebServer holds the dependencies shared by the topic handlers
 // (projects.go, dashboard.go, roadmap.go, programmes.go, terminal.go).
 // Each handler file owns its routes and JSON shapes.
@@ -31,6 +45,14 @@ type WebServer struct {
 	cfg              *core.Config
 	observer         agentstate.Observer
 	activityResolver *activity.Resolver
+
+	// runnerMode makes the dashboard default to the runner path: the
+	// terminal connects with ?mode=runner and the project rows offer an
+	// "Open" action that autostarts a runner container via the coordinator,
+	// instead of the tmux "Start". Enabled by DAEDALUS_USE_RUNNER=1, so the
+	// web matches the CLI's opt-in. A per-terminal ?mode= URL query still
+	// overrides it.
+	runnerMode bool
 }
 
 // NewWebServerForTest creates a WebServer with injected dependencies.
@@ -70,6 +92,7 @@ func Run(cfg *core.Config) error {
 		cfg:              cfg,
 		observer:         observer,
 		activityResolver: actResolver,
+		runnerMode:       os.Getenv("DAEDALUS_USE_RUNNER") == "1",
 	}
 
 	mux := http.NewServeMux()
@@ -82,7 +105,9 @@ func Run(cfg *core.Config) error {
 	}
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
 
-	// Root serves index.html with version injected into the title
+	// Root serves index.html with the version injected into the title and
+	// the runner-mode flag surfaced to the frontend (drives the terminal
+	// mode + the project-row actions).
 	version := core.ReadVersion()
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		data, err := staticFiles.ReadFile("static/index.html")
@@ -90,9 +115,8 @@ func Run(cfg *core.Config) error {
 			http.Error(w, "index.html not found", http.StatusInternalServerError)
 			return
 		}
-		html := strings.Replace(string(data), ">Daedalus<", ">Daedalus ["+version+"]<", 1)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		if _, err := w.Write([]byte(html)); err != nil {
+		if _, err := w.Write([]byte(renderIndexHTML(data, version, ws.runnerMode))); err != nil {
 			log.Printf("write index.html: %v", err)
 		}
 	})

@@ -83,13 +83,16 @@ needed), and **without** answering it in T1:
 
 ## Part C — Web UI parity
 
-7. [ ] Start the Web UI: `daedalus web` → open **`http://localhost:3000/?mode=runner`**
-       (the `?mode=runner` query opts the browser terminal into the runner
-       relay; without it the UI uses the default tmux control mode). Select
-       the project. The web now **launches the runner session itself** if one
-       isn't already running — no `DAEDALUS_USE_RUNNER=1 daedalus <project>`
-       step required first (the first connect waits a few seconds while the
-       container boots).
+7. [ ] Start the Web UI in runner mode: **`DAEDALUS_USE_RUNNER=1 daedalus web`**
+       → open `http://localhost:3000`. A **"runner mode"** badge shows in the
+       header, and each project row's action is **"Open"** (runner path)
+       instead of "Start" (tmux). Click **Open** on the project — the web
+       **launches the runner session itself** if one isn't already running
+       (first connect waits a few seconds while the container boots). No CLI
+       pre-launch, and no `?mode=runner` URL needed.
+       - Alternatively, without the env var, force a single terminal into
+         runner mode with the `?mode=runner` URL query (it overrides the
+         server default).
 8. [ ] **Expected:** the browser terminal shows the live trust prompt, not
        a hang. This is the exact #38 symptom — verify it is resolved.
        Result: ______
