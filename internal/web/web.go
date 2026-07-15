@@ -7,7 +7,6 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -49,9 +48,9 @@ type WebServer struct {
 	// runnerMode makes the dashboard default to the runner path: the
 	// terminal connects with ?mode=runner and the project rows offer an
 	// "Open" action that autostarts a runner container via the coordinator,
-	// instead of the tmux "Start". Enabled by DAEDALUS_USE_RUNNER=1, so the
-	// web matches the CLI's opt-in. A per-terminal ?mode= URL query still
-	// overrides it.
+	// instead of the tmux "Start". Follows core.UseRunner (runner is the
+	// default; DAEDALUS_USE_TMUX=1 opts back into tmux), so the web matches
+	// the CLI. A per-terminal ?mode= URL query still overrides it.
 	runnerMode bool
 }
 
@@ -92,7 +91,7 @@ func Run(cfg *core.Config) error {
 		cfg:              cfg,
 		observer:         observer,
 		activityResolver: actResolver,
-		runnerMode:       os.Getenv("DAEDALUS_USE_RUNNER") == "1",
+		runnerMode:       core.UseRunner(),
 	}
 
 	mux := http.NewServeMux()

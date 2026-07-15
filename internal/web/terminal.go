@@ -272,8 +272,7 @@ func (ws *WebServer) handleTerminalRunner(w http.ResponseWriter, r *http.Request
 // coordinator and returns its session. It builds the project config from the
 // registry entry the same way the control-mode start button does
 // (handleStartProject) and the CLI runner launch does, so the web can start a
-// runner session on its own — no `DAEDALUS_USE_RUNNER=1 daedalus <project>`
-// step required first.
+// runner session on its own — no separate CLI launch required first.
 //
 // It writes the HTTP error and returns nil on failure, and must be called
 // before the WebSocket upgrade so those errors reach the browser as real

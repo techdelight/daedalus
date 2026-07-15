@@ -140,14 +140,13 @@ func run(args []string) error {
 	d := docker.NewDocker(exec, filepath.Join(cfg.ScriptDir, "docker-compose.yml"))
 
 	// tmux session management and the single-container guard below are
-	// classic-path concerns. The runner path (DAEDALUS_USE_RUNNER=1) fans
-	// one PTY out to many clients and does its own start-or-attach through
-	// the coordinator (launchProjectViaRunner), so it has no tmux session
-	// and a running container is an attach target, not a duplicate error.
-	// Skipping these here is what lets a second `daedalus <project>` attach
-	// instead of failing with "already running". Must agree with the same
-	// env check in launchProject.
-	useRunner := os.Getenv("DAEDALUS_USE_RUNNER") == "1"
+	// classic-path concerns. The runner path (now the default; opt out with
+	// DAEDALUS_USE_TMUX=1) fans one PTY out to many clients and does its own
+	// start-or-attach through the coordinator (launchProjectViaRunner), so it
+	// has no tmux session and a running container is an attach target, not a
+	// duplicate error. Skipping these here is what lets a second
+	// `daedalus <project>` attach instead of failing with "already running".
+	useRunner := core.UseRunner()
 
 	// --- tmux session management ---
 	useTmux := cfg.UseTmux()

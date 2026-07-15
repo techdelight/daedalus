@@ -20,12 +20,12 @@ import (
 // launchProject starts the project container, either in a tmux session or
 // directly. It handles session tracking and DinD socket mounting.
 //
-// When DAEDALUS_USE_RUNNER=1 is set in the environment, the function
-// short-circuits to launchProjectViaRunner, which delegates the container
-// lifecycle to internal/coordinator and attaches through the runclient
-// Unix-socket bridge instead of tmux.
+// By default the function short-circuits to launchProjectViaRunner, which
+// delegates the container lifecycle to internal/coordinator and attaches
+// through the runclient Unix-socket bridge instead of tmux. Set
+// DAEDALUS_USE_TMUX=1 to take the classic tmux path instead (core.UseRunner).
 func launchProject(cfg *core.Config, d *docker.Docker, reg *registry.Registry, sess *session.Session, useTmux bool) error {
-	if os.Getenv("DAEDALUS_USE_RUNNER") == "1" {
+	if core.UseRunner() {
 		return launchProjectViaRunner(cfg, reg)
 	}
 
@@ -105,7 +105,7 @@ func launchProject(cfg *core.Config, d *docker.Docker, reg *registry.Registry, s
 	return runErr
 }
 
-// launchProjectViaRunner is the DAEDALUS_USE_RUNNER=1 path: ask the
+// launchProjectViaRunner is the runner (default) path: ask the
 // coordinator daemon to spawn the project container with daedalus-runner
 // as its entrypoint, then attach via the runclient socket bridge.
 // tmux is not involved.

@@ -6,8 +6,8 @@ Daedalus wraps AI coding agents (Claude Code, Copilot CLI) in Docker containers 
 
 Two launch paths coexist:
 
-- **Classic tmux path** (default) — each project runs in a tmux session; UI surfaces attach directly to tmux. Predates the runner stack, still active behind `daedalus <project>` without any opt-in.
-- **Runner path** (opt-in via `DAEDALUS_USE_RUNNER=1`) — each project runs a `daedalus-runner` PID-1 binary inside its container that fans PTY I/O out over a Unix socket. A host-side `daedalus-coordinator` daemon owns session lifecycles, and all UIs discover sessions through its HTTP-over-UDS API. No tmux involved.
+- **Runner path** (the default; opt out with `DAEDALUS_USE_TMUX=1`) — each project runs a `daedalus-runner` PID-1 binary inside its container that fans PTY I/O out over a Unix socket. A host-side `daedalus-coordinator` daemon owns session lifecycles, and all UIs discover sessions through its HTTP-over-UDS API. No tmux involved.
+- **Classic tmux path** (`DAEDALUS_USE_TMUX=1`) — each project runs in a tmux session; UI surfaces attach directly to tmux. Predates the runner stack, slated for retirement once the runner path has proven out.
 
 The runner path is the target architecture for Milestone 4; the tmux path will be retired once feature parity is reached.
 
@@ -191,7 +191,7 @@ flowchart LR
 
 ## Runner-attach launch flow
 
-The runner path (opt-in via `DAEDALUS_USE_RUNNER=1`) is the target architecture. All UIs use the same flow:
+The runner path (the default; opt out with `DAEDALUS_USE_TMUX=1`) is the target architecture. All UIs use the same flow:
 
 ```mermaid
 sequenceDiagram
