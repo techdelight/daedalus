@@ -179,11 +179,21 @@ func (c *Coordinator) Start(cfg *core.Config) (*Session, error) {
 		args = append(args, "-e", kv)
 	}
 	args = append(args, "--name", containerName, "claude")
+	log.Printf("coordinator: starting runner for %q (container %s, image %s)", name, containerName, cfg.Image())
 	if err := c.exec.RunWithEnv(env, "docker", args...); err != nil {
+		log.Printf("coordinator: `docker compose run` for %q failed: %v", name, err)
 		return nil, fmt.Errorf("docker compose run --detach: %w", err)
 	}
 
 	if err := waitForSocket(sockPath, c.socketWait, c.pollEvery); err != nil {
+		// The container started but never bound the runner socket in time —
+		// almost always the runner exited early (bad env, adapter crash,
+		// claude erroring out). Point the operator at the container's own
+		// logs, which hold the real cause; the container is left in place
+		// (no --rm) precisely so it can be inspected.
+		log.Printf("coordinator: runner socket for %q did not appear at %s within %s; "+
+			"the container likely exited — inspect with `docker logs %s`: %v",
+			name, sockPath, c.socketWait, containerName, err)
 		return nil, err
 	}
 
@@ -197,6 +207,7 @@ func (c *Coordinator) Start(cfg *core.Config) (*Session, error) {
 	c.sessions[name] = sess
 	c.persistLocked()
 	c.mu.Unlock()
+	log.Printf("coordinator: runner for %q ready (container %s, socket %s)", name, containerName, sockPath)
 	return sess, nil
 }
 
