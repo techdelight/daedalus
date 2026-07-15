@@ -140,12 +140,14 @@ func (c *Coordinator) Start(cfg *core.Config) (*Session, error) {
 	name := cfg.ProjectName
 	containerName := cfg.ContainerName()
 
-	c.mu.Lock()
-	if _, exists := c.sessions[name]; exists {
-		c.mu.Unlock()
+	// If a *live* session already exists, report ErrAlreadyRunning so the
+	// caller attaches instead of double-starting. Get reconciles liveness,
+	// so a stale session whose container died out-of-band is reaped here
+	// and we fall through to start a fresh one — rather than wrongly
+	// claiming it's already running and stranding the caller.
+	if _, ok := c.Get(name); ok {
 		return nil, ErrAlreadyRunning
 	}
-	c.mu.Unlock()
 
 	sockPath := cfg.RunnerSocketPath()
 	if err := os.MkdirAll(filepath.Dir(sockPath), 0o755); err != nil {
@@ -216,9 +218,38 @@ func (c *Coordinator) Start(cfg *core.Config) (*Session, error) {
 // error should compare against ErrNotFound from Stop instead.
 func (c *Coordinator) Get(name string) (*Session, bool) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	s, ok := c.sessions[name]
-	return s, ok
+	c.mu.Unlock()
+	if !ok {
+		return nil, false
+	}
+
+	// Reconcile lazily. A container that died out-of-band — a crash, a
+	// manual `docker kill`, a host hiccup — leaves a stale session, because
+	// full reconciliation only runs at startup (loadAndReconcile). Handing
+	// that session back gives the caller a socket path that no longer
+	// accepts connections, which is exactly the "dial: no such file" /
+	// stale-attach failure. Verify the container is still running; if not,
+	// drop the session so the caller falls back to starting a fresh one.
+	running, err := c.dockerRunningContainers()
+	if err != nil {
+		// Can't verify (docker unavailable): prefer returning the session
+		// over falsely reaping a live one.
+		return s, true
+	}
+	if !running[s.ContainerName] {
+		c.mu.Lock()
+		// Re-check under lock: only reap if it's still the same session we
+		// looked up, so a concurrent Start that replaced it isn't dropped.
+		if cur, still := c.sessions[name]; still && cur.ContainerName == s.ContainerName {
+			delete(c.sessions, name)
+			c.persistLocked()
+		}
+		c.mu.Unlock()
+		log.Printf("coordinator: reaped stale session %q — container %s is no longer running", name, s.ContainerName)
+		return nil, false
+	}
+	return s, true
 }
 
 // List returns a snapshot of all tracked sessions, ordered by start
