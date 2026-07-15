@@ -6,7 +6,7 @@
 
 A Docker environment for running AI coding agents ([Claude Code](https://claude.ai/code), [GitHub Copilot CLI](https://github.com/features/copilot)) autonomously without permission prompts. The container isolates the agent with write access only to the mounted project directory.
 
-Daedalus ships two launch paths: a classic tmux path (default, one tmux session per project) and an experimental **runner path** where a `daedalus-runner` PID-1 binary inside the container fans PTY I/O over a Unix socket, and a host-side `daedalus-coordinator` daemon owns session lifecycles. The runner path is opt-in via `DAEDALUS_USE_RUNNER=1` — see [Runner Path](#runner-path-opt-in) below and [ARCHITECTURE.md](ARCHITECTURE.md) for the design.
+Daedalus ships two launch paths: the classic tmux path (default, one tmux session per project) and the **runner path** where a `daedalus-runner` PID-1 binary inside the container fans PTY I/O over a Unix socket, and a host-side `daedalus-coordinator` daemon owns session lifecycles. The runner path is opt-in via `DAEDALUS_USE_RUNNER=1` (feature-complete, becoming the default) — see [Runner Path](#runner-path-opt-in) below, [docs/runner-path-status.md](docs/runner-path-status.md) for rollout status, and [ARCHITECTURE.md](ARCHITECTURE.md) for the design.
 
 ## Why
 
@@ -315,11 +315,11 @@ The daemon lives under `<DataDir>/.daedalus/`:
 | `coordinator.sock` | HTTP-over-Unix-socket API surface |
 | `coordinator.pid` | Pidfile (used by `daedalus coordinator start/stop/status`) |
 | `coordinator.log` | Daemon stdout+stderr |
-| `sessions.json` | Persistent session map (reconciled against `docker ps` on startup) |
+| `sessions.json` | Persistent session map (reconciled against `docker ps` on startup and on session lookup, so a container that died out-of-band is dropped) |
 
 Under the runner path, start the Web UI with `DAEDALUS_USE_RUNNER=1 daedalus web`: the dashboard shows a **runner mode** badge, each project's action becomes **Open** (which launches a runner session via the coordinator and attaches — no CLI pre-launch), and the terminal connects over the runner socket instead of tmux. Per-terminal, a `?mode=runner` query on the URL overrides the default either way. See [ARCHITECTURE.md](ARCHITECTURE.md#runner-attach-launch-flow) for the full sequence.
 
-**Status:** experimental. The default `daedalus <project>` launch still uses tmux; the runner path is in the process of reaching feature parity before becoming the default (Milestone 4 on the [roadmap](ROADMAP.md)).
+**Status:** opt-in and feature-complete (CLI + Web), pending a final real-Docker + Claude parity pass before it becomes the default. The default `daedalus <project>` launch still uses tmux. See [docs/runner-path-status.md](docs/runner-path-status.md) for the current state of the rollout and [Milestone 4](ROADMAP.md).
 
 ## Build Targets
 
