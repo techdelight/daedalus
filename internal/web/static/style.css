@@ -504,7 +504,8 @@ tbody td {
     color: #bb9af7;
 }
 
-.terminal-header-actions {
+.terminal-header-actions,
+.dashboard-header-actions {
     display: flex;
     gap: 8px;
 }
@@ -643,9 +644,171 @@ tbody td {
     margin: 0;
 }
 
+/* Horizontal split below the terminal header: terminal + project sidebar.
+   min-height/min-width 0 stop the flex children from refusing to shrink,
+   which would otherwise push the sidebar off-screen on narrow desktops. */
+.terminal-body {
+    flex: 1;
+    display: flex;
+    min-height: 0;
+}
+
 #terminal-container {
     flex: 1;
+    min-width: 0;
     background: #1a1b26;
+}
+
+/* --- Project sidebar (desktop) --- */
+
+#docs-sidebar {
+    width: 280px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    background: #16161e;
+    border-left: 1px solid #292e42;
+    overflow: hidden;
+}
+
+/* Collapsed keeps the badge visible — the at-a-glance count is the point of
+   the sidebar, so it must survive the collapse. The rail is sized to hold
+   the badge at its widest ("0/8 ⚠") rather than the toggle, since the badge
+   would otherwise be clipped by the overflow:hidden above. No width
+   transition: xterm is refitted on toggle and would fit mid-animation. */
+#docs-sidebar.collapsed {
+    width: 64px;
+}
+
+#docs-sidebar.collapsed .sidebar-body {
+    display: none;
+}
+
+#docs-sidebar.collapsed .docs-badge {
+    font-size: 11px;
+    padding: 2px 4px;
+}
+
+.sidebar-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px;
+    border-bottom: 1px solid #292e42;
+}
+
+#docs-sidebar.collapsed .sidebar-head {
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 6px;
+}
+
+.sidebar-toggle {
+    background: none;
+    border: none;
+    color: #565f89;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 16px;
+    line-height: 1;
+    padding: 4px 6px;
+    border-radius: 4px;
+}
+
+.sidebar-toggle:hover {
+    color: #c0caf5;
+    background: #292e42;
+}
+
+.docs-badge {
+    font-size: 12px;
+    font-weight: bold;
+    color: #9ece6a;
+    background: rgba(158, 206, 106, 0.12);
+    border: 1px solid rgba(158, 206, 106, 0.35);
+    border-radius: 4px;
+    padding: 2px 6px;
+    cursor: help;
+    white-space: nowrap;
+}
+
+/* Incomplete doc set. ::after adds the warning glyph so the badge text
+   stays exactly the count and nothing has to strip it back off. */
+.docs-badge-warn {
+    color: #f7768e;
+    background: rgba(247, 118, 142, 0.12);
+    border-color: rgba(247, 118, 142, 0.35);
+}
+
+.docs-badge-warn::after {
+    content: ' \26A0';
+}
+
+.sidebar-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px;
+}
+
+.sidebar-section {
+    margin-bottom: 18px;
+}
+
+.sidebar-section:last-child {
+    margin-bottom: 0;
+}
+
+.sidebar-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #565f89;
+    margin-bottom: 8px;
+}
+
+.docs-list {
+    list-style: none;
+}
+
+.docs-item {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    font-size: 12px;
+    padding: 3px 0;
+    cursor: help;
+}
+
+.docs-mark {
+    width: 10px;
+    flex-shrink: 0;
+}
+
+.docs-item-present .docs-mark {
+    color: #9ece6a;
+}
+
+.docs-item-missing .docs-mark {
+    color: #f7768e;
+}
+
+.docs-item-missing .docs-name {
+    color: #565f89;
+}
+
+.vision-text {
+    font-size: 12px;
+    line-height: 1.5;
+    color: #c0caf5;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 40vh;
+    overflow-y: auto;
+}
+
+.sidebar-dashboard-btn {
+    width: 100%;
 }
 
 #mobile-input-area {
@@ -663,6 +826,12 @@ tbody td {
     #terminal-view {
         height: -webkit-fill-available;
         height: 100dvh;
+    }
+
+    /* The project sidebar is desktop-only: it would cost the terminal too
+       much width on a phone, and the dashboard carries the same data. */
+    #docs-sidebar {
+        display: none;
     }
 
     /* Card layout for project list */

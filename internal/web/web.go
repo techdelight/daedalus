@@ -175,6 +175,10 @@ func (ws *WebServer) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/projects/{name}/backlog", ws.handleBacklog)
 	mux.HandleFunc("GET /api/projects/{name}/strategic-roadmap", ws.handleStrategicRoadmap)
 
+	// docs.go
+	mux.HandleFunc("GET /api/projects/{name}/docs", ws.handleDocs)
+	mux.HandleFunc("GET /api/projects/{name}/vision", ws.handleVision)
+
 	// terminal.go
 	mux.HandleFunc("GET /api/projects/{name}/terminal", ws.handleTerminal)
 

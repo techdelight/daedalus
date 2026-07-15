@@ -57,7 +57,10 @@
         <div id="dashboard-view">
             <div class="dashboard-header">
                 <span class="project-name" id="dashboard-project-name"></span>
-                <button class="btn btn-back" onclick="showProjectList()">Back</button>
+                <div class="dashboard-header-actions">
+                    <button class="btn btn-attach" onclick="attachFromDashboard()">Open</button>
+                    <button class="btn btn-back" onclick="showProjectList()">Back</button>
+                </div>
             </div>
             <div class="dashboard-content">
                 <div class="dashboard-card">
@@ -130,7 +133,32 @@
                 <span class="history-hint">Press Esc or any key to return to live terminal</span>
                 <button class="btn btn-exit-history" onclick="exitHistoryMode()">Exit</button>
             </div>
-            <div id="terminal-container"></div>
+            <div class="terminal-body">
+                <div id="terminal-container"></div>
+                <!-- Desktop-only project sidebar: doc health, vision, and the
+                     route to the dashboard (hidden under the mobile breakpoint). -->
+                <aside id="docs-sidebar">
+                    <div class="sidebar-head">
+                        <button class="sidebar-toggle" id="sidebar-toggle"
+                                onclick="toggleSidebar()" title="Collapse">&rsaquo;</button>
+                        <span class="docs-badge" id="docs-badge" title="Loading documents&hellip;">&mdash;</span>
+                    </div>
+                    <div class="sidebar-body">
+                        <div class="sidebar-section">
+                            <div class="sidebar-label">Documents</div>
+                            <ul class="docs-list" id="docs-list"></ul>
+                        </div>
+                        <div class="sidebar-section sidebar-section-vision">
+                            <div class="sidebar-label">Vision</div>
+                            <pre class="vision-text" id="sidebar-vision-text"></pre>
+                        </div>
+                        <div class="sidebar-section">
+                            <button class="btn btn-roadmap sidebar-dashboard-btn"
+                                    onclick="showDashboardFromTerminal()">Dashboard &rarr;</button>
+                        </div>
+                    </div>
+                </aside>
+            </div>
             <div id="mobile-input-area">
                 <textarea id="mobile-input" placeholder="Type command..." rows="1"
                           autocomplete="off" autocorrect="off" autocapitalize="off"
@@ -276,6 +304,11 @@
         async function showDashboard(name) {
             // Stop refresh
             if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
+            // The dashboard is now reachable from an attached session, so drop
+            // the terminal on the way out. disconnectTerminal is null-guarded,
+            // so this is a no-op when arriving from the project list.
+            disconnectTerminal();
+            document.getElementById('terminal-view').classList.remove('active');
             // Fetch dashboard data
             const resp = await fetch(`/api/projects/${encodeURIComponent(name)}/dashboard`);
             if (!resp.ok) { setStatus('Error loading dashboard'); return; }
@@ -397,10 +430,16 @@
         function attachProject(name) {
             document.title = name + ' \u2014 Daedalus';
 
-            // Switch to terminal view
+            // Switch to terminal view. The dashboard is cleared explicitly:
+            // attaching can now come from the dashboard as well as the list,
+            // and both views are display-driven by .active, so leaving it set
+            // would render the two on top of each other.
             document.getElementById('project-view').classList.add('hidden');
+            document.getElementById('dashboard-view').classList.remove('active');
             document.getElementById('terminal-view').classList.add('active');
             document.getElementById('terminal-project-name').textContent = name;
+
+            loadSidebar(name);
 
             // Stop auto-refresh while in terminal
             if (refreshTimer) {
@@ -423,6 +462,99 @@
 
             fetchProjects();
             refreshTimer = setInterval(fetchProjects, 5000);
+        }
+
+        // --- Project sidebar (desktop) ---
+
+        const SIDEBAR_COLLAPSED_KEY = 'daedalus-sidebar-collapsed';
+
+        // Leaves the session for the dashboard. Reads the project from the
+        // header rather than a global, matching togglePanel's approach.
+        function showDashboardFromTerminal() {
+            const name = document.getElementById('terminal-project-name').textContent;
+            if (name) showDashboard(name);
+        }
+
+        // The reciprocal route: dashboard back into the session.
+        function attachFromDashboard() {
+            const name = document.getElementById('dashboard-project-name').textContent;
+            if (name) attachProject(name);
+        }
+
+        function applySidebarState() {
+            const collapsed = localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1';
+            const toggle = document.getElementById('sidebar-toggle');
+            document.getElementById('docs-sidebar').classList.toggle('collapsed', collapsed);
+            toggle.innerHTML = collapsed ? '&lsaquo;' : '&rsaquo;';
+            toggle.title = collapsed ? 'Expand' : 'Collapse';
+        }
+
+        function toggleSidebar() {
+            const collapsed = localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1';
+            localStorage.setItem(SIDEBAR_COLLAPSED_KEY, collapsed ? '0' : '1');
+            applySidebarState();
+            // The terminal just got wider or narrower. terminal.js fits xterm
+            // on window resize and its onResize handler sends the new size to
+            // the server, so one synthetic event refits the view and resizes
+            // the PTY. rAF lets layout settle first.
+            requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
+        }
+
+        function loadSidebar(name) {
+            applySidebarState();
+            loadDocs(name);
+            loadVision(name);
+        }
+
+        async function loadDocs(name) {
+            const badge = document.getElementById('docs-badge');
+            const list = document.getElementById('docs-list');
+            try {
+                const resp = await fetch(`/api/projects/${encodeURIComponent(name)}/docs`);
+                if (!resp.ok) throw new Error('failed to load documents');
+                const data = await resp.json();
+
+                badge.textContent = `${data.present}/${data.total}`;
+                const complete = data.missing.length === 0;
+                badge.classList.toggle('docs-badge-warn', !complete);
+                badge.title = complete
+                    ? 'All required documents present'
+                    : 'Missing: ' + data.missing.join(', ');
+
+                list.innerHTML = data.docs.map(d => `
+                    <li class="docs-item ${d.present ? 'docs-item-present' : 'docs-item-missing'}"
+                        title="${escapeHtml(d.filename)} — ${escapeHtml(d.description)}">
+                        <span class="docs-mark">${d.present ? '✓' : '✗'}</span>
+                        <span class="docs-name">${escapeHtml(d.name)}</span>
+                    </li>`).join('');
+            } catch (err) {
+                badge.textContent = '—';
+                badge.title = 'Could not load documents';
+                badge.classList.remove('docs-badge-warn');
+                list.innerHTML = '<li class="empty-state">Could not load documents.</li>';
+            }
+        }
+
+        async function loadVision(name) {
+            const el = document.getElementById('sidebar-vision-text');
+            try {
+                const resp = await fetch(`/api/projects/${encodeURIComponent(name)}/vision`);
+                // 404 is the documented "no VISION.md" answer, not a failure:
+                // it must read as an empty state rather than an error, or a
+                // project that simply hasn't written one looks broken.
+                if (resp.status === 404) {
+                    el.textContent = 'No VISION.md found.';
+                    el.classList.add('empty-state');
+                    return;
+                }
+                if (!resp.ok) throw new Error('failed to load vision');
+                const data = await resp.json();
+                el.textContent = data.content;
+                el.classList.remove('empty-state');
+            } catch (err) {
+                el.textContent = 'Could not load vision.';
+                el.classList.add('empty-state');
+            }
         }
 
         function setStatus(msg) {
