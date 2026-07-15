@@ -171,6 +171,25 @@ func TestStart_PassesRunnerEnv(t *testing.T) {
 			t.Errorf("runner env %q not passed as a `-e` flag to `docker compose run`", k)
 		}
 	}
+
+	// `docker compose run --rm --detach` removes the container as soon as
+	// the detached call returns, tearing the runner down before it binds
+	// its socket. The run must be --detach WITHOUT --rm.
+	sawDetach, sawRm := false, false
+	for _, a := range capturedArgs {
+		switch a {
+		case "--detach":
+			sawDetach = true
+		case "--rm":
+			sawRm = true
+		}
+	}
+	if !sawDetach {
+		t.Errorf("compose run missing --detach; args = %v", capturedArgs)
+	}
+	if sawRm {
+		t.Errorf("compose run must not pass --rm (it removes the detached container before the socket binds); args = %v", capturedArgs)
+	}
 }
 
 func TestStart_RemovesStaleSocket(t *testing.T) {
@@ -323,15 +342,25 @@ func TestStop_RemovesSessionAndCallsDockerStop(t *testing.T) {
 	if _, ok := c.Get("my-app"); ok {
 		t.Error("session still tracked after Stop")
 	}
-	// First call is `docker compose run --detach`, want a later
-	// `docker stop` too.
+	// Stop must `docker stop` and then `docker rm` the container (Start no
+	// longer passes --rm, so the coordinator reaps it here).
 	calls := exec.FindCalls("docker")
-	if len(calls) < 2 {
-		t.Fatalf("want >=2 docker calls, got %d", len(calls))
+	sawStop, sawRm := false, false
+	for _, call := range calls {
+		if len(call.Args) >= 2 && call.Args[1] == cfg.ContainerName() {
+			switch call.Args[0] {
+			case "stop":
+				sawStop = true
+			case "rm":
+				sawRm = true
+			}
+		}
 	}
-	last := calls[len(calls)-1]
-	if len(last.Args) < 2 || last.Args[0] != "stop" || last.Args[1] != cfg.ContainerName() {
-		t.Errorf("last docker call args = %v, want [stop %s ...]", last.Args, cfg.ContainerName())
+	if !sawStop {
+		t.Errorf("Stop did not `docker stop %s`; calls = %+v", cfg.ContainerName(), calls)
+	}
+	if !sawRm {
+		t.Errorf("Stop did not `docker rm %s`; calls = %+v", cfg.ContainerName(), calls)
 	}
 }
 

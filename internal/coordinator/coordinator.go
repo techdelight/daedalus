@@ -165,7 +165,13 @@ func (c *Coordinator) Start(cfg *core.Config) (*Session, error) {
 	_ = c.exec.Run("docker", "rm", containerName)
 
 	env := composeEnv(cfg)
-	args := []string{"compose", "-f", c.composeFile, "run", "--rm", "--detach"}
+	// NOTE: no `--rm`. `docker compose run --rm --detach` removes the
+	// container the moment the detached run call returns, so the runner is
+	// torn down before it can bind its socket (waitForSocket then times
+	// out). The coordinator owns the container lifecycle itself instead:
+	// Stop removes it, and the stale-container reap above clears any
+	// leftover before the next Start.
+	args := []string{"compose", "-f", c.composeFile, "run", "--detach"}
 	// The DAEDALUS_* vars must reach the CONTAINER, so they are -e flags,
 	// not process env: docker-compose.yml interpolates none of them, so
 	// composeEnv alone would leave the entrypoint on the classic path.
@@ -243,6 +249,11 @@ func (c *Coordinator) Stop(name string) error {
 	if err := c.exec.Run("docker", "stop", sess.ContainerName); err != nil {
 		return fmt.Errorf("docker stop %s: %w", sess.ContainerName, err)
 	}
+	// Remove the stopped container. Since Start no longer passes `--rm`
+	// (it breaks the detached runner), the coordinator reaps the container
+	// itself so a stopped session doesn't linger and block the next Start
+	// on its name. Best-effort: a missing container is fine.
+	_ = c.exec.Run("docker", "rm", sess.ContainerName)
 
 	c.mu.Lock()
 	delete(c.sessions, name)
