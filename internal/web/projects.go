@@ -146,36 +146,6 @@ func (ws *WebServer) handleStopProject(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"status": "stopped", "project": name})
 }
 
-// handleSendEnter sends an Enter keypress to a project's tmux session.
-func (ws *WebServer) handleSendEnter(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
-
-	_, found, err := ws.registry.GetProject(name)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	if !found {
-		http.Error(w, fmt.Sprintf("project %q not found", name), http.StatusNotFound)
-		return
-	}
-
-	sessName := core.TmuxSessionFor(ws.cfg.TmuxPrefix, name)
-	sess := session.NewSession(ws.executor, sessName)
-	if !sess.Exists() {
-		http.Error(w, fmt.Sprintf("no tmux session for project %q", name), http.StatusNotFound)
-		return
-	}
-
-	if err := ws.executor.Run("tmux", "send-keys", "-t", sessName, "Enter"); err != nil {
-		http.Error(w, fmt.Sprintf("sending Enter to tmux: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
-}
-
 // handleRenameProject renames a project.
 func (ws *WebServer) handleRenameProject(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")

@@ -176,6 +176,14 @@ func (r *controlRelay) dispatchTextMessage(data []byte) bool {
 				log.Printf("ResizeWindow error for %s: %v", r.name, err)
 			}
 		}
+	case "enter":
+		// A real tmux Enter keypress rather than a \r byte written into the
+		// pane — the same command the tmux-only /enter HTTP endpoint used to
+		// issue, now on the session's own channel so it cannot arrive before
+		// the text it is meant to submit.
+		if err := r.sendTracked(fmt.Sprintf("send-keys -t %s Enter", r.sessName), ""); err != nil {
+			log.Printf("send Enter for %s: %v", r.name, err)
+		}
 	case "scrollback":
 		lines := m.Lines
 		if lines <= 0 {

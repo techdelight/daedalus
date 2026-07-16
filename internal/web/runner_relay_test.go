@@ -230,3 +230,72 @@ func readNextFromRunner(t *testing.T, fr *fakeRunner) runproto.Message {
 	}
 	return runproto.Message{}
 }
+
+// The regression test for the mobile Send bug: Enter used to travel as an
+// HTTP POST to /api/projects/{name}/enter, which only ever spoke tmux. In
+// runner mode there is no tmux session, so it 404'd — the text arrived and
+// rendered, but nothing ever submitted it.
+func TestRunnerRelay_EnterJSONBecomesCarriageReturn(t *testing.T) {
+	fr, sock := startFakeRunner(t, runproto.NewHello(nil, 80, 24))
+	srv := startRelayServer(t, sock)
+	ws := dialWS(t, srv)
+	fr.waitReady(t)
+
+	if err := ws.WriteMessage(websocket.TextMessage, []byte(`{"type":"enter"}`)); err != nil {
+		t.Fatalf("ws write: %v", err)
+	}
+
+	m := readNextFromRunner(t, fr)
+	if m.Type != runproto.TypeInput {
+		t.Fatalf("frame type = %q, want %q", m.Type, runproto.TypeInput)
+	}
+	if string(m.Data) != "\r" {
+		t.Errorf("input data = %q, want %q", string(m.Data), "\r")
+	}
+}
+
+// The whole mobile Send sequence: text, then Enter. The two must arrive as
+// separate input frames and in that order — Claude Code reads text with a
+// trailing newline as a paste and inserts a line break instead of
+// submitting, so the submit has to be its own write.
+func TestRunnerRelay_MobileSendSequenceSubmitsAfterText(t *testing.T) {
+	fr, sock := startFakeRunner(t, runproto.NewHello(nil, 80, 24))
+	srv := startRelayServer(t, sock)
+	ws := dialWS(t, srv)
+	fr.waitReady(t)
+
+	if err := ws.WriteMessage(websocket.BinaryMessage, []byte("run the tests")); err != nil {
+		t.Fatalf("ws write text: %v", err)
+	}
+	if err := ws.WriteMessage(websocket.TextMessage, []byte(`{"type":"enter"}`)); err != nil {
+		t.Fatalf("ws write enter: %v", err)
+	}
+
+	first := readNextFromRunner(t, fr)
+	if first.Type != runproto.TypeInput || string(first.Data) != "run the tests" {
+		t.Fatalf("first frame = (%q, %q), want input %q", first.Type, first.Data, "run the tests")
+	}
+
+	second := readNextFromRunner(t, fr)
+	if second.Type != runproto.TypeInput || string(second.Data) != "\r" {
+		t.Errorf("second frame = (%q, %q), want input %q", second.Type, second.Data, "\r")
+	}
+}
+
+// The enter signal must be intercepted before the forward-as-input
+// fallthrough, or the control message itself gets typed into the pane.
+func TestRunnerRelay_EnterIsNotTypedLiterally(t *testing.T) {
+	fr, sock := startFakeRunner(t, runproto.NewHello(nil, 80, 24))
+	srv := startRelayServer(t, sock)
+	ws := dialWS(t, srv)
+	fr.waitReady(t)
+
+	if err := ws.WriteMessage(websocket.TextMessage, []byte(`{"type":"enter"}`)); err != nil {
+		t.Fatalf("ws write: %v", err)
+	}
+
+	m := readNextFromRunner(t, fr)
+	if strings.Contains(string(m.Data), "enter") || strings.Contains(string(m.Data), "{") {
+		t.Errorf("enter message was typed into the pane as %q", string(m.Data))
+	}
+}

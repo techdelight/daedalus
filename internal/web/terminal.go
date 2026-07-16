@@ -73,6 +73,24 @@ type wsMsg struct {
 	Lines int    `json:"lines,omitempty"`
 }
 
+// enterKey is the byte a terminal sends when Enter is pressed. The paths
+// with no tmux to ask for a keypress write it to the PTY directly.
+const enterKey = "\r"
+
+// isEnterMsg reports whether data is the mobile Send button's enter signal.
+//
+// Enter travels as its own frame rather than as a \r appended to the text.
+// Claude Code reads a chunk of text with a trailing newline as a paste and
+// inserts a line break instead of submitting, so the submit has to arrive as
+// a write of its own. Frames are delivered in order on one connection, so
+// the text is always applied first — unlike the HTTP /enter endpoint this
+// replaced, which raced the WebSocket and, having only ever spoken tmux,
+// 404'd on the runner path.
+func isEnterMsg(data []byte) bool {
+	var m wsMsg
+	return json.Unmarshal(data, &m) == nil && m.Type == "enter"
+}
+
 type scrollbackResponse struct {
 	Type    string `json:"type"`
 	Content string `json:"content"`
@@ -364,6 +382,15 @@ func relayWebSocketToPTY(wg *sync.WaitGroup, conn *safeConn, ptmx *os.File) {
 
 		switch msgType {
 		case websocket.TextMessage:
+			// Checked before the resize probe and before the fallthrough that
+			// forwards text as input: an unhandled control message would be
+			// typed into the pane as literal JSON.
+			if isEnterMsg(data) {
+				if _, err := ptmx.Write([]byte(enterKey)); err != nil {
+					return
+				}
+				continue
+			}
 			var msg resizeMsg
 			if json.Unmarshal(data, &msg) == nil && msg.Type == "resize" && msg.Cols > 0 && msg.Rows > 0 {
 				if err := pty.Setsize(ptmx, &pty.Winsize{Rows: msg.Rows, Cols: msg.Cols}); err != nil {

@@ -82,6 +82,14 @@ func (r *runnerRelay) readWebSocket(wg *sync.WaitGroup) {
 		}
 		switch msgType {
 		case websocket.TextMessage:
+			// Must precede the forward-as-input fallthrough below, or the
+			// control message itself would be typed into the pane.
+			if isEnterMsg(data) {
+				if _, err := r.rc.Write([]byte(enterKey)); err != nil {
+					return
+				}
+				continue
+			}
 			var rm resizeMsg
 			if json.Unmarshal(data, &rm) == nil && rm.Type == "resize" && rm.Cols > 0 && rm.Rows > 0 {
 				if err := r.rc.Resize(int(rm.Cols), int(rm.Rows)); err != nil {

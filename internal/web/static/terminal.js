@@ -247,10 +247,14 @@ function connectTerminal(projectName) {
         var text = mobileInput.value;
         if (text.length === 0) return;
         if (ws && ws.readyState === WebSocket.OPEN) {
+            // Text first, then Enter as its own frame on the same socket.
+            // Frames are ordered, so the submit cannot overtake the text.
+            // This used to POST to /api/projects/{name}/enter, which only
+            // ever spoke tmux and so 404'd in runner mode — the text showed
+            // up but nothing ran. The relay turns this into a real tmux
+            // Enter (control mode) or a \r write (runner / raw PTY).
             ws.send(new TextEncoder().encode(text));
-            fetch('/api/projects/' + encodeURIComponent(projectName) + '/enter', {
-                method: 'POST'
-            });
+            ws.send(JSON.stringify({ type: 'enter' }));
         }
         mobileInput.value = '';
         mobileInput.style.height = 'auto';

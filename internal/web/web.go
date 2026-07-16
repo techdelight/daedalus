@@ -162,7 +162,6 @@ func (ws *WebServer) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/projects/{name}/start", ws.handleStartProject)
 	mux.HandleFunc("POST /api/projects/{name}/stop", ws.handleStopProject)
 	mux.HandleFunc("POST /api/projects/{name}/rename", ws.handleRenameProject)
-	mux.HandleFunc("POST /api/projects/{name}/enter", ws.handleSendEnter)
 
 	// dashboard.go
 	mux.HandleFunc("GET /api/projects/{name}/dashboard", ws.handleDashboard)
