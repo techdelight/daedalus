@@ -106,6 +106,14 @@ function connectTerminal(projectName) {
                     term.write(msg.content);
                     return;
                 }
+                // Server-pushed git branch: sent on attach and whenever the
+                // branch changes, so the header needs no polling. Guarded
+                // because terminal.js is also loaded by pages without the
+                // session header.
+                if (msg.type === 'branch') {
+                    if (typeof setGitBranch === 'function') setGitBranch(msg.branch);
+                    return;
+                }
             } catch (e) { /* not JSON, treat as terminal data */ }
             term.write(event.data);
         }

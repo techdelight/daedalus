@@ -25,7 +25,7 @@ import (
 // on the same bufio.Reader.
 type controlRelay struct {
 	cs       *session.ControlSession
-	conn     *websocket.Conn
+	conn     *safeConn
 	sessName string // tmux session name, used for capture/resize commands
 	name     string // project name, used in log messages
 
@@ -33,7 +33,7 @@ type controlRelay struct {
 	pendingTypes []string
 }
 
-func newControlRelay(cs *session.ControlSession, conn *websocket.Conn, sessName, projectName string) *controlRelay {
+func newControlRelay(cs *session.ControlSession, conn *safeConn, sessName, projectName string) *controlRelay {
 	return &controlRelay{
 		cs:       cs,
 		conn:     conn,

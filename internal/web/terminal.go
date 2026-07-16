@@ -3,6 +3,7 @@
 package web
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -27,6 +28,38 @@ var wsUpgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
 		return true
 	},
+}
+
+// safeConn serializes writes to a WebSocket.
+//
+// gorilla/websocket permits only one concurrent writer, and each relay used
+// to satisfy that by having exactly one goroutine write while the other only
+// read. The branch watcher breaks that assumption: it pushes from its own
+// goroutine alongside the relay's output pump. Embedding the connection and
+// overriding WriteMessage puts every existing write behind the mutex without
+// touching the call sites. Reads stay direct — there is still one reader.
+type safeConn struct {
+	*websocket.Conn
+	mu sync.Mutex
+}
+
+func newSafeConn(conn *websocket.Conn) *safeConn {
+	return &safeConn{Conn: conn}
+}
+
+func (c *safeConn) WriteMessage(messageType int, data []byte) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.Conn.WriteMessage(messageType, data)
+}
+
+// startBranchWatch begins pushing branch changes for the attached session and
+// returns a stop function to be deferred by the handler, so the watcher's
+// lifetime is exactly the session's.
+func startBranchWatch(conn *safeConn, projectDir string) (stop func()) {
+	ctx, cancel := context.WithCancel(context.Background())
+	go watchBranch(ctx, conn, projectDir, branchFallbackInterval)
+	return cancel
 }
 
 type resizeMsg struct {
@@ -58,7 +91,7 @@ func (ws *WebServer) handleTerminal(w http.ResponseWriter, r *http.Request) {
 
 	name := r.PathValue("name")
 
-	_, found, err := ws.registry.GetProject(name)
+	entry, found, err := ws.registry.GetProject(name)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -75,11 +108,12 @@ func (ws *WebServer) handleTerminal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	conn, err := wsUpgrader.Upgrade(w, r, nil)
+	rawConn, err := wsUpgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("WebSocket upgrade failed for %s: %v", name, err)
 		return
 	}
+	conn := newSafeConn(rawConn)
 	defer conn.Close()
 
 	ptmx, cmd, err := startPTY(sessName)
@@ -88,6 +122,8 @@ func (ws *WebServer) handleTerminal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer cleanupPTY(cmd, ptmx)
+
+	defer startBranchWatch(conn, entry.Directory)()
 
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -104,7 +140,7 @@ func (ws *WebServer) handleTerminal(w http.ResponseWriter, r *http.Request) {
 func (ws *WebServer) handleTerminalControl(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 
-	_, found, err := ws.registry.GetProject(name)
+	entry, found, err := ws.registry.GetProject(name)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -121,11 +157,12 @@ func (ws *WebServer) handleTerminalControl(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	conn, err := wsUpgrader.Upgrade(w, r, nil)
+	rawConn, err := wsUpgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("WebSocket upgrade failed for %s: %v", name, err)
 		return
 	}
+	conn := newSafeConn(rawConn)
 	defer conn.Close()
 
 	cs, err := session.StartControlSession(sessName)
@@ -134,6 +171,8 @@ func (ws *WebServer) handleTerminalControl(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	defer cs.Close()
+
+	defer startBranchWatch(conn, entry.Directory)()
 
 	// Capture visible pane content before starting the relay so the
 	// terminal is populated immediately on connect — no reader contention
@@ -189,11 +228,12 @@ func (ws *WebServer) handleTerminalRunner(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	conn, err := wsUpgrader.Upgrade(w, r, nil)
+	rawConn, err := wsUpgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("WebSocket upgrade failed for %s: %v", name, err)
 		return
 	}
+	conn := newSafeConn(rawConn)
 	defer conn.Close()
 
 	rc, err := runclient.Dial(sess.SocketPath)
@@ -204,6 +244,8 @@ func (ws *WebServer) handleTerminalRunner(w http.ResponseWriter, r *http.Request
 		return
 	}
 	defer rc.Close()
+
+	defer startBranchWatch(conn, entry.Directory)()
 
 	newRunnerRelay(rc, conn, name).Run()
 }
@@ -293,7 +335,7 @@ func cleanupPTY(cmd *exec.Cmd, ptmx *os.File) {
 	}
 }
 
-func relayPTYToWebSocket(wg *sync.WaitGroup, ptmx *os.File, conn *websocket.Conn, name string) {
+func relayPTYToWebSocket(wg *sync.WaitGroup, ptmx *os.File, conn *safeConn, name string) {
 	defer wg.Done()
 	buf := make([]byte, 4096)
 	for {
@@ -312,7 +354,7 @@ func relayPTYToWebSocket(wg *sync.WaitGroup, ptmx *os.File, conn *websocket.Conn
 	}
 }
 
-func relayWebSocketToPTY(wg *sync.WaitGroup, conn *websocket.Conn, ptmx *os.File) {
+func relayWebSocketToPTY(wg *sync.WaitGroup, conn *safeConn, ptmx *os.File) {
 	defer wg.Done()
 	for {
 		msgType, data, err := conn.ReadMessage()

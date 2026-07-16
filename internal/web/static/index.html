@@ -115,7 +115,10 @@
         <!-- Terminal View -->
         <div id="terminal-view">
             <div class="terminal-header">
-                <span class="project-name" id="terminal-project-name"></span>
+                <div class="terminal-header-title">
+                    <span class="project-name" id="terminal-project-name"></span>
+                    <span class="git-branch" id="terminal-git-branch" hidden></span>
+                </div>
                 <div class="terminal-header-actions">
                     <button class="btn btn-history" onclick="requestScrollback(1000)">History</button>
                     <button class="btn btn-select" id="mobile-select-btn">Select</button>
@@ -533,6 +536,21 @@
                 badge.classList.remove('docs-badge-warn');
                 list.innerHTML = '<li class="empty-state">Could not load documents.</li>';
             }
+        }
+
+        // --- Git branch (session header) ---
+
+        // Rendered purely from what the server pushes over the session
+        // WebSocket: it sends the branch on attach and again whenever it
+        // changes, so there is no timer and no polling here. terminal.js
+        // calls this on a "branch" message. An empty branch (no repo, or a
+        // detached HEAD) hides the pill.
+        function setGitBranch(branch) {
+            const el = document.getElementById('terminal-git-branch');
+            if (!el) return;
+            el.textContent = branch || '';
+            el.title = branch ? 'Current git branch' : '';
+            el.hidden = !branch;
         }
 
         async function loadVision(name) {

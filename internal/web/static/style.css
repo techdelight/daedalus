@@ -499,9 +499,32 @@ tbody td {
     align-items: center;
 }
 
+/* The header is space-between with two children. The project name and its
+   branch are grouped so the pair stays left rather than the branch being
+   distributed into the middle. */
+.terminal-header-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+}
+
 .terminal-header .project-name {
     font-size: 13px;
     color: #bb9af7;
+}
+
+.git-branch {
+    font-size: 11px;
+    color: #7dcfff;
+    background: rgba(125, 207, 255, 0.1);
+    border: 1px solid rgba(125, 207, 255, 0.3);
+    border-radius: 4px;
+    padding: 1px 6px;
+    max-width: 240px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .terminal-header-actions,

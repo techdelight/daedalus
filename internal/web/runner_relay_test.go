@@ -89,7 +89,7 @@ func startRelayServer(t *testing.T, sockPath string) *httptest.Server {
 			return
 		}
 		defer rc.Close()
-		newRunnerRelay(rc, ws, "test-project").Run()
+		newRunnerRelay(rc, newSafeConn(ws), "test-project").Run()
 	}))
 	t.Cleanup(srv.Close)
 	return srv

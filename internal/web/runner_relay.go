@@ -25,11 +25,11 @@ import (
 // when either side closes.
 type runnerRelay struct {
 	rc   *runclient.Conn
-	conn *websocket.Conn
+	conn *safeConn
 	name string // project name, used in log messages
 }
 
-func newRunnerRelay(rc *runclient.Conn, conn *websocket.Conn, projectName string) *runnerRelay {
+func newRunnerRelay(rc *runclient.Conn, conn *safeConn, projectName string) *runnerRelay {
 	return &runnerRelay{rc: rc, conn: conn, name: projectName}
 }
 
