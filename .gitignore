@@ -2,8 +2,12 @@
 .cache/
 .claude/
 .daedalus/
+# build.sh outputs — keep in step with its REQUIRED_BINARIES list
 /daedalus
+/daedalus-coordinator
 /daedalus-runner
+/project-mgmt-mcp
+/skill-catalog-mcp
 agentenv
 node_modules/
 test-results/
