@@ -178,6 +178,11 @@ func (ws *WebServer) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/projects/{name}/docs", ws.handleDocs)
 	mux.HandleFunc("GET /api/projects/{name}/vision", ws.handleVision)
 
+	// overview.go — /overview is the project-journey dashboard's single fetch;
+	// /milestones serves the arc alone for any caller that wants just it.
+	mux.HandleFunc("GET /api/projects/{name}/overview", ws.handleOverview)
+	mux.HandleFunc("GET /api/projects/{name}/milestones", ws.handleMilestones)
+
 	// terminal.go
 	mux.HandleFunc("GET /api/projects/{name}/terminal", ws.handleTerminal)
 

@@ -3,13 +3,18 @@
 package core
 
 // SprintStatus represents the status of a sprint item.
-type SprintStatus string
+//
+// An alias, not a defined type: sprint items and milestones share one status
+// vocabulary (see Status in status.go), and an alias keeps every existing
+// SprintStatus call site — and the JSON it produces — untouched while letting
+// the two be compared and assigned freely.
+type SprintStatus = Status
 
-const (
-	StatusPending    SprintStatus = ""
-	StatusDone       SprintStatus = "Done"
-	StatusInProgress SprintStatus = "In Progress"
-)
+// StatusPending is a sprint item that is neither done nor in progress: an
+// empty status cell in the table. It is the sprint-side default only —
+// milestones default to StatusPlanned instead. StatusDone and StatusInProgress
+// are shared; they live in status.go.
+const StatusPending SprintStatus = ""
 
 // SprintItem represents a single item in a sprint.
 type SprintItem struct {
