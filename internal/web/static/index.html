@@ -62,31 +62,11 @@
                     <button class="btn btn-back" onclick="showProjectList()">Back</button>
                 </div>
             </div>
-            <div class="dashboard-content">
-                <div class="dashboard-card">
-                    <div class="dashboard-label">Progress</div>
-                    <div class="progress-bar-container">
-                        <div class="progress-bar" id="dashboard-progress-bar"></div>
-                        <span class="progress-text" id="dashboard-progress-text">0%</span>
-                    </div>
-                </div>
-                <div class="dashboard-card">
-                    <div class="dashboard-label">Version</div>
-                    <div class="dashboard-value" id="dashboard-version">&mdash;</div>
-                </div>
-                <div class="dashboard-card">
-                    <div class="dashboard-label">Sessions</div>
-                    <div class="dashboard-value" id="dashboard-sessions">0</div>
-                </div>
-                <div class="dashboard-card">
-                    <div class="dashboard-label">Total Time</div>
-                    <div class="dashboard-value" id="dashboard-time">&mdash;</div>
-                </div>
-                <div class="dashboard-card dashboard-card-wide">
-                    <div class="dashboard-label">Vision</div>
-                    <div class="dashboard-value dashboard-vision" id="dashboard-vision">&mdash;</div>
-                </div>
-            </div>
+            <!-- The project journey: Purpose -> Arc -> Backlog, derived from the
+                 project's own documents via one /overview fetch. Populated by
+                 renderJourney(). No ops stats live here — agent activity,
+                 sessions, and running state belong to the session view. -->
+            <div id="journey" class="journey"></div>
             <div class="roadmap-section">
                 <button class="btn btn-roadmap" onclick="togglePanel('strategic-roadmap-panel', this)">Roadmap</button>
                 <button class="btn btn-roadmap" onclick="togglePanel('backlog-panel', this)">Backlog</button>
@@ -314,8 +294,8 @@
             // with the session killed.
             let data;
             try {
-                const resp = await fetch(`/api/projects/${encodeURIComponent(name)}/dashboard`);
-                if (!resp.ok) throw new Error('dashboard request failed');
+                const resp = await fetch(`/api/projects/${encodeURIComponent(name)}/overview`);
+                if (!resp.ok) throw new Error('overview request failed');
                 data = await resp.json();
             } catch (err) {
                 setStatus('Error loading dashboard');
@@ -326,14 +306,10 @@
                 if (onList && !refreshTimer) refreshTimer = setInterval(fetchProjects, 5000);
                 return;
             }
-            // Populate UI
-            document.getElementById('dashboard-project-name').textContent = data.name;
-            document.getElementById('dashboard-progress-bar').style.width = data.progressPct + '%';
-            document.getElementById('dashboard-progress-text').textContent = data.progressPct + '%';
-            document.getElementById('dashboard-version').textContent = data.projectVersion || '\u2014';
-            document.getElementById('dashboard-sessions').textContent = data.sessionCount;
-            document.getElementById('dashboard-time').textContent = formatDuration(data.totalTimeSec);
-            document.getElementById('dashboard-vision').textContent = data.vision || '\u2014';
+            // Populate UI. The name lives on the path we navigated by, not in
+            // the overview payload, which is purely the project's own documents.
+            document.getElementById('dashboard-project-name').textContent = name;
+            renderJourney(data);
             // Reset all panels
             ['strategic-roadmap-panel', 'backlog-panel', 'sprints-panel'].forEach(id => {
                 const p = document.getElementById(id);
@@ -354,6 +330,111 @@
             loadStrategicRoadmap(name);
             loadBacklog(name);
             loadSprints(name);
+        }
+
+        // renderJourney paints the whole /overview payload as the project's
+        // story: Purpose -> The Arc -> Backlog. Every string here is
+        // file-derived, so every one goes through escapeHtml — this is the
+        // one place project documents reach the DOM as markup.
+        function renderJourney(data) {
+            const el = document.getElementById('journey');
+            const vision = (data.vision || '').trim();
+            const milestones = Array.isArray(data.milestones) ? data.milestones : [];
+            const sprint = data.currentSprint || null;
+            const backlog = Array.isArray(data.backlog) ? data.backlog : [];
+            let html = '';
+
+            // Purpose — VISION.md, rendered as prose.
+            html += '<section class="journey-section"><h2 class="journey-heading">Purpose</h2>';
+            html += vision
+                ? '<div class="purpose-prose">' + renderProse(vision) + '</div>'
+                : '<p class="journey-empty">No VISION.md yet.</p>';
+            html += '</section>';
+
+            // The Arc — the milestone spine, with the current sprint nested
+            // inside the milestone it advances.
+            html += '<section class="journey-section"><h2 class="journey-heading">The Arc</h2>';
+            if (milestones.length) {
+                html += '<ol class="arc">';
+                milestones.forEach(m => {
+                    const status = m.status || 'Planned';
+                    const cls = status === 'Done' ? 'done'
+                        : status === 'In Progress' ? 'active' : 'planned';
+                    html += '<li class="arc-node arc-' + cls + '">';
+                    html += '<div class="arc-marker"></div><div class="arc-body">';
+                    html += '<div class="arc-head"><span class="arc-title">' + escapeHtml(m.title) + '</span>';
+                    html += '<span class="arc-status">' + escapeHtml(status) + '</span></div>';
+                    if (m.description) html += '<div class="arc-desc">' + renderProse(m.description) + '</div>';
+                    if (sprint && sprint.milestone === m.number) html += renderSprint(sprint, false);
+                    html += '</div></li>';
+                });
+                html += '</ol>';
+                // A current sprint linked to no milestone (or one the roadmap
+                // doesn't define) still belongs on the page — show it loose
+                // rather than swallow it.
+                if (sprint && !milestones.some(m => m.number === sprint.milestone)) {
+                    html += renderSprint(sprint, true);
+                }
+            } else {
+                html += '<p class="journey-empty">No ROADMAP.md milestones yet.</p>';
+                if (sprint) html += renderSprint(sprint, true);
+            }
+            html += '</section>';
+
+            // Backlog — the undated pool.
+            html += '<section class="journey-section"><h2 class="journey-heading">Backlog';
+            html += '<span class="journey-count">' + backlog.length + '</span></h2>';
+            if (backlog.length) {
+                html += '<ul class="backlog-pool">';
+                backlog.forEach(item => {
+                    html += '<li class="backlog-item"><span class="backlog-num">'
+                        + escapeHtml(String(item.number)) + '</span>'
+                        + escapeHtml(item.description || '') + '</li>';
+                });
+                html += '</ul>';
+            } else {
+                html += '<p class="journey-empty">Backlog is empty.</p>';
+            }
+            html += '</section>';
+
+            el.innerHTML = html;
+        }
+
+        // renderSprint draws the current sprint as a nested card. `orphan` is
+        // true when it hangs off no milestone, which changes only its framing.
+        function renderSprint(sprint, orphan) {
+            const items = Array.isArray(sprint.items) ? sprint.items : [];
+            const done = items.filter(i => i.status === 'Done').length;
+            const pct = items.length ? Math.round(done / items.length * 100) : 0;
+            let h = '<div class="sprint-card' + (orphan ? ' sprint-orphan' : '') + '">';
+            h += '<div class="sprint-head"><span class="sprint-label">Current Sprint</span>';
+            h += '<span class="sprint-title">Sprint ' + escapeHtml(String(sprint.number)) + ': '
+                + escapeHtml(sprint.title) + '</span>';
+            if (sprint.version) h += '<span class="sprint-version">v' + escapeHtml(sprint.version) + '</span>';
+            h += '</div>';
+            if (sprint.goal) h += '<div class="sprint-goal">' + escapeHtml(sprint.goal) + '</div>';
+            if (items.length) {
+                h += '<div class="sprint-progress"><div class="sprint-progress-bar" style="width:' + pct + '%"></div></div>';
+                h += '<div class="sprint-progress-text">' + done + ' / ' + items.length + ' done</div>';
+                h += '<ul class="sprint-items">';
+                items.forEach(it => {
+                    const st = it.status || '';
+                    const cls = st === 'Done' ? 'done' : st === 'In Progress' ? 'active' : 'pending';
+                    h += '<li class="sprint-item sprint-item-' + cls + '"><span class="sprint-item-dot"></span>'
+                        + escapeHtml(it.description || '') + '</li>';
+                });
+                h += '</ul>';
+            }
+            h += '</div>';
+            return h;
+        }
+
+        // renderProse turns blank-line-separated markdown into paragraphs,
+        // escaping every character — file content is never trusted as markup.
+        function renderProse(text) {
+            return String(text).split(/\n\s*\n/).map(p =>
+                '<p>' + escapeHtml(p.trim()).replace(/\n/g, '<br>') + '</p>'
+            ).join('');
         }
 
         function togglePanel(panelId, btn) {
