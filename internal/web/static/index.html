@@ -307,15 +307,25 @@
         async function showDashboard(name) {
             // Stop refresh
             if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
-            // The dashboard is now reachable from an attached session, so drop
-            // the terminal on the way out. disconnectTerminal is null-guarded,
-            // so this is a no-op when arriving from the project list.
-            disconnectTerminal();
-            document.getElementById('terminal-view').classList.remove('active');
-            // Fetch dashboard data
-            const resp = await fetch(`/api/projects/${encodeURIComponent(name)}/dashboard`);
-            if (!resp.ok) { setStatus('Error loading dashboard'); return; }
-            const data = await resp.json();
+            // Fetch dashboard data before touching the view. Nothing is torn
+            // down until the data is in hand: an early return here can come
+            // from an attached session, where project-view is already hidden,
+            // so dropping the terminal first would strand every view hidden
+            // with the session killed.
+            let data;
+            try {
+                const resp = await fetch(`/api/projects/${encodeURIComponent(name)}/dashboard`);
+                if (!resp.ok) throw new Error('dashboard request failed');
+                data = await resp.json();
+            } catch (err) {
+                setStatus('Error loading dashboard');
+                // Stay put. Resume the list refresh only if the list is what
+                // we're still looking at — a caller attached to a session
+                // deliberately runs with no refresh.
+                const onList = !document.getElementById('project-view').classList.contains('hidden');
+                if (onList && !refreshTimer) refreshTimer = setInterval(fetchProjects, 5000);
+                return;
+            }
             // Populate UI
             document.getElementById('dashboard-project-name').textContent = data.name;
             document.getElementById('dashboard-progress-bar').style.width = data.progressPct + '%';
@@ -330,7 +340,12 @@
                 p.style.display = 'none';
                 p.innerHTML = '';
             });
-            // Show dashboard view
+            // Show dashboard view. The dashboard is reachable from an attached
+            // session, so drop the terminal here — atomically with the view
+            // swap, never before the fetch that might fail. disconnectTerminal
+            // is null-guarded, so this is a no-op when arriving from the list.
+            disconnectTerminal();
+            document.getElementById('terminal-view').classList.remove('active');
             document.getElementById('project-view').classList.add('hidden');
             document.getElementById('guild-view').classList.remove('active');
             if (typeof hideGuildView === 'function') hideGuildView();
