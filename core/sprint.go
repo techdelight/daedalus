@@ -25,10 +25,17 @@ type SprintItem struct {
 
 // Sprint represents a parsed sprint from a SPRINTS.md (or legacy ROADMAP.md) file.
 type Sprint struct {
-	Number    int          `json:"number"`
-	Title     string       `json:"title"`
-	Version   string       `json:"version,omitempty"`
-	Goal      string       `json:"goal,omitempty"`
+	Number  int    `json:"number"`
+	Title   string `json:"title"`
+	Version string `json:"version,omitempty"`
+	Goal    string `json:"goal,omitempty"`
+	// Milestone is the number of the ROADMAP.md milestone this sprint serves,
+	// from a "Milestone: N" line under the sprint header. Zero means unlinked
+	// — milestones are numbered from 1 — which is the honest reading of a
+	// sprint that names no milestone and of one that names an unparseable
+	// value. Whether the number matches a milestone that exists is a
+	// cross-file question, and deliberately not this parser's to answer.
+	Milestone int          `json:"milestone,omitempty"`
 	Items     []SprintItem `json:"items"`
 	IsCurrent bool         `json:"isCurrent,omitempty"`
 }

@@ -6,6 +6,8 @@
 
 Goal: close the Web-UI-hangs-on-trust-prompt gap (Backlog #38) that blocks making the runner path the default. Two layers — (1) eliminate the redundant workspace-trust prompt inside the container (the container is already the trust boundary); (2) make the runner relay robust to any early one-shot full-screen prompt via initial PTY sizing and repaint-on-attach — then flip the runner path to default and retire the tmux launch path. Milestone 4 endgame.
 
+Milestone: 4
+
 | # | Item | Status |
 |---|------|--------|
 | 1 | Layer 1 — pre-seed workspace trust in the default `claude.json` (`projects["/workspace"].hasTrustDialogAccepted`) so Claude's "trust this folder?" dialog never fires inside the container | Done |

@@ -60,6 +60,28 @@ func ParseSprints(markdown string) []Sprint {
 			}
 		}
 
+		// Match the milestone link line (also between header and table).
+		//
+		// This needs its own guard block. Folding it into the Goal block above
+		// would gate it on `current.Goal == ""`, so a sprint whose Goal: line
+		// comes first — the usual order — would never reach it and would drop
+		// its milestone silently, the parse depending on which line the author
+		// happened to write first.
+		if current != nil && len(current.Items) == 0 && current.Milestone == 0 {
+			if strings.HasPrefix(trimmed, "Milestone:") {
+				// Tolerant by design: a value that is not a number leaves
+				// Milestone at 0 (unlinked) rather than failing the parse. A
+				// half-written document is a normal state, and whether the
+				// number names a real milestone is a cross-file question for
+				// a validator, not for this parser.
+				num, err := strconv.Atoi(strings.TrimSpace(strings.TrimPrefix(trimmed, "Milestone:")))
+				if err == nil && num > 0 {
+					current.Milestone = num
+				}
+				continue
+			}
+		}
+
 		// Match table rows.
 		if current != nil {
 			if m := tableRowRe.FindStringSubmatch(trimmed); m != nil {
