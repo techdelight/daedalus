@@ -30,7 +30,7 @@ _daedalus() {
     local cur prev words cword
     _init_completion || return
 
-    local subcommands="list prune remove rename config tui web completion skills runners personas programmes"
+    local subcommands="list prune remove rename config tui web completion skills runners personas programmes docs"
     local flags="--build --target --resume -p --no-tmux --debug --dind --display --force --port --host --no-color --runner --persona --auth --no-auth --help -h"
 
     # Complete subcommands and flags for the first argument
@@ -65,6 +65,9 @@ _daedalus() {
         programmes)
             COMPREPLY=($(compgen -W "list show create add-project add-dep remove" -- "${cur}"))
             ;;
+        docs)
+            COMPREPLY=($(compgen -W "lint --ci" -- "${cur}"))
+            ;;
         *)
             COMPREPLY=($(compgen -W "${flags}" -- "${cur}"))
             ;;
@@ -94,6 +97,7 @@ _daedalus() {
         'runners:List or show built-in runner profiles'
         'personas:Manage named persona configurations'
         'programmes:Manage multi-project programmes'
+        'docs:Check project documents against the dashboard-arc format'
     )
 
     flags=(
@@ -151,6 +155,9 @@ _daedalus() {
                 programmes)
                     _values 'action' list show create add-project add-dep remove
                     ;;
+                docs)
+                    _values 'action' lint --ci
+                    ;;
                 *)
                     _describe -t flags 'flag' flags
                     ;;
@@ -178,6 +185,9 @@ complete -c daedalus -n '__fish_use_subcommand' -a 'skills' -d 'Manage shared sk
 complete -c daedalus -n '__fish_use_subcommand' -a 'runners' -d 'List or show built-in runner profiles'
 complete -c daedalus -n '__fish_use_subcommand' -a 'personas' -d 'Manage named persona configurations'
 complete -c daedalus -n '__fish_use_subcommand' -a 'programmes' -d 'Manage multi-project programmes'
+complete -c daedalus -n '__fish_use_subcommand' -a 'docs' -d 'Check project documents against the dashboard-arc format'
+complete -c daedalus -n '__fish_seen_subcommand_from docs' -a 'lint' -d 'Check ROADMAP.md/SPRINTS.md against the arc format'
+complete -c daedalus -n '__fish_seen_subcommand_from docs' -l ci -d 'Treat warnings as failures too'
 
 # Global flags
 complete -c daedalus -l build -d 'Force rebuild the Docker image'

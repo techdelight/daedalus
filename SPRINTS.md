@@ -465,7 +465,7 @@ Delivered 2026-03-02. Registry schema versioning, session tracking, default flag
 | 6 | Per-project default flags | — | Done |
 | 7 | Session history tracking | — | Done |
 
-### Sprint 4 Hotfix: DinD & Prune Fixes (v0.4.1)
+### Hotfix v0.4.1: DinD & Prune Fixes (post-Sprint 4)
 
 Delivered 2026-03-02. Fixed critical DinD bug and addressed major review issues from v0.4.0.
 

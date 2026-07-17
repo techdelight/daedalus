@@ -265,6 +265,7 @@ var collectorSubcommands = map[string]func(cfg *core.Config, positional []string
 	"runners":    func(cfg *core.Config, p []string) { cfg.RunnersArgs = p[1:] },
 	"programmes":  func(cfg *core.Config, p []string) { cfg.ProgrammesArgs = p[1:] },
 	"coordinator": func(cfg *core.Config, p []string) { cfg.CoordinatorArgs = p[1:] },
+	"docs":        func(cfg *core.Config, p []string) { cfg.DocsArgs = p[1:] },
 }
 
 // isBareSubcommand reports whether name is a single-positional subcommand that

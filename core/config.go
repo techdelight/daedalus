@@ -41,6 +41,7 @@ type Config struct {
 	RunnersArgs     []string // positional args for "runners" subcommand
 	ProgrammesArgs  []string // positional args for "programmes" subcommand
 	CoordinatorArgs []string // positional args for "coordinator" subcommand
+	DocsArgs        []string // positional args for "docs" subcommand
 	TargetOverride  bool     // true when --target was explicitly passed
 	WebAddr         string   // host:port for web UI server
 	WSL2Detected    bool     // true when WSL2 was auto-detected and host defaulted to 0.0.0.0

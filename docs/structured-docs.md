@@ -136,8 +136,24 @@ Absence is never a finding. Checks that need milestones are skipped when there
 is no `ROADMAP.md` rather than failing — the docs badge already reports which
 documents are missing, and saying it twice would bury the findings that matter.
 
-A test holds this repo's own documents clean, so a future drift in Daedalus's
-own docs fails CI rather than shipping.
+`ValidateDocs` reasons over the *parsed* structs, so there is one thing it
+structurally cannot see: a heading the parser *rejected* never becomes a struct.
+A mistyped `## Milestone 4:` (wrong level) or `### Milestone 4 Foo` (no colon)
+is silently dropped from the arc, and no consistency check over the parsed
+result can mention what was never parsed. `core.LintHeadings(doc, content)`
+catches this in the raw text: it flags any heading that *looks* like a milestone
+or sprint entry (`### Milestone N`, `### Sprint N`) but does not match the strict
+format, as an **error**. It skips fenced code blocks, so a phasing diagram that
+draws `M4 (In Progress)` inside a fence is left alone.
+
+### The gate
+
+`daedalus docs lint [--ci] [dir]` runs both — the heading checks, then the
+cross-file checks — over a project's `ROADMAP.md` and `SPRINTS.md` and reports
+them as one list. It exits **non-zero on any error**, and with `--ci` on any
+warning too, so it can gate a commit, a session, or CI. A test holds this repo's
+own documents clean, so a future drift in Daedalus's own docs fails there rather
+than shipping.
 
 ## Retrieval
 

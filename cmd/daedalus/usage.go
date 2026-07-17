@@ -39,6 +39,7 @@ func printUsage() {
 	fmt.Println("  skills                        List, add, remove, or show skills in the shared catalog")
 	fmt.Println("  runners                       List or show built-in runner profiles (claude, copilot)")
 	fmt.Println("  personas                      List, show, create, or remove named persona configurations")
+	fmt.Println("  docs lint [--ci] [dir]        Check ROADMAP.md/SPRINTS.md against the dashboard-arc format")
 	fmt.Println("  completion <shell>            Print shell completion script (bash, zsh, fish)")
 	fmt.Println()
 	fmt.Println(color.Bold("Flags:"))
