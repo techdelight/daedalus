@@ -22,6 +22,21 @@ Milestone: 4
 
 ## Sprint History
 
+### Sprint 42: Structured Project Documents & Dashboard Journey
+
+Goal: make a project's own markdown the machine-readable source of truth, and turn the per-project dashboard into a file-derived "journey" — Purpose → Arc → Backlog. Ran in parallel with Sprint 41 on `development`; landed but unreleased. Cross-cutting DX/tooling, not tied to a single milestone.
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | Parse ROADMAP milestones (`core.ParseMilestones`, tri-state, neutral `core.Status`) and link a sprint to its milestone via a `Milestone: N` line in `core.ParseSprints` | Done |
+| 2 | Aggregate `GET /api/projects/{name}/overview` (vision + milestones + current sprint + backlog in one fetch) plus `/milestones`; host-side `mcpclient.ReadMilestones` | Done |
+| 3 | Cross-file `core.ValidateDocs` (contradictions = errors, information loss = warnings) and raw-text `core.LintHeadings` (catch silently-dropped headings), surfaced as `daedalus docs lint [--ci]` | Done |
+| 4 | `docs/structured-docs.md` — the parseable-markdown contract the parsers rely on | Done |
+| 5 | Frontend project-journey dashboard — replace the 5-KPI grid with Purpose → Arc (current sprint nested in the in-progress milestone) → Backlog, fed by `/overview` | Done |
+| 6 | Reconcile `docs/PROJECT-INIT.md` to the structured-docs model (ROADMAP = milestones; add SPRINTS/BACKLOG; parseable templates verified against `daedalus docs lint`) and relocate it under `docs/` | Done |
+
+**Frontend not yet browser-verified.** The journey dashboard is code-complete, static-checked, and its data path is verified against this repo's real documents, but it has never been rendered in a browser (no node in the build sessions). It rides the Sprint 41 real-Docker parity pass for a real paint against the approved mockup.
+
 ### Sprint 40: Coordinator-as-Daemon (v0.39.0)
 
 Delivered 2026-07-11. Second slice of Milestone 4. Promoted `internal/coordinator` from an in-process, per-CLI map into a long-lived host daemon (`daedalus-coordinator`) exposing an HTTP-over-Unix-socket API, with a Go client, ssh-agent-style auto-spawn, and `sessions.json` persistence reconciled against `docker ps` across restarts. CLI and Web both attach through the daemon, so runner sessions are host-wide discoverable.
