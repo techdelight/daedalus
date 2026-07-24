@@ -169,7 +169,11 @@ func TestIntegration_DaemonBinary(t *testing.T) {
 func buildDaemonBinary(t *testing.T, root string) string {
 	t.Helper()
 	binPath := filepath.Join(root, "daedalus-coordinator")
-	cmd := exec.Command("go", "build", "-o", binPath, "github.com/techdelight/daedalus/cmd/daedalus-coordinator")
+	// -buildvcs=false mirrors build.sh: when this runs in the pinned golang
+	// container (root) against the host-owned /src mount, git refuses the
+	// repo as "dubious ownership" and VCS stamping fails with exit 128. The
+	// daemon binary under test does not need a VCS stamp.
+	cmd := exec.Command("go", "build", "-buildvcs=false", "-o", binPath, "github.com/techdelight/daedalus/cmd/daedalus-coordinator")
 	// Avoid contaminating GOPATH/GOCACHE with the test's temp dir.
 	cmd.Env = os.Environ()
 	cmd.Stdout = testLogWriter{t}
