@@ -27,18 +27,19 @@ Projects bootstrapped from this file are meant to run under **Daedalus**, which 
 12. [CQS — Command-Query Separation](#cqs--command-query-separation)
 13. [I/O Separation](#io-separation)
 14. [Service Conventions](#service-conventions)
-15. [Testing Strategy](#testing-strategy)
-16. [Source File Headers](#source-file-headers)
-17. [Workflow — TDD red-green-refactor](#workflow--tdd-red-green-refactor)
-18. [Definition of Done](#definition-of-done)
-19. [Pre-Commit Checklist](#pre-commit-checklist)
-20. [Git & Commit Conventions](#git--commit-conventions)
-21. [Release Procedure](#release-procedure)
-22. [Tooling — Tasks, Plans, Memory](#tooling--tasks-plans-memory)
-23. [Working Style — Communication](#working-style--communication)
-24. [Carefulness — Risky Actions](#carefulness--risky-actions)
-25. [Bootstrap Procedure](#bootstrap-procedure)
-26. [Appendix — Document Templates](#appendix--document-templates)
+15. [Build & Dependencies](#build--dependencies)
+16. [Testing Strategy](#testing-strategy)
+17. [Source File Headers](#source-file-headers)
+18. [Workflow — TDD red-green-refactor](#workflow--tdd-red-green-refactor)
+19. [Definition of Done](#definition-of-done)
+20. [Pre-Commit Checklist](#pre-commit-checklist)
+21. [Git & Commit Conventions](#git--commit-conventions)
+22. [Release Procedure](#release-procedure)
+23. [Tooling — Tasks, Plans, Memory](#tooling--tasks-plans-memory)
+24. [Working Style — Communication](#working-style--communication)
+25. [Carefulness — Risky Actions](#carefulness--risky-actions)
+26. [Bootstrap Procedure](#bootstrap-procedure)
+27. [Appendix — Document Templates](#appendix--document-templates)
 
 ---
 
@@ -321,6 +322,22 @@ Every executable service must:
 
 ---
 
+## Build & Dependencies
+
+Builds run **inside Docker**, driven by the project's own `Dockerfile` (multi-stage where it helps). A fresh checkout must build with nothing on the host but Docker itself — no toolchain, SDK, or package manager installed onto the developer's system, and no writes into their global caches.
+
+- **The toolchain lives in the image.** Compiler, language runtime, build tool, and system packages are baked into a build stage, pinned to explicit versions so the build is reproducible. This is the part that belongs *in* the image — not the project's libraries.
+- **Build-time library dependencies live in a project-local cache, bind-mounted as a volume.** The third-party libraries a build resolves and downloads — Maven `.m2`, the Go module cache, npm/`node_modules`, pip, the Cargo registry, and the like — are written into a directory under the **project root** (e.g. `./.build-cache/…`) that is mounted into the build container. That keeps them:
+  - **persistent** — resolved once, reused on every later build instead of re-downloaded;
+  - **project-scoped** — each project owns its dependency cache; nothing lands in the developer's `~/.m2`, `~/.cache`, `~/go`, or any global store;
+  - **disposable** — removing the project directory removes its build caches with it.
+- **Do not** install build dependencies onto the host, and do not default to a shared/global Docker volume for them — the **project directory is the boundary**. (A shared cache across projects is a deliberate, separate optimization, not the default.)
+- Add the cache directory to `.gitignore` — it is a build artifact, never committed.
+
+> This extends the way Daedalus runs the project (an isolated container with the project bind-mounted) to build time: the compiler is the image's job; the libraries are the project's, cached beside the code they build.
+
+---
+
 ## Testing Strategy
 
 Test pyramid, top to bottom: **unit (most) → integration (some) → end-to-end (few)**.
@@ -571,6 +588,8 @@ Default expectations: small incremental changes, frequent integration, automated
 ## Build & Test Commands
 
 *Primary build, test, lint, and run commands. Group by language/module if there are several.*
+
+Builds run in Docker via the project's `Dockerfile` — nothing installed on the host but Docker. The toolchain lives in the image; build-time **library** dependencies are cached in a project-local, bind-mounted volume (e.g. `./.build-cache/…`) so they persist and never touch the developer's global caches. *Record the exact build command and the cache mount here.*
 
 ## Architecture
 
@@ -865,6 +884,10 @@ Every executable service displays VERSION, build timestamp, and logo at startup;
 
 *Primary build, test, lint, and run commands. Group by language/module if there are several.*
 
+### Containerized builds
+
+Builds run **inside Docker**, driven by the project's `Dockerfile`; a fresh checkout builds with only Docker installed on the host. The build toolchain (compiler, runtime, build tool) is baked into the image. Build-time **library dependencies** (Maven `.m2`, Go module cache, npm, pip, Cargo registry, …) are cached in a directory under the project root (e.g. `./.build-cache/…`) bind-mounted into the build container — resolved once, reused across builds, and isolated from the developer's global caches. Don't install dependencies onto the host. Keep the cache directory out of git.
+
 ## Debug Mode
 
 Set `DEBUG=true` to log all incoming/outgoing protocol messages.
@@ -965,6 +988,9 @@ Set `DEBUG=true` to log all incoming/outgoing protocol messages.
 /build/
 /dist/
 /out/
+
+# Build dependency cache (Dockerized builds — see Build & Dependencies)
+/.build-cache/
 
 # Dependencies
 /node_modules/
