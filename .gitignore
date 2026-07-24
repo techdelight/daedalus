@@ -8,9 +8,6 @@
 /daedalus-runner
 /project-mgmt-mcp
 /skill-catalog-mcp
-
-# Dockerized-build dependency cache (GOMODCACHE/GOCACHE) — see build.sh
-/.build-cache/
 agentenv
 node_modules/
 test-results/

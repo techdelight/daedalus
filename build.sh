@@ -17,14 +17,7 @@ REQUIRED_BINARIES=(
     daedalus-coordinator  # host-side daemon
 )
 
-# Build inside Docker: the Go toolchain comes from the image, but the Go
-# library dependencies are cached in a project-local, git-ignored volume
-# (./.build-cache, reached via the /src mount) so they are resolved once and
-# never land in the developer's global module cache. See docs/PROJECT-INIT.md
-# ("Build & Dependencies"). test.sh and e2e/run-repaint.sh share the cache.
-docker run --rm -v "$PWD":/src -w /src \
-  -e GOMODCACHE=/src/.build-cache/go/mod -e GOCACHE=/src/.build-cache/go/build \
-  golang:1.25-bookworm \
+docker run --rm -v "$PWD":/src -w /src golang:1.25-bookworm \
   sh -c "go build -buildvcs=false -ldflags '-X github.com/techdelight/daedalus/core.Version=$VERSION' -o daedalus ./cmd/daedalus && \
          go build -buildvcs=false -o skill-catalog-mcp ./cmd/skill-catalog-mcp && \
          go build -buildvcs=false -o project-mgmt-mcp ./cmd/project-mgmt-mcp && \
