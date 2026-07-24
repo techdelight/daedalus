@@ -2,6 +2,7 @@
 
 | # | Item |
 |---|------|
+| 54 | Scaffold conformant project docs — `daedalus docs scaffold [dir]` writes the required-doc skeletons (VISION/ROADMAP/SPRINTS/BACKLOG + README/ARCHITECTURE/CONTRIBUTING/CHANGELOG) from the docs/PROJECT-INIT.md templates, already conformant to the structured-docs contract so `daedalus docs lint` passes on a fresh project. Sibling to `daedalus docs lint`; turns the copy-paste bootstrap into one command and removes the "read docs/PROJECT-INIT.md and hope" step for a new session. See docs/PROJECT-INIT.md for the templates and contract |
 | 6 | Shell toggle — switch between Claude Code and a regular project shell inside the container |
 | 8 | Bundle release assets — package runtime files into a single tarball on the GitHub Release page instead of individual files |
 | 9 | Side-by-side versions — install a new version alongside the existing one, allowing rollback or A/B comparison before switching |
