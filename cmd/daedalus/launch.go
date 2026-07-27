@@ -8,6 +8,7 @@ import (
 	"os"
 
 	"github.com/techdelight/daedalus/core"
+	"github.com/techdelight/daedalus/internal/attach"
 	"github.com/techdelight/daedalus/internal/color"
 	"github.com/techdelight/daedalus/internal/coordinator"
 	"github.com/techdelight/daedalus/internal/docker"
@@ -143,7 +144,7 @@ func launchProjectViaRunner(cfg *core.Config, reg *registry.Registry) error {
 		fmt.Fprintf(os.Stderr, "%s container started; attaching. Press Ctrl-D to detach.\n", color.Green("OK:"))
 	}
 
-	code, attachErr := attachToRunner(sess.SocketPath)
+	code, attachErr := attach.ToRunner(sess.SocketPath)
 
 	if sessionErr == nil {
 		if err := reg.EndSession(cfg.ProjectName, sessionID); err != nil {
