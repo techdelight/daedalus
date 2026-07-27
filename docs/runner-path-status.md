@@ -60,8 +60,9 @@ separately exercised, same repaint path); the default-flip landed on
 `development` (`core.UseRunner()`, first half of item 5); and the **TUI now
 drives the runner path** through the coordinator client (`internal/attach`
 shared with the CLI), so all three UIs go through the daemon — no tmux. The
-TUI's runner path is unit-tested but not yet exercised end-to-end against a
-live container.
+TUI's runner path was driven end-to-end on real Docker on 2026-07-27 — start →
+attach → detach → reattach → stop all work, with running state tracking
+correctly.
 
 ## Known follow-ups (backlog)
 
