@@ -49,15 +49,19 @@ the runner path was effectively unusable end-to-end before these. All on
 ## What's left
 
 1. **Retire the tmux launch path** — second half of Sprint 41 item 5, once the
-   runner default has proven out in the field.
-2. **TUI** — migrate the TUI project list to the coordinator client (M4).
+   runner default has proven out in the field. This is the only piece left to
+   close Milestone 4.
 
 **Done getting here:** the manual real-Docker + Claude parity pass
 ([`e2e/runner-parity-runbook.md`](../e2e/runner-parity-runbook.md)) passed
 2026-07-27 (Sprint 41 item 4 — trust dialog, second-client and same-size
 attach, and Web all reconstruct the live prompt; `--resume`/login/copilot not
-separately exercised, same repaint path), and the default-flip landed on
-`development` (`core.UseRunner()`, first half of item 5).
+separately exercised, same repaint path); the default-flip landed on
+`development` (`core.UseRunner()`, first half of item 5); and the **TUI now
+drives the runner path** through the coordinator client (`internal/attach`
+shared with the CLI), so all three UIs go through the daemon — no tmux. The
+TUI's runner path is unit-tested but not yet exercised end-to-end against a
+live container.
 
 ## Known follow-ups (backlog)
 
