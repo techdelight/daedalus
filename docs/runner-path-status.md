@@ -1,6 +1,6 @@
 # Runner Path — Status
 
-**As of 2026-07-15 · Sprint 41 (Trust-Prompt & Runner Terminal Fidelity) · Milestone 4**
+**Updated 2026-07-27 · Sprint 41 (Trust-Prompt & Runner Terminal Fidelity) · Milestone 4**
 
 A single place to see where the runner-path rollout stands. For the design of
 the individual pieces see [ARCHITECTURE.md](../ARCHITECTURE.md); for the #38
@@ -9,19 +9,23 @@ repaint work see [runner-repaint-design.md](runner-repaint-design.md).
 ## Where we are
 
 The runner path (host `daedalus-coordinator` daemon + in-container
-`daedalus-runner` PID 1, PTY fanned over a Unix socket) is **feature-complete
-and confirmed working end-to-end on both CLI and Web**. It remains **opt-in**:
+`daedalus-runner` PID 1, PTY fanned over a Unix socket) is **the default launch
+path** as of 2026-07-27 (`core.UseRunner()`; opt out with `DAEDALUS_USE_TMUX=1`,
+or `DAEDALUS_USE_RUNNER=0`). It is feature-complete and confirmed working
+end-to-end on both CLI and Web:
 
-- CLI: `DAEDALUS_USE_RUNNER=1 daedalus <project>`
-- Web: `DAEDALUS_USE_RUNNER=1 daedalus web` → "runner mode" badge, **Open**
-  launches a runner session via the coordinator and attaches (no CLI
-  pre-launch). A `?mode=runner` URL query overrides per-terminal.
+- CLI: `daedalus <project>`
+- Web: `daedalus web` → "runner mode" badge, **Open** launches a runner session
+  via the coordinator and attaches (no CLI pre-launch). A `?mode=runner` URL
+  query overrides per-terminal.
 
 The trust-prompt gap (Backlog #38) that blocked making it the default is fixed
 via **smart replay-on-attach**: the runner replays scrollback from the last
 screen boundary, so a one-shot dialog reconstructs for late / second /
 same-size viewers. Covered by `cmd/daedalus-runner/repaint_e2e_test.go`
-(run `./e2e/run-repaint.sh`).
+(run `./e2e/run-repaint.sh`), and confirmed by the manual real-Docker + Claude
+parity pass on 2026-07-27 (trust dialog reconstructs on every attach; the Web
+paints the live prompt instead of hanging).
 
 ## What got fixed getting here
 
@@ -44,18 +48,16 @@ the runner path was effectively unusable end-to-end before these. All on
 
 ## What's left
 
-1. **Parity pass (the gate)** — the manual real-Docker + Claude checklist in
-   [`e2e/runner-parity-runbook.md`](../e2e/runner-parity-runbook.md): trust
-   dialog, `--resume` picker, credentials, copilot adapter, CLI+Web sharing
-   one session (esp. same-size 80×24 attach + second viewer). Automatable half
-   is green; this human pass is what closes Sprint 41 item 4.
-2. **Flip to default** — drafted, **gated**, on branch
-   `feat/runner-default-flip` (`core.UseRunner()`; runner default, opt out with
-   `DAEDALUS_USE_TMUX=1`). Merge once the parity pass is green. First half of
-   Sprint 41 item 5.
-3. **Retire the tmux launch path** — second half of item 5, after the runner
-   default has proven out in the field.
-4. **TUI** — migrate the TUI project list to the coordinator client (M4).
+1. **Retire the tmux launch path** — second half of Sprint 41 item 5, once the
+   runner default has proven out in the field.
+2. **TUI** — migrate the TUI project list to the coordinator client (M4).
+
+**Done getting here:** the manual real-Docker + Claude parity pass
+([`e2e/runner-parity-runbook.md`](../e2e/runner-parity-runbook.md)) passed
+2026-07-27 (Sprint 41 item 4 — trust dialog, second-client and same-size
+attach, and Web all reconstruct the live prompt; `--resume`/login/copilot not
+separately exercised, same repaint path), and the default-flip landed on
+`development` (`core.UseRunner()`, first half of item 5).
 
 ## Known follow-ups (backlog)
 

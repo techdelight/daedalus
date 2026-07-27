@@ -42,7 +42,7 @@ Runtime        Topology       Fidelity      Stack                Operations
 
 Milestone 4: Layered Runner / Coordinator Architecture, mid-flight.
 
-- **v0.38.0** shipped the runner foundation — `daedalus-runner` PID-1 binary, `runproto` wire protocol, host-side `runclient`, per-runner adapters, and an in-process `coordinator`. CLI (`DAEDALUS_USE_RUNNER=1`) and Web (`?mode=runner`) can attach through the runner socket today, opt-in.
+- **v0.38.0** shipped the runner foundation — `daedalus-runner` PID-1 binary, `runproto` wire protocol, host-side `runclient`, per-runner adapters, and an in-process `coordinator`. CLI and Web could attach through the runner socket, opt-in at the time.
 - **v0.39.0** (Sprint 40, complete on `master` awaiting release) promoted the coordinator to a real daemon: `daedalus-coordinator` binary with an HTTP-over-Unix-socket API, a Go client, ssh-agent-style auto-spawn, and `sessions.json` persistence with `docker ps` reconciliation across restarts. The CLI and Web both go through the daemon; sessions are now host-wide discoverable.
 
 Remaining for M4: migrate the TUI list to the coordinator client, and retire the tmux launch path once feature parity is confirmed. The runner path is now the **default** (opt out with `DAEDALUS_USE_TMUX=1`), and the trust-prompt gap under the runner path (Backlog #38) is fixed via smart replay-on-attach.

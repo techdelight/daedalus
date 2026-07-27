@@ -204,7 +204,7 @@ sequenceDiagram
     participant R as daedalus-runner<br/>(PID 1)
     participant RC as runclient
 
-    U->>CLI: DAEDALUS_USE_RUNNER=1<br/>daedalus alpha
+    U->>CLI: daedalus alpha
     CLI->>CT: EnsureRunning(DefaultLayout)
     Note over CT,D: Fast path: pidfile alive<br/>+ UDS dialable
     alt Daemon not running
@@ -294,9 +294,9 @@ Length-prefixed messages on the runner's Unix socket.
 
 The runner keeps a scrollback ring buffer per connection so a fresh dial replays recent output before entering live-relay mode. That's what `runclient.Read` surfaces as the first bytes read.
 
-## Classic tmux path (default, being retired)
+## Classic tmux path (opt-in via `DAEDALUS_USE_TMUX=1`, being retired)
 
-For reference — this is still what `daedalus <project>` uses when `DAEDALUS_USE_RUNNER` is unset.
+For reference — this is what `daedalus <project>` uses when opted in with `DAEDALUS_USE_TMUX=1` (or `DAEDALUS_USE_RUNNER=0`); it is no longer the default.
 
 ```mermaid
 sequenceDiagram
