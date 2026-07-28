@@ -1,6 +1,17 @@
-# ── Stage 1: base ────────────────────────────────────────────────────────────
-# Minimal Debian with Claude CLI, git, and networking tools.
-FROM debian:bookworm-slim AS base
+# Daedalus runner image — multi-stage build.
+#
+# Layer strategy (#51): the frequently-rebuilt Daedalus Go binaries
+# (skill-catalog-mcp, project-mgmt-mcp, daedalus-runner) are COPY'd LAST,
+# in a thin per-target leaf stage, so a Daedalus version bump invalidates
+# only that final layer and leaves the expensive toolchain download layers
+# (Go, SDKMAN, Godot, Copilot) cached. The *-base stages below are the
+# stable parents; the buildable targets (base/utils/dev/godot/copilot-*)
+# are the leaves at the bottom.
+
+# ── Parent: agent-base ───────────────────────────────────────────────────────
+# Minimal Debian with Claude CLI, git, config files, and the entrypoint.
+# Holds no Daedalus Go binaries (see leaf targets below).
+FROM debian:bookworm-slim AS agent-base
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
@@ -16,6 +27,7 @@ USER claude
 # WARNING: This downloads and executes an unverified script from claude.ai.
 # The URL is not version-pinned and has no checksum verification.
 # If supply-chain integrity is a concern, audit /tmp/install.sh before building.
+# TODO(#51): pin the Claude installer to a known version + checksum.
 RUN curl -fsSL https://claude.ai/install.sh > /tmp/install.sh && \
     chmod u+x /tmp/install.sh && cd /tmp && ./install.sh
 
@@ -29,23 +41,22 @@ COPY --chown=claude:claude claude.json /opt/claude/defaults/.claude.json
 COPY --chown=claude:claude settings.json /opt/claude/defaults/settings.json
 COPY --chown=claude:claude entrypoint.sh /opt/claude/bin/entrypoint.sh
 RUN chmod +x /opt/claude/bin/entrypoint.sh
-COPY --chown=claude:claude skill-catalog-mcp /usr/local/bin/skill-catalog-mcp
-COPY --chown=claude:claude project-mgmt-mcp /usr/local/bin/project-mgmt-mcp
-# daedalus-runner is staged in /usr/local/bin/ for phase 6, when the
-# container ENTRYPOINT switches from the tmux-based path to launching
-# the runner via this binary. Currently unused.
-COPY --chown=claude:claude daedalus-runner /usr/local/bin/daedalus-runner
 
-ENV PATH="$PATH:/opt/claude/bin"
+# Per-project persistent tools prefix (#27): bind-mounted at /opt/tools at
+# runtime. Create the mount point + put its bin on PATH so tools the agent
+# installs there survive restarts and are found.
+RUN mkdir -p /opt/tools/bin && chown -R claude:claude /opt/tools
+
+ENV PATH="$PATH:/opt/claude/bin:/opt/tools/bin"
 ENV CLAUDE_CONFIG_DIR="/home/claude/.claude-config"
 
 USER claude
 WORKDIR /workspace
 ENTRYPOINT ["/opt/claude/bin/entrypoint.sh"]
 
-# ── Stage 2: utils ───────────────────────────────────────────────────────────
-# Shared utilities needed by both dev and godot stages.
-FROM base AS utils
+# ── Parent: utils-base ───────────────────────────────────────────────────────
+# Shared utilities needed by both dev and godot.
+FROM agent-base AS utils-base
 
 USER root
 RUN apt-get update && \
@@ -55,10 +66,10 @@ RUN apt-get update && \
 
 USER claude
 
-# ── Stage 3: dev ─────────────────────────────────────────────────────────────
+# ── Parent: dev-base ─────────────────────────────────────────────────────────
 # Full development environment: Go, Python 3, JDK, Maven, Kotlin.
 # JVM tooling (Java, Maven, Kotlin) installed via SDKMAN instead of apt.
-FROM utils AS dev
+FROM utils-base AS dev-base
 
 ARG GO_VERSION=1.25.0
 
@@ -88,9 +99,9 @@ RUN source "$HOME/.sdkman/bin/sdkman-init.sh" && \
 ENV SDKMAN_DIR="/home/claude/.sdkman"
 ENV PATH="$SDKMAN_DIR/candidates/java/current/bin:$SDKMAN_DIR/candidates/maven/current/bin:$SDKMAN_DIR/candidates/kotlin/current/bin:$PATH"
 
-# ── Stage 4: godot ───────────────────────────────────────────────────────────
+# ── Parent: godot-base ───────────────────────────────────────────────────────
 # Godot 4.x engine for headless use (game CI, exports, tests).
-FROM utils AS godot
+FROM utils-base AS godot-base
 
 ARG GODOT_VERSION=4.4.1
 
@@ -111,11 +122,12 @@ RUN wget -q "https://github.com/godotengine/godot/releases/download/${GODOT_VERS
 
 USER claude
 
-# ── Stage 5: copilot-base ───────────────────────────────────────────────────
+# ── Parent: copilot-base-base ────────────────────────────────────────────────
 # Minimal base with Copilot CLI instead of Claude CLI.
-FROM base AS copilot-base
+FROM agent-base AS copilot-base-base
 
 USER claude
+# TODO(#51): pin the Copilot installer to a known version + checksum.
 RUN echo 'n' | curl -fsSL https://gh.io/copilot-install | bash
 
 USER root
@@ -124,10 +136,9 @@ RUN mv /home/claude/.local/bin/copilot /usr/local/bin/copilot
 USER claude
 ENV RUNNER="copilot"
 
-# ── Stage 6: copilot-dev ────────────────────────────────────────────────────
+# ── Parent: copilot-dev-base ─────────────────────────────────────────────────
 # Copilot with full development environment: Go, Python 3, JDK, Maven, Kotlin.
-# JVM tooling (Java, Maven, Kotlin) installed via SDKMAN instead of apt.
-FROM copilot-base AS copilot-dev
+FROM copilot-base-base AS copilot-dev-base
 
 ARG GO_VERSION=1.25.0
 
@@ -156,3 +167,40 @@ RUN source "$HOME/.sdkman/bin/sdkman-init.sh" && \
     sdk install kotlin
 ENV SDKMAN_DIR="/home/claude/.sdkman"
 ENV PATH="$SDKMAN_DIR/candidates/java/current/bin:$SDKMAN_DIR/candidates/maven/current/bin:$SDKMAN_DIR/candidates/kotlin/current/bin:$PATH"
+
+# ── Daedalus artifact layer (#51) ────────────────────────────────────────────
+# Appended LAST to every buildable target so a `build.sh` binary rewrite
+# invalidates only this thin final layer, leaving all toolchain download
+# layers above cached. Each target `FROM`s its stable *-base parent and adds
+# the three Daedalus Go binaries. The COPY runs as the build daemon regardless
+# of the current USER; --chown sets ownership.
+
+FROM agent-base AS base
+COPY --chown=claude:claude skill-catalog-mcp /usr/local/bin/skill-catalog-mcp
+COPY --chown=claude:claude project-mgmt-mcp /usr/local/bin/project-mgmt-mcp
+COPY --chown=claude:claude daedalus-runner /usr/local/bin/daedalus-runner
+
+FROM utils-base AS utils
+COPY --chown=claude:claude skill-catalog-mcp /usr/local/bin/skill-catalog-mcp
+COPY --chown=claude:claude project-mgmt-mcp /usr/local/bin/project-mgmt-mcp
+COPY --chown=claude:claude daedalus-runner /usr/local/bin/daedalus-runner
+
+FROM dev-base AS dev
+COPY --chown=claude:claude skill-catalog-mcp /usr/local/bin/skill-catalog-mcp
+COPY --chown=claude:claude project-mgmt-mcp /usr/local/bin/project-mgmt-mcp
+COPY --chown=claude:claude daedalus-runner /usr/local/bin/daedalus-runner
+
+FROM godot-base AS godot
+COPY --chown=claude:claude skill-catalog-mcp /usr/local/bin/skill-catalog-mcp
+COPY --chown=claude:claude project-mgmt-mcp /usr/local/bin/project-mgmt-mcp
+COPY --chown=claude:claude daedalus-runner /usr/local/bin/daedalus-runner
+
+FROM copilot-base-base AS copilot-base
+COPY --chown=claude:claude skill-catalog-mcp /usr/local/bin/skill-catalog-mcp
+COPY --chown=claude:claude project-mgmt-mcp /usr/local/bin/project-mgmt-mcp
+COPY --chown=claude:claude daedalus-runner /usr/local/bin/daedalus-runner
+
+FROM copilot-dev-base AS copilot-dev
+COPY --chown=claude:claude skill-catalog-mcp /usr/local/bin/skill-catalog-mcp
+COPY --chown=claude:claude project-mgmt-mcp /usr/local/bin/project-mgmt-mcp
+COPY --chown=claude:claude daedalus-runner /usr/local/bin/daedalus-runner
