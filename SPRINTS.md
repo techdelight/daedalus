@@ -2,6 +2,26 @@
 
 ## Current Sprint
 
+### Sprint 43: Milestone 5 Verification & Hardening
+
+Goal: verify the Milestone 5 implementation on real Docker + a device — it was built in a container with no daemon or browser, so every image/container/volume/mobile behaviour is code-complete but unverified — fix what breaks, close the deferred pieces, and finish the Milestone 4 tail. Step-by-step in `docs/m5-verification.md`; design in `docs/milestone-5-plan.md`.
+
+Milestone: 5
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | Build every Dockerfile target on real Docker (#51 restructure) and confirm the cache win — a Daedalus-binary change no longer busts the toolchain download layers | |
+| 2 | Runtime verification on a real project: #55 skills/`.daedalus` mounts present; #37 shared Claude versions + #21 shared `.m2` populate under `<DataDir>/shared/`; #27 `/opt/tools` binary survives a stop/restart. **Watch the uid/permission assumption** (the top risk) | |
+| 3 | Trust idempotency — confirm an older project cache no longer fires the "trust this folder?" dialog | |
+| 4 | Mobile #29 on a phone — reconnect + repaint on a backgrounded tab and a Wi-Fi/cellular switch | |
+| 5 | Close deferral: pin the Claude/Copilot installers to a version + checksum (the `TODO(#51)` markers; supply-chain) | |
+| 6 | Close deferral if needed: Maven read-only-base + per-project overlay (#21), should the simple shared `.m2` show cross-project pollution | |
+| 7 | Retire the classic tmux launch path — the Milestone 4 cleanup tail — once the runner default is proven | |
+
+Prepared, not started: all items are Pending. Verification is host-side (real Docker + a phone); see `docs/m5-verification.md`.
+
+## Sprint History
+
 ### Sprint 41: Trust-Prompt & Runner Terminal Fidelity (v0.40.0)
 
 Goal: close the Web-UI-hangs-on-trust-prompt gap (Backlog #38) that blocks making the runner path the default. Two layers — (1) eliminate the redundant workspace-trust prompt inside the container (the container is already the trust boundary); (2) make the runner relay robust to any early one-shot full-screen prompt via initial PTY sizing and repaint-on-attach — then flip the runner path to default and retire the tmux launch path. Milestone 4 endgame.
@@ -14,7 +34,7 @@ Milestone: 4
 | 2 | Layer 2a — initial PTY sizing in `daedalus-runner`: size the PTY at startup (default 80×24, `--cols`/`--rows`) instead of creack/pty's 0×0 default, routed through the hub, with unit tests | Done |
 | 3 | Layer 2b — repaint-on-attach: reconstruct the current screen on attach so one-shot dialogs render for late/second/same-size viewers. Delivered as **smart replay-from-boundary** (`ScreenSnapshot` replays scrollback from the last screen boundary) rather than a SIGWINCH nudge; see `docs/runner-repaint-design.md#decision-sprint-41` | Done |
 | 4 | End-to-end verification — automatable half (`cmd/daedalus-runner/repaint_e2e_test.go` + `e2e/run-repaint.sh`, green) plus the manual real-Docker + Claude parity pass (`e2e/runner-parity-runbook.md`). **Passed 2026-07-27:** the trust dialog reconstructs on every attach tested — primary render (T1), a second CLI client at a different size (Layer 2a), and a clean same-size detach/reattach (Layer 2b snapshot), and the **Web painted the live prompt instead of hanging (#38 resolved)**. No blank/stale in any case. Residuals below. | Done |
-| 5 | Flip the runner path to default and retire the tmux launch path. **Flip landed 2026-07-27** (`669b425`, `core.UseRunner()`: runner is the default, opt out with `DAEDALUS_USE_TMUX=1`; legacy `DAEDALUS_USE_RUNNER=1` still honored) — first half. **Remaining:** retire the tmux launch path once the runner default proves out in the field. | In Progress |
+| 5 | Flip the runner path to default and retire the tmux launch path. **Flip landed 2026-07-27** (`669b425`, `core.UseRunner()`: runner is the default, opt out with `DAEDALUS_USE_TMUX=1`; legacy `DAEDALUS_USE_RUNNER=1` still honored). The tmux-launch-path retirement was spun out to Sprint 43 (item 7), deferred until the runner default proves out. | Done |
 
 **Runner-path hardening (surfaced while dogfooding the parity pass).** A chain of integration bugs that made the runner path unusable end-to-end, now fixed: the Web couldn't start runner sessions (`feat/web-runner-autostart`); `docker compose run --rm --detach` removed the container before the runner bound its socket — the root cause of the "socket did not appear" failures (`fix/coordinator-drop-rm-flag`); the CLI's tmux/duplicate guard blocked runner re-attach (`fix/cli-runner-attach-guard`); stale sessions for out-of-band-killed containers were handed back to callers (`fix/coordinator-reap-stale-sessions`); plus stale-container reaping before start, running-container guards, and start/timeout logging so the next failure isn't a silent 30s hang.
 
@@ -23,10 +43,6 @@ Milestone: 4
 - **Mobile Enter-submit not cleanly confirmed on a physical phone** — the Web painted and answered fine on desktop, but the phone `\r`-submits assumption behind the mobile-send fix was not definitively exercised on-device. Tracked separately as part of the unverified-web-UI batch.
 
 Also fixed while running the pass: two pre-existing "`./test.sh` as root in the golang container" failures — `TouchProject` tests relied on a `chmod` that root bypasses (now skipped when euid==0), and `TestIntegration_DaemonBinary`'s inner `go build` hit git "dubious ownership" during VCS stamping (now `-buildvcs=false`, matching `build.sh`).
-
----
-
-## Sprint History
 
 ### Sprint 42: Structured Project Documents & Dashboard Journey
 
