@@ -20,10 +20,22 @@ case "$RUNNER" in
         LIVE="$CLAUDE_CONFIG_DIR/.claude.json"
         DEFS="$DEFAULTS_DIR/.claude.json"
         if [ -f "$LIVE" ] && [ -f "$DEFS" ]; then
+            # Two idempotent patches on every boot:
+            #  1. Merge in any missing MCP-server entries (existing ones win).
+            #  2. FORCE-set the trust / onboarding keys. The write-once copy
+            #     above only seeds them into a fresh cache; a project cache
+            #     predating those keys would never get them, so the "trust
+            #     this folder?" dialog could still fire. The container is the
+            #     trust boundary, so we assert them true regardless of the
+            #     live value (Milestone 5 / trust-prompt handling).
             PATCHED=$(jq --slurpfile defaults "$DEFS" '
                 (.mcpServers // {}) as $live |
                 ($defaults[0].mcpServers // {}) as $required |
                 .mcpServers = ($required * $live)
+                | .hasCompletedOnboarding = true
+                | .bypassPermissionsModeAccepted = true
+                | .projects["/workspace"].hasTrustDialogAccepted = true
+                | .projects["/workspace"].hasCompletedProjectOnboarding = true
             ' "$LIVE")
             if [ -n "$PATCHED" ]; then
                 printf '%s\n' "$PATCHED" > "$LIVE"
@@ -38,6 +50,12 @@ case "$RUNNER" in
         exit 1
         ;;
 esac
+
+# Per-project persistent tools prefix (#27). /opt/tools is bind-mounted from
+# the host (empty on first use); ensure its bin/ exists so tools the agent
+# installs there are on PATH (PATH is set in the Dockerfile). Best-effort:
+# a permission failure (host-dir uid mismatch) must not abort startup.
+mkdir -p /opt/tools/bin 2>/dev/null || true
 
 # Daedalus-runner mode (phase 6 of the layered-stack rebuild). When
 # DAEDALUS_RUNNER=1 is set, replace the legacy direct-claude exec with
