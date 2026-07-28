@@ -155,6 +155,14 @@ func (c *Coordinator) Start(cfg *core.Config) (*Session, error) {
 	}
 	_ = os.Remove(sockPath) // stale socket from a previous run blocks bind
 
+	// Create the host dirs backing the runner's bind mounts (skill catalog,
+	// .daedalus, shared Claude/Maven caches, per-project tools) so Docker
+	// does not create them root-owned. Best-effort; a real problem surfaces
+	// as a start/mount error with a clearer cause.
+	for _, d := range core.RunnerVolumeHostDirs(cfg) {
+		_ = os.MkdirAll(d, 0o755)
+	}
+
 	// Reap a stale container under this name before creating a new one.
 	// `docker compose run --rm --detach` does NOT auto-remove the container
 	// (--rm is ineffective when detached), so a prior run's container lingers
@@ -180,6 +188,11 @@ func (c *Coordinator) Start(cfg *core.Config) (*Session, error) {
 	for _, kv := range runnerContainerEnv(cfg) {
 		args = append(args, "-e", kv)
 	}
+	// Bind mounts the runner container needs — skill catalog, .daedalus
+	// progress dir, shared Claude/Maven caches (#37/#21), per-project tools
+	// (#27). These were absent on the coordinator path before (Backlog #55):
+	// only the legacy path called BuildExtraArgs.
+	args = append(args, core.RunnerVolumeArgs(cfg)...)
 	args = append(args, "--name", containerName, "claude")
 	log.Printf("coordinator: starting runner for %q (container %s, image %s)", name, containerName, cfg.Image())
 	if err := c.exec.RunWithEnv(env, "docker", args...); err != nil {

@@ -206,83 +206,111 @@ func TestBuildExtraArgs_MountsDaedalusDir(t *testing.T) {
 
 func TestBuildExtraArgs_WithDinD(t *testing.T) {
 	cfg := &Config{DataDir: "/data", DinD: true}
+	base := len(RunnerVolumeArgs(cfg))
 	args := BuildExtraArgs(cfg, nil, nil)
-	// Should have skills mount (2) + .daedalus mount (2) + DinD mount (2)
-	if len(args) != 6 {
-		t.Fatalf("args = %v, want 6 elements", args)
+	// base runner volume mounts + DinD mount (2)
+	if len(args) != base+2 {
+		t.Fatalf("args = %v, want %d elements", args, base+2)
 	}
-	if args[4] != "-v" || args[5] != "/var/run/docker.sock:/var/run/docker.sock" {
-		t.Errorf("DinD mount not found, got: %v", args[4:])
+	if args[base] != "-v" || args[base+1] != "/var/run/docker.sock:/var/run/docker.sock" {
+		t.Errorf("DinD mount not found, got: %v", args[base:])
 	}
 }
 
 func TestBuildExtraArgs_WithOverlay_ClaudeMd(t *testing.T) {
 	cfg := &Config{DataDir: "/data"}
+	base := len(RunnerVolumeArgs(cfg))
 	overlay := &OverlayPaths{ClaudeMdPath: "/tmp/overlay/CLAUDE.md"}
 	args := BuildExtraArgs(cfg, nil, overlay)
-	// skills mount (2) + .daedalus mount (2) + CLAUDE.md mount (2)
-	if len(args) != 6 {
-		t.Fatalf("args = %v, want 6 elements", args)
+	if len(args) != base+2 {
+		t.Fatalf("args = %v, want %d elements", args, base+2)
 	}
-	if args[4] != "-v" {
-		t.Errorf("args[4] = %q, want %q", args[4], "-v")
+	if args[base] != "-v" {
+		t.Errorf("args[%d] = %q, want %q", base, args[base], "-v")
 	}
 	want := "/tmp/overlay/CLAUDE.md:/workspace/.claude/CLAUDE.md:ro"
-	if args[5] != want {
-		t.Errorf("args[5] = %q, want %q", args[5], want)
+	if args[base+1] != want {
+		t.Errorf("args[%d] = %q, want %q", base+1, args[base+1], want)
 	}
 }
 
 func TestBuildExtraArgs_WithOverlay_Settings(t *testing.T) {
 	cfg := &Config{DataDir: "/data"}
+	base := len(RunnerVolumeArgs(cfg))
 	overlay := &OverlayPaths{SettingsPath: "/tmp/overlay/settings.json"}
 	args := BuildExtraArgs(cfg, nil, overlay)
-	// skills mount (2) + .daedalus mount (2) + settings mount (2)
-	if len(args) != 6 {
-		t.Fatalf("args = %v, want 6 elements", args)
+	if len(args) != base+2 {
+		t.Fatalf("args = %v, want %d elements", args, base+2)
 	}
 	want := "/tmp/overlay/settings.json:/workspace/.claude/settings.json:ro"
-	if args[5] != want {
-		t.Errorf("args[5] = %q, want %q", args[5], want)
+	if args[base+1] != want {
+		t.Errorf("args[%d] = %q, want %q", base+1, args[base+1], want)
 	}
 }
 
 func TestBuildExtraArgs_WithOverlay_Env(t *testing.T) {
 	cfg := &Config{DataDir: "/data"}
+	base := len(RunnerVolumeArgs(cfg))
 	overlay := &OverlayPaths{Env: map[string]string{"FOO": "bar"}}
 	args := BuildExtraArgs(cfg, nil, overlay)
-	// skills mount (2) + .daedalus mount (2) + env (2)
-	if len(args) != 6 {
-		t.Fatalf("args = %v, want 6 elements", args)
+	if len(args) != base+2 {
+		t.Fatalf("args = %v, want %d elements", args, base+2)
 	}
-	if args[4] != "-e" {
-		t.Errorf("args[4] = %q, want %q", args[4], "-e")
+	if args[base] != "-e" {
+		t.Errorf("args[%d] = %q, want %q", base, args[base], "-e")
 	}
-	if args[5] != "FOO=bar" {
-		t.Errorf("args[5] = %q, want %q", args[5], "FOO=bar")
+	if args[base+1] != "FOO=bar" {
+		t.Errorf("args[%d] = %q, want %q", base+1, args[base+1], "FOO=bar")
 	}
 }
 
 func TestBuildExtraArgs_WithOverlay_Full(t *testing.T) {
 	cfg := &Config{DataDir: "/data"}
+	base := len(RunnerVolumeArgs(cfg))
 	overlay := &OverlayPaths{
 		ClaudeMdPath: "/tmp/CLAUDE.md",
 		SettingsPath: "/tmp/settings.json",
 		Env:          map[string]string{"KEY": "val"},
 	}
 	args := BuildExtraArgs(cfg, nil, overlay)
-	// skills (2) + .daedalus (2) + claudemd (2) + settings (2) + env (2) = 10
-	if len(args) != 10 {
-		t.Fatalf("args = %v, want 10 elements", args)
+	// base + claudemd (2) + settings (2) + env (2)
+	if len(args) != base+6 {
+		t.Fatalf("args = %v, want %d elements", args, base+6)
 	}
 }
 
 func TestBuildExtraArgs_NilOverlay(t *testing.T) {
 	cfg := &Config{DataDir: "/data"}
 	args := BuildExtraArgs(cfg, nil, nil)
-	// skills mount (2) + .daedalus mount (2)
-	if len(args) != 4 {
-		t.Fatalf("args = %v, want 4 elements", args)
+	// no extras → exactly the base runner volume mounts
+	if len(args) != len(RunnerVolumeArgs(cfg)) {
+		t.Fatalf("args = %v, want %d elements", args, len(RunnerVolumeArgs(cfg)))
+	}
+}
+
+func TestRunnerVolumeArgs_MountsSkillsDaedalusSharedTools(t *testing.T) {
+	cfg := &Config{DataDir: "/data", ProjectName: "proj", ProjectDir: "/home/user/proj"}
+	joined := strings.Join(RunnerVolumeArgs(cfg), " ")
+	wants := []string{
+		"/data/skills:/opt/skills",
+		"/home/user/proj/.daedalus:/workspace/.daedalus",
+		"/data/shared/claude-versions:/home/claude/.local/share/claude/versions",
+		"/data/shared/m2:/home/claude/.m2",
+		"/data/tools/proj:/opt/tools",
+	}
+	for _, w := range wants {
+		if !strings.Contains(joined, w) {
+			t.Errorf("RunnerVolumeArgs missing %q; got %v", w, RunnerVolumeArgs(cfg))
+		}
+	}
+}
+
+func TestRunnerVolumeHostDirs_CoverAllMounts(t *testing.T) {
+	cfg := &Config{DataDir: "/data", ProjectName: "proj", ProjectDir: "/home/user/proj"}
+	dirs := RunnerVolumeHostDirs(cfg)
+	// one host dir per bind mount
+	if got, want := len(dirs), len(RunnerVolumeArgs(cfg))/2; got != want {
+		t.Errorf("host dirs = %d, want %d (one per mount)", got, want)
 	}
 }
 

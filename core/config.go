@@ -12,7 +12,7 @@ type Config struct {
 	ProjectName     string
 	ProjectDir      string
 	ScriptDir       string
-	DataDir         string   // base directory for registry + per-project caches
+	DataDir         string // base directory for registry + per-project caches
 	Target          string
 	Build           bool
 	Resume          string
@@ -141,6 +141,35 @@ func (c *Config) RegistryPath() string {
 // SkillsDir returns the path to the shared skill catalog directory.
 func (c *Config) SkillsDir() string {
 	return filepath.Join(c.DataDir, "skills")
+}
+
+// SharedDir returns the root for caches shared across all projects
+// (Milestone 5). Kept under DataDir alongside the registry and per-project
+// caches so all Daedalus state stays in one host-visible place.
+func (c *Config) SharedDir() string {
+	return filepath.Join(c.DataDir, "shared")
+}
+
+// SharedClaudeVersionsDir returns the host dir backing the shared Claude CLI
+// version store (Backlog #37). Bind-mounted at the versions subpath under the
+// container home so every project reuses one download instead of N copies.
+func (c *Config) SharedClaudeVersionsDir() string {
+	return filepath.Join(c.SharedDir(), "claude-versions")
+}
+
+// SharedMavenDir returns the host dir backing the shared Maven local
+// repository (Backlog #21), bind-mounted at /home/claude/.m2 so artifacts are
+// shared across projects — the same way a normal dev machine has one ~/.m2.
+func (c *Config) SharedMavenDir() string {
+	return filepath.Join(c.SharedDir(), "m2")
+}
+
+// ProjectToolsDir returns the per-project persistent tools prefix (Backlog
+// #27), bind-mounted at /opt/tools. Deliberately kept OUTSIDE the per-project
+// cache dir (CacheDir → /home/claude) so it is not double-mounted under the
+// home mount.
+func (c *Config) ProjectToolsDir() string {
+	return filepath.Join(c.DataDir, "tools", c.ProjectName)
 }
 
 // ProgrammesDir returns the path to the programmes directory.
