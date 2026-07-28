@@ -17,6 +17,52 @@ let inHistoryMode = false;
 // frame, so those frames are unnecessary there anyway.
 let runnerMode = false;
 
+// #29 mobile-WebSocket resilience: a dropped socket (Wi-Fi/cellular handoff,
+// backgrounded/throttled tab) auto-reconnects with backoff. The server keeps
+// the session alive across a drop and replays the screen on re-attach
+// (live-capture in control mode; the runner hello frame in runner mode), so a
+// reconnect repaints for free. An intentional close (navigation via
+// disconnectTerminal) suppresses reconnect.
+let intentionalClose = false;
+let reconnectAttempts = 0;
+let reconnectTimer = null;
+let currentProject = null;
+let reopenSocket = null;
+
+function exitHistoryUI() {
+    inHistoryMode = false;
+    var banner = document.getElementById('history-banner');
+    if (banner) banner.classList.remove('active');
+    var btn = document.querySelector('.btn-history');
+    if (btn) btn.classList.remove('active');
+}
+
+function scheduleReconnect() {
+    if (intentionalClose || reconnectTimer || !reopenSocket) return;
+    reconnectAttempts++;
+    var delay = Math.min(1000 * Math.pow(2, reconnectAttempts - 1), 15000);
+    if (term) term.write('\r\n\x1b[33m[Connection lost — reconnecting…]\x1b[0m\r\n');
+    reconnectTimer = setTimeout(function() {
+        reconnectTimer = null;
+        reopenSocket();
+    }, delay);
+}
+
+// Reconnect immediately when a backgrounded tab returns or the network comes
+// back, if the socket isn't already open/connecting. Resets the backoff.
+function maybeReconnect() {
+    if (intentionalClose || !reopenSocket || !term) return;
+    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
+    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+    reconnectAttempts = 0;
+    reopenSocket();
+}
+
+document.addEventListener('visibilitychange', function() {
+    if (document.visibilityState === 'visible') maybeReconnect();
+});
+window.addEventListener('online', maybeReconnect);
+
 function isMobileView() {
     return window.matchMedia('(max-width: 768px)').matches;
 }
@@ -68,12 +114,21 @@ function connectTerminal(projectName) {
     runnerMode = urlMode ? (urlMode === 'runner') : (window.DAEDALUS_RUNNER_MODE === true);
     const wsMode = runnerMode ? 'runner' : 'control';
 
+    currentProject = projectName;
+    intentionalClose = false;
+    reconnectAttempts = 0;
+
+    // openSocket is (re)called on every (re)connect; it rebinds the module
+    // `ws`. term.onData/onResize below reference module `ws`, so they keep
+    // working across reconnects without rebinding.
+    function openSocket() {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${proto}//${location.host}/api/projects/${encodeURIComponent(projectName)}/terminal?mode=${wsMode}`;
     ws = new WebSocket(wsUrl);
     ws.binaryType = 'arraybuffer';
 
     ws.onopen = function() {
+        reconnectAttempts = 0;
         // Send initial size
         ws.send(JSON.stringify({
             type: 'resize',
@@ -120,26 +175,22 @@ function connectTerminal(projectName) {
     };
 
     ws.onclose = function() {
-        if (inHistoryMode) {
-            inHistoryMode = false;
-            var banner = document.getElementById('history-banner');
-            if (banner) banner.classList.remove('active');
-            var btn = document.querySelector('.btn-history');
-            if (btn) btn.classList.remove('active');
+        exitHistoryUI();
+        if (intentionalClose) {
+            if (term) term.write('\r\n\x1b[33m[Connection closed]\x1b[0m\r\n');
+            return;
         }
-        term.write('\r\n\x1b[33m[Connection closed]\x1b[0m\r\n');
+        scheduleReconnect();
     };
 
     ws.onerror = function() {
-        if (inHistoryMode) {
-            inHistoryMode = false;
-            var banner = document.getElementById('history-banner');
-            if (banner) banner.classList.remove('active');
-            var btn = document.querySelector('.btn-history');
-            if (btn) btn.classList.remove('active');
-        }
-        term.write('\r\n\x1b[31m[Connection error]\x1b[0m\r\n');
+        // A close event always follows an error; scheduleReconnect runs there.
+        exitHistoryUI();
     };
+    }
+
+    reopenSocket = openSocket;
+    openSocket();
 
     // Intercept Esc to exit history mode
     term.onKey(function(ev) {
@@ -339,6 +390,10 @@ function requestScrollback(lines) {
 }
 
 function disconnectTerminal() {
+    intentionalClose = true;
+    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+    currentProject = null;
+    reopenSocket = null;
     inHistoryMode = false;
     var banner = document.getElementById('history-banner');
     if (banner) banner.classList.remove('active');

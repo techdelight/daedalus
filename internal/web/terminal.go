@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/techdelight/daedalus/core"
 	"github.com/techdelight/daedalus/internal/coordinator"
@@ -51,6 +52,47 @@ func (c *safeConn) WriteMessage(messageType int, data []byte) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.Conn.WriteMessage(messageType, data)
+}
+
+// WebSocket keepalive tuning (#29). The server pings every pingPeriod; a live
+// browser auto-responds with a pong (handled at the protocol level, no client
+// JS needed), which refreshes the read deadline. A client that goes silent —
+// a mobile Wi-Fi/cellular handoff or a backgrounded, throttled tab — stops
+// ponging, the deadline expires, ReadMessage returns an error, and the relay
+// ends cleanly (the underlying session survives; the browser reconnects).
+const (
+	wsPongWait   = 60 * time.Second
+	wsPingPeriod = (wsPongWait * 9) / 10
+	wsWriteWait  = 10 * time.Second
+)
+
+// enableKeepalive arms the read deadline + pong handler and starts a ping
+// ticker. Returns a stop function the handler defers so the ping goroutine
+// ends with the connection. Call once, right after newSafeConn, before the
+// relay's read loop starts.
+func (c *safeConn) enableKeepalive() (stop func()) {
+	_ = c.Conn.SetReadDeadline(time.Now().Add(wsPongWait))
+	c.Conn.SetPongHandler(func(string) error {
+		return c.Conn.SetReadDeadline(time.Now().Add(wsPongWait))
+	})
+	done := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(wsPingPeriod)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				// WriteControl may be called concurrently with WriteMessage
+				// (gorilla guarantees this), so it needs no safeConn mutex.
+				if err := c.Conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(wsWriteWait)); err != nil {
+					return
+				}
+			case <-done:
+				return
+			}
+		}
+	}()
+	return func() { close(done) }
 }
 
 // startBranchWatch begins pushing branch changes for the attached session and
@@ -133,6 +175,7 @@ func (ws *WebServer) handleTerminal(w http.ResponseWriter, r *http.Request) {
 	}
 	conn := newSafeConn(rawConn)
 	defer conn.Close()
+	defer conn.enableKeepalive()()
 
 	ptmx, cmd, err := startPTY(sessName)
 	if err != nil {
@@ -182,6 +225,7 @@ func (ws *WebServer) handleTerminalControl(w http.ResponseWriter, r *http.Reques
 	}
 	conn := newSafeConn(rawConn)
 	defer conn.Close()
+	defer conn.enableKeepalive()()
 
 	cs, err := session.StartControlSession(sessName)
 	if err != nil {
@@ -253,6 +297,7 @@ func (ws *WebServer) handleTerminalRunner(w http.ResponseWriter, r *http.Request
 	}
 	conn := newSafeConn(rawConn)
 	defer conn.Close()
+	defer conn.enableKeepalive()()
 
 	rc, err := runclient.Dial(sess.SocketPath)
 	if err != nil {
