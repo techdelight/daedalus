@@ -4,6 +4,70 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Milestone 5 — Self-Sustaining Operations (implemented, not yet verified)
+
+Less per-project disk and more runtime resilience. All items are implemented
+in code, but **the Docker image / container-run / shared-volume / mobile
+behaviours were not exercised on a real Docker daemon or device** in the
+environment they were built in — see Assumptions below and
+[docs/milestone-5-plan.md](docs/milestone-5-plan.md).
+
+#### Added
+- **Shared, host-visible caches** under `<DataDir>/shared/`, bind-mounted into
+  every runner container so projects stop re-downloading them: the Claude CLI
+  version store (#37) and the Maven `.m2` repository (#21).
+- **Per-project persistent tools prefix** at `/opt/tools`
+  (`<DataDir>/tools/<project>`, on `PATH`), so tools the agent installs at
+  runtime survive restarts (#27). See
+  [docs/tool-persistence.md](docs/tool-persistence.md). System `apt` installs
+  are intentionally **not** persisted (base images stay reproducible).
+- **WebSocket keepalive + client auto-reconnect** for the web terminal (#29):
+  server ping + read deadline, client exponential-backoff reconnect gated by
+  an intentional-close flag, and `visibilitychange`/`online` listeners — so a
+  mobile Wi-Fi/cellular handoff or a backgrounded tab reconnects and repaints
+  instead of dying. The session already survived the drop server-side.
+
+#### Changed
+- **Dockerfile layer efficiency** (#51): split into stable `*-base` parent
+  stages + thin leaf targets that `COPY` the frequently-rebuilt Daedalus
+  binaries last, so a version bump no longer busts the Go/SDKMAN/Godot/Copilot
+  download layers.
+- **Runner volume mounts centralized** in `core.RunnerVolumeArgs`, used by both
+  the coordinator (default) and legacy launch paths.
+- **Trust/onboarding keys are force-set idempotently on every container boot**
+  (previously seeded write-once), so a project cache predating those keys can
+  no longer trigger the "trust this folder?" dialog.
+
+#### Fixed
+- **Coordinator runner path was missing bind mounts** (#55): the now-default
+  path never mounted the shared skill catalog (`/opt/skills`) or the
+  project-mgmt progress dir (`/workspace/.daedalus`) that the legacy path
+  added, so skills and MCP progress reporting were unavailable on it.
+
+#### Assumptions / not yet verified
+- **No Docker daemon or browser in the build environment.** Every
+  image/container/volume/mobile change is code-complete and statically checked
+  (Go build + full unit suite + docs lint + Dockerfile stage-graph + JS balance
+  + the trust jq filter against a sample) but **not** `docker build`-, run-, or
+  device-tested. Verify with `daedalus --build <target>` per target, a real
+  run, and a mobile drive before trusting.
+- **Container uid.** Shared/tools host dirs are created by the coordinator and
+  written by the container's `claude` user (uid 1000); a matching uid is
+  assumed. A non-1000 host user may hit permission errors on those mounts.
+- **Shared caches use nested bind mounts** at subpaths under `/home/claude`
+  (relying on Docker's nested-mount precedence so they aren't masked) — untested.
+- **Maven (#21)** ships as a single shared writable `.m2` (normal dev-machine
+  behaviour), **not** the read-only-base + per-project overlay — overlay deferred.
+- **Installer pinning (#51) deferred.** `TODO(#51)` markers left; the
+  Claude/Copilot installers remain unpinned `curl | bash` (supply-chain risk
+  still open), pending a build to confirm their version interface.
+- **Trust keys are force-set true**, overriding any deliberate `false`; no
+  runtime auto-*answering* of the dialog was added.
+- **#29 timings** (ping 54s / pong-wait 60s / backoff 1–15s) are standard
+  defaults, not tuned against real mobile networks.
+
+---
+
 Sprint 41 (Trust-Prompt & Runner Terminal Fidelity) — Milestone 4
 endgame groundwork. Closes the first two layers of the
 Web-UI-hangs-on-trust-prompt gap (Backlog #38) that blocks making the
