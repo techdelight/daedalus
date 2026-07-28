@@ -28,7 +28,6 @@ Introduce daedalus-runner (in-container PID-1 process wrapping a runner via per-
 - Container snapshotting for tool persistence across restarts
 - Automatic trust prompt handling
 - Mobile WebSocket stability
-- Homebrew distribution
 
 ## Phasing
 

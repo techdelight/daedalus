@@ -2,13 +2,12 @@
 
 **Status:** planned, not started · design decisions settled 2026-07-28 · grounded in a code survey of the Dockerfile, coordinator, docker-compose, and web relay.
 
-Milestone 5 makes Daedalus **cheap to run and hard to knock over** over time: less per-project disk, resilience across restarts and network blips, and easy install/upgrade. It decomposes into six backlog items across three themes.
+Milestone 5 makes Daedalus **cheap to run and hard to knock over** over time: less per-project disk, and resilience across restarts and network blips. It decomposes into five backlog items across two themes. (Homebrew distribution, #11, is deliberately out of scope for M5 — it is independent and ops-only, tracked as a standalone backlog item.)
 
 | Theme | Items |
 |---|---|
 | **Storage efficiency** | #51 Dockerfile layers · #37 shared Claude versions · #21 shared Maven `.m2` |
 | **Runtime resilience** | #27 tooling decouple + persistence · #29 mobile WebSocket · automatic trust handling |
-| **Distribution** | #11 Homebrew |
 
 ## The governing architectural fact
 
@@ -73,23 +72,16 @@ Risk: low–medium (needs real-device testing — joins the interactive-UI verif
 
 **Plan.** Extend the `entrypoint.sh` jq patch to **idempotently force-set** the trust/onboarding keys on every boot. Optionally detect + auto-accept the dialog in the runner adapter (the container is already the trust boundary). Risk: low. Effort: small. Fold into whichever sprint touches the container/entrypoint.
 
-### F. Homebrew distribution (#11) — independent; already planned
-
-**Finding.** `docs/homebrew-plan.md` is thorough (libexec + shell-wrapper, tap repo, formula generator, CI job). The release pipeline already cross-compiles darwin/linux × amd64/arm64 (`release.yml`), so the asset assumption holds.
-
-**Plan.** Execute the existing plan: create the tap repo + `HOMEBREW_TAP_TOKEN`, write `scripts/generate-formula.sh`, add the `update-homebrew` CI job. **Verify** the release publishes the runtime files (Dockerfile, claude.json, …) as assets, since the formula downloads them as resources. Risk: low. Effort: small–medium (ops/CI). Fully parallelizable.
-
 ## Sequencing
 
 ```
 Sprint α (storage foundation):   #51 Dockerfile layers  →  #37 Claude versions
 Sprint β (storage, harder):      #21 Maven .m2 overlay   +  #55 coordinator-mount gap
 Sprint γ (resilience):           #29 mobile WebSocket     +  trust-prompt tail (E)
-Parallel track (any time):       #11 Homebrew (ops-only, no code coupling)
 After storage theme:             #27 tools volume (Option B)
 ```
 
-Rationale: #51 first (speeds every later Docker cycle + fixes installer pinning); #37 before #21 (same mechanism, simpler); #55 rides β since the shared mounts must land in the coordinator path anyway; #29 and #11 are independent; #27 slots after the storage volume work is proven.
+Rationale: #51 first (speeds every later Docker cycle + fixes installer pinning); #37 before #21 (same mechanism, simpler); #55 rides β since the shared mounts must land in the coordinator path anyway; #29 is independent; #27 slots after the storage volume work is proven.
 
 ## Cross-cutting concerns
 
