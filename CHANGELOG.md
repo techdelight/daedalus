@@ -4,6 +4,59 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+**Milestone 4 (Layered Runner/Coordinator Architecture) endgame, plus
+structured project documents.** The runner path — a `daedalus-runner` PID-1
+process per container, its PTY fanned over a Unix socket by the host-side
+`daedalus-coordinator` daemon — is now the **default** launch path for all
+three UIs (CLI, TUI, Web). The classic tmux path remains available via
+`DAEDALUS_USE_TMUX=1` and is slated for retirement. The
+Web-UI-hangs-on-trust-prompt gap (#38) is resolved. Milestone 5 (below) adds
+its first, code-complete-but-unverified, slice.
+
+### Added
+- **Runner path as the default launch path** via the single `core.UseRunner()`
+  seam shared by CLI/TUI/Web. Opt out with `DAEDALUS_USE_TMUX=1` (or
+  `DAEDALUS_USE_RUNNER=0`); the legacy `DAEDALUS_USE_RUNNER=1` is now a
+  harmless explicit-on.
+- **Repaint-on-attach (smart replay-from-boundary)** — a one-shot full-screen
+  prompt (trust dialog, `--resume` picker) reconstructs for a late, second, or
+  same-size viewer by replaying scrollback from the last screen boundary
+  (`ScreenSnapshot`). The core of the #38 fix; covered by `e2e/run-repaint.sh`.
+- **Workspace trust pre-seeded** in the default `claude.json`
+  (`hasTrustDialogAccepted` + onboarding keys) so Claude's "trust this folder?"
+  dialog never fires — the container is already the trust boundary (non-root,
+  all caps dropped, `no-new-privileges`).
+- **`daedalus-runner --cols/--rows`** (default 80×24): the PTY is sized at
+  startup, so a one-shot startup prompt renders into a real terminal instead of
+  creack/pty's 0×0 void. Routed through the hub; covered by hub tests.
+- **Structured project documents → a file-derived dashboard.** `ROADMAP.md`
+  milestones parse (`core.ParseMilestones`) and sprints link to them;
+  `GET /api/projects/{name}/overview` serves the whole Purpose → Arc → Backlog
+  journey in one fetch, which the per-project dashboard now renders.
+- **`daedalus docs lint [--ci]`** gates the parseable docs — cross-file
+  `ValidateDocs` (contradictions) + raw-text `LintHeadings` (silently-dropped
+  headings).
+
+### Changed
+- **All three UIs go through the coordinator daemon.** The TUI was migrated off
+  tmux to the runner path (runner-only); the CLI and Web already were. `daedalus
+  web` shows a runner-mode badge and an "Open" action that autostarts a session
+  via the coordinator — no CLI pre-launch.
+- **The per-project dashboard is the project's journey** (Purpose → Arc →
+  Backlog), replacing the five-KPI grid that read agent-self-reported data.
+- **`PROJECT-INIT.md` reconciled** to the structured-docs model and moved under
+  `docs/`.
+
+### Fixed
+- **#38 — the Web UI no longer hangs on the trust prompt** on the runner path;
+  verified end-to-end on real Docker + Claude in the Sprint 41 parity pass.
+- **`./test.sh` under the root golang container** — two tests that assumed a
+  non-root user now pass (a `chmod` root bypasses; git "dubious ownership"
+  during a `go build` VCS stamp, fixed with `-buildvcs=false`).
+- **A runner-path integration-bug chain** surfaced while dogfooding (the
+  container reaped before the runner bound its socket; CLI re-attach blocked by
+  the tmux guard; stale sessions handed back to callers).
+
 ### Milestone 5 — Self-Sustaining Operations (implemented, not yet verified)
 
 Less per-project disk and more runtime resilience. All items are implemented
@@ -65,36 +118,6 @@ environment they were built in — see Assumptions below and
   runtime auto-*answering* of the dialog was added.
 - **#29 timings** (ping 54s / pong-wait 60s / backoff 1–15s) are standard
   defaults, not tuned against real mobile networks.
-
----
-
-Sprint 41 (Trust-Prompt & Runner Terminal Fidelity) — Milestone 4
-endgame groundwork. Closes the first two layers of the
-Web-UI-hangs-on-trust-prompt gap (Backlog #38) that blocks making the
-runner path the default. Still opt-in via `DAEDALUS_USE_RUNNER=1`.
-
-### Added
-- **Workspace trust pre-seeded in the default `claude.json`** —
-  `projects["/workspace"].hasTrustDialogAccepted` (plus
-  `hasCompletedProjectOnboarding`) so Claude's "Do you trust the files
-  in this folder?" dialog never fires inside the container. The
-  container is already the trust boundary (non-root, all caps dropped,
-  `no-new-privileges`, user-opted-in), so the prompt is redundant.
-- **`daedalus-runner --cols/--rows` flags** (default 80×24). The PTY is
-  now sized at startup, before the agent launches, instead of
-  inheriting creack/pty's 0×0 default — so a one-shot startup prompt
-  (e.g. the trust dialog) renders into a real terminal rather than a
-  void. Routed through the hub to preserve its "hub owns all PTY-size
-  mutations" invariant; covered by two new hub tests.
-
-### Notes
-- Pre-seeded trust is not always honoured across Claude Code versions
-  (upstream anthropics/claude-code#9113), so it is a first line of
-  defence paired with the runner-side sizing fix, not relied on alone.
-- Remaining for #38 and the runner-default switch: repaint-on-attach
-  (force a redraw when a client attaches, including same-size reattach),
-  end-to-end verification on real Docker + Claude, then flipping the
-  runner path to default and retiring the tmux launch path.
 
 ## [0.39.0] - 2026-07-11
 
