@@ -9,6 +9,26 @@ Milestone 5 makes Daedalus **cheap to run and hard to knock over** over time: le
 | **Storage efficiency** | #51 Dockerfile layers · #37 shared Claude versions · #21 shared Maven `.m2` |
 | **Runtime resilience** | #27 tooling decouple + persistence · #29 mobile WebSocket · automatic trust handling |
 
+## Implementation status (2026-07-28)
+
+All five items were implemented autonomously in one pass. Go build + the full
+unit suite (32 packages) + `daedalus docs lint --ci` are green. **The Docker
+image, container-run, shared-volume, and mobile-device behaviours are NOT
+exercised here (no Docker daemon / browser in the build environment)** — every
+container/image/volume change is code-complete and statically checked but needs
+a real `daedalus --build` + run + mobile drive before it is trusted. See the
+execution report for the full assumptions/verification-gap list.
+
+| Item | Status |
+|---|---|
+| #55 coordinator mounts | Implemented — `core.RunnerVolumeArgs` wired into the coordinator start; skills + `.daedalus` restored on the default path |
+| #51 Dockerfile layers | Implemented (stage graph statically verified); installer **pinning deferred** — needs a build to confirm the installers' version interface |
+| #37 Claude versions | Implemented — shared bind-mount at the versions subpath |
+| #21 Maven `.m2` | Implemented as a **simple shared writable `.m2`** (standard dev-machine semantics); the read-only-base + per-project **overlay is deferred** |
+| #27 tools persistence | Implemented — `/opt/tools` per-project mount + PATH + runtime dir + `docs/tool-persistence.md` |
+| #29 mobile WebSocket | Implemented — server ping/deadline + client reconnect/backoff + visibility/online |
+| trust handling | Implemented — idempotent force-set of trust keys in `entrypoint.sh` (jq filter exercised against a stale-cache sample) |
+
 ## The governing architectural fact
 
 The per-project cache is bind-mounted as the container's entire home: **`${CACHE_DIR}:/home/claude`** (`docker-compose.yml:7`). This one fact drives the storage theme:
