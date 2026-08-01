@@ -1,41 +1,28 @@
 // Copyright (C) 2026 Techdelight BV
 
 // terminal.js — xterm.js + WebSocket connection for Daedalus web UI
+//
+// The terminal bridges to the in-container daedalus-runner over a Unix-socket
+// relay (?mode=runner is the only mode). The runner replays its screen on
+// attach via its hello frame, so there is no client-driven scrollback/capture
+// protocol: any non-resize text frame is forwarded straight to the PTY as
+// input.
 
 let term = null;
 let ws = null;
 let fitAddon = null;
 let cleanupListeners = null;
-let inHistoryMode = false;
-// runnerMode selects the runner Unix-socket relay (?mode=runner) over the
-// default tmux control-mode relay. Opt-in via the dashboard URL so the
-// shipped default stays control until the runner path is flipped by default
-// (Sprint 41 item 5). In runner mode the relay forwards any non-resize text
-// frame straight to the PTY as input, so the tmux-only control frames
-// (live-capture, scrollback) must NOT be sent — they would be injected as
-// keystrokes. The runner replays its screen automatically via the hello
-// frame, so those frames are unnecessary there anyway.
-let runnerMode = false;
 
 // #29 mobile-WebSocket resilience: a dropped socket (Wi-Fi/cellular handoff,
 // backgrounded/throttled tab) auto-reconnects with backoff. The server keeps
-// the session alive across a drop and replays the screen on re-attach
-// (live-capture in control mode; the runner hello frame in runner mode), so a
-// reconnect repaints for free. An intentional close (navigation via
-// disconnectTerminal) suppresses reconnect.
+// the session alive across a drop and replays the screen on re-attach (the
+// runner hello frame), so a reconnect repaints for free. An intentional close
+// (navigation via disconnectTerminal) suppresses reconnect.
 let intentionalClose = false;
 let reconnectAttempts = 0;
 let reconnectTimer = null;
 let currentProject = null;
 let reopenSocket = null;
-
-function exitHistoryUI() {
-    inHistoryMode = false;
-    var banner = document.getElementById('history-banner');
-    if (banner) banner.classList.remove('active');
-    var btn = document.querySelector('.btn-history');
-    if (btn) btn.classList.remove('active');
-}
 
 function scheduleReconnect() {
     if (intentionalClose || reconnectTimer || !reopenSocket) return;
@@ -107,13 +94,6 @@ function connectTerminal(projectName) {
     fitAddon.fit();
     requestAnimationFrame(function() { if (fitAddon) fitAddon.fit(); });
 
-    // Pick the relay. A ?mode= query on the URL wins (per-terminal override);
-    // otherwise fall back to the server default (DAEDALUS_USE_RUNNER=1 →
-    // window.DAEDALUS_RUNNER_MODE). Default is the tmux control-mode relay.
-    const urlMode = new URLSearchParams(location.search).get('mode');
-    runnerMode = urlMode ? (urlMode === 'runner') : (window.DAEDALUS_RUNNER_MODE === true);
-    const wsMode = runnerMode ? 'runner' : 'control';
-
     currentProject = projectName;
     intentionalClose = false;
     reconnectAttempts = 0;
@@ -123,25 +103,19 @@ function connectTerminal(projectName) {
     // working across reconnects without rebinding.
     function openSocket() {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${proto}//${location.host}/api/projects/${encodeURIComponent(projectName)}/terminal?mode=${wsMode}`;
+    const wsUrl = `${proto}//${location.host}/api/projects/${encodeURIComponent(projectName)}/terminal`;
     ws = new WebSocket(wsUrl);
     ws.binaryType = 'arraybuffer';
 
     ws.onopen = function() {
         reconnectAttempts = 0;
-        // Send initial size
+        // Send initial size. The runner replays the screen on attach via its
+        // hello frame, so nothing else needs requesting here.
         ws.send(JSON.stringify({
             type: 'resize',
             cols: term.cols,
             rows: term.rows
         }));
-        // Request current terminal content so attach shows existing output.
-        // Control-mode only: in runner mode the hello frame already replays
-        // the screen, and this text frame would be forwarded to the PTY as
-        // input.
-        if (!runnerMode) {
-            ws.send(JSON.stringify({ type: 'live-capture' }));
-        }
     };
 
     ws.onmessage = function(event) {
@@ -150,17 +124,6 @@ function connectTerminal(projectName) {
         } else if (typeof event.data === 'string') {
             try {
                 var msg = JSON.parse(event.data);
-                if (msg.type === 'scrollback-response' && msg.content) {
-                    term.write('\x1b[2J\x1b[H'); // clear + home
-                    term.write(msg.content);
-                    enterHistoryMode();
-                    return;
-                }
-                if (msg.type === 'live-capture-response' && msg.content) {
-                    term.write('\x1b[2J\x1b[H');
-                    term.write(msg.content);
-                    return;
-                }
                 // Server-pushed git branch: sent on attach and whenever the
                 // branch changes, so the header needs no polling. Guarded
                 // because terminal.js is also loaded by pages without the
@@ -175,7 +138,6 @@ function connectTerminal(projectName) {
     };
 
     ws.onclose = function() {
-        exitHistoryUI();
         if (intentionalClose) {
             if (term) term.write('\r\n\x1b[33m[Connection closed]\x1b[0m\r\n');
             return;
@@ -185,27 +147,14 @@ function connectTerminal(projectName) {
 
     ws.onerror = function() {
         // A close event always follows an error; scheduleReconnect runs there.
-        exitHistoryUI();
     };
     }
 
     reopenSocket = openSocket;
     openSocket();
 
-    // Intercept Esc to exit history mode
-    term.onKey(function(ev) {
-        if (inHistoryMode && ev.domEvent.key === 'Escape') {
-            ev.domEvent.preventDefault();
-            exitHistoryMode();
-        }
-    });
-
     // Forward input to WebSocket
     term.onData(function(data) {
-        if (inHistoryMode) {
-            exitHistoryMode();
-            return; // consume the keystroke that exits history
-        }
         if (ws && ws.readyState === WebSocket.OPEN) {
             ws.send(new TextEncoder().encode(data));
         }
@@ -300,10 +249,9 @@ function connectTerminal(projectName) {
         if (ws && ws.readyState === WebSocket.OPEN) {
             // Text first, then Enter as its own frame on the same socket.
             // Frames are ordered, so the submit cannot overtake the text.
-            // This used to POST to /api/projects/{name}/enter, which only
-            // ever spoke tmux and so 404'd in runner mode — the text showed
-            // up but nothing ran. The relay turns this into a real tmux
-            // Enter (control mode) or a \r write (runner / raw PTY).
+            // Claude Code treats a chunk ending in a newline as a paste and
+            // inserts a line break instead of submitting, so the Enter must
+            // arrive as its own frame; the relay turns it into a \r write.
             ws.send(new TextEncoder().encode(text));
             ws.send(JSON.stringify({ type: 'enter' }));
         }
@@ -356,49 +304,11 @@ function connectTerminal(projectName) {
     };
 }
 
-function enterHistoryMode() {
-    if (inHistoryMode) return;
-    inHistoryMode = true;
-    var banner = document.getElementById('history-banner');
-    if (banner) banner.classList.add('active');
-    var btn = document.querySelector('.btn-history');
-    if (btn) btn.classList.add('active');
-}
-
-function exitHistoryMode() {
-    if (!inHistoryMode) return;
-    inHistoryMode = false;
-    var banner = document.getElementById('history-banner');
-    if (banner) banner.classList.remove('active');
-    var btn = document.querySelector('.btn-history');
-    if (btn) btn.classList.remove('active');
-    // Request live terminal content to restore the viewport. Control-mode
-    // only — the runner relay would forward this as PTY input.
-    if (!runnerMode && ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'live-capture' }));
-    }
-}
-
-// requestScrollback drives tmux control-mode history. The runner path has no
-// scrollback-request protocol (it replays via the hello frame), and sending
-// this would be injected into the PTY, so it is a no-op in runner mode.
-function requestScrollback(lines) {
-    if (runnerMode) return;
-    if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'scrollback', lines: lines || 500 }));
-    }
-}
-
 function disconnectTerminal() {
     intentionalClose = true;
     if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
     currentProject = null;
     reopenSocket = null;
-    inHistoryMode = false;
-    var banner = document.getElementById('history-banner');
-    if (banner) banner.classList.remove('active');
-    var btn = document.querySelector('.btn-history');
-    if (btn) btn.classList.remove('active');
     if (cleanupListeners) {
         cleanupListeners();
         cleanupListeners = null;

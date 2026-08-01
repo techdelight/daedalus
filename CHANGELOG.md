@@ -7,17 +7,15 @@ All notable changes to this project will be documented in this file.
 **Milestone 4 (Layered Runner/Coordinator Architecture) endgame, plus
 structured project documents.** The runner path — a `daedalus-runner` PID-1
 process per container, its PTY fanned over a Unix socket by the host-side
-`daedalus-coordinator` daemon — is now the **default** launch path for all
-three UIs (CLI, TUI, Web). The classic tmux path remains available via
-`DAEDALUS_USE_TMUX=1` and is slated for retirement. The
+`daedalus-coordinator` daemon — is now the **only** launch path for all
+three UIs (CLI, TUI, Web); the classic tmux path has been removed. The
 Web-UI-hangs-on-trust-prompt gap (#38) is resolved. Milestone 5 (below) adds
 its first, code-complete-but-unverified, slice.
 
 ### Added
-- **Runner path as the default launch path** via the single `core.UseRunner()`
-  seam shared by CLI/TUI/Web. Opt out with `DAEDALUS_USE_TMUX=1` (or
-  `DAEDALUS_USE_RUNNER=0`); the legacy `DAEDALUS_USE_RUNNER=1` is now a
-  harmless explicit-on.
+- **Runner path is the launch path** for CLI/TUI/Web — a `daedalus-runner`
+  PID-1 process per container, its PTY fanned over a Unix socket by the
+  host-side `daedalus-coordinator` daemon.
 - **Repaint-on-attach (smart replay-from-boundary)** — a one-shot full-screen
   prompt (trust dialog, `--resume` picker) reconstructs for a late, second, or
   same-size viewer by replaying scrollback from the last screen boundary
@@ -56,6 +54,18 @@ its first, code-complete-but-unverified, slice.
 - **A runner-path integration-bug chain** surfaced while dogfooding (the
   container reaped before the runner bound its socket; CLI re-attach blocked by
   the tmux guard; stale sessions handed back to callers).
+
+### Removed
+- **The classic tmux launch path is retired.** The `internal/session` package
+  (tmux session + control-mode wire protocol), the `core.UseRunner()` seam and
+  its `DAEDALUS_USE_TMUX` / `DAEDALUS_USE_RUNNER` env toggles, the tmux command
+  builders (`BuildTmuxCommand`, `BuildControlSendKeys`, `BuildSessionCommand`),
+  and the Web tmux/control terminal relays and Start endpoint are gone. The
+  runner path is now the only path.
+- **The `--no-tmux` flag and the `no-tmux` / `tmux-prefix` config.json fields**
+  are removed (from the CLI parser, usage, shell completions, man page, and the
+  install/setup scripts). Existing config files keep loading — the retired keys
+  are simply ignored.
 
 ### Milestone 5 — Self-Sustaining Operations (implemented, not yet verified)
 

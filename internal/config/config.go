@@ -73,8 +73,6 @@ func ParseArgs(args []string) (*core.Config, error) {
 			}
 			i++
 			cfg.Prompt = args[i]
-		case "--no-tmux":
-			cfg.NoTmux = true
 		case "--debug":
 			cfg.Debug = true
 		case "--dind":

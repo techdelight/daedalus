@@ -9,16 +9,6 @@
     <link rel="stylesheet" href="/static/style.css">
     <link rel="stylesheet" href="/static/guild.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css">
-    <script>
-        // Server-injected: true when the web UI was started with
-        // DAEDALUS_USE_RUNNER=1. Drives the default terminal mode and the
-        // project-row actions. Replaced server-side (web.go); the literal
-        // fallback keeps the page working if served as a static file.
-        window.DAEDALUS_RUNNER_MODE = (function () {
-            var v = "__RUNNER_MODE__";
-            return v === "true";
-        })();
-    </script>
 </head>
 <body>
     <div id="app">
@@ -26,8 +16,6 @@
         <div id="project-view">
             <header>
                 <h1>Daedalus</h1>
-                <span id="runner-badge" hidden title="Started with DAEDALUS_USE_RUNNER=1 — projects launch via the runner/coordinator path, not tmux" style="padding:2px 8px;border-radius:10px;background:#7aa2f7;color:#1a1b26;font-size:12px;font-weight:600;">runner mode</span>
-                <script>if (window.DAEDALUS_RUNNER_MODE) document.getElementById('runner-badge').hidden = false;</script>
                 <button class="btn btn-filter" id="filter-active-btn" onclick="toggleFilter()">Active Only</button>
                 <button class="btn btn-guild" onclick="showGuildView()">Guild</button>
                 <span class="status" id="refresh-status"></span>
@@ -100,7 +88,6 @@
                     <span class="git-branch" id="terminal-git-branch" hidden></span>
                 </div>
                 <div class="terminal-header-actions">
-                    <button class="btn btn-history" onclick="requestScrollback(1000)">History</button>
                     <button class="btn btn-select" id="mobile-select-btn">Select</button>
                     <button class="btn btn-back" onclick="showProjectList()">Back</button>
                 </div>
@@ -110,11 +97,6 @@
                     <button class="btn btn-done" id="select-done-btn">Done</button>
                 </div>
                 <pre id="select-overlay-text"></pre>
-            </div>
-            <div id="history-banner">
-                <span>HISTORY MODE</span>
-                <span class="history-hint">Press Esc or any key to return to live terminal</span>
-                <button class="btn btn-exit-history" onclick="exitHistoryMode()">Exit</button>
             </div>
             <div class="terminal-body">
                 <div id="terminal-container"></div>
@@ -219,31 +201,12 @@
                         ${p.running
                             ? `<button class="btn btn-attach" onclick="attachProject('${escapeHtml(p.name)}')">Attach</button>
                                <button class="btn btn-stop" onclick="stopProject('${escapeHtml(p.name)}')">Stop</button>`
-                            : (window.DAEDALUS_RUNNER_MODE
-                                ? `<button class="btn btn-attach" onclick="attachProject('${escapeHtml(p.name)}')">Open</button>
-                                   <button class="btn btn-rename" onclick="renameProject('${escapeHtml(p.name)}')">Rename</button>`
-                                : `<button class="btn btn-start" onclick="startProject('${escapeHtml(p.name)}')">Start</button>
-                                   <button class="btn btn-rename" onclick="renameProject('${escapeHtml(p.name)}')">Rename</button>`)
+                            : `<button class="btn btn-attach" onclick="attachProject('${escapeHtml(p.name)}')">Open</button>
+                               <button class="btn btn-rename" onclick="renameProject('${escapeHtml(p.name)}')">Rename</button>`
                         }
                     </td>
                 </tr>
             `).join('');
-        }
-
-        async function startProject(name) {
-            setStatus('Starting ' + name + '...');
-            try {
-                const resp = await fetch(`/api/projects/${encodeURIComponent(name)}/start`, {method: 'POST'});
-                if (!resp.ok) {
-                    const text = await resp.text();
-                    setStatus('Error: ' + text);
-                    return;
-                }
-                setStatus('Started ' + name);
-                fetchProjects();
-            } catch (err) {
-                setStatus('Error: ' + err.message);
-            }
         }
 
         async function stopProject(name) {

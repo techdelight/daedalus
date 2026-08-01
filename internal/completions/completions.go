@@ -31,7 +31,7 @@ _daedalus() {
     _init_completion || return
 
     local subcommands="list prune remove rename config tui web completion skills runners personas programmes docs"
-    local flags="--build --target --resume -p --no-tmux --debug --dind --display --force --port --host --no-color --runner --persona --auth --no-auth --help -h"
+    local flags="--build --target --resume -p --debug --dind --display --force --port --host --no-color --runner --persona --auth --no-auth --help -h"
 
     # Complete subcommands and flags for the first argument
     if [[ ${cword} -eq 1 ]]; then
@@ -105,7 +105,6 @@ _daedalus() {
         '--target[Build target stage]:stage:(dev godot base utils)'
         '--resume[Resume a previous Claude session]:session_id:'
         '-p[Run a headless single-prompt task]:prompt:'
-        '--no-tmux[Run without tmux session wrapping]'
         '--debug[Enable Claude Code debug mode]'
         '--dind[Mount Docker socket]'
         '--display[Forward host display into container]'
@@ -194,7 +193,6 @@ complete -c daedalus -l build -d 'Force rebuild the Docker image'
 complete -c daedalus -l target -d 'Build target stage' -r -a 'dev godot base utils'
 complete -c daedalus -l resume -d 'Resume a previous Claude session' -r
 complete -c daedalus -s p -d 'Run a headless single-prompt task' -r
-complete -c daedalus -l no-tmux -d 'Run without tmux session wrapping'
 complete -c daedalus -l debug -d 'Enable Claude Code debug mode'
 complete -c daedalus -l dind -d 'Mount Docker socket'
 complete -c daedalus -l display -d 'Forward host display into container'

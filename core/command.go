@@ -2,54 +2,6 @@
 
 package core
 
-import (
-	"fmt"
-	"strings"
-)
-
-// BuildEnvExports builds a shell string that exports environment variables,
-// suitable for tmux send-keys.
-func BuildEnvExports(vars map[string]string) string {
-	parts := []string{}
-	for k, v := range vars {
-		parts = append(parts, fmt.Sprintf("export %s=%s", k, ShellQuote(v)))
-	}
-	return strings.Join(parts, " && ")
-}
-
-// ShellQuote wraps a string in single quotes for safe shell embedding.
-func ShellQuote(s string) string {
-	// Replace each ' with '\'' (end quote, escaped quote, start quote)
-	escaped := strings.ReplaceAll(s, "'", "'\\''")
-	return "'" + escaped + "'"
-}
-
-// BuildControlSendKeys builds a tmux control-mode `send-keys` command that
-// types text into the target pane. Newlines (\n, \r, \r\n) become Enter
-// keystrokes so the result is a single line — required because tmux control
-// mode is line-delimited and an embedded newline would split the command.
-// All non-newline content is sent via `send-keys -l` (literal) so tmux key
-// names like "Enter" or "BSpace" embedded in user text are typed verbatim.
-func BuildControlSendKeys(target, text string) string {
-	norm := strings.ReplaceAll(text, "\r\n", "\n")
-	norm = strings.ReplaceAll(norm, "\r", "\n")
-	parts := strings.Split(norm, "\n")
-
-	var args []string
-	for i, p := range parts {
-		if i > 0 {
-			args = append(args, "Enter")
-		}
-		if p != "" {
-			args = append(args, "-l", ShellQuote(p))
-		}
-	}
-	if len(args) == 0 {
-		args = append(args, "-l", ShellQuote(""))
-	}
-	return fmt.Sprintf("send-keys -t %s %s", target, strings.Join(args, " "))
-}
-
 // BuildRunnerArgs constructs runner CLI arguments from config, using the
 // runner profile to determine which flags to emit.
 func BuildRunnerArgs(cfg *Config) []string {
@@ -84,11 +36,11 @@ type OverlayPaths struct {
 	Env          map[string]string // extra environment variables
 }
 
-// RunnerVolumeArgs returns the `-v` bind mounts every runner container needs,
-// independent of launch path (coordinator daemon or legacy tmux). Keeping this
-// in one place is what lets the coordinator path mount the same volumes the
-// legacy path always did — the source of the Backlog #55 gap, where the
-// coordinator built its `docker compose run` args without these mounts.
+// RunnerVolumeArgs returns the `-v` bind mounts every runner container needs.
+// Keeping this in one place is what lets both launch surfaces (the CLI and the
+// web coordinator handler) mount the same set — the source of the Backlog #55
+// gap, where the coordinator built its `docker compose run` args without these
+// mounts.
 //
 // It mounts:
 //   - the shared skill catalog at /opt/skills
@@ -149,23 +101,4 @@ func BuildExtraArgs(cfg *Config, displayArgs []string, overlay *OverlayPaths) []
 		}
 	}
 	return args
-}
-
-// BuildTmuxCommand constructs the full command string for tmux send-keys.
-// It sets env vars and runs docker compose.
-func BuildTmuxCommand(cfg *Config, dockerCmd []string) string {
-	exports := BuildEnvExports(map[string]string{
-		"PROJECT_NAME": cfg.ProjectName,
-		"PROJECT_DIR":  cfg.ProjectDir,
-		"CACHE_DIR":    cfg.CacheDir(),
-		"TARGET":       cfg.Target,
-		"IMAGE":        cfg.Image(),
-		"RUNNER":       ResolveRunnerName(cfg),
-	})
-
-	quoted := make([]string, len(dockerCmd))
-	for i, arg := range dockerCmd {
-		quoted[i] = ShellQuote(arg)
-	}
-	return "clear && " + exports + " && " + strings.Join(quoted, " ") + "; exit"
 }

@@ -117,158 +117,6 @@ func TestHandleListProjects_Empty(t *testing.T) {
 	}
 }
 
-func TestHandleStartProject_Success(t *testing.T) {
-	ws, mock := setupWebTest(t)
-	if err := ws.registry.AddProject("myapp", "/path/myapp", "dev"); err != nil {
-		t.Fatal(err)
-	}
-	mock.Results["docker"] = executor.MockResult{Output: ""}
-
-	if err := os.MkdirAll(filepath.Join(ws.cfg.ScriptDir, ".cache"), 0755); err != nil {
-		t.Fatal(err)
-	}
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("POST /api/projects/{name}/start", ws.handleStartProject)
-	req := httptest.NewRequest("POST", "/api/projects/myapp/start", nil)
-	rec := httptest.NewRecorder()
-
-	mux.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusOK, rec.Body.String())
-	}
-	var resp map[string]interface{}
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("cannot decode response: %v", err)
-	}
-	if resp["status"] != "started" {
-		t.Errorf("status = %q, want %q", resp["status"], "started")
-	}
-
-	if !mock.HasCall("tmux") {
-		t.Error("expected tmux call")
-	}
-}
-
-func TestHandleStartProject_DisplayFlag(t *testing.T) {
-	t.Setenv("DISPLAY", ":0")
-
-	ws, mock := setupWebTest(t)
-	if err := ws.registry.AddProject("gui-app", "/path/gui-app", "dev"); err != nil {
-		t.Fatal(err)
-	}
-	if err := ws.registry.UpdateDefaultFlags("gui-app", map[string]string{"display": "true"}, nil); err != nil {
-		t.Fatal(err)
-	}
-	mock.Results["docker"] = executor.MockResult{Output: ""}
-
-	if err := os.MkdirAll(filepath.Join(ws.cfg.ScriptDir, ".cache"), 0755); err != nil {
-		t.Fatal(err)
-	}
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("POST /api/projects/{name}/start", ws.handleStartProject)
-	req := httptest.NewRequest("POST", "/api/projects/gui-app/start", nil)
-	rec := httptest.NewRecorder()
-
-	mux.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusOK, rec.Body.String())
-	}
-
-	// Find the tmux send-keys call (not has-session or new-session).
-	var sendKeysArgs string
-	for _, c := range mock.FindCalls("tmux") {
-		if len(c.Args) > 0 && c.Args[0] == "send-keys" {
-			sendKeysArgs = strings.Join(c.Args, " ")
-			break
-		}
-	}
-	if sendKeysArgs == "" {
-		t.Fatal("expected tmux send-keys call")
-	}
-	if !strings.Contains(sendKeysArgs, "/tmp/.X11-unix") {
-		t.Errorf("display forwarding args missing from docker command;\nsend-keys args: %s", sendKeysArgs)
-	}
-}
-
-func TestHandleStartProject_DinDFlag(t *testing.T) {
-	ws, mock := setupWebTest(t)
-	if err := ws.registry.AddProject("dind-app", "/path/dind-app", "dev"); err != nil {
-		t.Fatal(err)
-	}
-	if err := ws.registry.UpdateDefaultFlags("dind-app", map[string]string{"dind": "true"}, nil); err != nil {
-		t.Fatal(err)
-	}
-	mock.Results["docker"] = executor.MockResult{Output: ""}
-
-	if err := os.MkdirAll(filepath.Join(ws.cfg.ScriptDir, ".cache"), 0755); err != nil {
-		t.Fatal(err)
-	}
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("POST /api/projects/{name}/start", ws.handleStartProject)
-	req := httptest.NewRequest("POST", "/api/projects/dind-app/start", nil)
-	rec := httptest.NewRecorder()
-
-	mux.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusOK, rec.Body.String())
-	}
-
-	// Find the tmux send-keys call.
-	var sendKeysArgs string
-	for _, c := range mock.FindCalls("tmux") {
-		if len(c.Args) > 0 && c.Args[0] == "send-keys" {
-			sendKeysArgs = strings.Join(c.Args, " ")
-			break
-		}
-	}
-	if sendKeysArgs == "" {
-		t.Fatal("expected tmux send-keys call")
-	}
-	if !strings.Contains(sendKeysArgs, "/var/run/docker.sock") {
-		t.Errorf("DinD args missing from docker command;\nsend-keys args: %s", sendKeysArgs)
-	}
-}
-
-func TestHandleStartProject_AlreadyRunning(t *testing.T) {
-	ws, mock := setupWebTest(t)
-	if err := ws.registry.AddProject("myapp", "/path/myapp", "dev"); err != nil {
-		t.Fatal(err)
-	}
-	mock.Results["docker"] = executor.MockResult{Output: "claude-run-myapp\n"}
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("POST /api/projects/{name}/start", ws.handleStartProject)
-	req := httptest.NewRequest("POST", "/api/projects/myapp/start", nil)
-	rec := httptest.NewRecorder()
-
-	mux.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusConflict {
-		t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusConflict, rec.Body.String())
-	}
-}
-
-func TestHandleStartProject_UnknownProject(t *testing.T) {
-	ws, _ := setupWebTest(t)
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("POST /api/projects/{name}/start", ws.handleStartProject)
-	req := httptest.NewRequest("POST", "/api/projects/nonexistent/start", nil)
-	rec := httptest.NewRecorder()
-
-	mux.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
-	}
-}
-
 func TestHandleStopProject_Success(t *testing.T) {
 	ws, mock := setupWebTest(t)
 	if err := ws.registry.AddProject("myapp", "/path/myapp", "dev"); err != nil {
@@ -675,25 +523,6 @@ func TestHandleRoadmap_NotFound(t *testing.T) {
 	}
 }
 
-func TestHandleTerminal_NoSession(t *testing.T) {
-	ws, mock := setupWebTest(t)
-	if err := ws.registry.AddProject("myapp", "/path/myapp", "dev"); err != nil {
-		t.Fatal(err)
-	}
-	mock.Results["tmux"] = executor.MockResult{Err: fmt.Errorf("no session")}
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /api/projects/{name}/terminal", ws.handleTerminal)
-	req := httptest.NewRequest("GET", "/api/projects/myapp/terminal", nil)
-	rec := httptest.NewRecorder()
-
-	mux.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusNotFound, rec.Body.String())
-	}
-}
-
 func TestHandleTerminal_UnknownProject(t *testing.T) {
 	ws, _ := setupWebTest(t)
 
@@ -725,7 +554,7 @@ func TestHandleTerminal_WebSocketUpgrade(t *testing.T) {
 
 	if err != nil {
 		if resp != nil && resp.StatusCode != http.StatusSwitchingProtocols {
-			t.Logf("WebSocket upgrade returned status %d (expected in test env without tmux)", resp.StatusCode)
+			t.Logf("WebSocket upgrade returned status %d (expected in test env without a coordinator)", resp.StatusCode)
 			return
 		}
 		t.Logf("WebSocket dial error (expected in test env): %v", err)
@@ -745,7 +574,6 @@ func TestWebServerRouting_Integration(t *testing.T) {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/projects", ws.handleListProjects)
-	mux.HandleFunc("POST /api/projects/{name}/start", ws.handleStartProject)
 	mux.HandleFunc("POST /api/projects/{name}/stop", ws.handleStopProject)
 	mux.HandleFunc("GET /api/projects/{name}/terminal", ws.handleTerminal)
 
@@ -770,15 +598,6 @@ func TestWebServerRouting_Integration(t *testing.T) {
 	}
 	if !projects[0].Running {
 		t.Errorf("projects[0].Running = false, want true")
-	}
-
-	resp2, err := http.Post(server.URL+"/api/projects/unknown/start", "", nil)
-	if err != nil {
-		t.Fatalf("POST start unknown: %v", err)
-	}
-	defer resp2.Body.Close()
-	if resp2.StatusCode != http.StatusNotFound {
-		t.Errorf("POST start unknown: status = %d, want %d", resp2.StatusCode, http.StatusNotFound)
 	}
 
 	resp3, err := http.Post(server.URL+"/api/projects/unknown/stop", "", nil)
@@ -1608,22 +1427,11 @@ func TestHandleGuild(t *testing.T) {
 	}
 }
 
-func TestRenderIndexHTML_InjectsVersionAndRunnerFlag(t *testing.T) {
-	raw := []byte(`<title>Daedalus</title><script>window.DAEDALUS_RUNNER_MODE=(function(){var v="__RUNNER_MODE__";return v==="true";})();</script>`)
+func TestRenderIndexHTML_InjectsVersion(t *testing.T) {
+	raw := []byte(`<title>Daedalus</title>`)
 
-	on := renderIndexHTML(raw, "1.2.3", true)
-	if !strings.Contains(on, "Daedalus [1.2.3]") {
-		t.Errorf("version not injected into title: %q", on)
-	}
-	if !strings.Contains(on, `var v="true"`) {
-		t.Errorf("runner flag not injected as true: %q", on)
-	}
-	if strings.Contains(on, "__RUNNER_MODE__") {
-		t.Errorf("runner placeholder left unreplaced: %q", on)
-	}
-
-	off := renderIndexHTML(raw, "9.9.9", false)
-	if !strings.Contains(off, `var v="false"`) {
-		t.Errorf("runner flag not injected as false: %q", off)
+	out := renderIndexHTML(raw, "1.2.3")
+	if !strings.Contains(out, "Daedalus [1.2.3]") {
+		t.Errorf("version not injected into title: %q", out)
 	}
 }

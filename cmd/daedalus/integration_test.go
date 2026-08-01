@@ -194,9 +194,6 @@ func TestIntegration_ConfigPrecedence(t *testing.T) {
 		if cfg.Debug {
 			t.Error("Debug = true, want false")
 		}
-		if cfg.NoTmux {
-			t.Error("NoTmux = true, want false")
-		}
 	})
 
 	t.Run("config.json enables debug", func(t *testing.T) {
@@ -221,31 +218,6 @@ func TestIntegration_ConfigPrecedence(t *testing.T) {
 		// Assert: config.json debug=true applied
 		if !cfg.Debug {
 			t.Error("Debug = false, want true (config.json should enable it)")
-		}
-	})
-
-	t.Run("cli flag overrides config.json for no-tmux", func(t *testing.T) {
-		// Arrange: config.json says no-tmux=false, CLI says --no-tmux
-		tmpDir := t.TempDir()
-		if err := os.WriteFile(filepath.Join(tmpDir, "config.json"), []byte(`{"no-tmux": false}`), 0644); err != nil {
-			t.Fatalf("writing config.json: %v", err)
-		}
-		appCfg, err := config.LoadAppConfig(tmpDir)
-		if err != nil {
-			t.Fatalf("LoadAppConfig: %v", err)
-		}
-
-		cfg, err := config.ParseArgs([]string{"--no-tmux", "my-project"})
-		if err != nil {
-			t.Fatalf("ParseArgs: %v", err)
-		}
-
-		// Act
-		core.ApplyAppConfig(cfg, appCfg)
-
-		// Assert: CLI wins
-		if !cfg.NoTmux {
-			t.Error("NoTmux = false, want true (CLI --no-tmux should win)")
 		}
 	})
 
@@ -397,7 +369,7 @@ func TestIntegration_RegistryLifecycle(t *testing.T) {
 			directory:   "/tmp/reg-test",
 			target:      "dev",
 			flags:       map[string]string{"debug": "true", "dind": "true"},
-			setFlags:    map[string]string{"no-tmux": "true"},
+			setFlags:    map[string]string{"display": "true"},
 			unsetFlags:  []string{"debug"},
 			resumeID:    "",
 		},
@@ -839,95 +811,59 @@ func TestIntegration_WebAPI(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // Test 6: Headless mode detection
-// Verify IsHeadless correctly detects -p flag and that headless mode skips tmux
+// Verify IsHeadless correctly detects the -p flag (a prompt forces headless).
 // ---------------------------------------------------------------------------
 
 func TestIntegration_HeadlessModeDetection(t *testing.T) {
 	tests := []struct {
-		name          string
-		prompt        string
-		noTmux        bool
-		expectUseTmux bool
+		name   string
+		prompt string
 	}{
 		{
-			name:          "no prompt, no flags - tmux enabled",
-			prompt:        "",
-			noTmux:        false,
-			expectUseTmux: true,
+			name:   "no prompt",
+			prompt: "",
 		},
 		{
-			name:          "with prompt - headless skips tmux",
-			prompt:        "Fix all errors",
-			noTmux:        false,
-			expectUseTmux: false,
-		},
-		{
-			name:          "no-tmux flag disables tmux",
-			prompt:        "",
-			noTmux:        true,
-			expectUseTmux: false,
-		},
-		{
-			name:          "prompt and no-tmux - both disable tmux",
-			prompt:        "Run tests",
-			noTmux:        true,
-			expectUseTmux: false,
+			name:   "with prompt - forces headless",
+			prompt: "Fix all errors",
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			// Arrange
-			cfg := &core.Config{
-				Prompt: tc.prompt,
-				NoTmux: tc.noTmux,
-			}
+			cfg := &core.Config{Prompt: tc.prompt}
 
 			// Act
 			headless := config.IsHeadless(cfg)
-			useTmux := cfg.UseTmux()
 
-			// Assert: prompt always triggers headless
+			// Assert: prompt always triggers headless.
 			// Note: IsHeadless also checks stdin (piped in test runners),
 			// so we only assert the prompt-based path deterministically.
 			if tc.prompt != "" && !headless {
 				t.Errorf("IsHeadless() = false, want true (prompt is set)")
-			}
-
-			// Assert: UseTmux respects both prompt and no-tmux
-			if useTmux != tc.expectUseTmux {
-				t.Errorf("UseTmux() = %v, want %v", useTmux, tc.expectUseTmux)
 			}
 		})
 	}
 }
 
 // TestIntegration_HeadlessModeDetection_ParseArgsIntegration verifies that
-// parsing -p flag correctly flows through to headless detection and tmux skip.
+// parsing the -p flag flows through to a set Prompt (and thus headless mode).
 func TestIntegration_HeadlessModeDetection_ParseArgsIntegration(t *testing.T) {
 	tests := []struct {
-		name          string
-		args          []string
-		expectPrompt  string
-		expectUseTmux bool
+		name         string
+		args         []string
+		expectPrompt string
 	}{
 		{
-			name:          "parse -p flag flows to headless",
-			args:          []string{"-p", "Fix linting", "my-project"},
-			expectPrompt:  "Fix linting",
-			expectUseTmux: false,
+			name:         "parse -p flag flows to prompt",
+			args:         []string{"-p", "Fix linting", "my-project"},
+			expectPrompt: "Fix linting",
 		},
 		{
-			name:          "parse --no-tmux flag disables tmux",
-			args:          []string{"--no-tmux", "my-project"},
-			expectPrompt:  "",
-			expectUseTmux: false,
-		},
-		{
-			name:          "no flags keeps tmux enabled",
-			args:          []string{"my-project"},
-			expectPrompt:  "",
-			expectUseTmux: true,
+			name:         "no flags leaves prompt empty",
+			args:         []string{"my-project"},
+			expectPrompt: "",
 		},
 	}
 
@@ -943,9 +879,6 @@ func TestIntegration_HeadlessModeDetection_ParseArgsIntegration(t *testing.T) {
 			if cfg.Prompt != tc.expectPrompt {
 				t.Errorf("Prompt = %q, want %q", cfg.Prompt, tc.expectPrompt)
 			}
-			if cfg.UseTmux() != tc.expectUseTmux {
-				t.Errorf("UseTmux() = %v, want %v", cfg.UseTmux(), tc.expectUseTmux)
-			}
 		})
 	}
 }
@@ -958,7 +891,7 @@ func TestIntegration_HeadlessModeDetection_ParseArgsIntegration(t *testing.T) {
 
 func TestIntegration_ShellCompletions(t *testing.T) {
 	subcommands := []string{"list", "prune", "remove", "config", "tui", "web", "completion"}
-	flags := []string{"build", "target", "no-tmux", "debug", "dind", "no-color", "force"}
+	flags := []string{"build", "target", "debug", "dind", "no-color", "force"}
 
 	tests := []struct {
 		shell         string

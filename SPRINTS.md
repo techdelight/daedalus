@@ -16,9 +16,9 @@ Milestone: 5
 | 4 | Mobile #29 on a phone — reconnect + repaint on a backgrounded tab and a Wi-Fi/cellular switch | |
 | 5 | Close deferral: pin the Claude/Copilot installers to a version + checksum (the `TODO(#51)` markers; supply-chain) | |
 | 6 | Close deferral if needed: Maven read-only-base + per-project overlay (#21), should the simple shared `.m2` show cross-project pollution | |
-| 7 | Retire the classic tmux launch path — the Milestone 4 cleanup tail — once the runner default is proven | |
+| 7 | Retire the classic tmux launch path — the Milestone 4 cleanup tail — once the runner default is proven. **Done 2026-08-01**: runner path is the only launch path; `internal/session`, the `DAEDALUS_USE_TMUX`/`DAEDALUS_USE_RUNNER` toggle, the `--no-tmux` flag + `no-tmux`/`tmux-prefix` config, and the Web tmux/control relays are removed. | Done |
 
-Prepared, not started: all items are Pending. Verification is host-side (real Docker + a phone); see `docs/m5-verification.md`.
+Item 7 (retire tmux) is done — a code-only change, completed ahead of the host verification. The remaining items (1–6) are Pending: verification is host-side (real Docker + a phone); see `docs/m5-verification.md`.
 
 ## Sprint History
 

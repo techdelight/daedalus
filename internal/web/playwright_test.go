@@ -49,7 +49,6 @@ func TestPlaywright(t *testing.T) {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/projects", ws.handleListProjects)
-	mux.HandleFunc("POST /api/projects/{name}/start", ws.handleStartProject)
 	mux.HandleFunc("POST /api/projects/{name}/stop", ws.handleStopProject)
 	mux.HandleFunc("POST /api/projects/{name}/rename", ws.handleRenameProject)
 	mux.HandleFunc("GET /api/projects/{name}/terminal", ws.handleTerminal)

@@ -9,8 +9,6 @@ import (
 	"net/http"
 
 	"github.com/techdelight/daedalus/core"
-	"github.com/techdelight/daedalus/internal/docker"
-	"github.com/techdelight/daedalus/internal/session"
 )
 
 // projectJSON is the JSON representation of a project for the REST API.
@@ -55,71 +53,6 @@ func (ws *WebServer) handleListProjects(w http.ResponseWriter, r *http.Request) 
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(projects)
-}
-
-// handleStartProject starts a project's container and tmux session.
-func (ws *WebServer) handleStartProject(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
-
-	entry, found, err := ws.registry.GetProject(name)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	if !found {
-		http.Error(w, fmt.Sprintf("project %q not found", name), http.StatusNotFound)
-		return
-	}
-
-	projCfg := &core.Config{
-		ProjectName: name,
-		ScriptDir:   ws.cfg.ScriptDir,
-		DataDir:     ws.cfg.DataDir,
-		ImagePrefix: ws.cfg.ImagePrefix,
-	}
-	core.ApplyRegistryEntry(projCfg, entry)
-
-	if err := docker.SetupCacheDir(projCfg); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	running, err := ws.docker.IsContainerRunning(projCfg.ContainerName())
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	if running {
-		http.Error(w, fmt.Sprintf("project %q is already running", name), http.StatusConflict)
-		return
-	}
-
-	if !ws.docker.ImageExists(projCfg.Image()) {
-		http.Error(w, fmt.Sprintf("image %s not found — run daedalus --build %s first", projCfg.Image(), name), http.StatusPreconditionFailed)
-		return
-	}
-
-	sess := session.NewSession(ws.executor, projCfg.TmuxSession())
-	if !sess.Exists() {
-		if err := sess.Create(); err != nil {
-			http.Error(w, fmt.Sprintf("creating tmux session: %v", err), http.StatusInternalServerError)
-			return
-		}
-	}
-
-	tmuxCmd := ws.docker.BuildSessionCommand(projCfg)
-
-	if err := sess.SendKeys(tmuxCmd); err != nil {
-		http.Error(w, fmt.Sprintf("sending command to tmux: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	if err := ws.registry.TouchProject(name); err != nil {
-		log.Printf("Failed to update timestamp for %s: %v", name, err)
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "started", "project": name})
 }
 
 // handleStopProject stops a project's container.

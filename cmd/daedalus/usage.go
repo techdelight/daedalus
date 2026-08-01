@@ -47,7 +47,6 @@ func printUsage() {
 	fmt.Println("  --target <stage>   Build target: dev (default), godot, base, utils")
 	fmt.Println("  --resume <id>      Resume a previous Claude session")
 	fmt.Println("  -p <prompt>        Run a headless single-prompt task")
-	fmt.Println("  --no-tmux          Run without tmux session wrapping")
 	fmt.Println("  --debug            Enable Claude Code debug mode")
 	fmt.Println("  --dind             Mount Docker socket (WARNING: grants host Docker access)")
 	fmt.Println("  --display          Forward host display (X11/Wayland) into the container")

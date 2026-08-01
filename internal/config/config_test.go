@@ -112,7 +112,7 @@ func TestParseArgs_DefaultTarget_NoOverride(t *testing.T) {
 }
 
 func TestParseArgs_FlagsMixedWithPositional(t *testing.T) {
-	cfg, err := ParseArgs([]string{"--build", "my-project", "--no-tmux", "/tmp", "-p", "do stuff"})
+	cfg, err := ParseArgs([]string{"--build", "my-project", "--debug", "/tmp", "-p", "do stuff"})
 	if err != nil {
 		t.Fatalf("ParseArgs failed: %v", err)
 	}
@@ -125,8 +125,8 @@ func TestParseArgs_FlagsMixedWithPositional(t *testing.T) {
 	if !cfg.Build {
 		t.Error("Build = false, want true")
 	}
-	if !cfg.NoTmux {
-		t.Error("NoTmux = false, want true")
+	if !cfg.Debug {
+		t.Error("Debug = false, want true")
 	}
 	if cfg.Prompt != "do stuff" {
 		t.Errorf("Prompt = %q, want %q", cfg.Prompt, "do stuff")

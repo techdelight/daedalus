@@ -107,7 +107,8 @@ func writeDescription(b *strings.Builder) {
 	b.WriteString(".I /workspace\n")
 	b.WriteString("and a persistent home directory at\n")
 	b.WriteString(".IR /home/claude .\n")
-	b.WriteString("Sessions are wrapped in tmux for detach/reattach support.\n")
+	b.WriteString("Sessions run under an in-container runner that multiplexes one PTY to many\n")
+	b.WriteString("clients, supporting detach/reattach across the CLI, TUI, and web dashboard.\n")
 	b.WriteString(".PP\n")
 	b.WriteString("Three UI surfaces are provided: a command-line interface (CLI), an\n")
 	b.WriteString("interactive terminal dashboard (TUI), and a browser-based web dashboard\n")
@@ -198,9 +199,6 @@ func writeOptions(b *strings.Builder) {
 	writeOption(b, "\\fB\\-p\\fR \\fIprompt\\fR",
 		"Run a headless single-prompt task. The container executes the prompt and exits without interactive input.")
 
-	writeOption(b, "\\fB\\-\\-no\\-tmux\\fR",
-		"Run without tmux session wrapping. The container runs directly in the current terminal.")
-
 	writeOption(b, "\\fB\\-\\-debug\\fR",
 		"Enable Claude Code debug mode.")
 
@@ -267,9 +265,6 @@ func writeConfiguration(b *strings.Builder) {
 	b.WriteString(".TP\n")
 	b.WriteString("\\fBdebug\\fR (bool)\n")
 	b.WriteString("Enable Claude Code debug mode.\n")
-	b.WriteString(".TP\n")
-	b.WriteString("\\fBno-tmux\\fR (bool)\n")
-	b.WriteString("Run without tmux session wrapping.\n")
 	b.WriteString(".TP\n")
 	b.WriteString("\\fBimage-prefix\\fR (string)\n")
 	b.WriteString("Docker image prefix. Default: techdelight/claude-runner.\n")
@@ -401,7 +396,6 @@ func writeFiles(b *strings.Builder) {
 func writeSeeAlso(b *strings.Builder) {
 	b.WriteString(".SH SEE ALSO\n")
 	b.WriteString(".BR docker (1),\n")
-	b.WriteString(".BR tmux (1),\n")
 	b.WriteString(".BR claude (1)\n")
 }
 

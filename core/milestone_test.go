@@ -215,10 +215,10 @@ func TestParseMilestonesAgainstRealRoadmap(t *testing.T) {
 		t.Errorf("repo ROADMAP.md has %d in-progress milestones, want exactly 1", inProgress)
 	}
 
-	if got[3].Status != StatusInProgress {
-		t.Errorf("Milestone 4 Status = %q, want %q", got[3].Status, StatusInProgress)
+	if got[3].Status != StatusDone {
+		t.Errorf("Milestone 4 Status = %q, want %q", got[3].Status, StatusDone)
 	}
-	if got[4].Status != StatusPlanned {
-		t.Errorf("Milestone 5 Status = %q, want %q", got[4].Status, StatusPlanned)
+	if got[4].Status != StatusInProgress {
+		t.Errorf("Milestone 5 Status = %q, want %q", got[4].Status, StatusInProgress)
 	}
 }

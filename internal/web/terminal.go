@@ -7,21 +7,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
-	"os"
-	"os/exec"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/techdelight/daedalus/core"
 	"github.com/techdelight/daedalus/internal/coordinator"
 	"github.com/techdelight/daedalus/internal/runclient"
-	"github.com/techdelight/daedalus/internal/session"
 
-	"github.com/creack/pty"
 	"github.com/gorilla/websocket"
 )
 
@@ -111,12 +105,11 @@ type resizeMsg struct {
 }
 
 type wsMsg struct {
-	Type  string `json:"type"`
-	Lines int    `json:"lines,omitempty"`
+	Type string `json:"type"`
 }
 
-// enterKey is the byte a terminal sends when Enter is pressed. The paths
-// with no tmux to ask for a keypress write it to the PTY directly.
+// enterKey is the byte a terminal sends when Enter is pressed. The relay
+// writes it to the runner PTY directly.
 const enterKey = "\r"
 
 // isEnterMsg reports whether data is the mobile Send button's enter signal.
@@ -125,138 +118,21 @@ const enterKey = "\r"
 // Claude Code reads a chunk of text with a trailing newline as a paste and
 // inserts a line break instead of submitting, so the submit has to arrive as
 // a write of its own. Frames are delivered in order on one connection, so
-// the text is always applied first — unlike the HTTP /enter endpoint this
-// replaced, which raced the WebSocket and, having only ever spoken tmux,
-// 404'd on the runner path.
+// the text is always applied first.
 func isEnterMsg(data []byte) bool {
 	var m wsMsg
 	return json.Unmarshal(data, &m) == nil && m.Type == "enter"
 }
 
-type scrollbackResponse struct {
-	Type    string `json:"type"`
-	Content string `json:"content"`
-}
-
-func (ws *WebServer) handleTerminal(w http.ResponseWriter, r *http.Request) {
-	// Route to control or runner mode based on ?mode=...
-	switch r.URL.Query().Get("mode") {
-	case "control":
-		ws.handleTerminalControl(w, r)
-		return
-	case "runner":
-		ws.handleTerminalRunner(w, r)
-		return
-	}
-
-	name := r.PathValue("name")
-
-	entry, found, err := ws.registry.GetProject(name)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	if !found {
-		http.Error(w, fmt.Sprintf("project %q not found", name), http.StatusNotFound)
-		return
-	}
-
-	sessName := core.TmuxSessionFor(ws.cfg.TmuxPrefix, name)
-	sess := session.NewSession(ws.executor, sessName)
-	if !sess.Exists() {
-		http.Error(w, fmt.Sprintf("no tmux session for project %q", name), http.StatusNotFound)
-		return
-	}
-
-	rawConn, err := wsUpgrader.Upgrade(w, r, nil)
-	if err != nil {
-		log.Printf("WebSocket upgrade failed for %s: %v", name, err)
-		return
-	}
-	conn := newSafeConn(rawConn)
-	defer conn.Close()
-	defer conn.enableKeepalive()()
-
-	ptmx, cmd, err := startPTY(sessName)
-	if err != nil {
-		conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("Failed to attach: %v", err)))
-		return
-	}
-	defer cleanupPTY(cmd, ptmx)
-
-	defer startBranchWatch(conn, entry.Directory)()
-
-	var wg sync.WaitGroup
-	wg.Add(2)
-	go relayPTYToWebSocket(&wg, ptmx, conn, name)
-	go relayWebSocketToPTY(&wg, conn, ptmx)
-	wg.Wait()
-}
-
-// handleTerminalControl is the control-mode alternative to handleTerminal.
-// It uses tmux -C for structured I/O instead of a raw PTY relay.
-// Activated by ?mode=control on the terminal WebSocket endpoint. The
-// reader/writer goroutines and the FIFO response queue live in
-// controlRelay (see control_relay.go).
-func (ws *WebServer) handleTerminalControl(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
-
-	entry, found, err := ws.registry.GetProject(name)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	if !found {
-		http.Error(w, fmt.Sprintf("project %q not found", name), http.StatusNotFound)
-		return
-	}
-
-	sessName := core.TmuxSessionFor(ws.cfg.TmuxPrefix, name)
-	sess := session.NewSession(ws.executor, sessName)
-	if !sess.Exists() {
-		http.Error(w, fmt.Sprintf("no tmux session for project %q", name), http.StatusNotFound)
-		return
-	}
-
-	rawConn, err := wsUpgrader.Upgrade(w, r, nil)
-	if err != nil {
-		log.Printf("WebSocket upgrade failed for %s: %v", name, err)
-		return
-	}
-	conn := newSafeConn(rawConn)
-	defer conn.Close()
-	defer conn.enableKeepalive()()
-
-	cs, err := session.StartControlSession(sessName)
-	if err != nil {
-		conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("Failed to start control mode: %v", err)))
-		return
-	}
-	defer cs.Close()
-
-	defer startBranchWatch(conn, entry.Directory)()
-
-	// Capture visible pane content before starting the relay so the
-	// terminal is populated immediately on connect — no reader contention
-	// because the relay goroutines have not started yet.
-	if content, err := cs.CaptureVisible(); err == nil && content != "" {
-		conn.WriteMessage(websocket.BinaryMessage, []byte(content))
-	}
-
-	newControlRelay(cs, conn, sessName, name).Run()
-}
-
-// handleTerminalRunner is the runner-mode alternative to handleTerminal.
-// It asks the coordinator daemon for the session's runner socket, dials
-// it via runclient, and bridges the WebSocket through runnerRelay.
-// Activated by ?mode=runner on the terminal WebSocket endpoint.
+// handleTerminal asks the coordinator daemon for the session's runner socket,
+// dials it via runclient, and bridges the WebSocket through runnerRelay.
 //
-// The daemon is the source of truth for "does a runner session exist
-// for this project", so a stale socket file left over from a crashed
-// prior container no longer produces a misleading 200. Auto-spawns
-// the daemon if not already running (ssh-agent style), mirroring the
-// CLI runner-detached path in cmd/daedalus/launch.go.
-func (ws *WebServer) handleTerminalRunner(w http.ResponseWriter, r *http.Request) {
+// The daemon is the source of truth for "does a runner session exist for this
+// project", so a stale socket file left over from a crashed prior container no
+// longer produces a misleading 200. Auto-spawns the daemon if not already
+// running (ssh-agent style), mirroring the CLI launch in
+// cmd/daedalus/launch.go.
+func (ws *WebServer) handleTerminal(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 
 	entry, found, err := ws.registry.GetProject(name)
@@ -279,9 +155,8 @@ func (ws *WebServer) handleTerminalRunner(w http.ResponseWriter, r *http.Request
 	if errors.Is(err, coordinator.ErrNotFound) {
 		// No runner session yet — launch one, so the web is self-sufficient
 		// instead of telling the user to start it from the CLI. Mirrors the
-		// CLI runner launch (launchProjectViaRunner) and the control-mode
-		// start button (handleStartProject). startRunnerSession writes the
-		// HTTP error itself and returns nil on failure, before any upgrade.
+		// CLI launch (launchProject). startRunnerSession writes the HTTP error
+		// itself and returns nil on failure, before any upgrade.
 		if sess = ws.startRunnerSession(w, name, entry, client); sess == nil {
 			return
 		}
@@ -315,8 +190,7 @@ func (ws *WebServer) handleTerminalRunner(w http.ResponseWriter, r *http.Request
 
 // startRunnerSession launches a runner container for the project via the
 // coordinator and returns its session. It builds the project config from the
-// registry entry the same way the control-mode start button does
-// (handleStartProject) and the CLI runner launch does, so the web can start a
+// registry entry the same way the CLI launch does, so the web can start a
 // runner session on its own — no separate CLI launch required first.
 //
 // It writes the HTTP error and returns nil on failure, and must be called
@@ -338,18 +212,17 @@ func (ws *WebServer) startRunnerSession(w http.ResponseWriter, name string, entr
 		return nil
 	}
 
-	// A container under this name from a non-runner launch (e.g. the tmux
-	// control path) is not a coordinator session, so Get above missed it —
-	// but its name would collide with the coordinator's `docker compose run
-	// --name`, failing Start with a cryptic docker error. Detect it and say
-	// so plainly. Mirrors handleStartProject's already-running guard.
+	// A container under this name that is not a coordinator session (e.g. a
+	// stray `docker run`) would collide with the coordinator's `docker compose
+	// run --name`, failing Start with a cryptic docker error. Detect it and say
+	// so plainly.
 	container := projCfg.ContainerName()
 	if running, err := ws.docker.IsContainerRunning(container); err != nil {
 		log.Printf("runner start %s: checking container %s: %v", name, container, err)
 		http.Error(w, fmt.Sprintf("checking existing container: %v", err), http.StatusInternalServerError)
 		return nil
 	} else if running {
-		http.Error(w, fmt.Sprintf("container %q is already running outside the runner path (e.g. started in the tmux/control UI) — stop it first with `daedalus stop %s` or `docker stop %s`, then attach in runner mode", container, name, container), http.StatusConflict)
+		http.Error(w, fmt.Sprintf("container %q is already running outside the runner path — stop it first with `daedalus stop %s` or `docker stop %s`, then attach", container, name, container), http.StatusConflict)
 		return nil
 	}
 
@@ -372,83 +245,4 @@ func (ws *WebServer) startRunnerSession(w http.ResponseWriter, name string, entr
 		log.Printf("Failed to update timestamp for %s: %v", name, err)
 	}
 	return sess
-}
-
-func startPTY(sessionName string) (*os.File, *exec.Cmd, error) {
-	cmd := exec.Command("tmux", "attach-session", "-t", sessionName)
-	ptmx, err := pty.Start(cmd)
-	if err != nil {
-		return nil, nil, err
-	}
-	return ptmx, cmd, nil
-}
-
-func cleanupPTY(cmd *exec.Cmd, ptmx *os.File) {
-	if cmd.Process != nil {
-		if err := cmd.Process.Signal(syscall.SIGHUP); err != nil {
-			log.Printf("SIGHUP to PTY process: %v", err)
-		}
-	}
-	if err := ptmx.Close(); err != nil {
-		log.Printf("close PTY: %v", err)
-	}
-	if err := cmd.Wait(); err != nil {
-		log.Printf("wait for PTY process: %v", err)
-	}
-}
-
-func relayPTYToWebSocket(wg *sync.WaitGroup, ptmx *os.File, conn *safeConn, name string) {
-	defer wg.Done()
-	buf := make([]byte, 4096)
-	for {
-		n, err := ptmx.Read(buf)
-		if err != nil {
-			if err != io.EOF {
-				log.Printf("PTY read error for %s: %v", name, err)
-			}
-			conn.WriteMessage(websocket.CloseMessage,
-				websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
-			return
-		}
-		if err := conn.WriteMessage(websocket.BinaryMessage, buf[:n]); err != nil {
-			return
-		}
-	}
-}
-
-func relayWebSocketToPTY(wg *sync.WaitGroup, conn *safeConn, ptmx *os.File) {
-	defer wg.Done()
-	for {
-		msgType, data, err := conn.ReadMessage()
-		if err != nil {
-			return
-		}
-
-		switch msgType {
-		case websocket.TextMessage:
-			// Checked before the resize probe and before the fallthrough that
-			// forwards text as input: an unhandled control message would be
-			// typed into the pane as literal JSON.
-			if isEnterMsg(data) {
-				if _, err := ptmx.Write([]byte(enterKey)); err != nil {
-					return
-				}
-				continue
-			}
-			var msg resizeMsg
-			if json.Unmarshal(data, &msg) == nil && msg.Type == "resize" && msg.Cols > 0 && msg.Rows > 0 {
-				if err := pty.Setsize(ptmx, &pty.Winsize{Rows: msg.Rows, Cols: msg.Cols}); err != nil {
-					log.Printf("PTY setsize: %v", err)
-				}
-				continue
-			}
-			if _, err := ptmx.Write(data); err != nil {
-				return
-			}
-		case websocket.BinaryMessage:
-			if _, err := ptmx.Write(data); err != nil {
-				return
-			}
-		}
-	}
 }

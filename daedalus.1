@@ -1,4 +1,4 @@
-.TH DAEDALUS 1 "2026-03-07" "daedalus 0.8.1" "User Commands"
+.TH DAEDALUS 1 "2026-07-30" "daedalus 0.39.0" "User Commands"
 .SH NAME
 daedalus \- Docker environment for autonomous Claude Code
 .SH SYNOPSIS
@@ -11,6 +11,9 @@ daedalus \- Docker environment for autonomous Claude Code
 .br
 .B daedalus remove
 <\fIname\fR> [\fIname\fR...]
+.br
+.B daedalus rename
+<\fIold-name\fR> <\fInew-name\fR>
 .br
 .B daedalus config
 <\fIname\fR> [\fB\-\-set\fR \fIkey=value\fR] [\fB\-\-unset\fR \fIkey\fR]
@@ -37,7 +40,8 @@ mounted read-write at
 .I /workspace
 and a persistent home directory at
 .IR /home/claude .
-Sessions are wrapped in tmux for detach/reattach support.
+Sessions run under an in-container runner that multiplexes one PTY to many
+clients, supporting detach/reattach across the CLI, TUI, and web dashboard.
 .PP
 Three UI surfaces are provided: a command-line interface (CLI), an
 interactive terminal dashboard (TUI), and a browser-based web dashboard
@@ -59,6 +63,9 @@ Remove registry entries whose project directories no longer exist on disk. Promp
 \fBremove\fR <\fIname\fR> [\fIname\fR...]
 Remove one or more named projects from the registry. Prompts for confirmation in interactive mode; use \fB\-\-force\fR for non-interactive mode.
 .TP
+\fBrename\fR <\fIold-name\fR> <\fInew-name\fR>
+Rename a registered project. The project must be stopped. Updates the registry key and renames the per-project cache directory.
+.TP
 \fBconfig\fR <\fIname\fR> [\fB\-\-set\fR \fIkey=value\fR] [\fB\-\-unset\fR \fIkey\fR]
 View or edit per-project default flags. Without \fB\-\-set\fR or \fB\-\-unset\fR, displays the current configuration.
 .TP
@@ -70,6 +77,15 @@ Start the browser-based web dashboard with project management and an embedded te
 .TP
 \fBcompletion\fR <\fBbash\fR|\fBzsh\fR|\fBfish\fR>
 Print a shell completion script to stdout. Source the output in your shell profile.
+.TP
+\fBskills\fR [\fBadd\fR \fIfile\fR | \fBremove\fR \fIname\fR | \fBshow\fR \fIname\fR]
+List, add, remove, or show skills in the shared skill catalog.
+.TP
+\fBrunners\fR [\fBlist\fR | \fBshow\fR \fIname\fR]
+List or show built-in runner profiles (claude, copilot).
+.TP
+\fBpersonas\fR [\fBlist\fR | \fBshow\fR \fIname\fR | \fBcreate\fR \fIname\fR | \fBremove\fR \fIname\fR]
+List, show, create, or remove named persona configurations.
 .TP
 \fB\-\-help\fR, \fB\-h\fR
 Show the usage message and exit.
@@ -87,14 +103,20 @@ Resume a previous Claude Code session by its session ID.
 \fB\-p\fR \fIprompt\fR
 Run a headless single-prompt task. The container executes the prompt and exits without interactive input.
 .TP
-\fB\-\-no\-tmux\fR
-Run without tmux session wrapping. The container runs directly in the current terminal.
-.TP
 \fB\-\-debug\fR
 Enable Claude Code debug mode.
 .TP
 \fB\-\-dind\fR
 Mount the host Docker socket into the container. WARNING: this grants the container full access to the host Docker daemon.
+.TP
+\fB\-\-display\fR
+Forward the host X11 or Wayland display into the container, allowing GUI applications to render on the host screen. Requires a running display server on the host.
+.TP
+\fB\-\-runner\fR \fIname\fR
+AI runner to use inside the container. Accepted values: \fBclaude\fR (default), \fBcopilot\fR. Can also be set per-project via \fBdaedalus config <name> \-\-set runner=copilot\fR.
+.TP
+\fB\-\-persona\fR \fIname\fR
+Named persona configuration to use. User-defined personas layer system prompts and tool permissions on top of a built-in runner.
 .TP
 \fB\-\-force\fR
 Force deletion in non-interactive mode for \fBprune\fR and \fBremove\fR commands.
@@ -133,11 +155,11 @@ Base directory for registry and per-project caches. Must be an absolute path.
 \fBdebug\fR (bool)
 Enable Claude Code debug mode.
 .TP
-\fBno-tmux\fR (bool)
-Run without tmux session wrapping.
-.TP
 \fBimage-prefix\fR (string)
 Docker image prefix. Default: techdelight/claude-runner.
+.TP
+\fBrunner\fR (string)
+Default AI runner: claude (default) or copilot.
 .SH EXAMPLES
 Open an existing project from the registry:
 .PP
@@ -179,11 +201,27 @@ daedalus web \-\-port 8080
 .fi
 .RE
 .PP
+Rename a project:
+.PP
+.RS
+.nf
+daedalus rename my\-app my\-new\-app
+.fi
+.RE
+.PP
 Set per-project defaults:
 .PP
 .RS
 .nf
 daedalus config my\-app \-\-set dind=true
+.fi
+.RE
+.PP
+Use Copilot CLI instead of Claude Code:
+.PP
+.RS
+.nf
+daedalus \-\-runner copilot my\-app /path/to/project
 .fi
 .RE
 .PP
@@ -221,7 +259,6 @@ Project registry file containing all registered projects, their directories, tar
 Per-project persistent home directory, bind-mounted as \fI/home/claude\fR inside the container. Stores shell history, Claude session transcripts, tool caches, and per-project MCP/settings overrides.
 .SH SEE ALSO
 .BR docker (1),
-.BR tmux (1),
 .BR claude (1)
 .SH AUTHORS
 Techdelight BV

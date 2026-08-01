@@ -268,7 +268,6 @@ CONFIG_CONTENT="$(cat "$TEST_PREFIX/config.json")"
 assert_contains "version field" '"version": "0.8.0"' "$CONFIG_CONTENT"
 assert_contains "data-dir field" '"data-dir":' "$CONFIG_CONTENT"
 assert_contains "debug field" '"debug": false' "$CONFIG_CONTENT"
-assert_contains "no-tmux field" '"no-tmux": false' "$CONFIG_CONTENT"
 assert_contains "image-prefix field" '"image-prefix": "techdelight/claude-runner"' "$CONFIG_CONTENT"
 assert_contains "log-file field" '"log-file":' "$CONFIG_CONTENT"
 
@@ -313,7 +312,6 @@ cat > "$TEST_PREFIX_UPG/config.json" <<EOCFG
   "version": "0.7.0",
   "data-dir": "/custom/data",
   "debug": true,
-  "no-tmux": true,
   "image-prefix": "my-registry/runner",
   "log-file": "/custom/data/my.log"
 }
@@ -329,7 +327,6 @@ UPG_CONFIG="$(cat "$TEST_PREFIX_UPG/config.json")"
 assert_contains "version updated to 0.8.0" '"version": "0.8.0"' "$UPG_CONFIG"
 assert_contains "data-dir preserved" '"data-dir": "/custom/data"' "$UPG_CONFIG"
 assert_contains "debug preserved" '"debug": true' "$UPG_CONFIG"
-assert_contains "no-tmux preserved" '"no-tmux": true' "$UPG_CONFIG"
 assert_contains "image-prefix preserved" '"image-prefix": "my-registry/runner"' "$UPG_CONFIG"
 assert_contains "log-file preserved" '"log-file": "/custom/data/my.log"' "$UPG_CONFIG"
 

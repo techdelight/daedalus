@@ -114,7 +114,6 @@ func TestGenerateManpage_ContainsAllFlags(t *testing.T) {
 		"\\-\\-target",
 		"\\-\\-resume",
 		"\\-p",
-		"\\-\\-no\\-tmux",
 		"\\-\\-debug",
 		"\\-\\-dind",
 		"\\-\\-display",
@@ -163,7 +162,6 @@ func TestGenerateManpage_ContainsConfigFields(t *testing.T) {
 	fields := []string{
 		"data-dir",
 		"debug",
-		"no-tmux",
 		"image-prefix",
 		"runner",
 	}
@@ -185,7 +183,6 @@ func TestGenerateManpage_ContainsSeeAlso(t *testing.T) {
 	date := "2026-03-07"
 	references := []string{
 		"docker",
-		"tmux",
 		"claude",
 	}
 

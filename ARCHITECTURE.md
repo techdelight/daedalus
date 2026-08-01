@@ -4,12 +4,7 @@
 
 Daedalus wraps AI coding agents (Claude Code, Copilot CLI) in Docker containers for autonomous operation. It provides four surfaces (CLI, TUI, Web, daemon) over a shared Go core and a per-container runner process.
 
-Two launch paths coexist:
-
-- **Runner path** (the default; opt out with `DAEDALUS_USE_TMUX=1`) — each project runs a `daedalus-runner` PID-1 binary inside its container that fans PTY I/O out over a Unix socket. A host-side `daedalus-coordinator` daemon owns session lifecycles, and all UIs discover sessions through its HTTP-over-UDS API. No tmux involved.
-- **Classic tmux path** (`DAEDALUS_USE_TMUX=1`) — each project runs in a tmux session; UI surfaces attach directly to tmux. Predates the runner stack, slated for retirement once the runner path has proven out.
-
-The runner path is the target architecture for Milestone 4; the tmux path will be retired once feature parity is reached.
+The **runner path** is the single launch path — each project runs a `daedalus-runner` PID-1 binary inside its container that fans PTY I/O out over a Unix socket. A host-side `daedalus-coordinator` daemon owns session lifecycles, and all UIs discover sessions through its HTTP-over-UDS API.
 
 ## High-level components
 
@@ -63,13 +58,13 @@ Solid edges: coordinator lifecycle control. Dashed edges: PTY I/O relay.
 
 | File | Contents |
 |---|---|
-| `config.go` | `Config` struct, `ValidTargets()`, `IsValidTarget()`, `Image()`, `ContainerName()`, `TmuxSession()`, `CacheDir()`, `RunnerSocketPath()`, `SkillsDir()`, `UseTmux()`, `ApplyRegistryEntry()` |
-| `appconfig.go` | `AppConfig` (incl. `ContainerPrefix`, `TmuxPrefix`, `ImagePrefix`), `ApplyAppConfig()` |
+| `config.go` | `Config` struct, `ValidTargets()`, `IsValidTarget()`, `Image()`, `ContainerName()`, `CacheDir()`, `RunnerSocketPath()`, `SkillsDir()`, `ApplyRegistryEntry()` |
+| `appconfig.go` | `AppConfig` (incl. `ContainerPrefix`, `ImagePrefix`), `ApplyAppConfig()` |
 | `runner.go` | `HookConfig`, `RunnerProfile`, `LookupRunner()`, `LookupBuiltinRunner()`, `ResolveRunnerName()` |
 | `activity.go` | `ActivityState`, `ActivityInfo` — three-state activity model |
 | `persona.go` | `PersonaConfig`, `PersonaOverlay`, `PersonasDir()`, `ValidatePersonaName()` |
 | `project.go` | `RegistryData`, `ProjectEntry`, `SessionRecord`, `ProjectInfo` |
-| `command.go` | `BuildRunnerArgs()`, `BuildTmuxCommand()`, `BuildEnvExports()`, `ShellQuote()`, `BuildControlSendKeys()`, `BuildExtraArgs()` |
+| `command.go` | `BuildRunnerArgs()`, `BuildExtraArgs()`, `RunnerVolumeArgs()` |
 | `skills.go` | `StarterSkills()` — embedded starter skill files |
 | `programme.go` | `Programme`, `DependencyEdge`, `DependencyGraph`, `TopologicalSort()`, `DetectCycles()` |
 | `sprint.go` | `Sprint`, `SprintItem`, `SprintStatus` — SPRINTS.md data model |
@@ -97,9 +92,8 @@ Solid edges: coordinator lifecycle control. Dashed edges: PTY I/O relay.
 | `config` | CLI argument parsing (`ParseArgs`), `LoadAppConfig`, WSL2 defaults. |
 | `registry` | Project registry JSON I/O + migrations + progress rollup. |
 | `docker` | Container lifecycle: build, run, compose, running-check. |
-| `session` | tmux session create/attach/send-keys; control mode session (`-C`) with `%output/%begin/%end/%error` parser. |
 | `tui` | Bubbletea + lipgloss dashboard, split by mode (`mode_create.go`, `mode_rename.go`, `mode_confirm.go`) with `commands.go`, `model.go`, `view.go`, `styles.go`. |
-| `web` | REST API + WebSocket terminal relays, split by domain (`projects.go`, `dashboard.go`, `roadmap.go`, `programmes.go`, `terminal.go`, `control_relay.go`, `runner_relay.go`). |
+| `web` | REST API + WebSocket terminal relays, split by domain (`projects.go`, `dashboard.go`, `roadmap.go`, `programmes.go`, `terminal.go`, `runner_relay.go`). |
 | `coordinator` | Host-side runner lifecycle. `Coordinator` (session map + `docker compose run --detach` + socket wait + sessions.json), `Server` (HTTP over UDS), `Client` (Go wrapper), `EnsureRunning` (ssh-agent-style auto-spawn), `DefaultLayout`, `DefaultSocketPath`, `DefaultSessionsFile`. |
 | `runproto` | Host↔runner wire protocol: `Hello`, `Output`, `Input`, `Resize` messages with length-prefixed framing. |
 | `runclient` | Host-side runner socket client — `Dial`, `Read`, `Write`, `Resize`, `Detach`, hello-scrollback replay. |
@@ -139,7 +133,6 @@ flowchart LR
     config([config])
     registry([registry])
     docker([docker])
-    session([session])
     completions([completions])
     runclient([runclient])
     runner([runner])
@@ -161,7 +154,6 @@ flowchart LR
     registry --> core
     docker --> core
     docker --> executor
-    session --> executor
     completions --> core
     runclient --> runproto
     runner --> core
@@ -171,12 +163,10 @@ flowchart LR
     tui --> executor
     tui --> registry
     tui --> docker
-    tui --> session
     web --> core
     web --> executor
     web --> registry
     web --> docker
-    web --> session
     web --> coordinator
     web --> runclient
     web --> progress
@@ -191,7 +181,7 @@ flowchart LR
 
 ## Runner-attach launch flow
 
-The runner path (the default; opt out with `DAEDALUS_USE_TMUX=1`) is the target architecture. All UIs use the same flow:
+The runner path is the launch path. All UIs use the same flow:
 
 ```mermaid
 sequenceDiagram
@@ -228,7 +218,7 @@ sequenceDiagram
     Note over R: runner keeps running;<br/>daemon still tracks the session
 ```
 
-The Web UI (`?mode=runner`) follows the same shape: `EnsureRunning` → `client.Get(name)` → `runclient.Dial(sess.SocketPath)`. Because `daedalus-runner` fans PTY output out to every connected socket, CLI and Web can attach to the same project simultaneously.
+The Web UI follows the same shape: `EnsureRunning` → `client.Get(name)` → `runclient.Dial(sess.SocketPath)`. Because `daedalus-runner` fans PTY output out to every connected socket, CLI and Web can attach to the same project simultaneously.
 
 ## Coordinator daemon internals
 
@@ -294,38 +284,12 @@ Length-prefixed messages on the runner's Unix socket.
 
 The runner keeps a scrollback ring buffer per connection so a fresh dial replays recent output before entering live-relay mode. That's what `runclient.Read` surfaces as the first bytes read.
 
-## Classic tmux path (opt-in via `DAEDALUS_USE_TMUX=1`, being retired)
-
-For reference — this is what `daedalus <project>` uses when opted in with `DAEDALUS_USE_TMUX=1` (or `DAEDALUS_USE_RUNNER=0`); it is no longer the default.
-
-```mermaid
-sequenceDiagram
-    autonumber
-    participant U as User
-    participant CLI as daedalus CLI
-    participant TMUX as tmux (host)
-    participant DK as Docker
-    participant AGENT as Claude Code
-
-    U->>CLI: daedalus alpha
-    CLI->>TMUX: new-session -d -s claude-alpha
-    CLI->>TMUX: send-keys "docker compose run..."
-    TMUX->>DK: docker compose run --rm claude
-    DK->>AGENT: exec claude
-    CLI->>TMUX: attach-session -t claude-alpha
-    Note over U,AGENT: interactive PTY
-    U->>TMUX: Ctrl-B d (detach)
-    Note over TMUX,AGENT: agent keeps running<br/>until claude exits<br/>and tmux prunes the session
-```
-
-Web-side, `?mode=control` speaks tmux control mode (`tmux -C`) for structured message I/O; `?mode=` (default) uses a raw PTY relay via `startPTY(sessionName)`. Milestone 3 delivered fidelity on this path via the control mode parser and `%output/%begin/%end/%error` framing.
-
 ## Container startup (entrypoint.sh)
 
 The container's entrypoint dispatches based on `DAEDALUS_RUNNER`:
 
-- `DAEDALUS_RUNNER=1` → `exec /usr/local/bin/daedalus-runner --adapter $RUNNER --socket $DAEDALUS_SOCKET --workdir /workspace …` (runner path)
-- otherwise → set up config, then `exec claude` (classic path)
+- `DAEDALUS_RUNNER=1` → `exec /usr/local/bin/daedalus-runner --adapter $RUNNER --socket $DAEDALUS_SOCKET --workdir /workspace …` (runner path — how Daedalus launches every session)
+- otherwise → set up config, then `exec claude` (direct-exec fallback for running the image by hand)
 
 Both dispatches share the same setup:
 
@@ -369,11 +333,10 @@ Security: non-root user, all capabilities dropped, `no-new-privileges`.
 | Protocol | Endpoint | Description |
 |---|---|---|
 | HTTP | Web UI port (default 3000) | REST + login. `/api/projects/*`, `/api/programmes/*`, `/sprints`, `/backlog`, `/strategic-roadmap` |
-| WebSocket | Web UI port | Terminal relay at `/api/projects/{name}/terminal[?mode=control\|runner]` |
+| WebSocket | Web UI port | Terminal relay at `/api/projects/{name}/terminal` |
 | HTTP over UDS | `<DataDir>/.daedalus/coordinator.sock` | Coordinator daemon API (Start/List/Get/Stop) |
 | Unix stream | `<DataDir>/<project>/.daedalus/runner.sock` | daedalus-runner PTY relay |
 | Docker API | `/var/run/docker.sock` | Container lifecycle via `docker` CLI |
-| tmux | — | Session management (classic path only) |
 
 ## Data files under DataDir
 
@@ -401,8 +364,6 @@ Security: non-root user, all capabilities dropped, `no-new-privileges`.
 1. **CLI / TUI / Web** parse user intent into `core.Config`.
 2. **Registry** resolves project name → directory / target / flags.
 3. **Docker** package builds the image if missing (autobuild via SHA-256 fingerprint of Dockerfile + entrypoint + compose + settings + claude.json).
-4. **Launch path split**:
-   - Runner path → `coordinator.EnsureRunning` → `client.Start(cfg)` → daemon spawns container + daedalus-runner, tracks session.
-   - Classic path → `session.NewSession` → tmux session + `docker compose run` inside it.
-5. **Attach** — runclient (runner path) or tmux attach (classic path). Web uses `runnerRelay` or `controlRelay` (control mode) or `startPTY` (default PTY relay).
+4. **Launch** — `coordinator.EnsureRunning` → `client.Start(cfg)` → daemon spawns container + daedalus-runner, tracks session.
+5. **Attach** — `runclient` dials the runner socket. Web uses `runnerRelay` over the same socket.
 </content>

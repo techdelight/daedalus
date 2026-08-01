@@ -21,17 +21,11 @@ import (
 	"github.com/techdelight/daedalus/internal/registry"
 )
 
-// renderIndexHTML injects the runtime values the served index.html needs:
-// the version into the title and the runner-mode flag into the
-// window.DAEDALUS_RUNNER_MODE placeholder. Kept as a pure function so the
-// substitution contract is unit-testable without booting the server.
-func renderIndexHTML(raw []byte, version string, runnerMode bool) string {
-	runnerFlag := "false"
-	if runnerMode {
-		runnerFlag = "true"
-	}
-	html := strings.Replace(string(raw), ">Daedalus<", ">Daedalus ["+version+"]<", 1)
-	return strings.Replace(html, "__RUNNER_MODE__", runnerFlag, 1)
+// renderIndexHTML injects the version into the served index.html title. Kept
+// as a pure function so the substitution contract is unit-testable without
+// booting the server.
+func renderIndexHTML(raw []byte, version string) string {
+	return strings.Replace(string(raw), ">Daedalus<", ">Daedalus ["+version+"]<", 1)
 }
 
 // WebServer holds the dependencies shared by the topic handlers
@@ -44,14 +38,6 @@ type WebServer struct {
 	cfg              *core.Config
 	observer         agentstate.Observer
 	activityResolver *activity.Resolver
-
-	// runnerMode makes the dashboard default to the runner path: the
-	// terminal connects with ?mode=runner and the project rows offer an
-	// "Open" action that autostarts a runner container via the coordinator,
-	// instead of the tmux "Start". Follows core.UseRunner (runner is the
-	// default; DAEDALUS_USE_TMUX=1 opts back into tmux), so the web matches
-	// the CLI. A per-terminal ?mode= URL query still overrides it.
-	runnerMode bool
 }
 
 // NewWebServerForTest creates a WebServer with injected dependencies.
@@ -91,7 +77,6 @@ func Run(cfg *core.Config) error {
 		cfg:              cfg,
 		observer:         observer,
 		activityResolver: actResolver,
-		runnerMode:       core.UseRunner(),
 	}
 
 	mux := http.NewServeMux()
@@ -104,9 +89,7 @@ func Run(cfg *core.Config) error {
 	}
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
 
-	// Root serves index.html with the version injected into the title and
-	// the runner-mode flag surfaced to the frontend (drives the terminal
-	// mode + the project-row actions).
+	// Root serves index.html with the version injected into the title.
 	version := core.ReadVersion()
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		data, err := staticFiles.ReadFile("static/index.html")
@@ -115,7 +98,7 @@ func Run(cfg *core.Config) error {
 			return
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		if _, err := w.Write([]byte(renderIndexHTML(data, version, ws.runnerMode))); err != nil {
+		if _, err := w.Write([]byte(renderIndexHTML(data, version))); err != nil {
 			log.Printf("write index.html: %v", err)
 		}
 	})
@@ -158,7 +141,6 @@ func Run(cfg *core.Config) error {
 func (ws *WebServer) RegisterRoutes(mux *http.ServeMux) {
 	// projects.go
 	mux.HandleFunc("GET /api/projects", ws.handleListProjects)
-	mux.HandleFunc("POST /api/projects/{name}/start", ws.handleStartProject)
 	mux.HandleFunc("POST /api/projects/{name}/stop", ws.handleStopProject)
 	mux.HandleFunc("POST /api/projects/{name}/rename", ws.handleRenameProject)
 

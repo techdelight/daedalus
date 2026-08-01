@@ -9,15 +9,13 @@ repaint work see [runner-repaint-design.md](runner-repaint-design.md).
 ## Where we are
 
 The runner path (host `daedalus-coordinator` daemon + in-container
-`daedalus-runner` PID 1, PTY fanned over a Unix socket) is **the default launch
-path** as of 2026-07-27 (`core.UseRunner()`; opt out with `DAEDALUS_USE_TMUX=1`,
-or `DAEDALUS_USE_RUNNER=0`). It is feature-complete and confirmed working
-end-to-end on both CLI and Web:
+`daedalus-runner` PID 1, PTY fanned over a Unix socket) is now **the only launch
+path** — the classic tmux path has been retired (Sprint 43). It is
+feature-complete and confirmed working end-to-end on both CLI and Web:
 
 - CLI: `daedalus <project>`
-- Web: `daedalus web` → "runner mode" badge, **Open** launches a runner session
-  via the coordinator and attaches (no CLI pre-launch). A `?mode=runner` URL
-  query overrides per-terminal.
+- Web: `daedalus web` → **Open** launches a runner session via the coordinator
+  and attaches (no CLI pre-launch).
 
 The trust-prompt gap (Backlog #38) that blocked making it the default is fixed
 via **smart replay-on-attach**: the runner replays scrollback from the last

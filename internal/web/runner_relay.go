@@ -16,8 +16,8 @@ import (
 )
 
 // runnerRelay bridges a daedalus-runner Unix-socket connection (via
-// runclient) and a browser WebSocket. It is the runner-mode counterpart
-// of controlRelay (tmux control mode) and the raw PTY relay path.
+// runclient) and a browser WebSocket — the only terminal relay the web UI
+// uses.
 //
 // One reader goroutine drains runner output into binary WebSocket frames;
 // one writer goroutine reads WebSocket frames and forwards bytes as PTY
