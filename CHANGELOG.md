@@ -54,6 +54,12 @@ its first, code-complete-but-unverified, slice.
 - **A runner-path integration-bug chain** surfaced while dogfooding (the
   container reaped before the runner bound its socket; CLI re-attach blocked by
   the tmux guard; stale sessions handed back to callers).
+- **Mobile terminal scrollback** — the Web UI terminal now scrolls its output on
+  phones. xterm's viewport doesn't reliably scroll via touch (notably iOS), and
+  with mobile input routed through the Send box (`disableStdin`), single-finger
+  vertical drags now drive `scrollLines` directly (`touch-action: none` on the
+  container). This restores touch scroll-back after the tmux "History" button
+  was removed with the tmux path.
 
 ### Removed
 - **The classic tmux launch path is retired.** The `internal/session` package

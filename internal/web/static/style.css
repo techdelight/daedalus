@@ -1115,6 +1115,10 @@ tbody td {
     /* Terminal adjustments */
     #terminal-container {
         min-height: 0;
+        /* Scrollback is driven from JS touch handlers (terminal.js). Take the
+           gesture off the browser so it does not also pan/zoom or bounce the
+           page while we scroll the terminal. */
+        touch-action: none;
     }
 
     .terminal-header .btn-select {

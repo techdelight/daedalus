@@ -190,6 +190,38 @@ function connectTerminal(projectName) {
 
     window.addEventListener('resize', onWindowResize);
 
+    // Touch scrolling. xterm's viewport does not reliably scroll via touch on
+    // phones (notably iOS Safari), and on mobile stdin is disabled (input goes
+    // through the Send box), so touch on the terminal is free to drive
+    // scrollback. Translate single-finger vertical drags into scrollLines and
+    // preventDefault so the page never scrolls instead. `touch-action: none`
+    // on #terminal-container (mobile CSS) hands us the gesture cleanly; the
+    // listeners are inert on desktop, where there are no touch events.
+    var touchLastY = 0;
+    var touchAccum = 0;
+    function onTerminalTouchStart(e) {
+        if (e.touches.length !== 1) return;
+        touchLastY = e.touches[0].clientY;
+        touchAccum = 0;
+    }
+    function onTerminalTouchMove(e) {
+        if (!term || e.touches.length !== 1) return;
+        var y = e.touches[0].clientY;
+        // Finger moving up (y decreasing) accumulates positive → scroll toward
+        // newer lines; moving down scrolls back toward older output.
+        touchAccum += touchLastY - y;
+        touchLastY = y;
+        var rowPx = (container.clientHeight / (term.rows || 24)) || 20;
+        var lines = Math.trunc(touchAccum / rowPx);
+        if (lines !== 0) {
+            term.scrollLines(lines);
+            touchAccum -= lines * rowPx;
+        }
+        e.preventDefault();
+    }
+    container.addEventListener('touchstart', onTerminalTouchStart, { passive: true });
+    container.addEventListener('touchmove', onTerminalTouchMove, { passive: false });
+
     // Mobile select mode
     var mobileSelectBtn = document.getElementById('mobile-select-btn');
     var selectOverlay = document.getElementById('select-overlay');
@@ -292,6 +324,8 @@ function connectTerminal(projectName) {
     // Store cleanup function for disconnectTerminal
     cleanupListeners = function() {
         window.removeEventListener('resize', onWindowResize);
+        container.removeEventListener('touchstart', onTerminalTouchStart);
+        container.removeEventListener('touchmove', onTerminalTouchMove);
         exitSelectMode();
         mobileSelectBtn.removeEventListener('touchend', onSelectTouch);
         mobileSelectBtn.removeEventListener('click', toggleSelectMode);
