@@ -12,13 +12,13 @@ Milestone: 5
 |---|------|--------|
 | 1 | Build every Dockerfile target on real Docker (#51 restructure) and confirm the cache win — a Daedalus-binary change no longer busts the toolchain download layers | |
 | 2 | Runtime verification on a real project: #55 skills/`.daedalus` mounts present; #37 shared Claude versions + #21 shared `.m2` populate under `<DataDir>/shared/`; #27 `/opt/tools` binary survives a stop/restart. **Watch the uid/permission assumption** (the top risk) | |
-| 3 | Trust idempotency — confirm an older project cache no longer fires the "trust this folder?" dialog | |
+| 3 | Trust idempotency — confirm an older project cache no longer fires the "trust this folder?" dialog. **In progress 2026-08-03**: the entrypoint force-set is regression-tested (`scripts/test-trust-idempotency.sh`, wired into CI — old-cache fixtures assert the trust keys are forced true, MCP servers merged, user data preserved, idempotent) and hardened non-fatal so a malformed cache can't crash startup under `set -e`. Remaining: on-image confirmation with real Claude + a pre-existing cache. | In Progress |
 | 4 | Mobile #29 on a phone — reconnect + repaint on a backgrounded tab and a Wi-Fi/cellular switch. **Done 2026-08-03**: verified on a real device; mobile web session confirmed end-to-end (terminal touch-scroll, milestones overlay). | Done |
 | 5 | Close deferral: pin the Claude/Copilot installers to a version + checksum (the `TODO(#51)` markers; supply-chain) | |
 | 6 | Close deferral if needed: Maven read-only-base + per-project overlay (#21), should the simple shared `.m2` show cross-project pollution | |
 | 7 | Retire the classic tmux launch path — the Milestone 4 cleanup tail — once the runner default is proven. **Done 2026-08-01**: runner path is the only launch path; `internal/session`, the `DAEDALUS_USE_TMUX`/`DAEDALUS_USE_RUNNER` toggle, the `--no-tmux` flag + `no-tmux`/`tmux-prefix` config, and the Web tmux/control relays are removed. | Done |
 
-Items 4 (mobile #29) and 7 (retire tmux) are done. The remaining items (1–3, 5, 6) are Pending: verification is host-side (real Docker); see `docs/m5-verification.md`.
+Items 4 (mobile #29) and 7 (retire tmux) are done; item 3 (trust idempotency) is in progress — the config-transformation logic is regression-tested and hardened, with only the on-image confirmation left. Items 1, 2, 5, 6 are Pending: verification is host-side (real Docker); see `docs/m5-verification.md`.
 
 ## Sprint History
 

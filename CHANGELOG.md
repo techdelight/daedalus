@@ -57,9 +57,16 @@ its first, code-complete-but-unverified, slice.
 - **Mobile terminal scrollback** — the Web UI terminal now scrolls its output on
   phones. xterm's viewport doesn't reliably scroll via touch (notably iOS), and
   with mobile input routed through the Send box (`disableStdin`), single-finger
-  vertical drags now drive `scrollLines` directly (`touch-action: none` on the
-  container). This restores touch scroll-back after the tmux "History" button
-  was removed with the tmux path.
+  vertical drags now drive the viewport by real pixels (`touch-action: none` on
+  the container). This restores touch scroll-back after the tmux "History"
+  button was removed with the tmux path.
+- **Trust force-set is now crash-safe** — the entrypoint's idempotent trust /
+  onboarding patch of `~/.claude.json` no longer aborts container startup under
+  `set -e` if the cached file is malformed or unreadable (it is left untouched
+  and boot continues; the worst case is a one-time dialog, not a crash). The jq
+  transform is now covered by `scripts/test-trust-idempotency.sh` (in CI):
+  old-cache fixtures assert the trust keys are forced true, MCP servers merged,
+  user data preserved, and the patch idempotent.
 
 ### Removed
 - **The classic tmux launch path is retired.** The `internal/session` package

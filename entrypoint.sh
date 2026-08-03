@@ -26,9 +26,14 @@ case "$RUNNER" in
             #     above only seeds them into a fresh cache; a project cache
             #     predating those keys would never get them, so the "trust
             #     this folder?" dialog could still fire. The container is the
-            #     trust boundary, so we assert them true regardless of the
-            #     live value (Milestone 5 / trust-prompt handling).
-            PATCHED=$(jq --slurpfile defaults "$DEFS" '
+            #     trust boundary, so we assert them true (Milestone 5).
+            # Non-fatal by design: a malformed or unreadable cache leaves the
+            # cache untouched and startup continues — the worst case is a
+            # one-time dialog, never a crash under `set -e`.
+            # The jq program between the two sentinel comments is extracted
+            # verbatim by scripts/test-trust-idempotency.sh — keep them in place.
+            if PATCHED=$(jq --slurpfile defaults "$DEFS" '
+                # trust-onboarding-filter-start
                 (.mcpServers // {}) as $live |
                 ($defaults[0].mcpServers // {}) as $required |
                 .mcpServers = ($required * $live)
@@ -36,8 +41,8 @@ case "$RUNNER" in
                 | .bypassPermissionsModeAccepted = true
                 | .projects["/workspace"].hasTrustDialogAccepted = true
                 | .projects["/workspace"].hasCompletedProjectOnboarding = true
-            ' "$LIVE")
-            if [ -n "$PATCHED" ]; then
+                # trust-onboarding-filter-end
+            ' "$LIVE" 2>/dev/null) && [ -n "$PATCHED" ]; then
                 printf '%s\n' "$PATCHED" > "$LIVE"
             fi
         fi
@@ -61,7 +66,7 @@ mkdir -p /opt/tools/bin 2>/dev/null || true
 # DAEDALUS_RUNNER=1 is set, replace the legacy direct-claude exec with
 # daedalus-runner, which owns the PTY, exposes a Unix socket, and lets
 # host UIs attach. The shell vars below are the contract with the
-# host-side CLI in launchProjectViaRunner.
+# host-side CLI in launchProject.
 if [ -n "${DAEDALUS_RUNNER:-}" ]; then
     : "${DAEDALUS_SOCKET:?DAEDALUS_SOCKET is required when DAEDALUS_RUNNER is set}"
     mkdir -p "$(dirname "$DAEDALUS_SOCKET")"
