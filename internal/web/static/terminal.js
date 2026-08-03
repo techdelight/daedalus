@@ -193,30 +193,38 @@ function connectTerminal(projectName) {
     // Touch scrolling. xterm's viewport does not reliably scroll via touch on
     // phones (notably iOS Safari), and on mobile stdin is disabled (input goes
     // through the Send box), so touch on the terminal is free to drive
-    // scrollback. Translate single-finger vertical drags into scrollLines and
-    // preventDefault so the page never scrolls instead. `touch-action: none`
-    // on #terminal-container (mobile CSS) hands us the gesture cleanly; the
+    // scrollback. We move xterm's own .xterm-viewport by the finger delta in
+    // real pixels — driving it directly means the finger-to-content ratio uses
+    // xterm's true cell height. (A rows-based estimate — container height ÷
+    // term.rows — runs slightly large because the container has a sub-row
+    // leftover strip, and that error compounds the further you scroll, which
+    // reads as scrolling that degrades as more output builds up.) preventDefault
+    // stops the page from scrolling too; `touch-action: none` on
+    // #terminal-container (mobile CSS) hands us the gesture cleanly. The
     // listeners are inert on desktop, where there are no touch events.
     var touchLastY = 0;
-    var touchAccum = 0;
+    var xtermViewport = null;
+    function terminalViewport() {
+        // Resolved lazily and re-resolved if detached: term.open() builds
+        // .xterm-viewport inside the container, and a reconnect rebuilds it.
+        if (!xtermViewport || !xtermViewport.isConnected) {
+            xtermViewport = container.querySelector('.xterm-viewport');
+        }
+        return xtermViewport;
+    }
     function onTerminalTouchStart(e) {
         if (e.touches.length !== 1) return;
         touchLastY = e.touches[0].clientY;
-        touchAccum = 0;
     }
     function onTerminalTouchMove(e) {
-        if (!term || e.touches.length !== 1) return;
+        if (e.touches.length !== 1) return;
+        var vp = terminalViewport();
+        if (!vp) return;
         var y = e.touches[0].clientY;
-        // Finger moving up (y decreasing) accumulates positive → scroll toward
-        // newer lines; moving down scrolls back toward older output.
-        touchAccum += touchLastY - y;
+        // Finger up (y decreasing) → positive delta → scrollTop grows → scroll
+        // toward newer lines; finger down scrolls back toward older output.
+        vp.scrollTop += touchLastY - y;
         touchLastY = y;
-        var rowPx = (container.clientHeight / (term.rows || 24)) || 20;
-        var lines = Math.trunc(touchAccum / rowPx);
-        if (lines !== 0) {
-            term.scrollLines(lines);
-            touchAccum -= lines * rowPx;
-        }
         e.preventDefault();
     }
     container.addEventListener('touchstart', onTerminalTouchStart, { passive: true });
