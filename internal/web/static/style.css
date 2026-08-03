@@ -803,6 +803,18 @@ tbody td {
     color: #9ece6a;
 }
 
+/* Mobile-only trigger for the milestones overlay (shown in the media query
+   below). Icon button (⚑) to stay compact next to Select/Back. */
+.terminal-header .btn-milestones {
+    display: none;
+    border-color: #7aa2f7;
+    color: #7aa2f7;
+}
+
+.terminal-header .btn-milestones:hover {
+    background: rgba(122, 162, 247, 0.1);
+}
+
 #select-overlay {
     display: none;
     flex-direction: column;
@@ -856,6 +868,63 @@ tbody td {
     user-select: text !important;
     -webkit-touch-callout: default !important;
     margin: 0;
+}
+
+/* Milestones overlay (mobile) — mirrors #select-overlay: a full-screen layer
+   over the terminal, opened by the ⚑ header button, dismissed with Done. */
+#milestones-overlay {
+    display: none;
+    flex-direction: column;
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 10;
+    background: #1a1b26;
+    overflow-y: auto;
+}
+
+#milestones-overlay.active {
+    display: flex;
+}
+
+.milestones-overlay-header {
+    position: sticky;
+    top: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 16px;
+    background: #16161e;
+    border-bottom: 1px solid #292e42;
+    z-index: 1;
+}
+
+.milestones-overlay-header .overlay-title {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #565f89;
+}
+
+.milestones-overlay-header .btn-done {
+    border-color: #7aa2f7;
+    color: #7aa2f7;
+}
+
+.milestones-overlay-header .btn-done:hover {
+    background: rgba(122, 162, 247, 0.1);
+}
+
+.milestones-overlay-list {
+    padding: 8px 16px;
+}
+
+/* Roomier rows than the dense sidebar, for a full-screen touch target. */
+.milestones-overlay-list .milestone-item {
+    font-size: 14px;
+    padding: 8px 0;
 }
 
 /* Horizontal split below the terminal header: terminal + project sidebar.
@@ -1189,7 +1258,8 @@ tbody td {
         touch-action: none;
     }
 
-    .terminal-header .btn-select {
+    .terminal-header .btn-select,
+    .terminal-header .btn-milestones {
         display: inline-block;
     }
 

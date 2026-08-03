@@ -271,6 +271,23 @@ function connectTerminal(projectName) {
     selectDoneBtn.addEventListener('touchend', onDoneTouch);
     selectDoneBtn.addEventListener('click', exitSelectMode);
 
+    // Milestones overlay (mobile). The ⚑ header button opens a full-screen
+    // list; Done closes it. The list itself is populated by loadMilestones
+    // (shared with the desktop sidebar), so opening is instant.
+    var mobileMilestonesBtn = document.getElementById('mobile-milestones-btn');
+    var milestonesOverlay = document.getElementById('milestones-overlay');
+    var milestonesDoneBtn = document.getElementById('milestones-done-btn');
+
+    function openMilestones() { if (milestonesOverlay) milestonesOverlay.classList.add('active'); }
+    function closeMilestones() { if (milestonesOverlay) milestonesOverlay.classList.remove('active'); }
+    function onMilestonesTouch(e) { e.preventDefault(); openMilestones(); }
+    function onMilestonesDoneTouch(e) { e.preventDefault(); closeMilestones(); }
+
+    mobileMilestonesBtn.addEventListener('touchend', onMilestonesTouch);
+    mobileMilestonesBtn.addEventListener('click', openMilestones);
+    milestonesDoneBtn.addEventListener('touchend', onMilestonesDoneTouch);
+    milestonesDoneBtn.addEventListener('click', closeMilestones);
+
     // Mobile input wiring
     var mobileInput = document.getElementById('mobile-input');
     var mobileSendBtn = document.getElementById('mobile-send-btn');
@@ -331,6 +348,11 @@ function connectTerminal(projectName) {
         mobileSelectBtn.removeEventListener('click', toggleSelectMode);
         selectDoneBtn.removeEventListener('touchend', onDoneTouch);
         selectDoneBtn.removeEventListener('click', exitSelectMode);
+        closeMilestones();
+        mobileMilestonesBtn.removeEventListener('touchend', onMilestonesTouch);
+        mobileMilestonesBtn.removeEventListener('click', openMilestones);
+        milestonesDoneBtn.removeEventListener('touchend', onMilestonesDoneTouch);
+        milestonesDoneBtn.removeEventListener('click', closeMilestones);
         mobileSendBtn.removeEventListener('touchend', onMobileSendTouch);
         mobileSendBtn.removeEventListener('click', onMobileSendClick);
         mobileInput.removeEventListener('keydown', onMobileKeydown);
