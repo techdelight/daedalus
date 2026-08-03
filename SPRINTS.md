@@ -13,12 +13,12 @@ Milestone: 5
 | 1 | Build every Dockerfile target on real Docker (#51 restructure) and confirm the cache win — a Daedalus-binary change no longer busts the toolchain download layers | |
 | 2 | Runtime verification on a real project: #55 skills/`.daedalus` mounts present; #37 shared Claude versions + #21 shared `.m2` populate under `<DataDir>/shared/`; #27 `/opt/tools` binary survives a stop/restart. **Watch the uid/permission assumption** (the top risk) | |
 | 3 | Trust idempotency — confirm an older project cache no longer fires the "trust this folder?" dialog | |
-| 4 | Mobile #29 on a phone — reconnect + repaint on a backgrounded tab and a Wi-Fi/cellular switch | |
+| 4 | Mobile #29 on a phone — reconnect + repaint on a backgrounded tab and a Wi-Fi/cellular switch. **Done 2026-08-03**: verified on a real device; mobile web session confirmed end-to-end (terminal touch-scroll, milestones overlay). | Done |
 | 5 | Close deferral: pin the Claude/Copilot installers to a version + checksum (the `TODO(#51)` markers; supply-chain) | |
 | 6 | Close deferral if needed: Maven read-only-base + per-project overlay (#21), should the simple shared `.m2` show cross-project pollution | |
 | 7 | Retire the classic tmux launch path — the Milestone 4 cleanup tail — once the runner default is proven. **Done 2026-08-01**: runner path is the only launch path; `internal/session`, the `DAEDALUS_USE_TMUX`/`DAEDALUS_USE_RUNNER` toggle, the `--no-tmux` flag + `no-tmux`/`tmux-prefix` config, and the Web tmux/control relays are removed. | Done |
 
-Item 7 (retire tmux) is done — a code-only change, completed ahead of the host verification. The remaining items (1–6) are Pending: verification is host-side (real Docker + a phone); see `docs/m5-verification.md`.
+Items 4 (mobile #29) and 7 (retire tmux) are done. The remaining items (1–3, 5, 6) are Pending: verification is host-side (real Docker); see `docs/m5-verification.md`.
 
 ## Sprint History
 
