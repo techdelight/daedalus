@@ -1,5 +1,15 @@
 # Runner Parity Verification — Runbook
 
+> **RETIRED (Sprint 43, 2026-08).** This runbook verified *parity between the
+> tmux path and the runner path* before the runner path became the default.
+> The classic tmux launch path has since been removed (Sprint 43 item 7) — the
+> runner path is now the only launch path, so there is no longer a second path
+> to reach parity with. Kept for historical reference only; do not run it as a
+> gate. For current runner-path status see
+> [`docs/runner-path-status.md`](../docs/runner-path-status.md); the
+> repaint-on-attach mechanism is still covered by
+> [`./e2e/run-repaint.sh`](run-repaint.sh).
+
 **Backlog #38 · Sprint 41 (Trust-Prompt & Runner Terminal Fidelity) · item 4**
 
 This is the human-in-the-loop half of Sprint 41 item 4: the end-to-end
