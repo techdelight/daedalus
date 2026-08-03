@@ -1011,6 +1011,74 @@ tbody td {
     color: #565f89;
 }
 
+/* --- Milestones (sidebar) --- */
+
+.milestones-list {
+    list-style: none;
+}
+
+.milestone-item {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    font-size: 12px;
+    line-height: 1.4;
+    padding: 3px 0;
+}
+
+.milestone-mark {
+    width: 12px;
+    flex-shrink: 0;
+    text-align: center;
+}
+
+.milestone-num {
+    flex-shrink: 0;
+    color: #565f89;
+    font-variant-numeric: tabular-nums;
+}
+
+.milestone-title {
+    min-width: 0;
+    word-break: break-word;
+}
+
+/* Finished — a done check, the title dimmed since the work is behind us. */
+.milestone-done .milestone-mark {
+    color: #9ece6a;
+}
+
+.milestone-done .milestone-title {
+    color: #565f89;
+}
+
+/* Current — highlighted so the active milestone reads at a glance. The pill
+   bleeds into the section padding so it spans the sidebar width. */
+.milestone-current {
+    background: rgba(122, 162, 247, 0.1);
+    border-radius: 4px;
+    margin: 0 -6px;
+    padding: 3px 6px;
+}
+
+.milestone-current .milestone-mark {
+    color: #7aa2f7;
+}
+
+.milestone-current .milestone-title {
+    color: #c0caf5;
+    font-weight: 600;
+}
+
+/* Future — muted, still to come. */
+.milestone-future .milestone-mark {
+    color: #414868;
+}
+
+.milestone-future .milestone-title {
+    color: #a9b1d6;
+}
+
 .vision-text {
     font-size: 12px;
     line-height: 1.5;

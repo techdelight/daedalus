@@ -113,6 +113,10 @@
                             <div class="sidebar-label">Documents</div>
                             <ul class="docs-list" id="docs-list"></ul>
                         </div>
+                        <div class="sidebar-section">
+                            <div class="sidebar-label">Milestones</div>
+                            <ol class="milestones-list" id="milestones-list"></ol>
+                        </div>
                         <div class="sidebar-section sidebar-section-vision">
                             <div class="sidebar-label">Vision</div>
                             <pre class="vision-text" id="sidebar-vision-text"></pre>
@@ -565,7 +569,41 @@
         function loadSidebar(name) {
             applySidebarState();
             loadDocs(name);
+            loadMilestones(name);
             loadVision(name);
+        }
+
+        // Renders the project's ROADMAP.md milestones in roadmap order, so the
+        // finished ones (✓) sit above the current one (● highlighted) and the
+        // future ones (○) below — the arc at a glance, without leaving the
+        // session. Every string is file-derived, so it goes through escapeHtml.
+        async function loadMilestones(name) {
+            const list = document.getElementById('milestones-list');
+            if (!list) return;
+            try {
+                const resp = await fetch(`/api/projects/${encodeURIComponent(name)}/milestones`);
+                if (!resp.ok) throw new Error('failed to load milestones');
+                const data = await resp.json();
+                const milestones = Array.isArray(data.milestones) ? data.milestones : [];
+                if (milestones.length === 0) {
+                    list.innerHTML = '<li class="empty-state">No ROADMAP.md milestones.</li>';
+                    return;
+                }
+                list.innerHTML = milestones.map(m => {
+                    const status = m.status || 'Planned';
+                    const cls = status === 'Done' ? 'done'
+                        : status === 'In Progress' ? 'current' : 'future';
+                    const mark = status === 'Done' ? '✓'
+                        : status === 'In Progress' ? '●' : '○';
+                    return `<li class="milestone-item milestone-${cls}" title="${escapeHtml(status)}">
+                        <span class="milestone-mark">${mark}</span>
+                        <span class="milestone-num">${escapeHtml(String(m.number))}</span>
+                        <span class="milestone-title">${escapeHtml(m.title)}</span>
+                    </li>`;
+                }).join('');
+            } catch (err) {
+                list.innerHTML = '<li class="empty-state">Could not load milestones.</li>';
+            }
         }
 
         async function loadDocs(name) {
