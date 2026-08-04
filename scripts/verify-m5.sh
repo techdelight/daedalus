@@ -105,11 +105,14 @@ phase_build() {
     else
         fail "claude version" "expected to contain $claude_pin, got: ${out:-<none>}"
     fi
+    # The release TAG is v-prefixed (what the installer's VERSION needs), but
+    # `copilot --version` prints the bare number ("GitHub Copilot CLI 1.0.78").
+    local copilot_num="${copilot_pin#v}"
     out="$(docker run --rm --entrypoint /usr/local/bin/copilot daedalus:m5-copilot-dev --version 2>/dev/null || true)"
-    if printf '%s' "$out" | grep -qF "$copilot_pin"; then
+    if printf '%s' "$out" | grep -qF "$copilot_num"; then
         pass "copilot pinned to $copilot_pin ($out)"
     else
-        fail "copilot version" "expected to contain $copilot_pin, got: ${out:-<none>}"
+        fail "copilot version" "expected to contain $copilot_num, got: ${out:-<none>}"
     fi
     manual "optional: docker build --build-arg CLAUDE_VERSION=stable --target dev . should also build (proves the arg is wired)"
 }
