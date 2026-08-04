@@ -2,7 +2,11 @@
 
 ## Current Sprint
 
-### Sprint 43: Milestone 5 Verification & Hardening
+_No active sprint. Milestones M1–M5 are all complete; Milestone 5 shipped in **v0.40.0** (Sprint 43, in the history below). The next sprint is TBD — see `BACKLOG.md`._
+
+## Sprint History
+
+### Sprint 43: Milestone 5 Verification & Hardening (v0.40.0)
 
 Goal: verify the Milestone 5 implementation on real Docker + a device — it was built in a container with no daemon or browser, so every image/container/volume/mobile behaviour is code-complete but unverified — fix what breaks, close the deferred pieces, and finish the Milestone 4 tail. Step-by-step in `docs/m5-verification.md`; design in `docs/milestone-5-plan.md`.
 
@@ -11,16 +15,14 @@ Milestone: 5
 | # | Item | Status |
 |---|------|--------|
 | 1 | Build every Dockerfile target on real Docker (#51 restructure) and confirm the cache win — a Daedalus-binary change no longer busts the toolchain download layers. **Done 2026-08-04**: all six targets (base/utils/dev/godot/copilot-base/copilot-dev) build on a real host; cache win confirmed (a binary touch reused 20 cached layers, only the final COPYs re-ran) via `scripts/verify-m5.sh build`. | Done |
-| 2 | Runtime verification on a real project: #55 skills/`.daedalus` mounts present; #37 shared Claude versions + #21 shared `.m2` populate under `<DataDir>/shared/`; #27 `/opt/tools` binary survives a stop/restart. **Watch the uid/permission assumption** (the top risk). **In progress 2026-08-04**: the top risk is now instrumented — daedalus records the build uid (`<DataDir>/build-uid`) and the coordinator logs a clear warning when it runs as a different uid (the exact "Permission denied" cause), turning the cryptic failure into a diagnosis + fix. Runbook §2 (`docs/m5-verification.md`) made executable (copy-paste inspect/exec/writability snippets). Remaining: run on a real Docker host + inspect. | In Progress |
-| 3 | Trust idempotency — confirm an older project cache no longer fires the "trust this folder?" dialog. **In progress 2026-08-03**: the entrypoint force-set is regression-tested (`scripts/test-trust-idempotency.sh`, wired into CI — old-cache fixtures assert the trust keys are forced true, MCP servers merged, user data preserved, idempotent) and hardened non-fatal so a malformed cache can't crash startup under `set -e`. Remaining: on-image confirmation with real Claude + a pre-existing cache. | In Progress |
+| 2 | Runtime verification on a real project: #55 skills/`.daedalus` mounts present; #37 shared Claude versions + #21 shared `.m2` populate under `<DataDir>/shared/`; #27 `/opt/tools` binary survives a stop/restart. **Watch the uid/permission assumption** (the top risk). **In progress 2026-08-04**: the top risk is now instrumented — daedalus records the build uid (`<DataDir>/build-uid`) and the coordinator logs a clear warning when it runs as a different uid (the exact "Permission denied" cause), turning the cryptic failure into a diagnosis + fix. Runbook §2 (`docs/m5-verification.md`) made executable (copy-paste inspect/exec/writability snippets). **Done 2026-08-04**: verified on a real host via `scripts/verify-m5.sh mounts` — uid preflight clean (build=run=container=1000), all five mounts present + writable, #27 tool survived a stop/restart. | Done |
+| 3 | Trust idempotency — confirm an older project cache no longer fires the "trust this folder?" dialog. **In progress 2026-08-03**: the entrypoint force-set is regression-tested (`scripts/test-trust-idempotency.sh`, wired into CI — old-cache fixtures assert the trust keys are forced true, MCP servers merged, user data preserved, idempotent) and hardened non-fatal so a malformed cache can't crash startup under `set -e`. **Done 2026-08-04**: verified on a real host — no "trust this folder?" dialog on a fresh attach or after an old-cache (trust keys dropped) restart. | Done |
 | 4 | Mobile #29 on a phone — reconnect + repaint on a backgrounded tab and a Wi-Fi/cellular switch. **Done 2026-08-03**: verified on a real device; mobile web session confirmed end-to-end (terminal touch-scroll, milestones overlay). | Done |
 | 5 | Close deferral: pin the Claude/Copilot installers to a version + checksum (the `TODO(#51)` markers; supply-chain). **In progress 2026-08-04**: both installers pinned via Dockerfile build args (`CLAUDE_VERSION=2.1.221`, `COPILOT_VERSION=v1.0.78`) instead of unpinned `latest`; both installers checksum-verify the downloaded binary (Claude vs. the release `manifest.json`, Copilot vs. `SHA256SUMS.txt`). **Done 2026-08-04**: confirmed on a real build — `claude --version` = 2.1.221, `copilot --version` = 1.0.78. | Done |
-| 6 | Close deferral if needed: Maven read-only-base + per-project overlay (#21), should the simple shared `.m2` show cross-project pollution | |
+| 6 | Close deferral if needed: Maven read-only-base + per-project overlay (#21), should the simple shared `.m2` show cross-project pollution. **Closed 2026-08-04 — no action**: a shared writable `.m2` is standard, safe practice (immutable coordinate-keyed artifacts); no overlay built. Revisit only if pollution is observed. | Done |
 | 7 | Retire the classic tmux launch path — the Milestone 4 cleanup tail — once the runner default is proven. **Done 2026-08-01**: runner path is the only launch path; `internal/session`, the `DAEDALUS_USE_TMUX`/`DAEDALUS_USE_RUNNER` toggle, the `--no-tmux` flag + `no-tmux`/`tmux-prefix` config, and the Web tmux/control relays are removed. | Done |
 
-Items 1 (image builds + cache win), 4 (mobile #29), 5 (installer pins), and 7 (retire tmux) are done — 1 and 5 verified on a real Docker host via `scripts/verify-m5.sh build`. Items 2 (runtime mounts) and 3 (trust idempotency) are in progress: the code has landed and is tested/statically sound (item 2's top permission risk is instrumented with a build-uid record + coordinator preflight warning), with only the on-host `verify-m5.sh mounts <project>` run left. Item 6 is Deferred (Maven overlay — no action unless pollution shows). The full runbook is `docs/m5-verification.md`.
-
-## Sprint History
+All items done. Items 1–5 and 7 were verified on a real Docker host + a phone (via `scripts/verify-m5.sh` and `docs/m5-verification.md`); item 6 (Maven overlay) closed with no action. Milestone 5 complete; shipped as **v0.40.0**.
 
 ### Sprint 41: Trust-Prompt & Runner Terminal Fidelity (v0.40.0)
 

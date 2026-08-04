@@ -4,13 +4,18 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-**Milestone 4 (Layered Runner/Coordinator Architecture) endgame, plus
-structured project documents.** The runner path — a `daedalus-runner` PID-1
-process per container, its PTY fanned over a Unix socket by the host-side
-`daedalus-coordinator` daemon — is now the **only** launch path for all
-three UIs (CLI, TUI, Web); the classic tmux path has been removed. The
-Web-UI-hangs-on-trust-prompt gap (#38) is resolved. Milestone 5 (below) adds
-its first, code-complete-but-unverified, slice.
+## [0.40.0] - 2026-08-04
+
+**Milestone 4 (Layered Runner/Coordinator Architecture) endgame, structured
+project documents, and Milestone 5 (Self-Sustaining Operations).** The runner
+path — a `daedalus-runner` PID-1 process per container, its PTY fanned over a
+Unix socket by the host-side `daedalus-coordinator` daemon — is now the **only**
+launch path for all three UIs (CLI, TUI, Web); the classic tmux path has been
+removed. The Web-UI-hangs-on-trust-prompt gap (#38) is resolved. Milestone 5
+(below) lands and is **verified end-to-end on real Docker + a device** (Sprint
+43): image builds + cache win, coordinator mounts and the shared/tools volumes
+with the uid/permission check, pinned + checksum-verified installers, trust-
+prompt idempotency, and mobile WebSocket resilience.
 
 ### Added
 - **Runner path is the launch path** for CLI/TUI/Web — a `daedalus-runner`
@@ -92,13 +97,12 @@ its first, code-complete-but-unverified, slice.
   install/setup scripts). Existing config files keep loading — the retired keys
   are simply ignored.
 
-### Milestone 5 — Self-Sustaining Operations (implemented, not yet verified)
+### Milestone 5 — Self-Sustaining Operations (verified — Sprint 43)
 
-Less per-project disk and more runtime resilience. All items are implemented
-in code, but **the Docker image / container-run / shared-volume / mobile
-behaviours were not exercised on a real Docker daemon or device** in the
-environment they were built in — see Assumptions below and
-[docs/milestone-5-plan.md](docs/milestone-5-plan.md).
+Less per-project disk and more runtime resilience. Built in an environment
+without a Docker daemon or device, then **verified end-to-end on a real host in
+Sprint 43** (see Verification below and
+[docs/m5-verification.md](docs/m5-verification.md)).
 
 #### Added
 - **Shared, host-visible caches** under `<DataDir>/shared/`, bind-mounted into
@@ -120,8 +124,8 @@ environment they were built in — see Assumptions below and
   stages + thin leaf targets that `COPY` the frequently-rebuilt Daedalus
   binaries last, so a version bump no longer busts the Go/SDKMAN/Godot/Copilot
   download layers.
-- **Runner volume mounts centralized** in `core.RunnerVolumeArgs`, used by both
-  the coordinator (default) and legacy launch paths.
+- **Runner volume mounts centralized** in `core.RunnerVolumeArgs`, used by the
+  coordinator launch path.
 - **Trust/onboarding keys are force-set idempotently on every container boot**
   (previously seeded write-once), so a project cache predating those keys can
   no longer trigger the "trust this folder?" dialog.
@@ -132,27 +136,32 @@ environment they were built in — see Assumptions below and
   project-mgmt progress dir (`/workspace/.daedalus`) that the legacy path
   added, so skills and MCP progress reporting were unavailable on it.
 
-#### Assumptions / not yet verified
-- **No Docker daemon or browser in the build environment.** Every
-  image/container/volume/mobile change is code-complete and statically checked
-  (Go build + full unit suite + docs lint + Dockerfile stage-graph + JS balance
-  + the trust jq filter against a sample) but **not** `docker build`-, run-, or
-  device-tested. Verify with `daedalus --build <target>` per target, a real
-  run, and a mobile drive before trusting.
-- **Container uid.** Shared/tools host dirs are created by the coordinator and
-  written by the container's `claude` user (uid 1000); a matching uid is
-  assumed. A non-1000 host user may hit permission errors on those mounts.
-- **Shared caches use nested bind mounts** at subpaths under `/home/claude`
-  (relying on Docker's nested-mount precedence so they aren't masked) — untested.
-- **Maven (#21)** ships as a single shared writable `.m2` (normal dev-machine
-  behaviour), **not** the read-only-base + per-project overlay — overlay deferred.
-- **Installer pinning (#51) deferred.** `TODO(#51)` markers left; the
-  Claude/Copilot installers remain unpinned `curl | bash` (supply-chain risk
-  still open), pending a build to confirm their version interface.
-- **Trust keys are force-set true**, overriding any deliberate `false`; no
-  runtime auto-*answering* of the dialog was added.
-- **#29 timings** (ping 54s / pong-wait 60s / backoff 1–15s) are standard
-  defaults, not tuned against real mobile networks.
+#### Verification (Sprint 43, on a real Docker host)
+- **Image builds + cache win.** All six Dockerfile targets
+  (base/utils/dev/godot/copilot-base/copilot-dev) build; a Daedalus-binary
+  change reuses the toolchain-download layers (only the final `COPY`s re-run).
+  Runnable via [`scripts/verify-m5.sh`](scripts/verify-m5.sh).
+- **Container uid (the top risk) — clear.** With the same user building and
+  running, the build/run/container uids all matched and every shared/tools mount
+  was writable. Daedalus now records the build uid (`<DataDir>/build-uid`) and
+  the coordinator warns clearly if a later run's uid differs (the exact
+  permission cause), so the mismatch case fails loud instead of cryptically.
+- **Mounts + nested bind mounts confirmed** — all five runner mounts present and
+  writable; the shared caches at subpaths under `/home/claude` are not masked by
+  the home mount.
+- **Installers pinned + checksum-verified** (#51): `CLAUDE_VERSION=2.1.221`,
+  `COPILOT_VERSION=v1.0.78` via Dockerfile build args (was unpinned `latest`);
+  both installers verify the binary SHA-256 (Claude vs. the release
+  `manifest.json`, Copilot vs. `SHA256SUMS.txt`). The `TODO(#51)` markers are
+  gone.
+- **Trust idempotency confirmed** — an older cache (trust keys dropped) fires no
+  "trust this folder?" dialog after a restart; the force-set is hardened to be
+  non-fatal on a malformed cache, and covered by
+  `scripts/test-trust-idempotency.sh`.
+- **Mobile (#29) confirmed on a real phone** — reconnect + repaint across a
+  backgrounded tab and a Wi-Fi/cellular switch; terminal touch-scroll fixed.
+- **Deferred:** the Maven read-only-base + per-project overlay (#21) — the single
+  shared writable `.m2` is standard practice; revisit only if pollution appears.
 
 ## [0.39.0] - 2026-07-11
 
