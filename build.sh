@@ -17,7 +17,13 @@ REQUIRED_BINARIES=(
     daedalus-coordinator  # host-side daemon
 )
 
-docker run --rm -v "$PWD":/src -w /src golang:1.25-bookworm \
+# Run the compiler as the invoking user (not root) so the output binaries land
+# owned by you, not root:root — otherwise a later `touch`/rebuild/rm in your
+# checkout hits "Permission denied". HOME=/tmp keeps GOCACHE/GOPATH in a dir any
+# uid can write (the default /root/... isn't writable when we drop root).
+docker run --rm -v "$PWD":/src -w /src \
+  --user "$(id -u):$(id -g)" -e HOME=/tmp \
+  golang:1.25-bookworm \
   sh -c "go build -buildvcs=false -ldflags '-X github.com/techdelight/daedalus/core.Version=$VERSION' -o daedalus ./cmd/daedalus && \
          go build -buildvcs=false -o skill-catalog-mcp ./cmd/skill-catalog-mcp && \
          go build -buildvcs=false -o project-mgmt-mcp ./cmd/project-mgmt-mcp && \

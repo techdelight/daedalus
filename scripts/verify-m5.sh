@@ -59,17 +59,31 @@ phase_build() {
     if ./build.sh; then pass "build.sh produced the Go binaries"; else fail "build.sh"; return; fi
 
     section "Item 1 — every Dockerfile target builds"
-    local t
+    local t attempt ok
     for t in base utils dev godot copilot-base copilot-dev; do
-        if docker build --target "$t" --build-arg CLAUDE_UID="$uid" -t "daedalus:m5-$t" . >/tmp/verify-m5-build-$t.log 2>&1; then
-            pass "target $t"
-        else
-            fail "target $t" "see /tmp/verify-m5-build-$t.log"
-        fi
+        ok=0
+        # Retry once: the network-heavy stages (apt, godot/copilot downloads)
+        # fail transiently (e.g. apt exit 100). A second attempt reuses the
+        # cached earlier layers, so it is cheap.
+        for attempt in 1 2; do
+            if docker build --target "$t" --build-arg CLAUDE_UID="$uid" -t "daedalus:m5-$t" . >/tmp/verify-m5-build-$t.log 2>&1; then
+                ok=1; break
+            fi
+            [ "$attempt" -eq 1 ] && echo "  ....   target $t failed once (transient?), retrying"
+        done
+        if [ "$ok" -eq 1 ]; then pass "target $t"; else fail "target $t" "failed twice — see /tmp/verify-m5-build-$t.log"; fi
     done
 
     section "Item 1 — cache win (touch a Go binary → heavy layers stay CACHED)"
-    touch daedalus-runner
+    # Simulate a binary change by bumping its mtime, which busts only the final
+    # COPY layer. Needs the binary to be writable — the fixed build.sh produces
+    # user-owned binaries; a root-owned leftover from an older build.sh can't be
+    # touched, so fall back to a no-change rebuild (still proves the cache holds).
+    if [ -w daedalus-runner ]; then
+        touch daedalus-runner
+    else
+        manual "daedalus-runner is root-owned (old build.sh) — re-run ./build.sh so it's yours; using a no-change cache check for now"
+    fi
     if docker build --target dev --build-arg CLAUDE_UID="$uid" -t daedalus:m5-dev . >/tmp/verify-m5-cache.log 2>&1; then
         local cached; cached="$(grep -c 'CACHED' /tmp/verify-m5-cache.log || true)"
         if [ "${cached:-0}" -gt 0 ]; then
