@@ -174,11 +174,14 @@ phase_mounts() {
     done
 
     section "Item 2 — #27 tools persistence (setup; run 'persist' after a restart)"
-    if docker exec "$c" sh -c 'cp "$(command -v jq)" /opt/tools/bin/jq' 2>/dev/null; then
-        pass "placed jq in /opt/tools/bin (host: $DATA_DIR/tools/$proj/bin/)"
+    # Use a tool name NOT already in the base image: the image apt-installs jq
+    # at /usr/bin/jq, which shadows /opt/tools/bin/jq on PATH (/opt/tools/bin is
+    # last), so jq can't prove "a tool in /opt/tools/bin is found".
+    if docker exec "$c" sh -c 'printf "#!/bin/sh\necho ok\n" > /opt/tools/bin/daedalus-tooltest && chmod +x /opt/tools/bin/daedalus-tooltest' 2>/dev/null; then
+        pass "installed a runtime tool at /opt/tools/bin/daedalus-tooltest (host: $DATA_DIR/tools/$proj/bin/)"
         manual "now stop + relaunch '$proj', then: bash scripts/verify-m5.sh persist $proj"
     else
-        fail "could not write /opt/tools/bin/jq" "see the writability check above"
+        fail "could not write /opt/tools/bin/daedalus-tooltest" "see the writability check above"
     fi
 
     section "Item 3 — trust idempotency"
@@ -212,15 +215,18 @@ phase_persist() {
         || die "container $c not running — relaunch it first: daedalus $proj"
 
     section "Item 2 — #27 tools survive a restart"
-    if docker exec "$c" sh -c 'command -v jq | grep -qx /opt/tools/bin/jq' 2>/dev/null; then
-        pass "jq still resolves to /opt/tools/bin/jq after restart"
+    local tool=daedalus-tooltest resolved
+    resolved="$(docker exec "$c" sh -c "command -v $tool" 2>/dev/null || true)"
+    if [ "$resolved" = "/opt/tools/bin/$tool" ]; then
+        pass "$tool still resolves to /opt/tools/bin/$tool on PATH after restart"
     else
-        fail "jq did not persist to /opt/tools/bin after restart"
+        fail "$tool not found at /opt/tools/bin after restart" \
+             "command -v $tool => ${resolved:-<none>}; PATH=$(docker exec "$c" sh -c 'echo $PATH' 2>/dev/null)"
     fi
-    if [ -f "$DATA_DIR/tools/$proj/bin/jq" ]; then
-        pass "present on the host at $DATA_DIR/tools/$proj/bin/jq"
+    if [ -f "$DATA_DIR/tools/$proj/bin/$tool" ]; then
+        pass "present on the host at $DATA_DIR/tools/$proj/bin/$tool"
     else
-        fail "missing on the host at $DATA_DIR/tools/$proj/bin/jq"
+        fail "missing on the host at $DATA_DIR/tools/$proj/bin/$tool"
     fi
 }
 
