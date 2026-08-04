@@ -130,6 +130,11 @@ func updateBuildChecksum(scriptDir, checksumPath string) error {
 	if err := docker.WriteChecksum(checksumPath, checksum); err != nil {
 		return fmt.Errorf("writing checksum: %w", err)
 	}
+	// Record the uid the image was built as (CLAUDE_UID = os.Getuid() above), so
+	// the coordinator can warn if a later run uses a different uid and would hit
+	// shared-dir permission errors (Sprint 43 item 2). Best-effort — a
+	// diagnostic aid, not build-critical; build-uid lives beside build-checksum.
+	_ = core.WriteBuildUID(filepath.Dir(checksumPath), os.Getuid())
 	return nil
 }
 

@@ -163,6 +163,23 @@ func (c *Coordinator) Start(cfg *core.Config) (*Session, error) {
 		_ = os.MkdirAll(d, 0o755)
 	}
 
+	// Permission preflight (Sprint 43 item 2 — the top risk). The image runs
+	// its `claude` user at the uid it was BUILT with (CLAUDE_UID); the host
+	// dirs above are created at the uid the coordinator runs as now. If those
+	// differ — an image built by another user or in CI, run here — the
+	// container can't write the shared caches / tools and the session dies with
+	// a cryptic "Permission denied". Say so plainly instead. Non-fatal: some
+	// setups (e.g. matching group perms) may still work, and blocking a launch
+	// on a heuristic would be worse than a warning.
+	if buildUID, ok := core.ReadBuildUID(cfg.DataDir); ok {
+		if runUID := os.Getuid(); buildUID != runUID {
+			log.Printf("coordinator: WARNING image was built as uid %d but this coordinator runs as uid %d; "+
+				"the container's claude user (uid %d) may be unable to write the shared caches / tools dirs "+
+				"created as uid %d. If the session fails with \"Permission denied\", rebuild as the current "+
+				"user: `daedalus --build`.", buildUID, runUID, buildUID, runUID)
+		}
+	}
+
 	// Reap a stale container under this name before creating a new one.
 	// `docker compose run --rm --detach` does NOT auto-remove the container
 	// (--rm is ineffective when detached), so a prior run's container lingers

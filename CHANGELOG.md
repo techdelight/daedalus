@@ -50,6 +50,12 @@ its first, code-complete-but-unverified, slice.
   downloaded binary's SHA-256 (Claude against the release `manifest.json`,
   Copilot against `SHA256SUMS.txt`). Claude auto-updates at runtime via the
   shared versions cache, so the pin is an install floor, not a freeze.
+- **Build-uid permission preflight** (#55/#27 ops) — daedalus records the host
+  uid an image was built with (`<DataDir>/build-uid`), and the coordinator logs
+  a clear warning when it later runs as a different uid, since the container's
+  `claude` user (baked at build uid) then can't write the shared caches / tools
+  dirs created at the run uid. Turns the cryptic "Permission denied" into a
+  named cause + fix (`daedalus --build` as the current user).
 
 ### Fixed
 - **#38 — the Web UI no longer hangs on the trust prompt** on the runner path;

@@ -12,6 +12,14 @@ they need a machine with a Docker daemon and (for the runtime checks) Claude /
 Copilot credentials. Everything that *could* be verified statically or with a
 unit/shell test already has been.
 
+**Runnable form:** [`scripts/verify-m5.sh`](../scripts/verify-m5.sh) automates the
+Docker-side checks below —
+`verify-m5.sh build` (items 1 + 5),
+`verify-m5.sh mounts <project>` (items 2 + 3, against a running project), and
+`verify-m5.sh persist <project>` (item 2 #27, after a restart). It prints
+credential/interactive steps as `MANUAL` rather than faking them; the checklist
+here is the narrative behind it.
+
 ## Status (Sprint 43)
 
 | Sprint 43 item | State |
@@ -46,26 +54,56 @@ inheritance across the new parent/leaf graph.
 
 ## 2. Coordinator mounts (#55) + shared caches (#37/#21) + tools (#27)
 
-Run a real project on the runner path and inspect the mounts.
+Run a real project on the runner path and inspect the mounts. Set `C` to the
+container name (`claude-run-<project>`) and `D` to your `<DataDir>` for the
+snippets below.
+
+### ⚠ uid preflight (top risk — check FIRST)
+
+The image runs its `claude` user at the uid it was **built** with
+(`CLAUDE_UID = os.Getuid()` at build); the coordinator creates the shared/tools
+host dirs at the uid it **runs** as. If those differ (image built by another
+user or in CI, run here), the container can't write them → `Permission denied`.
+Daedalus now records the build uid and the coordinator logs a clear warning on
+mismatch — so check the log first, and confirm the uids line up:
+
+```sh
+grep -i 'built as uid' "$D/.daedalus/coordinator.log"   # expect NO mismatch warning
+cat "$D/build-uid"; id -u                                 # build uid vs current uid — should match
+docker exec "$C" id -u                                    # container claude uid — should equal build uid
+```
+
+- [ ] No uid-mismatch warning in the coordinator log; `build-uid` == `id -u` ==
+      container `id -u`. If they differ: rebuild as the current user
+      (`daedalus --build`). This is the fix-first signal.
+
+### Mounts present and writable
 
 - [ ] `daedalus <project>` starts on the runner path (default).
-- [ ] **#55** — skills work: the skill catalog is available in-session, and
-      project-mgmt MCP progress reporting works (`.daedalus/` written).
-      Confirm the container has `/opt/skills` and `/workspace/.daedalus` mounts
-      (`docker inspect <container> --format '{{json .Mounts}}' | jq`).
-- [ ] **#37** — Claude versions land in `<DataDir>/shared/claude-versions/` on
-      the host (not the per-project cache); a second project reuses them.
-- [ ] **#21** — Maven artifacts land in `<DataDir>/shared/m2/`; shared across
-      projects.
-- [ ] **#27** — put a binary in `/opt/tools/bin/` inside the container, stop +
-      restart the project, confirm it's still on `PATH`. Verify it lives at
-      `<DataDir>/tools/<project>/bin/` on the host.
-- [ ] **⚠ uid assumption (top risk):** confirm the container's `claude` user can
-      write the shared/tools dirs — no `Permission denied` in the session or the
-      coordinator log (`<DataDir>/.daedalus/coordinator.log`). If the host user
-      isn't uid 1000, expect failures here; that's the fix-first signal.
-- [ ] **Nested mounts:** confirm the shared caches at subpaths under
-      `/home/claude` are not masked by the home mount (they appear populated).
+- [ ] **#55** — the expected mounts are present:
+      ```sh
+      docker inspect "$C" --format '{{json .Mounts}}' | jq -r '.[].Destination' | sort
+      # expect: /home/claude/.local/share/claude/versions, /home/claude/.m2,
+      #         /opt/skills, /opt/tools, /workspace/.daedalus (+ the home mount)
+      ```
+      Skills work in-session and project-mgmt MCP progress writes `.daedalus/`.
+- [ ] **Writable by the container** (the uid check, proven directly):
+      ```sh
+      for p in /opt/skills /opt/tools /home/claude/.m2 \
+               /home/claude/.local/share/claude/versions /workspace/.daedalus; do
+        docker exec "$C" sh -c "touch $p/.wtest && rm $p/.wtest && echo OK $p || echo FAIL $p"
+      done
+      ```
+- [ ] **#37** — Claude versions land in `$D/shared/claude-versions/` on the host
+      (not the per-project cache); a second project reuses them.
+- [ ] **#21** — Maven artifacts land in `$D/shared/m2/`; shared across projects.
+- [ ] **#27** — `docker exec "$C" sh -c 'cp $(command -v jq) /opt/tools/bin/jq'`,
+      stop + restart the project, then `docker exec "$C" command -v jq` still
+      resolves to `/opt/tools/bin/jq`. On the host it lives at
+      `$D/tools/<project>/bin/`.
+- [ ] **Nested mounts:** the shared caches at subpaths under `/home/claude` are
+      not masked by the home mount — the `.local/share/claude/versions` and
+      `.m2` destinations above appear populated, not empty.
 
 ## 3. Trust-prompt idempotency
 
