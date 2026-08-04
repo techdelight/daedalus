@@ -6,7 +6,7 @@
 
 A Docker environment for running AI coding agents ([Claude Code](https://claude.ai/code), [GitHub Copilot CLI](https://github.com/features/copilot)) autonomously without permission prompts. The container isolates the agent with write access only to the mounted project directory.
 
-Daedalus ships two launch paths: a classic tmux path (default, one tmux session per project) and an experimental **runner path** where a `daedalus-runner` PID-1 binary inside the container fans PTY I/O over a Unix socket, and a host-side `daedalus-coordinator` daemon owns session lifecycles. The runner path is opt-in via `DAEDALUS_USE_RUNNER=1` — see [Runner Path](#runner-path-opt-in) below and [ARCHITECTURE.md](ARCHITECTURE.md) for the design.
+Daedalus launches every session through the **runner path**: a `daedalus-runner` PID-1 binary inside the container fans PTY I/O over a Unix socket, with a host-side `daedalus-coordinator` daemon owning session lifecycles. All UIs (CLI, TUI, Web) attach through it. See [Runner Path](#runner-path) below and [ARCHITECTURE.md](ARCHITECTURE.md) for the design.
 
 ## Why
 
@@ -14,7 +14,7 @@ Claude Code is powerful, but using it day-to-day has real friction:
 
 - **Permission fatigue.** Claude asks for confirmation on every file edit, shell command, and tool call. You end up babysitting instead of building. Daedalus gives Claude 100% green light inside a locked-down Docker container, so it works autonomously while your system stays safe.
 
-- **Fragile connections kill sessions.** Working from a phone, a train, or anywhere with spotty wifi means your Claude Code session dies the moment the connection drops — and all context is lost. Daedalus wraps every session in tmux, so you can disconnect (or get disconnected) and pick up exactly where you left off.
+- **Fragile connections kill sessions.** Working from a phone, a train, or anywhere with spotty wifi means your Claude Code session dies the moment the connection drops — and all context is lost. Daedalus runs each session under the runner path, so you can detach (or get disconnected) and reattach exactly where you left off — and even attach multiple UIs to the same session in parallel.
 
 - **Switching between projects is painful.** Juggling multiple Claude sessions across different codebases means manually managing terminals. Daedalus gives you a TUI and web dashboard to start, stop, attach, and switch between projects in seconds.
 
@@ -30,17 +30,14 @@ daedalus my-awesome-app /path/to/project
 
 ## Basic Usage
 
-The default launch path wraps each container session in tmux. A few essentials:
+Every session runs under the runner path. A few essentials:
 
 | Action | Keys |
 |---|---|
-| Detach (leave running in background) | `Ctrl-b` then `d` |
-| Scroll up (copy mode) | `Ctrl-b` then `[`, arrows or `PgUp`/`PgDn`, `q` to exit |
-| Reattach | `daedalus <project-name>` — auto-attaches to existing session |
+| Detach (leave running in background) | `Ctrl-D` |
+| Reattach | `daedalus <project-name>` — attaches to the existing session |
 
-Full tmux reference: [tmuxcheatsheet.com](https://tmuxcheatsheet.com/)
-
-Under the opt-in runner path (`DAEDALUS_USE_RUNNER=1`) there's no tmux — detach is `Ctrl-D`, reattach is any `daedalus <project-name>` invocation, and multiple UIs can attach to the same session in parallel. See [Runner Path](#runner-path-opt-in).
+Detach is `Ctrl-D`, reattach is any `daedalus <project-name>` invocation, and multiple UIs can attach to the same session in parallel. See [Runner Path](#runner-path).
 
 ## Installation
 
@@ -112,7 +109,7 @@ daedalus --help
 | `runners` | List or show built-in runner profiles (`claude`, `copilot`) |
 | `personas` | List, show, create, or remove named persona configurations |
 | `programmes` | List, show, create, or remove multi-project programmes with dependencies |
-| `coordinator` | Manage the host-side runner daemon (`start`, `stop`, `status`) — see [Runner Path](#runner-path-opt-in) |
+| `coordinator` | Manage the host-side runner daemon (`start`, `stop`, `status`) — see [Runner Path](#runner-path) |
 | `tui` | Interactive dashboard for managing projects |
 | `web` | Web UI dashboard (default: `localhost:3000`) |
 | `completion <shell>` | Print shell completion script (bash, zsh, fish) |
@@ -126,7 +123,6 @@ daedalus --help
 | `--target <stage>` | Build target: `dev` (default), `godot`, `base`, `utils` |
 | `--resume <id>` | Resume a previous Claude session |
 | `-p <prompt>` | Run a headless single-prompt task |
-| `--no-tmux` | Run without tmux session wrapping |
 | `--debug` | Enable Claude Code debug mode |
 | `--dind` | Mount Docker socket (WARNING: grants host Docker access) |
 | `--runner <name>` | AI runner: `claude` (default) or `copilot` |
@@ -162,9 +158,6 @@ daedalus --build --target godot my-awesome-app /path/to/project
 
 # Resume a previous session
 daedalus --resume <session-id> my-awesome-app
-
-# Run without tmux session wrapping
-daedalus --no-tmux my-awesome-app /path/to/project
 
 # Interactive TUI dashboard
 daedalus tui
@@ -222,7 +215,7 @@ daedalus tui
 
 <video src="assets/tui-demo.mp4" width="100%" autoplay loop muted></video>
 
-**Key bindings:** `j`/`↓` move down, `k`/`↑` move up, `s` start (auto-attaches to tmux), `a` attach to running session, `Del` stop container, `n` create new project, `F2` rename, `r` refresh, `q` quit.
+**Key bindings:** `j`/`↓` move down, `k`/`↑` move up, `s` start (auto-attaches to the runner session), `a` attach to running session, `Del` stop container, `n` create new project, `F2` rename, `r` refresh, `q` quit.
 
 The dashboard shows each project's name, running status, build target, session count, and last-used time. Status refreshes automatically every 5 seconds.
 
@@ -242,10 +235,9 @@ daedalus web --host 0.0.0.0    # Bind to all interfaces
 
 The web UI provides:
 - **Project list** with live status (running/stopped), target, and last-used time. Auto-refreshes every 5 seconds.
-- **Start/Stop** buttons for each project (launches container in a tmux session).
-- **Attach** button that opens an xterm.js terminal in the browser, connected to the tmux session via WebSocket.
-- **History** button in the terminal view loads the last 1000 lines of scrollback from tmux, replacing the need for `Ctrl+B [` copy mode. Powered by tmux control mode (`-C`). A blue "HISTORY MODE" banner appears while viewing scrollback — press Esc, any key, or click Exit to return to the live terminal.
-- **Auto-capture on connect** — the terminal automatically captures and displays the current pane content when attaching, so you never see a blank screen.
+- **Open** action on each stopped project — autostarts a runner session via the coordinator and attaches, no CLI pre-launch needed.
+- **Attach/Stop** actions on each running project. **Attach** opens an xterm.js terminal in the browser, connected to the session over the runner socket via WebSocket.
+- **Auto-replay on connect** — the runner replays recent scrollback when the terminal attaches, so you never see a blank screen.
 
 **Security:** Authentication is enabled by default. On first launch, a random access token is generated, saved to `config.json`, and printed to the terminal. Enter the token in the login page to start a session (cookie-based, default 24h expiry). Use `--no-auth` to disable authentication. Binds to `127.0.0.1` by default (localhost only); use `--host 0.0.0.0` for remote access.
 
@@ -270,9 +262,9 @@ wsl2-network.bat disable
 
 > **Note:** WSL2's internal IP changes on reboot. Re-run `enable` after restarting WSL2 to update the forwarding rule.
 
-## Runner Path (opt-in)
+## Runner Path
 
-The classic launch path wraps each project in a tmux session on the host. The **runner path** replaces that with a `daedalus-runner` PID-1 binary *inside* the container that owns the PTY, plus a host-side `daedalus-coordinator` daemon that tracks every project's live session and hands out the runner socket to any UI that wants to attach. No tmux involved.
+The **runner path** is how Daedalus launches every session: a `daedalus-runner` PID-1 binary *inside* the container owns the PTY, plus a host-side `daedalus-coordinator` daemon that tracks every project's live session and hands out the runner socket to any UI that wants to attach.
 
 Why bother:
 
@@ -280,11 +272,11 @@ Why bother:
 - The daemon persists session state, so a host reboot doesn't lose track of running containers (it reconciles against `docker ps` on startup and drops anything that vanished).
 - Detach/reattach is lossless — the runner replays recent scrollback to a fresh connection instead of dropping the pane blank.
 
-Enable it per invocation:
+A normal launch uses the runner path automatically:
 
 ```bash
-# Launch a project via the runner path
-DAEDALUS_USE_RUNNER=1 daedalus my-app
+# Launch a project
+daedalus my-app
 ```
 
 The first call auto-spawns the coordinator daemon (ssh-agent style) if it isn't already running. You can also manage the daemon explicitly:
@@ -315,11 +307,11 @@ The daemon lives under `<DataDir>/.daedalus/`:
 | `coordinator.sock` | HTTP-over-Unix-socket API surface |
 | `coordinator.pid` | Pidfile (used by `daedalus coordinator start/stop/status`) |
 | `coordinator.log` | Daemon stdout+stderr |
-| `sessions.json` | Persistent session map (reconciled against `docker ps` on startup) |
+| `sessions.json` | Persistent session map (reconciled against `docker ps` on startup and on session lookup, so a container that died out-of-band is dropped) |
 
-Under the runner path, the Web UI's terminal accepts a `?mode=runner` query on the terminal WebSocket endpoint — the same handler that used to only speak to tmux now speaks to the runner socket. See [ARCHITECTURE.md](ARCHITECTURE.md#runner-attach-launch-flow) for the full sequence.
+In `daedalus web`, each stopped project's action is **Open** (which launches a runner session via the coordinator and attaches — no CLI pre-launch), running projects offer **Attach** and **Stop**, and the terminal connects over the runner socket. See [ARCHITECTURE.md](ARCHITECTURE.md#runner-attach-launch-flow) for the full sequence.
 
-**Status:** experimental. The default `daedalus <project>` launch still uses tmux; the runner path is in the process of reaching feature parity before becoming the default (Milestone 4 on the [roadmap](ROADMAP.md)).
+**Status:** the runner path is the launch path — the only one. All UIs (CLI, TUI, Web) attach through the coordinator and the per-container runner socket.
 
 ## Build Targets
 
@@ -421,7 +413,6 @@ A default `config.json` is installed next to the binary. The installer automatic
 {
   "data-dir": "/mnt/data/daedalus",
   "debug": true,
-  "no-tmux": false,
   "image-prefix": "custom/claude-runner",
   "log-file": "/mnt/data/daedalus/daedalus.log",
   "runner": "claude"
@@ -434,7 +425,6 @@ All fields are optional. The file itself is optional — Daedalus works without 
 |---|---|---|
 | `data-dir` | string | Base directory for registry and per-project caches. Must be an absolute path. Set during installation to `<install-dir>/.cache`. |
 | `debug` | bool | Enable Claude Code debug mode |
-| `no-tmux` | bool | Run without tmux session wrapping |
 | `image-prefix` | string | Docker image prefix (default: `techdelight/claude-runner`). For copilot agent, `claude-runner` is automatically replaced with `copilot-runner`. |
 | `log-file` | string | Path to the runtime log file (default: `<data-dir>/daedalus.log`) |
 | `runner` | string | Default AI runner: `claude` (default), `copilot`, or a user-defined persona name |
@@ -662,7 +652,6 @@ Daedalus tracks a SHA-256 checksum of build-relevant files (Dockerfile, entrypoi
 ## Requirements
 
 - Docker and Docker Compose
-- (Optional) `tmux` for detach/reattach support
 
 ## Dev Builds
 

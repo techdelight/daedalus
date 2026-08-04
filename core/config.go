@@ -12,12 +12,11 @@ type Config struct {
 	ProjectName     string
 	ProjectDir      string
 	ScriptDir       string
-	DataDir         string   // base directory for registry + per-project caches
+	DataDir         string // base directory for registry + per-project caches
 	Target          string
 	Build           bool
 	Resume          string
 	Prompt          string
-	NoTmux          bool
 	Debug           bool
 	DinD            bool
 	Display         bool
@@ -25,7 +24,6 @@ type Config struct {
 	NoColor         bool
 	ImagePrefix     string
 	ContainerPrefix string   // docker container name prefix; default DefaultContainerPrefix
-	TmuxPrefix      string   // tmux session name prefix; default DefaultTmuxPrefix
 	Subcommand      string   // "list", "help", "build", "web", "remove", "rename", "config", "completion", or "" for normal mode
 	RemoveTargets   []string // project names for "remove" subcommand
 	ConfigTarget    string   // project name for "config" subcommand
@@ -41,6 +39,7 @@ type Config struct {
 	RunnersArgs     []string // positional args for "runners" subcommand
 	ProgrammesArgs  []string // positional args for "programmes" subcommand
 	CoordinatorArgs []string // positional args for "coordinator" subcommand
+	DocsArgs        []string // positional args for "docs" subcommand
 	TargetOverride  bool     // true when --target was explicitly passed
 	WebAddr         string   // host:port for web UI server
 	WSL2Detected    bool     // true when WSL2 was auto-detected and host defaulted to 0.0.0.0
@@ -94,18 +93,9 @@ func (c *Config) BuildTarget() string {
 // don't collide with a production install.
 const DefaultContainerPrefix = "claude-run-"
 
-// DefaultTmuxPrefix is the equivalent default for tmux session names on
-// the legacy (pre-runner) launch path.
-const DefaultTmuxPrefix = "claude-"
-
 // ContainerName returns the Docker container name for this project.
 func (c *Config) ContainerName() string {
 	return ContainerNameFor(c.ContainerPrefix, c.ProjectName)
-}
-
-// TmuxSession returns the tmux session name for this project.
-func (c *Config) TmuxSession() string {
-	return TmuxSessionFor(c.TmuxPrefix, c.ProjectName)
 }
 
 // ContainerNameFor builds a container name from a prefix and project name,
@@ -115,14 +105,6 @@ func (c *Config) TmuxSession() string {
 func ContainerNameFor(prefix, projectName string) string {
 	if prefix == "" {
 		prefix = DefaultContainerPrefix
-	}
-	return prefix + projectName
-}
-
-// TmuxSessionFor is the tmux equivalent of ContainerNameFor.
-func TmuxSessionFor(prefix, projectName string) string {
-	if prefix == "" {
-		prefix = DefaultTmuxPrefix
 	}
 	return prefix + projectName
 }
@@ -140,6 +122,35 @@ func (c *Config) RegistryPath() string {
 // SkillsDir returns the path to the shared skill catalog directory.
 func (c *Config) SkillsDir() string {
 	return filepath.Join(c.DataDir, "skills")
+}
+
+// SharedDir returns the root for caches shared across all projects
+// (Milestone 5). Kept under DataDir alongside the registry and per-project
+// caches so all Daedalus state stays in one host-visible place.
+func (c *Config) SharedDir() string {
+	return filepath.Join(c.DataDir, "shared")
+}
+
+// SharedClaudeVersionsDir returns the host dir backing the shared Claude CLI
+// version store (Backlog #37). Bind-mounted at the versions subpath under the
+// container home so every project reuses one download instead of N copies.
+func (c *Config) SharedClaudeVersionsDir() string {
+	return filepath.Join(c.SharedDir(), "claude-versions")
+}
+
+// SharedMavenDir returns the host dir backing the shared Maven local
+// repository (Backlog #21), bind-mounted at /home/claude/.m2 so artifacts are
+// shared across projects — the same way a normal dev machine has one ~/.m2.
+func (c *Config) SharedMavenDir() string {
+	return filepath.Join(c.SharedDir(), "m2")
+}
+
+// ProjectToolsDir returns the per-project persistent tools prefix (Backlog
+// #27), bind-mounted at /opt/tools. Deliberately kept OUTSIDE the per-project
+// cache dir (CacheDir → /home/claude) so it is not double-mounted under the
+// home mount.
+func (c *Config) ProjectToolsDir() string {
+	return filepath.Join(c.DataDir, "tools", c.ProjectName)
 }
 
 // ProgrammesDir returns the path to the programmes directory.
@@ -160,14 +171,6 @@ func (c *Config) ContainerLogPath() string {
 // ever moves.
 func (c *Config) RunnerSocketPath() string {
 	return filepath.Join(c.CacheDir(), ".daedalus", "runner.sock")
-}
-
-// UseTmux returns true if tmux should be used for this session.
-func (c *Config) UseTmux() bool {
-	if c.Prompt != "" || c.NoTmux {
-		return false
-	}
-	return true
 }
 
 // ApplyRegistryEntry sets ProjectDir and Target from a registry entry,
@@ -218,10 +221,6 @@ func applyDefaultFlags(cfg *Config, flags map[string]string) {
 		case "display":
 			if !cfg.Display {
 				cfg.Display = val == "true"
-			}
-		case "no-tmux":
-			if !cfg.NoTmux {
-				cfg.NoTmux = val == "true"
 			}
 		case "runner":
 			if cfg.Runner == "" {

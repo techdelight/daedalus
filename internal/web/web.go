@@ -21,6 +21,13 @@ import (
 	"github.com/techdelight/daedalus/internal/registry"
 )
 
+// renderIndexHTML injects the version into the served index.html title. Kept
+// as a pure function so the substitution contract is unit-testable without
+// booting the server.
+func renderIndexHTML(raw []byte, version string) string {
+	return strings.Replace(string(raw), ">Daedalus<", ">Daedalus ["+version+"]<", 1)
+}
+
 // WebServer holds the dependencies shared by the topic handlers
 // (projects.go, dashboard.go, roadmap.go, programmes.go, terminal.go).
 // Each handler file owns its routes and JSON shapes.
@@ -82,7 +89,7 @@ func Run(cfg *core.Config) error {
 	}
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
 
-	// Root serves index.html with version injected into the title
+	// Root serves index.html with the version injected into the title.
 	version := core.ReadVersion()
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		data, err := staticFiles.ReadFile("static/index.html")
@@ -90,9 +97,8 @@ func Run(cfg *core.Config) error {
 			http.Error(w, "index.html not found", http.StatusInternalServerError)
 			return
 		}
-		html := strings.Replace(string(data), ">Daedalus<", ">Daedalus ["+version+"]<", 1)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		if _, err := w.Write([]byte(html)); err != nil {
+		if _, err := w.Write([]byte(renderIndexHTML(data, version))); err != nil {
 			log.Printf("write index.html: %v", err)
 		}
 	})
@@ -135,10 +141,8 @@ func Run(cfg *core.Config) error {
 func (ws *WebServer) RegisterRoutes(mux *http.ServeMux) {
 	// projects.go
 	mux.HandleFunc("GET /api/projects", ws.handleListProjects)
-	mux.HandleFunc("POST /api/projects/{name}/start", ws.handleStartProject)
 	mux.HandleFunc("POST /api/projects/{name}/stop", ws.handleStopProject)
 	mux.HandleFunc("POST /api/projects/{name}/rename", ws.handleRenameProject)
-	mux.HandleFunc("POST /api/projects/{name}/enter", ws.handleSendEnter)
 
 	// dashboard.go
 	mux.HandleFunc("GET /api/projects/{name}/dashboard", ws.handleDashboard)
@@ -150,6 +154,15 @@ func (ws *WebServer) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/projects/{name}/sprints", ws.handleRoadmap)
 	mux.HandleFunc("GET /api/projects/{name}/backlog", ws.handleBacklog)
 	mux.HandleFunc("GET /api/projects/{name}/strategic-roadmap", ws.handleStrategicRoadmap)
+
+	// docs.go
+	mux.HandleFunc("GET /api/projects/{name}/docs", ws.handleDocs)
+	mux.HandleFunc("GET /api/projects/{name}/vision", ws.handleVision)
+
+	// overview.go — /overview is the project-journey dashboard's single fetch;
+	// /milestones serves the arc alone for any caller that wants just it.
+	mux.HandleFunc("GET /api/projects/{name}/overview", ws.handleOverview)
+	mux.HandleFunc("GET /api/projects/{name}/milestones", ws.handleMilestones)
 
 	// terminal.go
 	mux.HandleFunc("GET /api/projects/{name}/terminal", ws.handleTerminal)

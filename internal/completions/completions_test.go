@@ -23,7 +23,7 @@ func TestBashCompletion_ContainsSubcommands(t *testing.T) {
 }
 
 func TestZshCompletion_ContainsFlags(t *testing.T) {
-	for _, flag := range []string{"--build", "--target", "--no-tmux", "--debug", "--dind", "--no-color"} {
+	for _, flag := range []string{"--build", "--target", "--debug", "--dind", "--no-color"} {
 		if !strings.Contains(zshCompletion, flag) {
 			t.Errorf("zsh completion missing flag %q", flag)
 		}
@@ -34,7 +34,7 @@ func TestZshCompletion_ContainsFlags(t *testing.T) {
 }
 
 func TestFishCompletion_ContainsFlags(t *testing.T) {
-	for _, flag := range []string{"build", "target", "no-tmux", "debug", "dind", "no-color"} {
+	for _, flag := range []string{"build", "target", "debug", "dind", "no-color"} {
 		if !strings.Contains(fishCompletion, flag) {
 			t.Errorf("fish completion missing flag %q", flag)
 		}

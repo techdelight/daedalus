@@ -4,33 +4,164 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-Sprint 41 (Trust-Prompt & Runner Terminal Fidelity) — Milestone 4
-endgame groundwork. Closes the first two layers of the
-Web-UI-hangs-on-trust-prompt gap (Backlog #38) that blocks making the
-runner path the default. Still opt-in via `DAEDALUS_USE_RUNNER=1`.
+## [0.40.0] - 2026-08-04
+
+**Milestone 4 (Layered Runner/Coordinator Architecture) endgame, structured
+project documents, and Milestone 5 (Self-Sustaining Operations).** The runner
+path — a `daedalus-runner` PID-1 process per container, its PTY fanned over a
+Unix socket by the host-side `daedalus-coordinator` daemon — is now the **only**
+launch path for all three UIs (CLI, TUI, Web); the classic tmux path has been
+removed. The Web-UI-hangs-on-trust-prompt gap (#38) is resolved. Milestone 5
+(below) lands and is **verified end-to-end on real Docker + a device** (Sprint
+43): image builds + cache win, coordinator mounts and the shared/tools volumes
+with the uid/permission check, pinned + checksum-verified installers, trust-
+prompt idempotency, and mobile WebSocket resilience.
 
 ### Added
-- **Workspace trust pre-seeded in the default `claude.json`** —
-  `projects["/workspace"].hasTrustDialogAccepted` (plus
-  `hasCompletedProjectOnboarding`) so Claude's "Do you trust the files
-  in this folder?" dialog never fires inside the container. The
-  container is already the trust boundary (non-root, all caps dropped,
-  `no-new-privileges`, user-opted-in), so the prompt is redundant.
-- **`daedalus-runner --cols/--rows` flags** (default 80×24). The PTY is
-  now sized at startup, before the agent launches, instead of
-  inheriting creack/pty's 0×0 default — so a one-shot startup prompt
-  (e.g. the trust dialog) renders into a real terminal rather than a
-  void. Routed through the hub to preserve its "hub owns all PTY-size
-  mutations" invariant; covered by two new hub tests.
+- **Runner path is the launch path** for CLI/TUI/Web — a `daedalus-runner`
+  PID-1 process per container, its PTY fanned over a Unix socket by the
+  host-side `daedalus-coordinator` daemon.
+- **Repaint-on-attach (smart replay-from-boundary)** — a one-shot full-screen
+  prompt (trust dialog, `--resume` picker) reconstructs for a late, second, or
+  same-size viewer by replaying scrollback from the last screen boundary
+  (`ScreenSnapshot`). The core of the #38 fix; covered by `e2e/run-repaint.sh`.
+- **Workspace trust pre-seeded** in the default `claude.json`
+  (`hasTrustDialogAccepted` + onboarding keys) so Claude's "trust this folder?"
+  dialog never fires — the container is already the trust boundary (non-root,
+  all caps dropped, `no-new-privileges`).
+- **`daedalus-runner --cols/--rows`** (default 80×24): the PTY is sized at
+  startup, so a one-shot startup prompt renders into a real terminal instead of
+  creack/pty's 0×0 void. Routed through the hub; covered by hub tests.
+- **Structured project documents → a file-derived dashboard.** `ROADMAP.md`
+  milestones parse (`core.ParseMilestones`) and sprints link to them;
+  `GET /api/projects/{name}/overview` serves the whole Purpose → Arc → Backlog
+  journey in one fetch, which the per-project dashboard now renders.
+- **`daedalus docs lint [--ci]`** gates the parseable docs — cross-file
+  `ValidateDocs` (contradictions) + raw-text `LintHeadings` (silently-dropped
+  headings).
 
-### Notes
-- Pre-seeded trust is not always honoured across Claude Code versions
-  (upstream anthropics/claude-code#9113), so it is a first line of
-  defence paired with the runner-side sizing fix, not relied on alone.
-- Remaining for #38 and the runner-default switch: repaint-on-attach
-  (force a redraw when a client attaches, including same-size reattach),
-  end-to-end verification on real Docker + Claude, then flipping the
-  runner path to default and retiring the tmux launch path.
+### Changed
+- **All three UIs go through the coordinator daemon.** The TUI was migrated off
+  tmux to the runner path (runner-only); the CLI and Web already were. `daedalus
+  web` offers an "Open" action that autostarts a session via the coordinator —
+  no CLI pre-launch.
+- **The per-project dashboard is the project's journey** (Purpose → Arc →
+  Backlog), replacing the five-KPI grid that read agent-self-reported data.
+- **`PROJECT-INIT.md` reconciled** to the structured-docs model and moved under
+  `docs/`.
+- **Installers are version-pinned** (#51, supply-chain) — the Dockerfile pins
+  the Claude and Copilot CLIs via `CLAUDE_VERSION` / `COPILOT_VERSION` build
+  args instead of unpinned `latest` `curl | bash`. Both installers verify the
+  downloaded binary's SHA-256 (Claude against the release `manifest.json`,
+  Copilot against `SHA256SUMS.txt`). Claude auto-updates at runtime via the
+  shared versions cache, so the pin is an install floor, not a freeze.
+- **Build-uid permission preflight** (#55/#27 ops) — daedalus records the host
+  uid an image was built with (`<DataDir>/build-uid`), and the coordinator logs
+  a clear warning when it later runs as a different uid, since the container's
+  `claude` user (baked at build uid) then can't write the shared caches / tools
+  dirs created at the run uid. Turns the cryptic "Permission denied" into a
+  named cause + fix (`daedalus --build` as the current user).
+
+### Fixed
+- **#38 — the Web UI no longer hangs on the trust prompt** on the runner path;
+  verified end-to-end on real Docker + Claude in the Sprint 41 parity pass.
+- **`./test.sh` under the root golang container** — two tests that assumed a
+  non-root user now pass (a `chmod` root bypasses; git "dubious ownership"
+  during a `go build` VCS stamp, fixed with `-buildvcs=false`).
+- **A runner-path integration-bug chain** surfaced while dogfooding (the
+  container reaped before the runner bound its socket; CLI re-attach blocked by
+  the tmux guard; stale sessions handed back to callers).
+- **Mobile terminal scrollback** — the Web UI terminal now scrolls its output on
+  phones. xterm's viewport doesn't reliably scroll via touch (notably iOS), and
+  with mobile input routed through the Send box (`disableStdin`), single-finger
+  vertical drags now drive the viewport by real pixels (`touch-action: none` on
+  the container). This restores touch scroll-back after the tmux "History"
+  button was removed with the tmux path.
+- **Trust force-set is now crash-safe** — the entrypoint's idempotent trust /
+  onboarding patch of `~/.claude.json` no longer aborts container startup under
+  `set -e` if the cached file is malformed or unreadable (it is left untouched
+  and boot continues; the worst case is a one-time dialog, not a crash). The jq
+  transform is now covered by `scripts/test-trust-idempotency.sh` (in CI):
+  old-cache fixtures assert the trust keys are forced true, MCP servers merged,
+  user data preserved, and the patch idempotent.
+
+### Removed
+- **The classic tmux launch path is retired.** The `internal/session` package
+  (tmux session + control-mode wire protocol), the `core.UseRunner()` seam and
+  its `DAEDALUS_USE_TMUX` / `DAEDALUS_USE_RUNNER` env toggles, the tmux command
+  builders (`BuildTmuxCommand`, `BuildControlSendKeys`, `BuildSessionCommand`),
+  and the Web tmux/control terminal relays and Start endpoint are gone. The
+  runner path is now the only path.
+- **The `--no-tmux` flag and the `no-tmux` / `tmux-prefix` config.json fields**
+  are removed (from the CLI parser, usage, shell completions, man page, and the
+  install/setup scripts). Existing config files keep loading — the retired keys
+  are simply ignored.
+
+### Milestone 5 — Self-Sustaining Operations (verified — Sprint 43)
+
+Less per-project disk and more runtime resilience. Built in an environment
+without a Docker daemon or device, then **verified end-to-end on a real host in
+Sprint 43** (see Verification below and
+[docs/m5-verification.md](docs/m5-verification.md)).
+
+#### Added
+- **Shared, host-visible caches** under `<DataDir>/shared/`, bind-mounted into
+  every runner container so projects stop re-downloading them: the Claude CLI
+  version store (#37) and the Maven `.m2` repository (#21).
+- **Per-project persistent tools prefix** at `/opt/tools`
+  (`<DataDir>/tools/<project>`, on `PATH`), so tools the agent installs at
+  runtime survive restarts (#27). See
+  [docs/tool-persistence.md](docs/tool-persistence.md). System `apt` installs
+  are intentionally **not** persisted (base images stay reproducible).
+- **WebSocket keepalive + client auto-reconnect** for the web terminal (#29):
+  server ping + read deadline, client exponential-backoff reconnect gated by
+  an intentional-close flag, and `visibilitychange`/`online` listeners — so a
+  mobile Wi-Fi/cellular handoff or a backgrounded tab reconnects and repaints
+  instead of dying. The session already survived the drop server-side.
+
+#### Changed
+- **Dockerfile layer efficiency** (#51): split into stable `*-base` parent
+  stages + thin leaf targets that `COPY` the frequently-rebuilt Daedalus
+  binaries last, so a version bump no longer busts the Go/SDKMAN/Godot/Copilot
+  download layers.
+- **Runner volume mounts centralized** in `core.RunnerVolumeArgs`, used by the
+  coordinator launch path.
+- **Trust/onboarding keys are force-set idempotently on every container boot**
+  (previously seeded write-once), so a project cache predating those keys can
+  no longer trigger the "trust this folder?" dialog.
+
+#### Fixed
+- **Coordinator runner path was missing bind mounts** (#55): the now-default
+  path never mounted the shared skill catalog (`/opt/skills`) or the
+  project-mgmt progress dir (`/workspace/.daedalus`) that the legacy path
+  added, so skills and MCP progress reporting were unavailable on it.
+
+#### Verification (Sprint 43, on a real Docker host)
+- **Image builds + cache win.** All six Dockerfile targets
+  (base/utils/dev/godot/copilot-base/copilot-dev) build; a Daedalus-binary
+  change reuses the toolchain-download layers (only the final `COPY`s re-run).
+  Runnable via [`scripts/verify-m5.sh`](scripts/verify-m5.sh).
+- **Container uid (the top risk) — clear.** With the same user building and
+  running, the build/run/container uids all matched and every shared/tools mount
+  was writable. Daedalus now records the build uid (`<DataDir>/build-uid`) and
+  the coordinator warns clearly if a later run's uid differs (the exact
+  permission cause), so the mismatch case fails loud instead of cryptically.
+- **Mounts + nested bind mounts confirmed** — all five runner mounts present and
+  writable; the shared caches at subpaths under `/home/claude` are not masked by
+  the home mount.
+- **Installers pinned + checksum-verified** (#51): `CLAUDE_VERSION=2.1.221`,
+  `COPILOT_VERSION=v1.0.78` via Dockerfile build args (was unpinned `latest`);
+  both installers verify the binary SHA-256 (Claude vs. the release
+  `manifest.json`, Copilot vs. `SHA256SUMS.txt`). The `TODO(#51)` markers are
+  gone.
+- **Trust idempotency confirmed** — an older cache (trust keys dropped) fires no
+  "trust this folder?" dialog after a restart; the force-set is hardened to be
+  non-fatal on a malformed cache, and covered by
+  `scripts/test-trust-idempotency.sh`.
+- **Mobile (#29) confirmed on a real phone** — reconnect + repaint across a
+  backgrounded tab and a Wi-Fi/cellular switch; terminal touch-scroll fixed.
+- **Deferred:** the Maven read-only-base + per-project overlay (#21) — the single
+  shared writable `.m2` is standard practice; revisit only if pollution appears.
 
 ## [0.39.0] - 2026-07-11
 

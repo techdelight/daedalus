@@ -11,12 +11,64 @@ import (
 	"time"
 
 	"github.com/techdelight/daedalus/core"
-	"github.com/techdelight/daedalus/internal/docker"
-	"github.com/techdelight/daedalus/internal/executor"
+	"github.com/techdelight/daedalus/internal/coordinator"
 	"github.com/techdelight/daedalus/internal/registry"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
+
+// mockCoordinator is an in-memory coordinatorClient for the TUI command
+// tests — the runner-path analogue of the mock executor the tmux tests
+// used. `sessions` holds the currently-running sessions keyed by project
+// name; the *Err fields force each method to fail.
+type mockCoordinator struct {
+	sessions map[string]coordinator.Session
+	listErr  error
+	startErr error
+	stopErr  error
+	stopped  []string
+}
+
+func newMockCoordinator() *mockCoordinator {
+	return &mockCoordinator{sessions: map[string]coordinator.Session{}}
+}
+
+func (m *mockCoordinator) List() ([]coordinator.Session, error) {
+	if m.listErr != nil {
+		return nil, m.listErr
+	}
+	out := make([]coordinator.Session, 0, len(m.sessions))
+	for _, s := range m.sessions {
+		out = append(out, s)
+	}
+	return out, nil
+}
+
+func (m *mockCoordinator) Start(cfg *core.Config) (*coordinator.Session, error) {
+	if m.startErr != nil {
+		return nil, m.startErr
+	}
+	s := coordinator.Session{ProjectName: cfg.ProjectName, SocketPath: "/tmp/" + cfg.ProjectName + ".sock"}
+	m.sessions[cfg.ProjectName] = s
+	return &s, nil
+}
+
+func (m *mockCoordinator) Get(name string) (*coordinator.Session, error) {
+	s, ok := m.sessions[name]
+	if !ok {
+		return nil, coordinator.ErrNotFound
+	}
+	return &s, nil
+}
+
+func (m *mockCoordinator) Stop(name string) error {
+	if m.stopErr != nil {
+		return m.stopErr
+	}
+	m.stopped = append(m.stopped, name)
+	delete(m.sessions, name)
+	return nil
+}
 
 func TestRelativeTime_JustNow(t *testing.T) {
 	ts := time.Now().UTC().Add(-30 * time.Second).Format("2006-01-02T15:04:05Z")
@@ -97,11 +149,10 @@ func TestLoadProjects_ReturnsRows(t *testing.T) {
 	os.WriteFile(regPath, b, 0644)
 
 	reg := registry.NewRegistry(regPath)
-	mock := executor.NewMockExecutor()
-	mock.Results["docker"] = executor.MockResult{Output: "claude-run-alpha\n"}
-	d := docker.NewDocker(mock, "/dev/null")
+	client := newMockCoordinator()
+	client.sessions["alpha"] = coordinator.Session{ProjectName: "alpha", SocketPath: "/tmp/alpha.sock"}
 
-	cmd := loadProjects(reg, d, "")
+	cmd := loadProjects(client, reg)
 	msg := cmd()
 
 	loaded, ok := msg.(projectsLoadedMsg)
@@ -129,7 +180,7 @@ func TestLoadProjects_ReturnsRows(t *testing.T) {
 	}
 }
 
-func TestLoadProjects_DockerError_SurfacesWarning(t *testing.T) {
+func TestLoadProjects_ListError_SurfacesWarning(t *testing.T) {
 	dir := t.TempDir()
 	regPath := filepath.Join(dir, "projects.json")
 
@@ -144,11 +195,10 @@ func TestLoadProjects_DockerError_SurfacesWarning(t *testing.T) {
 	os.WriteFile(regPath, b, 0644)
 
 	reg := registry.NewRegistry(regPath)
-	mock := executor.NewMockExecutor()
-	mock.Results["docker"] = executor.MockResult{Err: fmt.Errorf("Cannot connect to Docker daemon")}
-	d := docker.NewDocker(mock, "/dev/null")
+	client := newMockCoordinator()
+	client.listErr = fmt.Errorf("coordinator unreachable")
 
-	cmd := loadProjects(reg, d, "")
+	cmd := loadProjects(client, reg)
 	msg := cmd()
 
 	loaded, ok := msg.(projectsLoadedMsg)
@@ -158,23 +208,22 @@ func TestLoadProjects_DockerError_SurfacesWarning(t *testing.T) {
 	if loaded.err != nil {
 		t.Fatalf("unexpected fatal error: %v", loaded.err)
 	}
-	if loaded.dockerErr == nil {
-		t.Fatal("expected dockerErr to be set")
+	if loaded.listErr == nil {
+		t.Fatal("expected listErr to be set")
 	}
 	if len(loaded.projects) != 1 {
 		t.Fatalf("expected 1 project, got %d", len(loaded.projects))
 	}
 	if loaded.projects[0].running {
-		t.Error("project should show as not running when Docker is unreachable")
+		t.Error("project should show as not running when the coordinator is unreachable")
 	}
 }
 
 func TestLoadProjects_RegistryError(t *testing.T) {
 	reg := registry.NewRegistry("/nonexistent/path/projects.json")
-	mock := executor.NewMockExecutor()
-	d := docker.NewDocker(mock, "/dev/null")
+	client := newMockCoordinator()
 
-	cmd := loadProjects(reg, d, "")
+	cmd := loadProjects(client, reg)
 	msg := cmd()
 
 	loaded, ok := msg.(projectsLoadedMsg)
@@ -258,10 +307,11 @@ func TestCursorClamp_OnProjectsLoaded(t *testing.T) {
 	}
 }
 
-func TestKillContainer_CallsDockerStop(t *testing.T) {
-	mock := executor.NewMockExecutor()
+func TestStopSession_CallsCoordinatorStop(t *testing.T) {
+	client := newMockCoordinator()
+	client.sessions["my-app"] = coordinator.Session{ProjectName: "my-app"}
 
-	cmd := killContainer(mock, "my-app", "")
+	cmd := stopSession(client, "my-app")
 	msg := cmd()
 
 	result, ok := msg.(actionResultMsg)
@@ -274,21 +324,16 @@ func TestKillContainer_CallsDockerStop(t *testing.T) {
 	if result.msg != "Stopped my-app" {
 		t.Errorf("msg = %q, want %q", result.msg, "Stopped my-app")
 	}
-
-	call := mock.FindCall("docker")
-	if call == nil {
-		t.Fatal("expected docker call")
-	}
-	if len(call.Args) < 2 || call.Args[0] != "stop" || call.Args[1] != "claude-run-my-app" {
-		t.Errorf("docker args = %v, want [stop claude-run-my-app]", call.Args)
+	if len(client.stopped) != 1 || client.stopped[0] != "my-app" {
+		t.Errorf("stopped = %v, want [my-app]", client.stopped)
 	}
 }
 
-func TestKillContainer_Error(t *testing.T) {
-	mock := executor.NewMockExecutor()
-	mock.Results["docker"] = executor.MockResult{Err: fmt.Errorf("no such container")}
+func TestStopSession_Error(t *testing.T) {
+	client := newMockCoordinator()
+	client.stopErr = fmt.Errorf("no such session")
 
-	cmd := killContainer(mock, "ghost", "")
+	cmd := stopSession(client, "ghost")
 	msg := cmd()
 
 	result, ok := msg.(actionResultMsg)
@@ -316,34 +361,33 @@ func TestQuitKey(t *testing.T) {
 }
 
 func TestAttachSession_ReturnsRequestAttach(t *testing.T) {
-	mock := executor.NewMockExecutor()
-	mock.Results["tmux"] = executor.MockResult{}
+	client := newMockCoordinator()
+	client.sessions["my-app"] = coordinator.Session{ProjectName: "my-app", SocketPath: "/tmp/my-app.sock"}
 
-	cmd := attachToSession(mock, "my-app", "")
+	cmd := attachToSession(client, "my-app")
 	msg := cmd()
 
-	attach, ok := msg.(requestAttachMsg)
+	att, ok := msg.(requestAttachMsg)
 	if !ok {
 		t.Fatalf("expected requestAttachMsg, got %T", msg)
 	}
-	if attach.sessionName != "claude-my-app" {
-		t.Errorf("sessionName = %q, want %q", attach.sessionName, "claude-my-app")
+	if att.socketPath != "/tmp/my-app.sock" {
+		t.Errorf("socketPath = %q, want %q", att.socketPath, "/tmp/my-app.sock")
 	}
 }
 
 func TestAttachSession_NoSession(t *testing.T) {
-	mock := executor.NewMockExecutor()
-	mock.Results["tmux"] = executor.MockResult{Err: fmt.Errorf("no session")}
+	client := newMockCoordinator()
 
-	cmd := attachToSession(mock, "ghost", "")
+	cmd := attachToSession(client, "ghost")
 	msg := cmd()
 
 	result, ok := msg.(actionResultMsg)
 	if !ok {
 		t.Fatalf("expected actionResultMsg, got %T", msg)
 	}
-	if result.msg != "No tmux session for ghost" {
-		t.Errorf("msg = %q, want %q", result.msg, "No tmux session for ghost")
+	if result.msg != "No running session for ghost" {
+		t.Errorf("msg = %q, want %q", result.msg, "No running session for ghost")
 	}
 }
 
@@ -352,11 +396,11 @@ func TestRequestAttachMsg_QuitsWithPendingAttach(t *testing.T) {
 		projects: []projectRow{{name: "a"}},
 	}
 
-	newM, cmd := m.Update(requestAttachMsg{sessionName: "claude-a"})
+	newM, cmd := m.Update(requestAttachMsg{socketPath: "/tmp/a.sock"})
 	updated := newM.(tuiModel)
 
-	if updated.pendingAttach != "claude-a" {
-		t.Errorf("pendingAttach = %q, want %q", updated.pendingAttach, "claude-a")
+	if updated.pendingAttach != "/tmp/a.sock" {
+		t.Errorf("pendingAttach = %q, want %q", updated.pendingAttach, "/tmp/a.sock")
 	}
 	if cmd == nil {
 		t.Fatal("expected quit command, got nil")
@@ -411,7 +455,7 @@ func TestKillKey_Running(t *testing.T) {
 	m := tuiModel{
 		projects: []projectRow{{name: "my-app", running: true}},
 		cursor:   0,
-		executor: executor.NewMockExecutor(),
+		client:   newMockCoordinator(),
 		cfg:      &core.Config{},
 	}
 

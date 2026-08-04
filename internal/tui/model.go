@@ -7,8 +7,6 @@ import (
 	"time"
 
 	"github.com/techdelight/daedalus/core"
-	"github.com/techdelight/daedalus/internal/docker"
-	"github.com/techdelight/daedalus/internal/executor"
 	"github.com/techdelight/daedalus/internal/registry"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -26,9 +24,9 @@ type projectRow struct {
 type tickMsg time.Time
 
 type projectsLoadedMsg struct {
-	projects  []projectRow
-	err       error
-	dockerErr error
+	projects []projectRow
+	err      error
+	listErr  error
 }
 
 type actionResultMsg struct {
@@ -37,7 +35,7 @@ type actionResultMsg struct {
 }
 
 type requestAttachMsg struct {
-	sessionName string
+	socketPath string
 }
 
 type tuiModel struct {
@@ -46,8 +44,7 @@ type tuiModel struct {
 	err            error
 	statusMsg      string
 	registry       *registry.Registry
-	docker         *docker.Docker
-	executor       executor.Executor
+	client         coordinatorClient
 	cfg            *core.Config
 	pendingAttach  string
 	confirming     bool     // whether delete-confirm mode is active
@@ -81,7 +78,7 @@ func (m tuiModel) filteredProjects() []projectRow {
 
 func (m tuiModel) Init() tea.Cmd {
 	return tea.Batch(
-		loadProjects(m.registry, m.docker, m.cfg.ContainerPrefix),
+		loadProjects(m.client, m.registry),
 		doTick(),
 	)
 }
@@ -91,7 +88,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tickMsg:
 		return m, tea.Batch(
-			loadProjects(m.registry, m.docker, m.cfg.ContainerPrefix),
+			loadProjects(m.client, m.registry),
 			doTick(),
 		)
 
@@ -101,7 +98,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.projects = msg.projects
-		m.err = msg.dockerErr
+		m.err = msg.listErr
 		fp := m.filteredProjects()
 		if m.cursor >= len(fp) {
 			m.cursor = len(fp) - 1
@@ -118,10 +115,10 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.statusMsg = msg.msg
 		}
-		return m, loadProjects(m.registry, m.docker, m.cfg.ContainerPrefix)
+		return m, loadProjects(m.client, m.registry)
 
 	case requestAttachMsg:
-		m.pendingAttach = msg.sessionName
+		m.pendingAttach = msg.socketPath
 		return m, tea.Quit
 
 	case tea.WindowSizeMsg:
@@ -170,7 +167,7 @@ func (m tuiModel) updateBrowse(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		p := fp[m.cursor]
 		m.statusMsg = fmt.Sprintf("Starting %s...", p.name)
-		return m, startProject(m.cfg, m.executor, m.registry, m.docker, p)
+		return m, startProject(m.client, m.cfg, m.registry, p)
 
 	case "a":
 		if len(fp) == 0 {
@@ -181,7 +178,7 @@ func (m tuiModel) updateBrowse(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.statusMsg = fmt.Sprintf("%s is not running", p.name)
 			return m, nil
 		}
-		return m, attachToSession(m.executor, p.name, m.cfg.TmuxPrefix)
+		return m, attachToSession(m.client, p.name)
 
 	case "x":
 		if len(fp) == 0 {
@@ -193,11 +190,11 @@ func (m tuiModel) updateBrowse(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.statusMsg = fmt.Sprintf("Stopping %s...", p.name)
-		return m, killContainer(m.executor, p.name, m.cfg.ContainerPrefix)
+		return m, stopSession(m.client, p.name)
 
 	case "r":
 		m.statusMsg = "Refreshing..."
-		return m, loadProjects(m.registry, m.docker, m.cfg.ContainerPrefix)
+		return m, loadProjects(m.client, m.registry)
 
 	case "n":
 		m.creating = true

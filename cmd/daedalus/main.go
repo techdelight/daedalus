@@ -15,7 +15,6 @@ import (
 	"github.com/techdelight/daedalus/internal/executor"
 	"github.com/techdelight/daedalus/internal/logging"
 	"github.com/techdelight/daedalus/internal/registry"
-	"github.com/techdelight/daedalus/internal/session"
 	"github.com/techdelight/daedalus/internal/tui"
 	"github.com/techdelight/daedalus/internal/web"
 )
@@ -99,6 +98,9 @@ func run(args []string) error {
 	case "coordinator":
 		logging.Info("subcommand: coordinator")
 		return manageCoordinator(cfg)
+	case "docs":
+		logging.Info("subcommand: docs")
+		return manageDocs(cfg)
 	}
 
 	// --- Normal project flow ---
@@ -134,38 +136,11 @@ func run(args []string) error {
 		fmt.Fprintf(os.Stderr, "%s could not initialize skill catalog: %v\n", color.Yellow("Warning:"), err)
 	}
 
-	// --- tmux session management ---
-	useTmux := cfg.UseTmux()
-
-	if useTmux && !session.TmuxAvailable(exec) {
-		fmt.Fprintln(os.Stderr, color.Yellow("Warning:")+" tmux not found. Running without session management.")
-		fmt.Fprintln(os.Stderr, color.Cyan("Hint:")+" install tmux for detach/reattach support: apt install tmux")
-		useTmux = false
-	}
-
-	sess := session.NewSession(exec, cfg.TmuxSession())
-
-	if useTmux && sess.Exists() {
-		fmt.Printf("Attaching to existing session '%s'...\n", cfg.TmuxSession())
-		fmt.Println("  " + color.Dim("(Detach with Ctrl-B d)"))
-		return sess.Attach()
-	}
-
-	// --- Container duplicate detection ---
 	d := docker.NewDocker(exec, filepath.Join(cfg.ScriptDir, "docker-compose.yml"))
-
-	running, err := d.IsContainerRunning(cfg.ContainerName())
-	if err != nil {
-		return err
-	}
-	if running {
-		return fmt.Errorf("project '%s' is already running (container: %s)\n%s attach with 'daedalus %s' or stop with 'docker stop %s'",
-			cfg.ProjectName, cfg.ContainerName(), color.Cyan("Hint:"), cfg.ProjectName, cfg.ContainerName())
-	}
 
 	if err := ensureImageBuilt(cfg, d); err != nil {
 		return err
 	}
 
-	return launchProject(cfg, d, reg, sess, useTmux)
+	return launchProject(cfg, reg)
 }

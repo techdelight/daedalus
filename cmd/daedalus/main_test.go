@@ -21,6 +21,9 @@ func init() {
 }
 
 func TestResolveTwoArgs_TouchProjectError(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root bypasses the read-only-dir permission this test relies on to force a write error")
+	}
 	dir := t.TempDir()
 	regFile := filepath.Join(dir, "projects.json")
 	reg := registry.NewRegistry(regFile)
@@ -44,6 +47,9 @@ func TestResolveTwoArgs_TouchProjectError(t *testing.T) {
 }
 
 func TestResolveOneArg_TouchProjectError(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root bypasses the read-only-dir permission this test relies on to force a write error")
+	}
 	dir := t.TempDir()
 	regFile := filepath.Join(dir, "projects.json")
 	reg := registry.NewRegistry(regFile)

@@ -51,6 +51,24 @@ func (c *Client) ReadBacklog(projectDir string) ([]core.BacklogItem, error) {
 	return core.ParseBacklog(string(data)), nil
 }
 
+// ReadMilestones reads the strategic milestones from ROADMAP.md.
+//
+// Milestones are a ROADMAP.md concept and take no SPRINTS.md fallback: a
+// project that keeps its sprints in SPRINTS.md but has no ROADMAP.md has
+// written no milestones, and that absence is a fact about the project, not an
+// error. A missing file yields nil, matching ReadBacklog.
+func (c *Client) ReadMilestones(projectDir string) ([]core.Milestone, error) {
+	path := filepath.Join(projectDir, "ROADMAP.md")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return core.ParseMilestones(string(data)), nil
+}
+
 // ReadStrategicRoadmap reads the strategic ROADMAP.md as raw markdown.
 func (c *Client) ReadStrategicRoadmap(projectDir string) (string, error) {
 	path := filepath.Join(projectDir, "ROADMAP.md")

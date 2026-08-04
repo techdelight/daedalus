@@ -3,21 +3,27 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/techdelight/daedalus/core"
-	"github.com/techdelight/daedalus/internal/docker"
-	"github.com/techdelight/daedalus/internal/executor"
+	"github.com/techdelight/daedalus/internal/coordinator"
 	"github.com/techdelight/daedalus/internal/registry"
-	"github.com/techdelight/daedalus/internal/session"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// setupCacheDir is a package-level reference to docker.SetupCacheDir,
-// needed because the startProject parameter 'docker' shadows the package name.
-var setupCacheDir = docker.SetupCacheDir
+// coordinatorClient is the slice of the coordinator daemon client the TUI
+// needs: discover sessions, start-or-attach, and stop. *coordinator.Client
+// satisfies it; tests supply a fake. Defined at the consumer so the TUI's
+// commands stay unit-testable without a live daemon.
+type coordinatorClient interface {
+	List() ([]coordinator.Session, error)
+	Start(cfg *core.Config) (*coordinator.Session, error)
+	Get(name string) (*coordinator.Session, error)
+	Stop(name string) error
+}
 
 func doTick() tea.Cmd {
 	return tea.Tick(5*time.Second, func(t time.Time) tea.Msg {
@@ -25,41 +31,50 @@ func doTick() tea.Cmd {
 	})
 }
 
-func loadProjects(reg *registry.Registry, docker *docker.Docker, containerPrefix string) tea.Cmd {
+// loadProjects lists every registered project and marks which currently
+// have a live runner session, per the coordinator daemon (client.List).
+// Running state is the coordinator's to know now — the TUI no longer
+// probes Docker directly.
+func loadProjects(client coordinatorClient, reg *registry.Registry) tea.Cmd {
 	return func() tea.Msg {
 		entries, err := reg.GetProjectEntries()
 		if err != nil {
 			return projectsLoadedMsg{err: err}
 		}
 
-		var dockerErr error
+		running := map[string]bool{}
+		sessions, listErr := client.List()
+		for _, s := range sessions {
+			running[s.ProjectName] = true
+		}
+
 		rows := make([]projectRow, 0, len(entries))
 		for _, e := range entries {
-			containerName := core.ContainerNameFor(containerPrefix, e.Name)
-			running, err := docker.IsContainerRunning(containerName)
-			if err != nil && dockerErr == nil {
-				dockerErr = err
-			}
 			rows = append(rows, projectRow{
 				name:         e.Name,
 				directory:    e.Entry.Directory,
 				target:       e.Entry.Target,
 				lastUsed:     e.Entry.LastUsed,
-				running:      running,
+				running:      running[e.Name],
 				sessionCount: len(e.Entry.Sessions),
 			})
 		}
-		return projectsLoadedMsg{projects: rows, dockerErr: dockerErr}
+		return projectsLoadedMsg{projects: rows, listErr: listErr}
 	}
 }
 
-func startProject(cfg *core.Config, exec executor.Executor, reg *registry.Registry, docker *docker.Docker, p projectRow) tea.Cmd {
+// startProject asks the coordinator to spawn the project's runner session
+// (or hand back the existing one), then requests an attach to its socket.
+// Start-or-attach mirrors the CLI runner path: daedalus-runner fans its
+// PTY out to every client, so a running container is an attach target.
+func startProject(client coordinatorClient, cfg *core.Config, reg *registry.Registry, p projectRow) tea.Cmd {
 	return func() tea.Msg {
 		projCfg := &core.Config{
-			ProjectName: p.name,
-			ScriptDir:   cfg.ScriptDir,
-			DataDir:     cfg.DataDir,
-			ImagePrefix: cfg.ImagePrefix,
+			ProjectName:     p.name,
+			ScriptDir:       cfg.ScriptDir,
+			DataDir:         cfg.DataDir,
+			ImagePrefix:     cfg.ImagePrefix,
+			ContainerPrefix: cfg.ContainerPrefix,
 		}
 
 		entry, found, err := reg.GetProject(p.name)
@@ -73,43 +88,43 @@ func startProject(cfg *core.Config, exec executor.Executor, reg *registry.Regist
 			projCfg.Target = p.target
 		}
 
-		if err := setupCacheDir(projCfg); err != nil {
-			return actionResultMsg{err: err}
+		sess, err := client.Start(projCfg)
+		if errors.Is(err, coordinator.ErrAlreadyRunning) {
+			sess, err = client.Get(p.name)
 		}
-
-		image := projCfg.Image()
-		if !docker.ImageExists(image) {
-			return actionResultMsg{err: fmt.Errorf("image %s not found — run daedalus --build %s first", image, p.name)}
-		}
-
-		running, err := docker.IsContainerRunning(projCfg.ContainerName())
 		if err != nil {
 			return actionResultMsg{err: err}
-		}
-		if running {
-			return actionResultMsg{msg: fmt.Sprintf("%s is already running", p.name)}
-		}
-
-		sess := session.NewSession(exec, projCfg.TmuxSession())
-		if sess.Exists() {
-			return actionResultMsg{msg: fmt.Sprintf("Session %s already exists — use [a]ttach", projCfg.TmuxSession())}
-		}
-
-		if err := sess.Create(); err != nil {
-			return actionResultMsg{err: fmt.Errorf("creating tmux session: %w", err)}
-		}
-
-		tmuxCmd := docker.BuildSessionCommand(projCfg)
-
-		if err := sess.SendKeys(tmuxCmd); err != nil {
-			return actionResultMsg{err: fmt.Errorf("sending command to tmux: %w", err)}
 		}
 
 		if err := reg.TouchProject(p.name); err != nil {
 			return actionResultMsg{err: fmt.Errorf("updating project timestamp: %w", err)}
 		}
+		return requestAttachMsg{socketPath: sess.SocketPath}
+	}
+}
 
-		return requestAttachMsg{sessionName: projCfg.TmuxSession()}
+// attachToSession attaches to an already-running project's runner socket.
+func attachToSession(client coordinatorClient, name string) tea.Cmd {
+	return func() tea.Msg {
+		sess, err := client.Get(name)
+		if err != nil {
+			if errors.Is(err, coordinator.ErrNotFound) {
+				return actionResultMsg{msg: fmt.Sprintf("No running session for %s", name)}
+			}
+			return actionResultMsg{err: err}
+		}
+		return requestAttachMsg{socketPath: sess.SocketPath}
+	}
+}
+
+// stopSession asks the coordinator to stop the project's runner session
+// (and tear down its container).
+func stopSession(client coordinatorClient, name string) tea.Cmd {
+	return func() tea.Msg {
+		if err := client.Stop(name); err != nil {
+			return actionResultMsg{err: fmt.Errorf("stopping %s: %w", name, err)}
+		}
+		return actionResultMsg{msg: fmt.Sprintf("Stopped %s", name)}
 	}
 }
 
@@ -140,27 +155,5 @@ func removeProject(reg *registry.Registry, name string) tea.Cmd {
 			return actionResultMsg{err: fmt.Errorf("removing %s: %w", name, err)}
 		}
 		return actionResultMsg{msg: fmt.Sprintf("Removed %s", name)}
-	}
-}
-
-func killContainer(exec executor.Executor, name, containerPrefix string) tea.Cmd {
-	return func() tea.Msg {
-		containerName := core.ContainerNameFor(containerPrefix, name)
-		_, err := exec.Output("docker", "stop", containerName)
-		if err != nil {
-			return actionResultMsg{err: fmt.Errorf("stopping %s: %w", containerName, err)}
-		}
-		return actionResultMsg{msg: fmt.Sprintf("Stopped %s", name)}
-	}
-}
-
-func attachToSession(exec executor.Executor, name, tmuxPrefix string) tea.Cmd {
-	return func() tea.Msg {
-		sessionName := core.TmuxSessionFor(tmuxPrefix, name)
-		sess := session.NewSession(exec, sessionName)
-		if !sess.Exists() {
-			return actionResultMsg{msg: fmt.Sprintf("No tmux session for %s", name)}
-		}
-		return requestAttachMsg{sessionName: sessionName}
 	}
 }

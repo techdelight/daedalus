@@ -1,6 +1,11 @@
 // Copyright (C) 2026 Techdelight BV
 
-package main
+// Package attach bridges the local terminal to a daedalus-runner Unix
+// socket: raw mode, stdin/stdout relay, SIGWINCH forwarding, and Ctrl-D
+// as the local detach key. It is the shared attach primitive for every
+// client of the runner path — the CLI launch flow and the TUI both call
+// ToRunner so a session behaves identically however it was reached.
+package attach
 
 import (
 	"bytes"
@@ -16,18 +21,18 @@ import (
 	"golang.org/x/term"
 )
 
-// ctrlD is the byte the CLI intercepts to mean "detach from this
-// session" (the runner is unaffected; the container keeps going).
-// Once intercepted, Ctrl-D never reaches the runner — see CHANGELOG.
+// ctrlD is the byte we intercept to mean "detach from this session"
+// (the runner is unaffected; the container keeps going). Once
+// intercepted, Ctrl-D never reaches the runner — see CHANGELOG.
 const ctrlD = 0x04
 
-// attachToRunner connects to a daedalus-runner Unix socket, puts the
-// local terminal in raw mode, and bridges stdin/stdout/SIGWINCH until
-// the runner exits or the user presses Ctrl-D.
+// ToRunner connects to a daedalus-runner Unix socket, puts the local
+// terminal in raw mode, and bridges stdin/stdout/SIGWINCH until the
+// runner exits or the user presses Ctrl-D.
 //
 // Returns the runner's exit code (0 on a clean detach with no exit
 // frame; -1 if the connection ended unexpectedly) and any error.
-func attachToRunner(sockPath string) (int, error) {
+func ToRunner(sockPath string) (int, error) {
 	if err := waitForSocket(sockPath, 30*time.Second); err != nil {
 		return -1, err
 	}

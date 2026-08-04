@@ -39,22 +39,6 @@ func TestApplyAppConfig_Debug_CLIWins(t *testing.T) {
 	}
 }
 
-func TestApplyAppConfig_NoTmux_Applied(t *testing.T) {
-	cfg := &Config{ImagePrefix: "techdelight/claude-runner"}
-	ApplyAppConfig(cfg, AppConfig{NoTmux: boolPtr(true)})
-	if !cfg.NoTmux {
-		t.Error("NoTmux = false, want true")
-	}
-}
-
-func TestApplyAppConfig_NoTmux_CLIWins(t *testing.T) {
-	cfg := &Config{NoTmux: true, ImagePrefix: "techdelight/claude-runner"}
-	ApplyAppConfig(cfg, AppConfig{NoTmux: boolPtr(false)})
-	if !cfg.NoTmux {
-		t.Error("NoTmux = false, want true (CLI should win)")
-	}
-}
-
 func TestApplyAppConfig_ImagePrefix_Applied(t *testing.T) {
 	cfg := &Config{ImagePrefix: "techdelight/claude-runner"}
 	ApplyAppConfig(cfg, AppConfig{ImagePrefix: strPtr("custom/runner")})
@@ -87,14 +71,6 @@ func TestApplyAppConfig_ContainerPrefix_AlreadySet(t *testing.T) {
 	}
 }
 
-func TestApplyAppConfig_TmuxPrefix_Applied(t *testing.T) {
-	cfg := &Config{}
-	ApplyAppConfig(cfg, AppConfig{TmuxPrefix: strPtr("test-")})
-	if cfg.TmuxPrefix != "test-" {
-		t.Errorf("TmuxPrefix = %q, want %q", cfg.TmuxPrefix, "test-")
-	}
-}
-
 func TestApplyAppConfig_NilPointers_NoChange(t *testing.T) {
 	cfg := &Config{ImagePrefix: "techdelight/claude-runner"}
 	ApplyAppConfig(cfg, AppConfig{})
@@ -103,9 +79,6 @@ func TestApplyAppConfig_NilPointers_NoChange(t *testing.T) {
 	}
 	if cfg.Debug {
 		t.Error("Debug = true, want false")
-	}
-	if cfg.NoTmux {
-		t.Error("NoTmux = true, want false")
 	}
 	if cfg.ImagePrefix != "techdelight/claude-runner" {
 		t.Errorf("ImagePrefix = %q, want default", cfg.ImagePrefix)
@@ -275,7 +248,6 @@ func TestApplyAppConfig_AllFields(t *testing.T) {
 	ApplyAppConfig(cfg, AppConfig{
 		DataDir:     strPtr("/data"),
 		Debug:       boolPtr(true),
-		NoTmux:      boolPtr(true),
 		ImagePrefix: strPtr("my/image"),
 		LogFile:     strPtr("/tmp/daedalus.log"),
 	})
@@ -284,9 +256,6 @@ func TestApplyAppConfig_AllFields(t *testing.T) {
 	}
 	if !cfg.Debug {
 		t.Error("Debug = false, want true")
-	}
-	if !cfg.NoTmux {
-		t.Error("NoTmux = false, want true")
 	}
 	if cfg.ImagePrefix != "my/image" {
 		t.Errorf("ImagePrefix = %q, want %q", cfg.ImagePrefix, "my/image")

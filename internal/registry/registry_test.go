@@ -724,7 +724,7 @@ func TestRegistryUpdateDefaultFlags(t *testing.T) {
 	reg.AddProject("my-app", "/tmp/my-app", "dev")
 	reg.SetDefaultFlags("my-app", map[string]string{"debug": "true", "dind": "true"})
 
-	err := reg.UpdateDefaultFlags("my-app", map[string]string{"no-tmux": "true"}, []string{"debug"})
+	err := reg.UpdateDefaultFlags("my-app", map[string]string{"display": "true"}, []string{"debug"})
 	if err != nil {
 		t.Fatalf("UpdateDefaultFlags failed: %v", err)
 	}
@@ -736,8 +736,8 @@ func TestRegistryUpdateDefaultFlags(t *testing.T) {
 	if entry.DefaultFlags["dind"] != "true" {
 		t.Errorf("dind = %q, want %q", entry.DefaultFlags["dind"], "true")
 	}
-	if entry.DefaultFlags["no-tmux"] != "true" {
-		t.Errorf("no-tmux = %q, want %q", entry.DefaultFlags["no-tmux"], "true")
+	if entry.DefaultFlags["display"] != "true" {
+		t.Errorf("display = %q, want %q", entry.DefaultFlags["display"], "true")
 	}
 }
 

@@ -11,7 +11,6 @@ import (
 
 	"github.com/techdelight/daedalus/core"
 	"github.com/techdelight/daedalus/internal/executor"
-	"github.com/techdelight/daedalus/internal/platform"
 )
 
 // Docker manages Docker operations.
@@ -85,34 +84,14 @@ func (d *Docker) ComposeRun(containerName string, env map[string]string, claudeA
 	return c.Run()
 }
 
-// ComposeRunCommand returns the full docker compose command as a slice
-// (for embedding in tmux send-keys). Env vars are exported separately
-// by BuildTmuxCommand for compose interpolation.
+// ComposeRunCommand returns the full docker compose command as a slice.
+// Env vars for compose interpolation are supplied separately by ComposeRun.
 func (d *Docker) ComposeRunCommand(containerName string, claudeArgs []string, extraArgs []string) []string {
 	args := []string{"docker", "compose", "-f", d.ComposeFile, "run", "--rm", "--name", containerName}
 	args = append(args, extraArgs...)
 	args = append(args, "claude")
 	args = append(args, claudeArgs...)
 	return args
-}
-
-// BuildSessionCommand returns the tmux send-keys command string that launches
-// the project's container. Used by both the TUI and Web start paths to avoid
-// duplicating the display-args / runner-args / compose-cmd / tmux-cmd
-// composition.
-func (d *Docker) BuildSessionCommand(cfg *core.Config) string {
-	var displayArgs []string
-	if cfg.Display {
-		displayArgs, _ = platform.DisplayArgs(
-			os.Getenv("DISPLAY"),
-			os.Getenv("WAYLAND_DISPLAY"),
-			os.Getenv("XDG_RUNTIME_DIR"),
-		)
-	}
-	extraArgs := core.BuildExtraArgs(cfg, displayArgs, nil)
-	runnerArgs := core.BuildRunnerArgs(cfg)
-	dockerCmd := d.ComposeRunCommand(cfg.ContainerName(), runnerArgs, extraArgs)
-	return core.BuildTmuxCommand(cfg, dockerCmd)
 }
 
 // SetupCacheDir ensures the per-project cache directory exists.

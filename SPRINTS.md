@@ -2,21 +2,64 @@
 
 ## Current Sprint
 
+_No active sprint. Milestones M1–M5 are all complete; Milestone 5 shipped in **v0.40.0** (Sprint 43, in the history below). The next sprint is TBD — see `BACKLOG.md`._
+
+## Sprint History
+
+### Sprint 43: Milestone 5 Verification & Hardening (v0.40.0)
+
+Goal: verify the Milestone 5 implementation on real Docker + a device — it was built in a container with no daemon or browser, so every image/container/volume/mobile behaviour is code-complete but unverified — fix what breaks, close the deferred pieces, and finish the Milestone 4 tail. Step-by-step in `docs/m5-verification.md`; design in `docs/milestone-5-plan.md`.
+
+Milestone: 5
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | Build every Dockerfile target on real Docker (#51 restructure) and confirm the cache win — a Daedalus-binary change no longer busts the toolchain download layers. **Done 2026-08-04**: all six targets (base/utils/dev/godot/copilot-base/copilot-dev) build on a real host; cache win confirmed (a binary touch reused 20 cached layers, only the final COPYs re-ran) via `scripts/verify-m5.sh build`. | Done |
+| 2 | Runtime verification on a real project: #55 skills/`.daedalus` mounts present; #37 shared Claude versions + #21 shared `.m2` populate under `<DataDir>/shared/`; #27 `/opt/tools` binary survives a stop/restart. **Watch the uid/permission assumption** (the top risk). **In progress 2026-08-04**: the top risk is now instrumented — daedalus records the build uid (`<DataDir>/build-uid`) and the coordinator logs a clear warning when it runs as a different uid (the exact "Permission denied" cause), turning the cryptic failure into a diagnosis + fix. Runbook §2 (`docs/m5-verification.md`) made executable (copy-paste inspect/exec/writability snippets). **Done 2026-08-04**: verified on a real host via `scripts/verify-m5.sh mounts` — uid preflight clean (build=run=container=1000), all five mounts present + writable, #27 tool survived a stop/restart. | Done |
+| 3 | Trust idempotency — confirm an older project cache no longer fires the "trust this folder?" dialog. **In progress 2026-08-03**: the entrypoint force-set is regression-tested (`scripts/test-trust-idempotency.sh`, wired into CI — old-cache fixtures assert the trust keys are forced true, MCP servers merged, user data preserved, idempotent) and hardened non-fatal so a malformed cache can't crash startup under `set -e`. **Done 2026-08-04**: verified on a real host — no "trust this folder?" dialog on a fresh attach or after an old-cache (trust keys dropped) restart. | Done |
+| 4 | Mobile #29 on a phone — reconnect + repaint on a backgrounded tab and a Wi-Fi/cellular switch. **Done 2026-08-03**: verified on a real device; mobile web session confirmed end-to-end (terminal touch-scroll, milestones overlay). | Done |
+| 5 | Close deferral: pin the Claude/Copilot installers to a version + checksum (the `TODO(#51)` markers; supply-chain). **In progress 2026-08-04**: both installers pinned via Dockerfile build args (`CLAUDE_VERSION=2.1.221`, `COPILOT_VERSION=v1.0.78`) instead of unpinned `latest`; both installers checksum-verify the downloaded binary (Claude vs. the release `manifest.json`, Copilot vs. `SHA256SUMS.txt`). **Done 2026-08-04**: confirmed on a real build — `claude --version` = 2.1.221, `copilot --version` = 1.0.78. | Done |
+| 6 | Close deferral if needed: Maven read-only-base + per-project overlay (#21), should the simple shared `.m2` show cross-project pollution. **Closed 2026-08-04 — no action**: a shared writable `.m2` is standard, safe practice (immutable coordinate-keyed artifacts); no overlay built. Revisit only if pollution is observed. | Done |
+| 7 | Retire the classic tmux launch path — the Milestone 4 cleanup tail — once the runner default is proven. **Done 2026-08-01**: runner path is the only launch path; `internal/session`, the `DAEDALUS_USE_TMUX`/`DAEDALUS_USE_RUNNER` toggle, the `--no-tmux` flag + `no-tmux`/`tmux-prefix` config, and the Web tmux/control relays are removed. | Done |
+
+All items done. Items 1–5 and 7 were verified on a real Docker host + a phone (via `scripts/verify-m5.sh` and `docs/m5-verification.md`); item 6 (Maven overlay) closed with no action. Milestone 5 complete; shipped as **v0.40.0**.
+
 ### Sprint 41: Trust-Prompt & Runner Terminal Fidelity (v0.40.0)
 
 Goal: close the Web-UI-hangs-on-trust-prompt gap (Backlog #38) that blocks making the runner path the default. Two layers — (1) eliminate the redundant workspace-trust prompt inside the container (the container is already the trust boundary); (2) make the runner relay robust to any early one-shot full-screen prompt via initial PTY sizing and repaint-on-attach — then flip the runner path to default and retire the tmux launch path. Milestone 4 endgame.
+
+Milestone: 4
 
 | # | Item | Status |
 |---|------|--------|
 | 1 | Layer 1 — pre-seed workspace trust in the default `claude.json` (`projects["/workspace"].hasTrustDialogAccepted`) so Claude's "trust this folder?" dialog never fires inside the container | Done |
 | 2 | Layer 2a — initial PTY sizing in `daedalus-runner`: size the PTY at startup (default 80×24, `--cols`/`--rows`) instead of creack/pty's 0×0 default, routed through the hub, with unit tests | Done |
-| 3 | Layer 2b — repaint-on-attach: force a redraw / re-assert size when a client attaches (including same-size reattach) so one-shot dialogs render for late or second viewers | Todo |
-| 4 | End-to-end verification on real Docker + Claude — reproduce the hang, confirm both layers, parity checklist across CLI + Web (trust, `--resume` picker, credentials, copilot) | Todo |
-| 5 | Flip the runner path to default (drop `DAEDALUS_USE_RUNNER=1`) and retire the tmux launch path once parity is reached | Todo |
+| 3 | Layer 2b — repaint-on-attach: reconstruct the current screen on attach so one-shot dialogs render for late/second/same-size viewers. Delivered as **smart replay-from-boundary** (`ScreenSnapshot` replays scrollback from the last screen boundary) rather than a SIGWINCH nudge; see `docs/runner-repaint-design.md#decision-sprint-41` | Done |
+| 4 | End-to-end verification — automatable half (`cmd/daedalus-runner/repaint_e2e_test.go` + `e2e/run-repaint.sh`, green) plus the manual real-Docker + Claude parity pass (`e2e/runner-parity-runbook.md`). **Passed 2026-07-27:** the trust dialog reconstructs on every attach tested — primary render (T1), a second CLI client at a different size (Layer 2a), and a clean same-size detach/reattach (Layer 2b snapshot), and the **Web painted the live prompt instead of hanging (#38 resolved)**. No blank/stale in any case. Residuals below. | Done |
+| 5 | Flip the runner path to default and retire the tmux launch path. **Flip landed 2026-07-27** (`669b425`, `core.UseRunner()`: runner is the default, opt out with `DAEDALUS_USE_TMUX=1`; legacy `DAEDALUS_USE_RUNNER=1` still honored). The tmux-launch-path retirement was spun out to Sprint 43 (item 7), deferred until the runner default proves out. | Done |
 
----
+**Runner-path hardening (surfaced while dogfooding the parity pass).** A chain of integration bugs that made the runner path unusable end-to-end, now fixed: the Web couldn't start runner sessions (`feat/web-runner-autostart`); `docker compose run --rm --detach` removed the container before the runner bound its socket — the root cause of the "socket did not appear" failures (`fix/coordinator-drop-rm-flag`); the CLI's tmux/duplicate guard blocked runner re-attach (`fix/cli-runner-attach-guard`); stale sessions for out-of-band-killed containers were handed back to callers (`fix/coordinator-reap-stale-sessions`); plus stale-container reaping before start, running-container guards, and start/timeout logging so the next failure isn't a silent 30s hang.
 
-## Sprint History
+**Parity-pass residuals (2026-07-27, low-risk).** The pass verified the trust-prompt surface across Parts A/B/C/E; two things were deliberately not closed and don't block the item-5 flip:
+- **Other one-shot surfaces not separately exercised** — the `--resume` picker, login, and copilot startup UIs. Same repaint-on-attach path as the verified trust prompt, so low-risk. Note the picker specifically isn't reachable through daedalus (its `--resume` requires a session id → direct resume, no picker; a picker needs a container shell, Backlog #6).
+- **Mobile Enter-submit not cleanly confirmed on a physical phone** — the Web painted and answered fine on desktop, but the phone `\r`-submits assumption behind the mobile-send fix was not definitively exercised on-device. Tracked separately as part of the unverified-web-UI batch.
+
+Also fixed while running the pass: two pre-existing "`./test.sh` as root in the golang container" failures — `TouchProject` tests relied on a `chmod` that root bypasses (now skipped when euid==0), and `TestIntegration_DaemonBinary`'s inner `go build` hit git "dubious ownership" during VCS stamping (now `-buildvcs=false`, matching `build.sh`).
+
+### Sprint 42: Structured Project Documents & Dashboard Journey
+
+Goal: make a project's own markdown the machine-readable source of truth, and turn the per-project dashboard into a file-derived "journey" — Purpose → Arc → Backlog. Ran in parallel with Sprint 41 on `development`; landed but unreleased. Cross-cutting DX/tooling, not tied to a single milestone.
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | Parse ROADMAP milestones (`core.ParseMilestones`, tri-state, neutral `core.Status`) and link a sprint to its milestone via a `Milestone: N` line in `core.ParseSprints` | Done |
+| 2 | Aggregate `GET /api/projects/{name}/overview` (vision + milestones + current sprint + backlog in one fetch) plus `/milestones`; host-side `mcpclient.ReadMilestones` | Done |
+| 3 | Cross-file `core.ValidateDocs` (contradictions = errors, information loss = warnings) and raw-text `core.LintHeadings` (catch silently-dropped headings), surfaced as `daedalus docs lint [--ci]` | Done |
+| 4 | `docs/structured-docs.md` — the parseable-markdown contract the parsers rely on | Done |
+| 5 | Frontend project-journey dashboard — replace the 5-KPI grid with Purpose → Arc (current sprint nested in the in-progress milestone) → Backlog, fed by `/overview` | Done |
+| 6 | Reconcile `docs/PROJECT-INIT.md` to the structured-docs model (ROADMAP = milestones; add SPRINTS/BACKLOG; parseable templates verified against `daedalus docs lint`) and relocate it under `docs/` | Done |
+
+**Frontend not yet browser-verified.** The journey dashboard is code-complete, static-checked, and its data path is verified against this repo's real documents, but it has never been rendered in a browser (no node in the build sessions). It rides the Sprint 41 real-Docker parity pass for a real paint against the approved mockup.
 
 ### Sprint 40: Coordinator-as-Daemon (v0.39.0)
 
@@ -461,7 +504,7 @@ Delivered 2026-03-02. Registry schema versioning, session tracking, default flag
 | 6 | Per-project default flags | — | Done |
 | 7 | Session history tracking | — | Done |
 
-### Sprint 4 Hotfix: DinD & Prune Fixes (v0.4.1)
+### Hotfix v0.4.1: DinD & Prune Fixes (post-Sprint 4)
 
 Delivered 2026-03-02. Fixed critical DinD bug and addressed major review issues from v0.4.0.
 

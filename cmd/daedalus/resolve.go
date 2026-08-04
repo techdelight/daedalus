@@ -192,9 +192,6 @@ func collectDefaultFlags(cfg *core.Config) map[string]string {
 	if cfg.Debug {
 		flags["debug"] = "true"
 	}
-	if cfg.NoTmux {
-		flags["no-tmux"] = "true"
-	}
 	if cfg.Runner != "" {
 		flags["runner"] = cfg.Runner
 	}

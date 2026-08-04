@@ -128,9 +128,11 @@ var ErrNotFound = errors.New("coordinator: no session for project")
 //
 // Lifecycle:
 //   - mkdir + cleanup of the socket directory (stale sockets block bind);
-//   - `docker compose -f <file> run --rm --detach --name <ctr> claude`
-//     with DAEDALUS_RUNNER=1 and DAEDALUS_SOCKET set in the env, so
-//     entrypoint.sh dispatches to /usr/local/bin/daedalus-runner;
+//   - `docker compose -f <file> run --rm --detach -e DAEDALUS_RUNNER=1
+//     -e DAEDALUS_SOCKET=... --name <ctr> claude`, so entrypoint.sh
+//     dispatches to /usr/local/bin/daedalus-runner. The DAEDALUS_* vars
+//     must be -e flags — docker-compose.yml references none of them, so
+//     the docker CLI's process env alone never reaches the container;
 //   - poll for the host-visible socket file until it appears or the
 //     SocketWait deadline expires (the container may still be coming up
 //     after `run --detach` returns).
@@ -138,12 +140,14 @@ func (c *Coordinator) Start(cfg *core.Config) (*Session, error) {
 	name := cfg.ProjectName
 	containerName := cfg.ContainerName()
 
-	c.mu.Lock()
-	if _, exists := c.sessions[name]; exists {
-		c.mu.Unlock()
+	// If a *live* session already exists, report ErrAlreadyRunning so the
+	// caller attaches instead of double-starting. Get reconciles liveness,
+	// so a stale session whose container died out-of-band is reaped here
+	// and we fall through to start a fresh one — rather than wrongly
+	// claiming it's already running and stranding the caller.
+	if _, ok := c.Get(name); ok {
 		return nil, ErrAlreadyRunning
 	}
-	c.mu.Unlock()
 
 	sockPath := cfg.RunnerSocketPath()
 	if err := os.MkdirAll(filepath.Dir(sockPath), 0o755); err != nil {
@@ -151,17 +155,77 @@ func (c *Coordinator) Start(cfg *core.Config) (*Session, error) {
 	}
 	_ = os.Remove(sockPath) // stale socket from a previous run blocks bind
 
-	env := composeEnv(cfg)
-	args := []string{
-		"compose", "-f", c.composeFile,
-		"run", "--rm", "--detach", "--name", containerName,
-		"claude",
+	// Create the host dirs backing the runner's bind mounts (skill catalog,
+	// .daedalus, shared Claude/Maven caches, per-project tools) so Docker
+	// does not create them root-owned. Best-effort; a real problem surfaces
+	// as a start/mount error with a clearer cause.
+	for _, d := range core.RunnerVolumeHostDirs(cfg) {
+		_ = os.MkdirAll(d, 0o755)
 	}
+
+	// Permission preflight (Sprint 43 item 2 — the top risk). The image runs
+	// its `claude` user at the uid it was BUILT with (CLAUDE_UID); the host
+	// dirs above are created at the uid the coordinator runs as now. If those
+	// differ — an image built by another user or in CI, run here — the
+	// container can't write the shared caches / tools and the session dies with
+	// a cryptic "Permission denied". Say so plainly instead. Non-fatal: some
+	// setups (e.g. matching group perms) may still work, and blocking a launch
+	// on a heuristic would be worse than a warning.
+	if buildUID, ok := core.ReadBuildUID(cfg.DataDir); ok {
+		if runUID := os.Getuid(); buildUID != runUID {
+			log.Printf("coordinator: WARNING image was built as uid %d but this coordinator runs as uid %d; "+
+				"the container's claude user (uid %d) may be unable to write the shared caches / tools dirs "+
+				"created as uid %d. If the session fails with \"Permission denied\", rebuild as the current "+
+				"user: `daedalus --build`.", buildUID, runUID, buildUID, runUID)
+		}
+	}
+
+	// Reap a stale container under this name before creating a new one.
+	// `docker compose run --rm --detach` does NOT auto-remove the container
+	// (--rm is ineffective when detached), so a prior run's container lingers
+	// after it stops and its name collides with `--name` here. `docker rm`
+	// without -f only removes a stopped leftover and harmlessly refuses a
+	// running container — so an actively running container (a foreign tmux
+	// session, or a live runner) is never killed, and that case still
+	// surfaces as the usual name-conflict error. Best-effort: the common
+	// "No such container" is expected and ignored.
+	_ = c.exec.Run("docker", "rm", containerName)
+
+	env := composeEnv(cfg)
+	// NOTE: no `--rm`. `docker compose run --rm --detach` removes the
+	// container the moment the detached run call returns, so the runner is
+	// torn down before it can bind its socket (waitForSocket then times
+	// out). The coordinator owns the container lifecycle itself instead:
+	// Stop removes it, and the stale-container reap above clears any
+	// leftover before the next Start.
+	args := []string{"compose", "-f", c.composeFile, "run", "--detach"}
+	// The DAEDALUS_* vars must reach the CONTAINER, so they are -e flags,
+	// not process env: docker-compose.yml interpolates none of them, so
+	// composeEnv alone would leave the entrypoint on the classic path.
+	for _, kv := range runnerContainerEnv(cfg) {
+		args = append(args, "-e", kv)
+	}
+	// Bind mounts the runner container needs — skill catalog, .daedalus
+	// progress dir, shared Claude/Maven caches (#37/#21), per-project tools
+	// (#27). These were absent on the coordinator path before (Backlog #55):
+	// only the legacy path called BuildExtraArgs.
+	args = append(args, core.RunnerVolumeArgs(cfg)...)
+	args = append(args, "--name", containerName, "claude")
+	log.Printf("coordinator: starting runner for %q (container %s, image %s)", name, containerName, cfg.Image())
 	if err := c.exec.RunWithEnv(env, "docker", args...); err != nil {
+		log.Printf("coordinator: `docker compose run` for %q failed: %v", name, err)
 		return nil, fmt.Errorf("docker compose run --detach: %w", err)
 	}
 
 	if err := waitForSocket(sockPath, c.socketWait, c.pollEvery); err != nil {
+		// The container started but never bound the runner socket in time —
+		// almost always the runner exited early (bad env, adapter crash,
+		// claude erroring out). Point the operator at the container's own
+		// logs, which hold the real cause; the container is left in place
+		// (no --rm) precisely so it can be inspected.
+		log.Printf("coordinator: runner socket for %q did not appear at %s within %s; "+
+			"the container likely exited — inspect with `docker logs %s`: %v",
+			name, sockPath, c.socketWait, containerName, err)
 		return nil, err
 	}
 
@@ -175,6 +239,7 @@ func (c *Coordinator) Start(cfg *core.Config) (*Session, error) {
 	c.sessions[name] = sess
 	c.persistLocked()
 	c.mu.Unlock()
+	log.Printf("coordinator: runner for %q ready (container %s, socket %s)", name, containerName, sockPath)
 	return sess, nil
 }
 
@@ -183,9 +248,38 @@ func (c *Coordinator) Start(cfg *core.Config) (*Session, error) {
 // error should compare against ErrNotFound from Stop instead.
 func (c *Coordinator) Get(name string) (*Session, bool) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	s, ok := c.sessions[name]
-	return s, ok
+	c.mu.Unlock()
+	if !ok {
+		return nil, false
+	}
+
+	// Reconcile lazily. A container that died out-of-band — a crash, a
+	// manual `docker kill`, a host hiccup — leaves a stale session, because
+	// full reconciliation only runs at startup (loadAndReconcile). Handing
+	// that session back gives the caller a socket path that no longer
+	// accepts connections, which is exactly the "dial: no such file" /
+	// stale-attach failure. Verify the container is still running; if not,
+	// drop the session so the caller falls back to starting a fresh one.
+	running, err := c.dockerRunningContainers()
+	if err != nil {
+		// Can't verify (docker unavailable): prefer returning the session
+		// over falsely reaping a live one.
+		return s, true
+	}
+	if !running[s.ContainerName] {
+		c.mu.Lock()
+		// Re-check under lock: only reap if it's still the same session we
+		// looked up, so a concurrent Start that replaced it isn't dropped.
+		if cur, still := c.sessions[name]; still && cur.ContainerName == s.ContainerName {
+			delete(c.sessions, name)
+			c.persistLocked()
+		}
+		c.mu.Unlock()
+		log.Printf("coordinator: reaped stale session %q — container %s is no longer running", name, s.ContainerName)
+		return nil, false
+	}
+	return s, true
 }
 
 // List returns a snapshot of all tracked sessions, ordered by start
@@ -227,6 +321,11 @@ func (c *Coordinator) Stop(name string) error {
 	if err := c.exec.Run("docker", "stop", sess.ContainerName); err != nil {
 		return fmt.Errorf("docker stop %s: %w", sess.ContainerName, err)
 	}
+	// Remove the stopped container. Since Start no longer passes `--rm`
+	// (it breaks the detached runner), the coordinator reaps the container
+	// itself so a stopped session doesn't linger and block the next Start
+	// on its name. Best-effort: a missing container is fine.
+	_ = c.exec.Run("docker", "rm", sess.ContainerName)
 
 	c.mu.Lock()
 	delete(c.sessions, name)
@@ -235,32 +334,51 @@ func (c *Coordinator) Stop(name string) error {
 	return nil
 }
 
-// composeEnv builds the env-var slice the runner-detached compose run
-// needs. PROJECT_DIR / CACHE_DIR / TARGET / IMAGE / RUNNER mirror the
-// regular compose path; DAEDALUS_RUNNER + DAEDALUS_SOCKET tell the
-// container's entrypoint to launch daedalus-runner instead of the
-// runner CLI directly. DAEDALUS_DEBUG / RESUME / PROMPT are forwarded
-// when set so the runner can wire them into the agent.
+// containerSocketPath is where daedalus-runner binds its Unix socket
+// INSIDE the container. The compose mount `${CACHE_DIR}:/home/claude`
+// maps it to the host path cfg.RunnerSocketPath(), which Start polls.
+const containerSocketPath = "/home/claude/.daedalus/runner.sock"
+
+// composeEnv builds the process environment for the `docker` CLI. These
+// vars are consumed by docker-compose for ${VAR} interpolation inside
+// docker-compose.yml (IMAGE, the volume mounts, RUNNER) — they do NOT
+// automatically reach the container. Anything the *container* must see
+// has to be an explicit `-e` flag on `docker compose run`; see
+// runnerContainerEnv.
 func composeEnv(cfg *core.Config) []string {
-	env := []string{
+	return []string{
 		"PROJECT_DIR=" + cfg.ProjectDir,
 		"CACHE_DIR=" + cfg.CacheDir(),
 		"TARGET=" + cfg.Target,
 		"IMAGE=" + cfg.Image(),
 		"RUNNER=" + core.ResolveRunnerName(cfg),
+	}
+}
+
+// runnerContainerEnv returns the KEY=VALUE pairs that must be injected
+// INTO the container so entrypoint.sh dispatches to daedalus-runner
+// instead of exec'ing claude directly. They are passed as
+// `docker compose run -e KEY=VALUE` flags — deliberately NOT via
+// composeEnv: that slice is only the docker CLI's process environment,
+// which compose uses solely for ${VAR} interpolation, and
+// docker-compose.yml references none of these. Passing them as -e is
+// what actually reaches the container (and, unlike interpolation, is
+// assertable in a unit test).
+func runnerContainerEnv(cfg *core.Config) []string {
+	kv := []string{
 		"DAEDALUS_RUNNER=1",
-		"DAEDALUS_SOCKET=/home/claude/.daedalus/runner.sock",
+		"DAEDALUS_SOCKET=" + containerSocketPath,
 	}
 	if cfg.Debug {
-		env = append(env, "DAEDALUS_DEBUG=1")
+		kv = append(kv, "DAEDALUS_DEBUG=1")
 	}
 	if cfg.Resume != "" {
-		env = append(env, "DAEDALUS_RESUME="+cfg.Resume)
+		kv = append(kv, "DAEDALUS_RESUME="+cfg.Resume)
 	}
 	if cfg.Prompt != "" {
-		env = append(env, "DAEDALUS_PROMPT="+cfg.Prompt)
+		kv = append(kv, "DAEDALUS_PROMPT="+cfg.Prompt)
 	}
-	return env
+	return kv
 }
 
 // waitForSocket polls for path to appear on disk. The runner-detached

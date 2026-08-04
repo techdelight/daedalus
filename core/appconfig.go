@@ -8,10 +8,8 @@ type AppConfig struct {
 	Version         *string `json:"version,omitempty"`
 	DataDir         *string `json:"data-dir,omitempty"`
 	Debug           *bool   `json:"debug,omitempty"`
-	NoTmux          *bool   `json:"no-tmux,omitempty"`
 	ImagePrefix     *string `json:"image-prefix,omitempty"`
 	ContainerPrefix *string `json:"container-prefix,omitempty"` // override for parallel test installs
-	TmuxPrefix      *string `json:"tmux-prefix,omitempty"`      // override for parallel test installs (legacy path)
 	LogFile         *string `json:"log-file,omitempty"`
 	Runner          *string `json:"runner,omitempty"`
 	Persona         *string `json:"persona,omitempty"`
@@ -29,17 +27,11 @@ func ApplyAppConfig(cfg *Config, app AppConfig) {
 	if !cfg.Debug && app.Debug != nil {
 		cfg.Debug = *app.Debug
 	}
-	if !cfg.NoTmux && app.NoTmux != nil {
-		cfg.NoTmux = *app.NoTmux
-	}
 	if cfg.ImagePrefix == "techdelight/claude-runner" && app.ImagePrefix != nil {
 		cfg.ImagePrefix = *app.ImagePrefix
 	}
 	if cfg.ContainerPrefix == "" && app.ContainerPrefix != nil {
 		cfg.ContainerPrefix = *app.ContainerPrefix
-	}
-	if cfg.TmuxPrefix == "" && app.TmuxPrefix != nil {
-		cfg.TmuxPrefix = *app.TmuxPrefix
 	}
 	if cfg.LogFile == "" && app.LogFile != nil {
 		cfg.LogFile = *app.LogFile

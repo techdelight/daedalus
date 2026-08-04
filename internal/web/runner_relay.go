@@ -16,8 +16,8 @@ import (
 )
 
 // runnerRelay bridges a daedalus-runner Unix-socket connection (via
-// runclient) and a browser WebSocket. It is the runner-mode counterpart
-// of controlRelay (tmux control mode) and the raw PTY relay path.
+// runclient) and a browser WebSocket — the only terminal relay the web UI
+// uses.
 //
 // One reader goroutine drains runner output into binary WebSocket frames;
 // one writer goroutine reads WebSocket frames and forwards bytes as PTY
@@ -25,11 +25,11 @@ import (
 // when either side closes.
 type runnerRelay struct {
 	rc   *runclient.Conn
-	conn *websocket.Conn
+	conn *safeConn
 	name string // project name, used in log messages
 }
 
-func newRunnerRelay(rc *runclient.Conn, conn *websocket.Conn, projectName string) *runnerRelay {
+func newRunnerRelay(rc *runclient.Conn, conn *safeConn, projectName string) *runnerRelay {
 	return &runnerRelay{rc: rc, conn: conn, name: projectName}
 }
 
@@ -82,6 +82,14 @@ func (r *runnerRelay) readWebSocket(wg *sync.WaitGroup) {
 		}
 		switch msgType {
 		case websocket.TextMessage:
+			// Must precede the forward-as-input fallthrough below, or the
+			// control message itself would be typed into the pane.
+			if isEnterMsg(data) {
+				if _, err := r.rc.Write([]byte(enterKey)); err != nil {
+					return
+				}
+				continue
+			}
 			var rm resizeMsg
 			if json.Unmarshal(data, &rm) == nil && rm.Type == "resize" && rm.Cols > 0 && rm.Rows > 0 {
 				if err := r.rc.Resize(int(rm.Cols), int(rm.Rows)); err != nil {

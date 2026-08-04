@@ -60,15 +60,6 @@ func TestConfig_ContainerName(t *testing.T) {
 	}
 }
 
-func TestConfig_TmuxSession(t *testing.T) {
-	cfg := &Config{ProjectName: "my-app"}
-	got := cfg.TmuxSession()
-	want := "claude-my-app"
-	if got != want {
-		t.Errorf("TmuxSession() = %q, want %q", got, want)
-	}
-}
-
 func TestConfig_CacheDir(t *testing.T) {
 	cfg := &Config{DataDir: "/data/daedalus", ProjectName: "my-app"}
 	got := cfg.CacheDir()
@@ -111,27 +102,6 @@ func TestConfig_RunnerSocketPath(t *testing.T) {
 	want := filepath.Join("/data/daedalus", "my-app", ".daedalus", "runner.sock")
 	if got != want {
 		t.Errorf("RunnerSocketPath() = %q, want %q", got, want)
-	}
-}
-
-func TestConfig_UseTmux(t *testing.T) {
-	tests := []struct {
-		name   string
-		cfg    Config
-		expect bool
-	}{
-		{"default", Config{}, true},
-		{"with prompt", Config{Prompt: "do stuff"}, false},
-		{"no tmux flag", Config{NoTmux: true}, false},
-		{"both", Config{Prompt: "x", NoTmux: true}, false},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got := tc.cfg.UseTmux()
-			if got != tc.expect {
-				t.Errorf("UseTmux() = %v, want %v", got, tc.expect)
-			}
-		})
 	}
 }
 
@@ -481,29 +451,8 @@ func TestContainerName_OverridePrefix(t *testing.T) {
 	}
 }
 
-func TestTmuxSession_DefaultPrefix(t *testing.T) {
-	c := &Config{ProjectName: "foo"}
-	if got := c.TmuxSession(); got != "claude-foo" {
-		t.Errorf("TmuxSession() = %q, want %q", got, "claude-foo")
-	}
-}
-
-func TestTmuxSession_OverridePrefix(t *testing.T) {
-	c := &Config{ProjectName: "foo", TmuxPrefix: "daed-"}
-	if got := c.TmuxSession(); got != "daed-foo" {
-		t.Errorf("TmuxSession() = %q, want %q", got, "daed-foo")
-	}
-}
-
 func TestContainerNameFor_EmptyDefaults(t *testing.T) {
 	if got := ContainerNameFor("", "foo"); got != "claude-run-foo" {
 		t.Errorf("ContainerNameFor empty = %q", got)
 	}
 }
-
-func TestTmuxSessionFor_EmptyDefaults(t *testing.T) {
-	if got := TmuxSessionFor("", "foo"); got != "claude-foo" {
-		t.Errorf("TmuxSessionFor empty = %q", got)
-	}
-}
-

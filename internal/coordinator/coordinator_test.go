@@ -7,6 +7,8 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -18,20 +20,82 @@ import (
 // command fires — used here to make the "runner socket" appear on
 // disk in response to the docker compose run, simulating what the
 // container would do once daedalus-runner binds inside it.
+//
+// It also simulates a running-container set: `docker compose run --name X`
+// marks X running and `docker stop|rm X` clears it, so `docker ps` (used by
+// Get's liveness reconciliation) reflects the containers Start actually
+// created — without every test having to arm the ps output by hand. Tests
+// that arm exec.Results["docker"] explicitly (reconcile tests) still win.
 type spyExec struct {
 	*executor.MockExecutor
 	onRunWithEnv func(env []string, name string, args ...string)
+
+	mu      sync.Mutex
+	running map[string]bool
 }
 
 func newSpyExec() *spyExec {
-	return &spyExec{MockExecutor: executor.NewMockExecutor()}
+	return &spyExec{MockExecutor: executor.NewMockExecutor(), running: map[string]bool{}}
 }
 
 func (s *spyExec) RunWithEnv(env []string, name string, args ...string) error {
 	if s.onRunWithEnv != nil {
 		s.onRunWithEnv(env, name, args...)
 	}
+	if name == "docker" && containerNameArg(args) != "" {
+		s.setRunning(containerNameArg(args), true)
+	}
 	return s.MockExecutor.RunWithEnv(env, name, args...)
+}
+
+func (s *spyExec) Run(name string, args ...string) error {
+	if name == "docker" && len(args) >= 2 && (args[0] == "stop" || args[0] == "rm") {
+		s.setRunning(args[1], false)
+	}
+	return s.MockExecutor.Run(name, args...)
+}
+
+func (s *spyExec) Output(name string, args ...string) (string, error) {
+	out, err := s.MockExecutor.Output(name, args...)
+	// Synthesize `docker ps --format {{.Names}}` from the tracked set,
+	// unless a test armed an explicit result.
+	if name == "docker" && len(args) > 0 && args[0] == "ps" {
+		if _, armed := s.Results["docker"]; !armed {
+			return strings.Join(s.runningNames(), "\n"), nil
+		}
+	}
+	return out, err
+}
+
+func (s *spyExec) setRunning(container string, up bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if up {
+		s.running[container] = true
+	} else {
+		delete(s.running, container)
+	}
+}
+
+func (s *spyExec) runningNames() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	names := make([]string, 0, len(s.running))
+	for n := range s.running {
+		names = append(names, n)
+	}
+	return names
+}
+
+// containerNameArg extracts the value following "--name" in a compose run
+// arg list, or "" if absent.
+func containerNameArg(args []string) string {
+	for i, a := range args {
+		if a == "--name" && i+1 < len(args) {
+			return args[i+1]
+		}
+	}
+	return ""
 }
 
 // configFor builds a minimal Config whose RunnerSocketPath() lands
@@ -101,16 +165,10 @@ func TestStart_HappyPath(t *testing.T) {
 	}
 }
 
-func TestStart_PassesRunnerEnv(t *testing.T) {
+func TestStart_ReapsStaleContainerBeforeRun(t *testing.T) {
 	cfg := configFor(t, "my-app")
-	cfg.Resume = "abc123"
-	cfg.Prompt = "fix the bug"
-	cfg.Debug = true
-
-	var capturedEnv []string
 	exec := newSpyExec()
-	exec.onRunWithEnv = func(env []string, _ string, _ ...string) {
-		capturedEnv = append([]string(nil), env...)
+	exec.onRunWithEnv = func(_ []string, _ string, _ ...string) {
 		touchSocket(t, cfg.RunnerSocketPath())
 	}
 	c := newTestCoordinator(t, exec)
@@ -119,22 +177,82 @@ func TestStart_PassesRunnerEnv(t *testing.T) {
 		t.Fatalf("Start: %v", err)
 	}
 
-	want := map[string]bool{
-		"DAEDALUS_RUNNER=1":                              false,
-		"DAEDALUS_SOCKET=/home/claude/.daedalus/runner.sock": false,
-		"DAEDALUS_DEBUG=1":                               false,
-		"DAEDALUS_RESUME=abc123":                         false,
-		"DAEDALUS_PROMPT=fix the bug":                    false,
+	// `docker compose run --rm --detach` does not auto-remove the container,
+	// so a prior run's container lingers and its name collides. Start must
+	// reap it first with `docker rm <container>`.
+	want := cfg.ContainerName()
+	found := false
+	for _, call := range exec.Calls {
+		if call.Name == "docker" && len(call.Args) == 2 && call.Args[0] == "rm" && call.Args[1] == want {
+			found = true
+			break
+		}
 	}
-	for _, e := range capturedEnv {
-		if _, ok := want[e]; ok {
-			want[e] = true
+	if !found {
+		t.Errorf("Start did not `docker rm %s` to reap a stale container; calls = %+v", want, exec.Calls)
+	}
+}
+
+func TestStart_PassesRunnerEnv(t *testing.T) {
+	cfg := configFor(t, "my-app")
+	cfg.Resume = "abc123"
+	cfg.Prompt = "fix the bug"
+	cfg.Debug = true
+
+	var capturedArgs []string
+	exec := newSpyExec()
+	exec.onRunWithEnv = func(_ []string, _ string, args ...string) {
+		capturedArgs = append([]string(nil), args...)
+		touchSocket(t, cfg.RunnerSocketPath())
+	}
+	c := newTestCoordinator(t, exec)
+
+	if _, err := c.Start(cfg); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	// The runner env must reach the CONTAINER as `docker compose run -e`
+	// flags. Passing them only as the docker CLI's process env (which
+	// docker-compose.yml never interpolates) leaves the entrypoint on the
+	// classic path and the runner socket never appears — the exact bug
+	// this guards against.
+	want := map[string]bool{
+		"DAEDALUS_RUNNER=1":                                  false,
+		"DAEDALUS_SOCKET=/home/claude/.daedalus/runner.sock": false,
+		"DAEDALUS_DEBUG=1":                                   false,
+		"DAEDALUS_RESUME=abc123":                             false,
+		"DAEDALUS_PROMPT=fix the bug":                        false,
+	}
+	for i, a := range capturedArgs {
+		if a == "-e" && i+1 < len(capturedArgs) {
+			if _, ok := want[capturedArgs[i+1]]; ok {
+				want[capturedArgs[i+1]] = true
+			}
 		}
 	}
 	for k, seen := range want {
 		if !seen {
-			t.Errorf("missing env var %q", k)
+			t.Errorf("runner env %q not passed as a `-e` flag to `docker compose run`", k)
 		}
+	}
+
+	// `docker compose run --rm --detach` removes the container as soon as
+	// the detached call returns, tearing the runner down before it binds
+	// its socket. The run must be --detach WITHOUT --rm.
+	sawDetach, sawRm := false, false
+	for _, a := range capturedArgs {
+		switch a {
+		case "--detach":
+			sawDetach = true
+		case "--rm":
+			sawRm = true
+		}
+	}
+	if !sawDetach {
+		t.Errorf("compose run missing --detach; args = %v", capturedArgs)
+	}
+	if sawRm {
+		t.Errorf("compose run must not pass --rm (it removes the detached container before the socket binds); args = %v", capturedArgs)
 	}
 }
 
@@ -288,15 +406,92 @@ func TestStop_RemovesSessionAndCallsDockerStop(t *testing.T) {
 	if _, ok := c.Get("my-app"); ok {
 		t.Error("session still tracked after Stop")
 	}
-	// First call is `docker compose run --detach`, want a later
-	// `docker stop` too.
+	// Stop must `docker stop` and then `docker rm` the container (Start no
+	// longer passes --rm, so the coordinator reaps it here).
 	calls := exec.FindCalls("docker")
-	if len(calls) < 2 {
-		t.Fatalf("want >=2 docker calls, got %d", len(calls))
+	sawStop, sawRm := false, false
+	for _, call := range calls {
+		if len(call.Args) >= 2 && call.Args[1] == cfg.ContainerName() {
+			switch call.Args[0] {
+			case "stop":
+				sawStop = true
+			case "rm":
+				sawRm = true
+			}
+		}
 	}
-	last := calls[len(calls)-1]
-	if len(last.Args) < 2 || last.Args[0] != "stop" || last.Args[1] != cfg.ContainerName() {
-		t.Errorf("last docker call args = %v, want [stop %s ...]", last.Args, cfg.ContainerName())
+	if !sawStop {
+		t.Errorf("Stop did not `docker stop %s`; calls = %+v", cfg.ContainerName(), calls)
+	}
+	if !sawRm {
+		t.Errorf("Stop did not `docker rm %s`; calls = %+v", cfg.ContainerName(), calls)
+	}
+}
+
+func TestGet_ReturnsRunningSession(t *testing.T) {
+	cfg := configFor(t, "my-app")
+	exec := newSpyExec()
+	exec.onRunWithEnv = func(_ []string, _ string, _ ...string) {
+		touchSocket(t, cfg.RunnerSocketPath())
+	}
+	c := newTestCoordinator(t, exec)
+
+	if _, err := c.Start(cfg); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	// Container is running (Start tracked it), so Get returns the session.
+	if _, ok := c.Get("my-app"); !ok {
+		t.Fatal("Get returned not-found for a running session")
+	}
+}
+
+func TestGet_ReapsSessionWhoseContainerDied(t *testing.T) {
+	cfg := configFor(t, "my-app")
+	exec := newSpyExec()
+	exec.onRunWithEnv = func(_ []string, _ string, _ ...string) {
+		touchSocket(t, cfg.RunnerSocketPath())
+	}
+	c := newTestCoordinator(t, exec)
+
+	if _, err := c.Start(cfg); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	// Simulate the container dying out-of-band (crash / manual docker kill):
+	// it leaves c.sessions unchanged but `docker ps` no longer lists it.
+	exec.setRunning(cfg.ContainerName(), false)
+
+	if _, ok := c.Get("my-app"); ok {
+		t.Error("Get returned a session whose container is no longer running")
+	}
+	// And it must be dropped from the tracked set, not just hidden.
+	if _, ok := c.Get("my-app"); ok {
+		t.Error("dead session was not reaped from the session map")
+	}
+}
+
+func TestStart_AfterOutOfBandDeath_StartsFresh(t *testing.T) {
+	cfg := configFor(t, "my-app")
+	exec := newSpyExec()
+	exec.onRunWithEnv = func(_ []string, _ string, _ ...string) {
+		touchSocket(t, cfg.RunnerSocketPath())
+	}
+	c := newTestCoordinator(t, exec)
+
+	if _, err := c.Start(cfg); err != nil {
+		t.Fatalf("first Start: %v", err)
+	}
+	// Container dies out-of-band; the session is still tracked but the
+	// container is gone.
+	exec.setRunning(cfg.ContainerName(), false)
+
+	// A second Start must NOT report ErrAlreadyRunning off the stale
+	// session — it reaps it and starts a fresh container.
+	if _, err := c.Start(cfg); err != nil {
+		t.Fatalf("Start after out-of-band death should start fresh, got: %v", err)
+	}
+	if _, ok := c.Get("my-app"); !ok {
+		t.Error("expected a live session after restart")
 	}
 }
 

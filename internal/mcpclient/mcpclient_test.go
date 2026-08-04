@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/techdelight/daedalus/core"
 	"github.com/techdelight/daedalus/internal/progress"
 )
 
@@ -363,6 +364,75 @@ func TestReadStrategicRoadmap_NoFile(t *testing.T) {
 	}
 	if got != "" {
 		t.Errorf("got %q, want empty", got)
+	}
+}
+
+func TestReadMilestones_WithFile(t *testing.T) {
+	client := New()
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "ROADMAP.md"), `# Roadmap
+
+### Milestone 1: Foundations (Done)
+
+The groundwork.
+
+### Milestone 2: Rework (In Progress)
+
+Reshaping the core.
+
+### Milestone 3: Scale
+
+Not started yet.
+`)
+
+	milestones, err := client.ReadMilestones(dir)
+	if err != nil {
+		t.Fatalf("ReadMilestones() error = %v", err)
+	}
+	if len(milestones) != 3 {
+		t.Fatalf("got %d milestones, want 3", len(milestones))
+	}
+	if milestones[0].Number != 1 || milestones[0].Status != core.StatusDone {
+		t.Errorf("milestones[0] = %+v, want number 1, status Done", milestones[0])
+	}
+	if milestones[1].Status != core.StatusInProgress {
+		t.Errorf("milestones[1].Status = %q, want %q", milestones[1].Status, core.StatusInProgress)
+	}
+	if milestones[2].Status != core.StatusPlanned {
+		t.Errorf("milestones[2].Status = %q, want %q (no parenthetical means Planned)", milestones[2].Status, core.StatusPlanned)
+	}
+}
+
+func TestReadMilestones_NoFile(t *testing.T) {
+	client := New()
+	dir := t.TempDir()
+	milestones, err := client.ReadMilestones(dir)
+	if err != nil {
+		t.Fatalf("ReadMilestones() error = %v, want nil", err)
+	}
+	if milestones != nil {
+		t.Errorf("got %v, want nil (a project with no ROADMAP.md has no milestones)", milestones)
+	}
+}
+
+func TestReadMilestones_NoFallbackToSprints(t *testing.T) {
+	client := New()
+	dir := t.TempDir()
+	// SPRINTS.md exists but ROADMAP.md does not: milestones do not fall back.
+	writeFile(t, filepath.Join(dir, "SPRINTS.md"), `## Current Sprint
+
+### Sprint 5: Test (v1.0.0)
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | Task A | Done |
+`)
+	milestones, err := client.ReadMilestones(dir)
+	if err != nil {
+		t.Fatalf("ReadMilestones() error = %v", err)
+	}
+	if milestones != nil {
+		t.Errorf("got %v, want nil (SPRINTS.md is not a milestone source)", milestones)
 	}
 }
 

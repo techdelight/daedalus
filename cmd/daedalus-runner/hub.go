@@ -112,8 +112,12 @@ func (h *Hub) Run() {
 			}
 		case c := <-h.add:
 			h.clients[c] = struct{}{}
-			// Send initial hello with current scrollback + size.
-			c.send(runproto.NewHello(h.scroll.Snapshot(), h.cols, h.rows))
+			// Send initial hello with the reconstructed current screen +
+			// size. ScreenSnapshot trims scrollback to the last screen
+			// boundary so a one-shot full-screen dialog (trust prompt,
+			// --resume picker) renders for this client even if attaching
+			// provokes no resize/repaint — Backlog #38. See screen.go.
+			c.send(runproto.NewHello(h.scroll.ScreenSnapshot(), h.cols, h.rows))
 		case c := <-h.remove:
 			h.unregister(c)
 		case rq := <-h.resize:

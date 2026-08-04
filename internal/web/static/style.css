@@ -179,15 +179,6 @@ tbody td {
     color: #bb9af7;
 }
 
-.btn-start {
-    border-color: #9ece6a;
-    color: #9ece6a;
-}
-
-.btn-start:hover {
-    background: rgba(158, 206, 106, 0.1);
-}
-
 .btn-stop {
     border-color: #f7768e;
     color: #f7768e;
@@ -327,6 +318,259 @@ tbody td {
 
 .project-link:hover {
     text-decoration: underline;
+}
+
+/* --- Project Journey (dashboard) ---
+   The dashboard tells the project's story in a single column: Purpose -> The
+   Arc -> Backlog. Two voices share the page — mono (the body default) is the
+   system/data voice for titles, statuses, and counts; a humanist sans carries
+   the narrative prose (vision, milestone and sprint descriptions). Palette is
+   Tokyo Night, matching the rest of the app. */
+
+.journey {
+    max-width: 820px;
+    width: 100%;
+    margin: 0 auto;
+    padding: 32px 24px 64px;
+}
+
+.journey-section {
+    margin-bottom: 40px;
+}
+
+.journey-heading {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: #565f89;
+    font-weight: 600;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.journey-count {
+    font-size: 11px;
+    color: #7aa2f7;
+    background: #292e42;
+    border-radius: 10px;
+    padding: 1px 8px;
+}
+
+.journey-empty {
+    color: #565f89;
+    font-size: 14px;
+    font-style: italic;
+}
+
+/* Narrative prose — the humanist-sans voice. */
+.purpose-prose,
+.arc-desc {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    line-height: 1.65;
+}
+
+.purpose-prose {
+    font-size: 16px;
+    color: #c0caf5;
+}
+
+.purpose-prose p { margin-bottom: 12px; }
+.purpose-prose p:last-child { margin-bottom: 0; }
+
+/* The Arc — a milestone timeline with a vertical spine. */
+.arc {
+    list-style: none;
+    position: relative;
+}
+
+.arc-node {
+    position: relative;
+    padding-left: 28px;
+    padding-bottom: 28px;
+}
+
+/* The spine: a line running through every marker but the last. */
+.arc-node::before {
+    content: '';
+    position: absolute;
+    left: 5px;
+    top: 14px;
+    bottom: -14px;
+    width: 2px;
+    background: #292e42;
+}
+.arc-node:last-child::before { display: none; }
+
+.arc-marker {
+    position: absolute;
+    left: 0;
+    top: 4px;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #1a1b26;
+    border: 2px solid #565f89;
+    z-index: 1;
+}
+
+/* Done recedes; the active milestone is lit; planned is quiet. */
+.arc-done .arc-marker { background: #9ece6a; border-color: #9ece6a; }
+.arc-active .arc-marker { background: #7aa2f7; border-color: #7aa2f7; box-shadow: 0 0 0 4px rgba(122,162,247,0.18); }
+.arc-planned .arc-marker { background: #1a1b26; border-color: #414868; }
+
+.arc-done .arc-title { color: #737aa2; }
+.arc-planned .arc-title { color: #a9b1d6; }
+
+.arc-head {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.arc-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: #c0caf5;
+}
+
+.arc-status {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #565f89;
+    border: 1px solid #292e42;
+    border-radius: 4px;
+    padding: 1px 6px;
+}
+.arc-active .arc-status { color: #7aa2f7; border-color: #3d59a1; }
+.arc-done .arc-status { color: #9ece6a; border-color: #3d5a3d; }
+
+.arc-desc {
+    font-size: 14px;
+    color: #a9b1d6;
+    margin-top: 6px;
+}
+.arc-done .arc-desc { color: #737aa2; }
+
+/* The current sprint, nested inside its milestone. */
+.sprint-card {
+    background: #16161e;
+    border: 1px solid #292e42;
+    border-left: 2px solid #7aa2f7;
+    border-radius: 8px;
+    padding: 16px;
+    margin-top: 14px;
+}
+
+.sprint-orphan { margin-top: 8px; }
+
+.sprint-head {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+}
+
+.sprint-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #7aa2f7;
+}
+
+.sprint-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: #c0caf5;
+}
+
+.sprint-version {
+    font-size: 12px;
+    color: #565f89;
+}
+
+.sprint-goal {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.6;
+    color: #a9b1d6;
+    margin-bottom: 12px;
+}
+
+.sprint-progress {
+    height: 4px;
+    background: #292e42;
+    border-radius: 2px;
+    overflow: hidden;
+}
+
+.sprint-progress-bar {
+    height: 100%;
+    background: #9ece6a;
+    border-radius: 2px;
+    transition: width 0.3s ease;
+}
+
+.sprint-progress-text {
+    font-size: 11px;
+    color: #565f89;
+    margin: 6px 0 12px;
+}
+
+.sprint-items {
+    list-style: none;
+}
+
+.sprint-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    font-size: 13px;
+    line-height: 1.5;
+    color: #a9b1d6;
+    padding: 3px 0;
+}
+
+.sprint-item-dot {
+    flex: none;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    margin-top: 6px;
+    background: #414868;
+}
+.sprint-item-done .sprint-item-dot { background: #9ece6a; }
+.sprint-item-active .sprint-item-dot { background: #7aa2f7; }
+.sprint-item-done { color: #737aa2; text-decoration: line-through; text-decoration-color: #414868; }
+
+/* Backlog — an undated pool, not a timeline. */
+.backlog-pool {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.backlog-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    font-size: 13px;
+    line-height: 1.5;
+    color: #a9b1d6;
+    padding: 6px 0;
+    border-bottom: 1px solid #1e2030;
+}
+
+.backlog-num {
+    flex: none;
+    min-width: 24px;
+    color: #565f89;
+    text-align: right;
 }
 
 /* --- Roadmap Panel --- */
@@ -499,12 +743,36 @@ tbody td {
     align-items: center;
 }
 
+/* The header is space-between with two children. The project name and its
+   branch are grouped so the pair stays left rather than the branch being
+   distributed into the middle. */
+.terminal-header-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+}
+
 .terminal-header .project-name {
     font-size: 13px;
     color: #bb9af7;
 }
 
-.terminal-header-actions {
+.git-branch {
+    font-size: 11px;
+    color: #7dcfff;
+    background: rgba(125, 207, 255, 0.1);
+    border: 1px solid rgba(125, 207, 255, 0.3);
+    border-radius: 4px;
+    padding: 1px 6px;
+    max-width: 240px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.terminal-header-actions,
+.dashboard-header-actions {
     display: flex;
     gap: 8px;
 }
@@ -517,59 +785,6 @@ tbody td {
 .terminal-header .btn-back:hover {
     color: #c0caf5;
     border-color: #c0caf5;
-}
-
-.terminal-header .btn-history {
-    border-color: #7aa2f7;
-    color: #7aa2f7;
-}
-
-.terminal-header .btn-history:hover {
-    background: rgba(122, 162, 247, 0.1);
-}
-
-.terminal-header .btn-history.active {
-    background: rgba(122, 162, 247, 0.25);
-    border-color: #7aa2f7;
-    color: #fff;
-}
-
-#history-banner {
-    display: none;
-    align-items: center;
-    gap: 12px;
-    padding: 6px 16px;
-    background: rgba(122, 162, 247, 0.15);
-    border-bottom: 2px solid #7aa2f7;
-    color: #7aa2f7;
-    font-size: 13px;
-    font-weight: 600;
-}
-
-#history-banner.active {
-    display: flex;
-}
-
-#history-banner .history-hint {
-    color: #565f89;
-    font-weight: 400;
-    font-size: 12px;
-}
-
-#history-banner .btn-exit-history {
-    margin-left: auto;
-    padding: 2px 12px;
-    border: 1px solid #7aa2f7;
-    border-radius: 4px;
-    background: transparent;
-    color: #7aa2f7;
-    cursor: pointer;
-    font-size: 12px;
-}
-
-#history-banner .btn-exit-history:hover {
-    background: rgba(122, 162, 247, 0.2);
-    color: #fff;
 }
 
 .terminal-header .btn-select {
@@ -586,6 +801,18 @@ tbody td {
     background: rgba(158, 206, 106, 0.15);
     border-color: #9ece6a;
     color: #9ece6a;
+}
+
+/* Mobile-only trigger for the milestones overlay (shown in the media query
+   below). Icon button (⚑) to stay compact next to Select/Back. */
+.terminal-header .btn-milestones {
+    display: none;
+    border-color: #7aa2f7;
+    color: #7aa2f7;
+}
+
+.terminal-header .btn-milestones:hover {
+    background: rgba(122, 162, 247, 0.1);
 }
 
 #select-overlay {
@@ -643,9 +870,296 @@ tbody td {
     margin: 0;
 }
 
+/* Milestones overlay (mobile) — mirrors #select-overlay: a full-screen layer
+   over the terminal, opened by the ⚑ header button, dismissed with Done. */
+#milestones-overlay {
+    display: none;
+    flex-direction: column;
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 10;
+    background: #1a1b26;
+    overflow-y: auto;
+}
+
+#milestones-overlay.active {
+    display: flex;
+}
+
+.milestones-overlay-header {
+    position: sticky;
+    top: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 16px;
+    background: #16161e;
+    border-bottom: 1px solid #292e42;
+    z-index: 1;
+}
+
+.milestones-overlay-header .overlay-title {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #565f89;
+}
+
+.milestones-overlay-header .btn-done {
+    border-color: #7aa2f7;
+    color: #7aa2f7;
+}
+
+.milestones-overlay-header .btn-done:hover {
+    background: rgba(122, 162, 247, 0.1);
+}
+
+.milestones-overlay-list {
+    padding: 8px 16px;
+}
+
+/* Roomier rows than the dense sidebar, for a full-screen touch target. */
+.milestones-overlay-list .milestone-item {
+    font-size: 14px;
+    padding: 8px 0;
+}
+
+/* Horizontal split below the terminal header: terminal + project sidebar.
+   min-height/min-width 0 stop the flex children from refusing to shrink,
+   which would otherwise push the sidebar off-screen on narrow desktops. */
+.terminal-body {
+    flex: 1;
+    display: flex;
+    min-height: 0;
+}
+
 #terminal-container {
     flex: 1;
+    min-width: 0;
     background: #1a1b26;
+}
+
+/* --- Project sidebar (desktop) --- */
+
+#docs-sidebar {
+    width: 280px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    background: #16161e;
+    border-left: 1px solid #292e42;
+    overflow: hidden;
+}
+
+/* Collapsed keeps the badge visible — the at-a-glance count is the point of
+   the sidebar, so it must survive the collapse. The rail is sized to hold
+   the badge at its widest ("0/8 ⚠") rather than the toggle, since the badge
+   would otherwise be clipped by the overflow:hidden above. No width
+   transition: xterm is refitted on toggle and would fit mid-animation. */
+#docs-sidebar.collapsed {
+    width: 64px;
+}
+
+#docs-sidebar.collapsed .sidebar-body {
+    display: none;
+}
+
+#docs-sidebar.collapsed .docs-badge {
+    font-size: 11px;
+    padding: 2px 4px;
+}
+
+.sidebar-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px;
+    border-bottom: 1px solid #292e42;
+}
+
+#docs-sidebar.collapsed .sidebar-head {
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 6px;
+}
+
+.sidebar-toggle {
+    background: none;
+    border: none;
+    color: #565f89;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 16px;
+    line-height: 1;
+    padding: 4px 6px;
+    border-radius: 4px;
+}
+
+.sidebar-toggle:hover {
+    color: #c0caf5;
+    background: #292e42;
+}
+
+.docs-badge {
+    font-size: 12px;
+    font-weight: bold;
+    color: #9ece6a;
+    background: rgba(158, 206, 106, 0.12);
+    border: 1px solid rgba(158, 206, 106, 0.35);
+    border-radius: 4px;
+    padding: 2px 6px;
+    cursor: help;
+    white-space: nowrap;
+}
+
+/* Incomplete doc set. ::after adds the warning glyph so the badge text
+   stays exactly the count and nothing has to strip it back off. */
+.docs-badge-warn {
+    color: #f7768e;
+    background: rgba(247, 118, 142, 0.12);
+    border-color: rgba(247, 118, 142, 0.35);
+}
+
+.docs-badge-warn::after {
+    content: ' \26A0';
+}
+
+.sidebar-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px;
+}
+
+.sidebar-section {
+    margin-bottom: 18px;
+}
+
+.sidebar-section:last-child {
+    margin-bottom: 0;
+}
+
+.sidebar-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #565f89;
+    margin-bottom: 8px;
+}
+
+.docs-list {
+    list-style: none;
+}
+
+.docs-item {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    font-size: 12px;
+    padding: 3px 0;
+    cursor: help;
+}
+
+.docs-mark {
+    width: 10px;
+    flex-shrink: 0;
+}
+
+.docs-item-present .docs-mark {
+    color: #9ece6a;
+}
+
+.docs-item-missing .docs-mark {
+    color: #f7768e;
+}
+
+.docs-item-missing .docs-name {
+    color: #565f89;
+}
+
+/* --- Milestones (sidebar) --- */
+
+.milestones-list {
+    list-style: none;
+}
+
+.milestone-item {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    font-size: 12px;
+    line-height: 1.4;
+    padding: 3px 0;
+}
+
+.milestone-mark {
+    width: 12px;
+    flex-shrink: 0;
+    text-align: center;
+}
+
+.milestone-num {
+    flex-shrink: 0;
+    color: #565f89;
+    font-variant-numeric: tabular-nums;
+}
+
+.milestone-title {
+    min-width: 0;
+    word-break: break-word;
+}
+
+/* Finished — a done check, the title dimmed since the work is behind us. */
+.milestone-done .milestone-mark {
+    color: #9ece6a;
+}
+
+.milestone-done .milestone-title {
+    color: #565f89;
+}
+
+/* Current — highlighted so the active milestone reads at a glance. The pill
+   bleeds into the section padding so it spans the sidebar width. */
+.milestone-current {
+    background: rgba(122, 162, 247, 0.1);
+    border-radius: 4px;
+    margin: 0 -6px;
+    padding: 3px 6px;
+}
+
+.milestone-current .milestone-mark {
+    color: #7aa2f7;
+}
+
+.milestone-current .milestone-title {
+    color: #c0caf5;
+    font-weight: 600;
+}
+
+/* Future — muted, still to come. */
+.milestone-future .milestone-mark {
+    color: #414868;
+}
+
+.milestone-future .milestone-title {
+    color: #a9b1d6;
+}
+
+.vision-text {
+    font-size: 12px;
+    line-height: 1.5;
+    color: #c0caf5;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 40vh;
+    overflow-y: auto;
+}
+
+.sidebar-dashboard-btn {
+    width: 100%;
 }
 
 #mobile-input-area {
@@ -663,6 +1177,12 @@ tbody td {
     #terminal-view {
         height: -webkit-fill-available;
         height: 100dvh;
+    }
+
+    /* The project sidebar is desktop-only: it would cost the terminal too
+       much width on a phone, and the dashboard carries the same data. */
+    #docs-sidebar {
+        display: none;
     }
 
     /* Card layout for project list */
@@ -732,9 +1252,14 @@ tbody td {
     /* Terminal adjustments */
     #terminal-container {
         min-height: 0;
+        /* Scrollback is driven from JS touch handlers (terminal.js). Take the
+           gesture off the browser so it does not also pan/zoom or bounce the
+           page while we scroll the terminal. */
+        touch-action: none;
     }
 
-    .terminal-header .btn-select {
+    .terminal-header .btn-select,
+    .terminal-header .btn-milestones {
         display: inline-block;
     }
 

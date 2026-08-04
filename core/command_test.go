@@ -112,63 +112,6 @@ func TestBuildRunnerArgs_Claude_DefaultBehavior(t *testing.T) {
 	}
 }
 
-func TestBuildTmuxCommand_IncludesRunnerEnv(t *testing.T) {
-	cfg := &Config{
-		ProjectName: "test",
-		ProjectDir:  "/tmp",
-		Target:      "dev",
-		Runner:      "copilot",
-		ImagePrefix: "techdelight/claude-runner",
-	}
-	dockerCmd := []string{"docker", "compose", "run", "claude"}
-	result := BuildTmuxCommand(cfg, dockerCmd)
-
-	if !strings.Contains(result, "RUNNER='copilot'") {
-		t.Errorf("tmux command should include RUNNER='copilot', got: %s", result)
-	}
-	if !strings.Contains(result, "IMAGE='techdelight/copilot-runner:dev'") {
-		t.Errorf("tmux command should include copilot-runner IMAGE, got: %s", result)
-	}
-}
-
-func TestBuildTmuxCommand_DefaultRunnerEnv(t *testing.T) {
-	cfg := &Config{
-		ProjectName: "test",
-		ProjectDir:  "/tmp",
-		Target:      "dev",
-	}
-	dockerCmd := []string{"docker", "compose", "run", "claude"}
-	result := BuildTmuxCommand(cfg, dockerCmd)
-
-	if !strings.Contains(result, "RUNNER='claude'") {
-		t.Errorf("tmux command should include RUNNER='claude' by default, got: %s", result)
-	}
-}
-
-func TestBuildTmuxCommand_QuotesDockerArgs(t *testing.T) {
-	cfg := &Config{
-		ProjectName: "my-app",
-		ProjectDir:  "/path/with spaces/project",
-		ScriptDir:   "/home/user",
-		Target:      "dev",
-	}
-	dockerCmd := []string{"docker", "compose", "-f", "/path/with spaces/compose.yml", "run", "--rm", "claude"}
-	result := BuildTmuxCommand(cfg, dockerCmd)
-
-	// Command should start with clear to suppress docker command echo
-	if !strings.HasPrefix(result, "clear && ") {
-		t.Errorf("command should start with 'clear && ', got: %s", result)
-	}
-	// Each docker arg should be individually shell-quoted
-	if !strings.Contains(result, "'/path/with spaces/compose.yml'") {
-		t.Errorf("docker args not quoted, got: %s", result)
-	}
-	// Env exports should also be quoted
-	if !strings.Contains(result, "'/path/with spaces/project'") {
-		t.Errorf("env exports not quoted, got: %s", result)
-	}
-}
-
 func TestBuildExtraArgs_AlwaysMountsSkills(t *testing.T) {
 	cfg := &Config{DataDir: "/data/daedalus"}
 	args := BuildExtraArgs(cfg, nil, nil)
@@ -206,190 +149,110 @@ func TestBuildExtraArgs_MountsDaedalusDir(t *testing.T) {
 
 func TestBuildExtraArgs_WithDinD(t *testing.T) {
 	cfg := &Config{DataDir: "/data", DinD: true}
+	base := len(RunnerVolumeArgs(cfg))
 	args := BuildExtraArgs(cfg, nil, nil)
-	// Should have skills mount (2) + .daedalus mount (2) + DinD mount (2)
-	if len(args) != 6 {
-		t.Fatalf("args = %v, want 6 elements", args)
+	// base runner volume mounts + DinD mount (2)
+	if len(args) != base+2 {
+		t.Fatalf("args = %v, want %d elements", args, base+2)
 	}
-	if args[4] != "-v" || args[5] != "/var/run/docker.sock:/var/run/docker.sock" {
-		t.Errorf("DinD mount not found, got: %v", args[4:])
+	if args[base] != "-v" || args[base+1] != "/var/run/docker.sock:/var/run/docker.sock" {
+		t.Errorf("DinD mount not found, got: %v", args[base:])
 	}
 }
 
 func TestBuildExtraArgs_WithOverlay_ClaudeMd(t *testing.T) {
 	cfg := &Config{DataDir: "/data"}
+	base := len(RunnerVolumeArgs(cfg))
 	overlay := &OverlayPaths{ClaudeMdPath: "/tmp/overlay/CLAUDE.md"}
 	args := BuildExtraArgs(cfg, nil, overlay)
-	// skills mount (2) + .daedalus mount (2) + CLAUDE.md mount (2)
-	if len(args) != 6 {
-		t.Fatalf("args = %v, want 6 elements", args)
+	if len(args) != base+2 {
+		t.Fatalf("args = %v, want %d elements", args, base+2)
 	}
-	if args[4] != "-v" {
-		t.Errorf("args[4] = %q, want %q", args[4], "-v")
+	if args[base] != "-v" {
+		t.Errorf("args[%d] = %q, want %q", base, args[base], "-v")
 	}
 	want := "/tmp/overlay/CLAUDE.md:/workspace/.claude/CLAUDE.md:ro"
-	if args[5] != want {
-		t.Errorf("args[5] = %q, want %q", args[5], want)
+	if args[base+1] != want {
+		t.Errorf("args[%d] = %q, want %q", base+1, args[base+1], want)
 	}
 }
 
 func TestBuildExtraArgs_WithOverlay_Settings(t *testing.T) {
 	cfg := &Config{DataDir: "/data"}
+	base := len(RunnerVolumeArgs(cfg))
 	overlay := &OverlayPaths{SettingsPath: "/tmp/overlay/settings.json"}
 	args := BuildExtraArgs(cfg, nil, overlay)
-	// skills mount (2) + .daedalus mount (2) + settings mount (2)
-	if len(args) != 6 {
-		t.Fatalf("args = %v, want 6 elements", args)
+	if len(args) != base+2 {
+		t.Fatalf("args = %v, want %d elements", args, base+2)
 	}
 	want := "/tmp/overlay/settings.json:/workspace/.claude/settings.json:ro"
-	if args[5] != want {
-		t.Errorf("args[5] = %q, want %q", args[5], want)
+	if args[base+1] != want {
+		t.Errorf("args[%d] = %q, want %q", base+1, args[base+1], want)
 	}
 }
 
 func TestBuildExtraArgs_WithOverlay_Env(t *testing.T) {
 	cfg := &Config{DataDir: "/data"}
+	base := len(RunnerVolumeArgs(cfg))
 	overlay := &OverlayPaths{Env: map[string]string{"FOO": "bar"}}
 	args := BuildExtraArgs(cfg, nil, overlay)
-	// skills mount (2) + .daedalus mount (2) + env (2)
-	if len(args) != 6 {
-		t.Fatalf("args = %v, want 6 elements", args)
+	if len(args) != base+2 {
+		t.Fatalf("args = %v, want %d elements", args, base+2)
 	}
-	if args[4] != "-e" {
-		t.Errorf("args[4] = %q, want %q", args[4], "-e")
+	if args[base] != "-e" {
+		t.Errorf("args[%d] = %q, want %q", base, args[base], "-e")
 	}
-	if args[5] != "FOO=bar" {
-		t.Errorf("args[5] = %q, want %q", args[5], "FOO=bar")
+	if args[base+1] != "FOO=bar" {
+		t.Errorf("args[%d] = %q, want %q", base+1, args[base+1], "FOO=bar")
 	}
 }
 
 func TestBuildExtraArgs_WithOverlay_Full(t *testing.T) {
 	cfg := &Config{DataDir: "/data"}
+	base := len(RunnerVolumeArgs(cfg))
 	overlay := &OverlayPaths{
 		ClaudeMdPath: "/tmp/CLAUDE.md",
 		SettingsPath: "/tmp/settings.json",
 		Env:          map[string]string{"KEY": "val"},
 	}
 	args := BuildExtraArgs(cfg, nil, overlay)
-	// skills (2) + .daedalus (2) + claudemd (2) + settings (2) + env (2) = 10
-	if len(args) != 10 {
-		t.Fatalf("args = %v, want 10 elements", args)
+	// base + claudemd (2) + settings (2) + env (2)
+	if len(args) != base+6 {
+		t.Fatalf("args = %v, want %d elements", args, base+6)
 	}
 }
 
 func TestBuildExtraArgs_NilOverlay(t *testing.T) {
 	cfg := &Config{DataDir: "/data"}
 	args := BuildExtraArgs(cfg, nil, nil)
-	// skills mount (2) + .daedalus mount (2)
-	if len(args) != 4 {
-		t.Fatalf("args = %v, want 4 elements", args)
+	// no extras → exactly the base runner volume mounts
+	if len(args) != len(RunnerVolumeArgs(cfg)) {
+		t.Fatalf("args = %v, want %d elements", args, len(RunnerVolumeArgs(cfg)))
 	}
 }
 
-func TestShellQuote(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected string
-	}{
-		{"simple", "'simple'"},
-		{"with spaces", "'with spaces'"},
-		{"it's", "'it'\\''s'"},
-		{"", "''"},
+func TestRunnerVolumeArgs_MountsSkillsDaedalusSharedTools(t *testing.T) {
+	cfg := &Config{DataDir: "/data", ProjectName: "proj", ProjectDir: "/home/user/proj"}
+	joined := strings.Join(RunnerVolumeArgs(cfg), " ")
+	wants := []string{
+		"/data/skills:/opt/skills",
+		"/home/user/proj/.daedalus:/workspace/.daedalus",
+		"/data/shared/claude-versions:/home/claude/.local/share/claude/versions",
+		"/data/shared/m2:/home/claude/.m2",
+		"/data/tools/proj:/opt/tools",
 	}
-	for _, tc := range tests {
-		got := ShellQuote(tc.input)
-		if got != tc.expected {
-			t.Errorf("ShellQuote(%q) = %q, want %q", tc.input, got, tc.expected)
+	for _, w := range wants {
+		if !strings.Contains(joined, w) {
+			t.Errorf("RunnerVolumeArgs missing %q; got %v", w, RunnerVolumeArgs(cfg))
 		}
 	}
 }
 
-func TestBuildControlSendKeys(t *testing.T) {
-	tests := []struct {
-		name   string
-		target string
-		text   string
-		want   string
-	}{
-		{
-			name:   "single line",
-			target: "claude-foo",
-			text:   "hello",
-			want:   "send-keys -t claude-foo -l 'hello'",
-		},
-		{
-			name:   "empty input",
-			target: "s",
-			text:   "",
-			want:   "send-keys -t s -l ''",
-		},
-		{
-			name:   "embedded single quote",
-			target: "s",
-			text:   "it's",
-			want:   "send-keys -t s -l 'it'\\''s'",
-		},
-		{
-			name:   "two lines LF",
-			target: "s",
-			text:   "ab\ncd",
-			want:   "send-keys -t s -l 'ab' Enter -l 'cd'",
-		},
-		{
-			name:   "trailing newline",
-			target: "s",
-			text:   "ab\n",
-			want:   "send-keys -t s -l 'ab' Enter",
-		},
-		{
-			name:   "leading newline",
-			target: "s",
-			text:   "\nab",
-			want:   "send-keys -t s Enter -l 'ab'",
-		},
-		{
-			name:   "lone newline",
-			target: "s",
-			text:   "\n",
-			want:   "send-keys -t s Enter",
-		},
-		{
-			name:   "blank line between",
-			target: "s",
-			text:   "ab\n\ncd",
-			want:   "send-keys -t s -l 'ab' Enter Enter -l 'cd'",
-		},
-		{
-			name:   "CRLF normalised to LF",
-			target: "s",
-			text:   "ab\r\ncd",
-			want:   "send-keys -t s -l 'ab' Enter -l 'cd'",
-		},
-		{
-			name:   "lone CR treated as newline",
-			target: "s",
-			text:   "ab\rcd",
-			want:   "send-keys -t s -l 'ab' Enter -l 'cd'",
-		},
-		{
-			name:   "tab kept literal",
-			target: "s",
-			text:   "a\tb",
-			want:   "send-keys -t s -l 'a\tb'",
-		},
-		{
-			name:   "key-name-like content stays literal",
-			target: "s",
-			text:   "Enter",
-			want:   "send-keys -t s -l 'Enter'",
-		},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got := BuildControlSendKeys(tc.target, tc.text)
-			if got != tc.want {
-				t.Errorf("BuildControlSendKeys(%q, %q) = %q, want %q", tc.target, tc.text, got, tc.want)
-			}
-		})
+func TestRunnerVolumeHostDirs_CoverAllMounts(t *testing.T) {
+	cfg := &Config{DataDir: "/data", ProjectName: "proj", ProjectDir: "/home/user/proj"}
+	dirs := RunnerVolumeHostDirs(cfg)
+	// one host dir per bind mount
+	if got, want := len(dirs), len(RunnerVolumeArgs(cfg))/2; got != want {
+		t.Errorf("host dirs = %d, want %d (one per mount)", got, want)
 	}
 }

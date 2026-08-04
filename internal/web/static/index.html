@@ -45,33 +45,16 @@
         <div id="dashboard-view">
             <div class="dashboard-header">
                 <span class="project-name" id="dashboard-project-name"></span>
-                <button class="btn btn-back" onclick="showProjectList()">Back</button>
-            </div>
-            <div class="dashboard-content">
-                <div class="dashboard-card">
-                    <div class="dashboard-label">Progress</div>
-                    <div class="progress-bar-container">
-                        <div class="progress-bar" id="dashboard-progress-bar"></div>
-                        <span class="progress-text" id="dashboard-progress-text">0%</span>
-                    </div>
-                </div>
-                <div class="dashboard-card">
-                    <div class="dashboard-label">Version</div>
-                    <div class="dashboard-value" id="dashboard-version">&mdash;</div>
-                </div>
-                <div class="dashboard-card">
-                    <div class="dashboard-label">Sessions</div>
-                    <div class="dashboard-value" id="dashboard-sessions">0</div>
-                </div>
-                <div class="dashboard-card">
-                    <div class="dashboard-label">Total Time</div>
-                    <div class="dashboard-value" id="dashboard-time">&mdash;</div>
-                </div>
-                <div class="dashboard-card dashboard-card-wide">
-                    <div class="dashboard-label">Vision</div>
-                    <div class="dashboard-value dashboard-vision" id="dashboard-vision">&mdash;</div>
+                <div class="dashboard-header-actions">
+                    <button class="btn btn-attach" onclick="attachFromDashboard()">Open</button>
+                    <button class="btn btn-back" onclick="showProjectList()">Back</button>
                 </div>
             </div>
+            <!-- The project journey: Purpose -> Arc -> Backlog, derived from the
+                 project's own documents via one /overview fetch. Populated by
+                 renderJourney(). No ops stats live here — agent activity,
+                 sessions, and running state belong to the session view. -->
+            <div id="journey" class="journey"></div>
             <div class="roadmap-section">
                 <button class="btn btn-roadmap" onclick="togglePanel('strategic-roadmap-panel', this)">Roadmap</button>
                 <button class="btn btn-roadmap" onclick="togglePanel('backlog-panel', this)">Backlog</button>
@@ -100,9 +83,13 @@
         <!-- Terminal View -->
         <div id="terminal-view">
             <div class="terminal-header">
-                <span class="project-name" id="terminal-project-name"></span>
+                <div class="terminal-header-title">
+                    <span class="project-name" id="terminal-project-name"></span>
+                    <span class="git-branch" id="terminal-git-branch" hidden></span>
+                </div>
                 <div class="terminal-header-actions">
-                    <button class="btn btn-history" onclick="requestScrollback(1000)">History</button>
+                    <button class="btn btn-milestones" id="mobile-milestones-btn"
+                            title="Milestones" aria-label="Milestones">&#9873;</button>
                     <button class="btn btn-select" id="mobile-select-btn">Select</button>
                     <button class="btn btn-back" onclick="showProjectList()">Back</button>
                 </div>
@@ -113,12 +100,46 @@
                 </div>
                 <pre id="select-overlay-text"></pre>
             </div>
-            <div id="history-banner">
-                <span>HISTORY MODE</span>
-                <span class="history-hint">Press Esc or any key to return to live terminal</span>
-                <button class="btn btn-exit-history" onclick="exitHistoryMode()">Exit</button>
+            <!-- Mobile-only: the sidebar is hidden under the breakpoint, so the
+                 milestones reach the phone through this full-screen overlay,
+                 opened by the ⚑ header button. Populated by loadMilestones. -->
+            <div id="milestones-overlay">
+                <div class="milestones-overlay-header">
+                    <span class="overlay-title">Milestones</span>
+                    <button class="btn btn-done" id="milestones-done-btn">Done</button>
+                </div>
+                <ol class="milestones-list milestones-overlay-list" id="milestones-overlay-list"></ol>
             </div>
-            <div id="terminal-container"></div>
+            <div class="terminal-body">
+                <div id="terminal-container"></div>
+                <!-- Desktop-only project sidebar: doc health, vision, and the
+                     route to the dashboard (hidden under the mobile breakpoint). -->
+                <aside id="docs-sidebar">
+                    <div class="sidebar-head">
+                        <button class="sidebar-toggle" id="sidebar-toggle"
+                                onclick="toggleSidebar()" title="Collapse">&rsaquo;</button>
+                        <span class="docs-badge" id="docs-badge" title="Loading documents&hellip;">&mdash;</span>
+                    </div>
+                    <div class="sidebar-body">
+                        <div class="sidebar-section">
+                            <div class="sidebar-label">Documents</div>
+                            <ul class="docs-list" id="docs-list"></ul>
+                        </div>
+                        <div class="sidebar-section">
+                            <div class="sidebar-label">Milestones</div>
+                            <ol class="milestones-list" id="milestones-list"></ol>
+                        </div>
+                        <div class="sidebar-section sidebar-section-vision">
+                            <div class="sidebar-label">Vision</div>
+                            <pre class="vision-text" id="sidebar-vision-text"></pre>
+                        </div>
+                        <div class="sidebar-section">
+                            <button class="btn btn-roadmap sidebar-dashboard-btn"
+                                    onclick="showDashboardFromTerminal()">Dashboard &rarr;</button>
+                        </div>
+                    </div>
+                </aside>
+            </div>
             <div id="mobile-input-area">
                 <textarea id="mobile-input" placeholder="Type command..." rows="1"
                           autocomplete="off" autocorrect="off" autocapitalize="off"
@@ -196,28 +217,12 @@
                         ${p.running
                             ? `<button class="btn btn-attach" onclick="attachProject('${escapeHtml(p.name)}')">Attach</button>
                                <button class="btn btn-stop" onclick="stopProject('${escapeHtml(p.name)}')">Stop</button>`
-                            : `<button class="btn btn-start" onclick="startProject('${escapeHtml(p.name)}')">Start</button>
+                            : `<button class="btn btn-attach" onclick="attachProject('${escapeHtml(p.name)}')">Open</button>
                                <button class="btn btn-rename" onclick="renameProject('${escapeHtml(p.name)}')">Rename</button>`
                         }
                     </td>
                 </tr>
             `).join('');
-        }
-
-        async function startProject(name) {
-            setStatus('Starting ' + name + '...');
-            try {
-                const resp = await fetch(`/api/projects/${encodeURIComponent(name)}/start`, {method: 'POST'});
-                if (!resp.ok) {
-                    const text = await resp.text();
-                    setStatus('Error: ' + text);
-                    return;
-                }
-                setStatus('Started ' + name);
-                fetchProjects();
-            } catch (err) {
-                setStatus('Error: ' + err.message);
-            }
         }
 
         async function stopProject(name) {
@@ -261,25 +266,41 @@
         async function showDashboard(name) {
             // Stop refresh
             if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
-            // Fetch dashboard data
-            const resp = await fetch(`/api/projects/${encodeURIComponent(name)}/dashboard`);
-            if (!resp.ok) { setStatus('Error loading dashboard'); return; }
-            const data = await resp.json();
-            // Populate UI
-            document.getElementById('dashboard-project-name').textContent = data.name;
-            document.getElementById('dashboard-progress-bar').style.width = data.progressPct + '%';
-            document.getElementById('dashboard-progress-text').textContent = data.progressPct + '%';
-            document.getElementById('dashboard-version').textContent = data.projectVersion || '\u2014';
-            document.getElementById('dashboard-sessions').textContent = data.sessionCount;
-            document.getElementById('dashboard-time').textContent = formatDuration(data.totalTimeSec);
-            document.getElementById('dashboard-vision').textContent = data.vision || '\u2014';
+            // Fetch dashboard data before touching the view. Nothing is torn
+            // down until the data is in hand: an early return here can come
+            // from an attached session, where project-view is already hidden,
+            // so dropping the terminal first would strand every view hidden
+            // with the session killed.
+            let data;
+            try {
+                const resp = await fetch(`/api/projects/${encodeURIComponent(name)}/overview`);
+                if (!resp.ok) throw new Error('overview request failed');
+                data = await resp.json();
+            } catch (err) {
+                setStatus('Error loading dashboard');
+                // Stay put. Resume the list refresh only if the list is what
+                // we're still looking at — a caller attached to a session
+                // deliberately runs with no refresh.
+                const onList = !document.getElementById('project-view').classList.contains('hidden');
+                if (onList && !refreshTimer) refreshTimer = setInterval(fetchProjects, 5000);
+                return;
+            }
+            // Populate UI. The name lives on the path we navigated by, not in
+            // the overview payload, which is purely the project's own documents.
+            document.getElementById('dashboard-project-name').textContent = name;
+            renderJourney(data);
             // Reset all panels
             ['strategic-roadmap-panel', 'backlog-panel', 'sprints-panel'].forEach(id => {
                 const p = document.getElementById(id);
                 p.style.display = 'none';
                 p.innerHTML = '';
             });
-            // Show dashboard view
+            // Show dashboard view. The dashboard is reachable from an attached
+            // session, so drop the terminal here — atomically with the view
+            // swap, never before the fetch that might fail. disconnectTerminal
+            // is null-guarded, so this is a no-op when arriving from the list.
+            disconnectTerminal();
+            document.getElementById('terminal-view').classList.remove('active');
             document.getElementById('project-view').classList.add('hidden');
             document.getElementById('guild-view').classList.remove('active');
             if (typeof hideGuildView === 'function') hideGuildView();
@@ -288,6 +309,111 @@
             loadStrategicRoadmap(name);
             loadBacklog(name);
             loadSprints(name);
+        }
+
+        // renderJourney paints the whole /overview payload as the project's
+        // story: Purpose -> The Arc -> Backlog. Every string here is
+        // file-derived, so every one goes through escapeHtml — this is the
+        // one place project documents reach the DOM as markup.
+        function renderJourney(data) {
+            const el = document.getElementById('journey');
+            const vision = (data.vision || '').trim();
+            const milestones = Array.isArray(data.milestones) ? data.milestones : [];
+            const sprint = data.currentSprint || null;
+            const backlog = Array.isArray(data.backlog) ? data.backlog : [];
+            let html = '';
+
+            // Purpose — VISION.md, rendered as prose.
+            html += '<section class="journey-section"><h2 class="journey-heading">Purpose</h2>';
+            html += vision
+                ? '<div class="purpose-prose">' + renderProse(vision) + '</div>'
+                : '<p class="journey-empty">No VISION.md yet.</p>';
+            html += '</section>';
+
+            // The Arc — the milestone spine, with the current sprint nested
+            // inside the milestone it advances.
+            html += '<section class="journey-section"><h2 class="journey-heading">The Arc</h2>';
+            if (milestones.length) {
+                html += '<ol class="arc">';
+                milestones.forEach(m => {
+                    const status = m.status || 'Planned';
+                    const cls = status === 'Done' ? 'done'
+                        : status === 'In Progress' ? 'active' : 'planned';
+                    html += '<li class="arc-node arc-' + cls + '">';
+                    html += '<div class="arc-marker"></div><div class="arc-body">';
+                    html += '<div class="arc-head"><span class="arc-title">' + escapeHtml(m.title) + '</span>';
+                    html += '<span class="arc-status">' + escapeHtml(status) + '</span></div>';
+                    if (m.description) html += '<div class="arc-desc">' + renderProse(m.description) + '</div>';
+                    if (sprint && sprint.milestone === m.number) html += renderSprint(sprint, false);
+                    html += '</div></li>';
+                });
+                html += '</ol>';
+                // A current sprint linked to no milestone (or one the roadmap
+                // doesn't define) still belongs on the page — show it loose
+                // rather than swallow it.
+                if (sprint && !milestones.some(m => m.number === sprint.milestone)) {
+                    html += renderSprint(sprint, true);
+                }
+            } else {
+                html += '<p class="journey-empty">No ROADMAP.md milestones yet.</p>';
+                if (sprint) html += renderSprint(sprint, true);
+            }
+            html += '</section>';
+
+            // Backlog — the undated pool.
+            html += '<section class="journey-section"><h2 class="journey-heading">Backlog';
+            html += '<span class="journey-count">' + backlog.length + '</span></h2>';
+            if (backlog.length) {
+                html += '<ul class="backlog-pool">';
+                backlog.forEach(item => {
+                    html += '<li class="backlog-item"><span class="backlog-num">'
+                        + escapeHtml(String(item.number)) + '</span>'
+                        + escapeHtml(item.description || '') + '</li>';
+                });
+                html += '</ul>';
+            } else {
+                html += '<p class="journey-empty">Backlog is empty.</p>';
+            }
+            html += '</section>';
+
+            el.innerHTML = html;
+        }
+
+        // renderSprint draws the current sprint as a nested card. `orphan` is
+        // true when it hangs off no milestone, which changes only its framing.
+        function renderSprint(sprint, orphan) {
+            const items = Array.isArray(sprint.items) ? sprint.items : [];
+            const done = items.filter(i => i.status === 'Done').length;
+            const pct = items.length ? Math.round(done / items.length * 100) : 0;
+            let h = '<div class="sprint-card' + (orphan ? ' sprint-orphan' : '') + '">';
+            h += '<div class="sprint-head"><span class="sprint-label">Current Sprint</span>';
+            h += '<span class="sprint-title">Sprint ' + escapeHtml(String(sprint.number)) + ': '
+                + escapeHtml(sprint.title) + '</span>';
+            if (sprint.version) h += '<span class="sprint-version">v' + escapeHtml(sprint.version) + '</span>';
+            h += '</div>';
+            if (sprint.goal) h += '<div class="sprint-goal">' + escapeHtml(sprint.goal) + '</div>';
+            if (items.length) {
+                h += '<div class="sprint-progress"><div class="sprint-progress-bar" style="width:' + pct + '%"></div></div>';
+                h += '<div class="sprint-progress-text">' + done + ' / ' + items.length + ' done</div>';
+                h += '<ul class="sprint-items">';
+                items.forEach(it => {
+                    const st = it.status || '';
+                    const cls = st === 'Done' ? 'done' : st === 'In Progress' ? 'active' : 'pending';
+                    h += '<li class="sprint-item sprint-item-' + cls + '"><span class="sprint-item-dot"></span>'
+                        + escapeHtml(it.description || '') + '</li>';
+                });
+                h += '</ul>';
+            }
+            h += '</div>';
+            return h;
+        }
+
+        // renderProse turns blank-line-separated markdown into paragraphs,
+        // escaping every character — file content is never trusted as markup.
+        function renderProse(text) {
+            return String(text).split(/\n\s*\n/).map(p =>
+                '<p>' + escapeHtml(p.trim()).replace(/\n/g, '<br>') + '</p>'
+            ).join('');
         }
 
         function togglePanel(panelId, btn) {
@@ -382,10 +508,16 @@
         function attachProject(name) {
             document.title = name + ' \u2014 Daedalus';
 
-            // Switch to terminal view
+            // Switch to terminal view. The dashboard is cleared explicitly:
+            // attaching can now come from the dashboard as well as the list,
+            // and both views are display-driven by .active, so leaving it set
+            // would render the two on top of each other.
             document.getElementById('project-view').classList.add('hidden');
+            document.getElementById('dashboard-view').classList.remove('active');
             document.getElementById('terminal-view').classList.add('active');
             document.getElementById('terminal-project-name').textContent = name;
+
+            loadSidebar(name);
 
             // Stop auto-refresh while in terminal
             if (refreshTimer) {
@@ -408,6 +540,156 @@
 
             fetchProjects();
             refreshTimer = setInterval(fetchProjects, 5000);
+        }
+
+        // --- Project sidebar (desktop) ---
+
+        const SIDEBAR_COLLAPSED_KEY = 'daedalus-sidebar-collapsed';
+
+        // Leaves the session for the dashboard. Reads the project from the
+        // header rather than a global, matching togglePanel's approach.
+        function showDashboardFromTerminal() {
+            const name = document.getElementById('terminal-project-name').textContent;
+            if (name) showDashboard(name);
+        }
+
+        // The reciprocal route: dashboard back into the session.
+        function attachFromDashboard() {
+            const name = document.getElementById('dashboard-project-name').textContent;
+            if (name) attachProject(name);
+        }
+
+        function applySidebarState() {
+            const collapsed = localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1';
+            const toggle = document.getElementById('sidebar-toggle');
+            document.getElementById('docs-sidebar').classList.toggle('collapsed', collapsed);
+            toggle.innerHTML = collapsed ? '&lsaquo;' : '&rsaquo;';
+            toggle.title = collapsed ? 'Expand' : 'Collapse';
+        }
+
+        function toggleSidebar() {
+            const collapsed = localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1';
+            localStorage.setItem(SIDEBAR_COLLAPSED_KEY, collapsed ? '0' : '1');
+            applySidebarState();
+            // The terminal just got wider or narrower. terminal.js fits xterm
+            // on window resize and its onResize handler sends the new size to
+            // the server, so one synthetic event refits the view and resizes
+            // the PTY. rAF lets layout settle first.
+            requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
+        }
+
+        function loadSidebar(name) {
+            applySidebarState();
+            loadDocs(name);
+            loadMilestones(name);
+            loadVision(name);
+        }
+
+        // Builds the milestone list markup in roadmap order, so the finished
+        // ones (✓) sit above the current one (● highlighted) and the future
+        // ones (○) below — the arc at a glance. Every string is file-derived,
+        // so it goes through escapeHtml.
+        function renderMilestonesHTML(milestones) {
+            if (!milestones.length) {
+                return '<li class="empty-state">No ROADMAP.md milestones.</li>';
+            }
+            return milestones.map(m => {
+                const status = m.status || 'Planned';
+                const cls = status === 'Done' ? 'done'
+                    : status === 'In Progress' ? 'current' : 'future';
+                const mark = status === 'Done' ? '✓'
+                    : status === 'In Progress' ? '●' : '○';
+                return `<li class="milestone-item milestone-${cls}" title="${escapeHtml(status)}">
+                    <span class="milestone-mark">${mark}</span>
+                    <span class="milestone-num">${escapeHtml(String(m.number))}</span>
+                    <span class="milestone-title">${escapeHtml(m.title)}</span>
+                </li>`;
+            }).join('');
+        }
+
+        // One fetch fills both surfaces: the desktop sidebar list and the
+        // mobile full-screen overlay list (the sidebar is hidden under the
+        // breakpoint, the overlay is shown only above it — but both live in the
+        // DOM, so we populate whichever is present).
+        async function loadMilestones(name) {
+            const sidebar = document.getElementById('milestones-list');
+            const overlay = document.getElementById('milestones-overlay-list');
+            const fill = html => { if (sidebar) sidebar.innerHTML = html; if (overlay) overlay.innerHTML = html; };
+            try {
+                const resp = await fetch(`/api/projects/${encodeURIComponent(name)}/milestones`);
+                if (!resp.ok) throw new Error('failed to load milestones');
+                const data = await resp.json();
+                const milestones = Array.isArray(data.milestones) ? data.milestones : [];
+                fill(renderMilestonesHTML(milestones));
+            } catch (err) {
+                fill('<li class="empty-state">Could not load milestones.</li>');
+            }
+        }
+
+        async function loadDocs(name) {
+            const badge = document.getElementById('docs-badge');
+            const list = document.getElementById('docs-list');
+            try {
+                const resp = await fetch(`/api/projects/${encodeURIComponent(name)}/docs`);
+                if (!resp.ok) throw new Error('failed to load documents');
+                const data = await resp.json();
+
+                badge.textContent = `${data.present}/${data.total}`;
+                const complete = data.missing.length === 0;
+                badge.classList.toggle('docs-badge-warn', !complete);
+                badge.title = complete
+                    ? 'All required documents present'
+                    : 'Missing: ' + data.missing.join(', ');
+
+                list.innerHTML = data.docs.map(d => `
+                    <li class="docs-item ${d.present ? 'docs-item-present' : 'docs-item-missing'}"
+                        title="${escapeHtml(d.filename)} — ${escapeHtml(d.description)}">
+                        <span class="docs-mark">${d.present ? '✓' : '✗'}</span>
+                        <span class="docs-name">${escapeHtml(d.name)}</span>
+                    </li>`).join('');
+            } catch (err) {
+                badge.textContent = '—';
+                badge.title = 'Could not load documents';
+                badge.classList.remove('docs-badge-warn');
+                list.innerHTML = '<li class="empty-state">Could not load documents.</li>';
+            }
+        }
+
+        // --- Git branch (session header) ---
+
+        // Rendered purely from what the server pushes over the session
+        // WebSocket: it sends the branch on attach and again whenever it
+        // changes, so there is no timer and no polling here. terminal.js
+        // calls this on a "branch" message. An empty branch (no repo, or a
+        // detached HEAD) hides the pill.
+        function setGitBranch(branch) {
+            const el = document.getElementById('terminal-git-branch');
+            if (!el) return;
+            el.textContent = branch || '';
+            el.title = branch ? 'Current git branch' : '';
+            el.hidden = !branch;
+        }
+
+        async function loadVision(name) {
+            const el = document.getElementById('sidebar-vision-text');
+            try {
+                const resp = await fetch(`/api/projects/${encodeURIComponent(name)}/vision`);
+                // 404 is the documented "no VISION.md" answer, not a failure:
+                // it must read as an empty state rather than an error, or a
+                // project that simply hasn't written one looks broken.
+                if (resp.status === 404) {
+                    el.textContent = 'No VISION.md found.';
+                    el.classList.add('empty-state');
+                    return;
+                }
+                if (!resp.ok) throw new Error('failed to load vision');
+                const data = await resp.json();
+                el.textContent = data.content;
+                el.classList.remove('empty-state');
+            } catch (err) {
+                el.textContent = 'Could not load vision.';
+                el.classList.add('empty-state');
+            }
         }
 
         function setStatus(msg) {

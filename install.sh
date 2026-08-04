@@ -27,7 +27,7 @@ UNINSTALL=false
 usage() {
     cat <<EOF
 Usage: $0 [--prefix <dir>] [--link-name <name>] [--no-link]
-          [--container-prefix <p>] [--tmux-prefix <p>] [--image-prefix <p>]
+          [--container-prefix <p>] [--image-prefix <p>]
           [--uninstall] [--verbose]
 
 Install options:
@@ -37,7 +37,6 @@ Install options:
 
 Test-isolation options (parallel install alongside production):
   --container-prefix <p>   Override docker container name prefix (default: claude-run-)
-  --tmux-prefix <p>        Override tmux session name prefix (default: claude-)
   --image-prefix <p>       Override docker image prefix (default: techdelight/claude-runner)
 
 Maintenance:
@@ -72,11 +71,6 @@ while [[ $# -gt 0 ]]; do
         --container-prefix)
             [[ $# -lt 2 ]] && { echo "Error: --container-prefix requires a prefix argument." >&2; exit 1; }
             FORWARD_ARGS+=("--container-prefix" "$2")
-            shift 2
-            ;;
-        --tmux-prefix)
-            [[ $# -lt 2 ]] && { echo "Error: --tmux-prefix requires a prefix argument." >&2; exit 1; }
-            FORWARD_ARGS+=("--tmux-prefix" "$2")
             shift 2
             ;;
         --image-prefix)

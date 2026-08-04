@@ -18,33 +18,27 @@ Programme definitions with dependency graphs, MCP-based progress reporting, and 
 
 tmux control mode (`-C`) for structured terminal I/O: native scrollback, resize handling, live-capture, history mode. Eliminates raw PTY quirks and enables machine-parseable agent events.
 
-### Milestone 4: Layered Runner/Coordinator Architecture (In Progress)
+### Milestone 4: Layered Runner/Coordinator Architecture (Done)
 
 Introduce daedalus-runner (in-container PID-1 process wrapping a runner via per-runner adapter), a central coordinator daemon with an API, and thin CLI/TUI/Web clients of that API. Replaces the current pattern where each UI talks to tmux directly.
 
-### Milestone 5: Self-Sustaining Operations
+### Milestone 5: Self-Sustaining Operations (Done)
 
 - Shared Docker volumes (Claude versions, Maven `.m2`) to reduce disk usage
-- Container snapshotting for tool persistence across restarts
+- Persistent per-project tools volume (`/opt/tools`) for runtime-installed tools
 - Automatic trust prompt handling
 - Mobile WebSocket stability
-- Homebrew distribution
 
 ## Phasing
 
 ```
-M1 (Done) ──► M2 (Done) ──► M3 (Done) ──► M4 (In Progress) ──► M5
-Container      Programme      Terminal      Layered              Self-sustaining
-Runtime        Topology       Fidelity      Stack                Operations
+M1 (Done) ──► M2 (Done) ──► M3 (Done) ──► M4 (Done) ──► M5 (Done)
+Container      Programme      Terminal      Layered         Self-sustaining
+Runtime        Topology       Fidelity      Stack           Operations
 ```
 
 ## Current Focus
 
-Milestone 4: Layered Runner / Coordinator Architecture, mid-flight.
+Milestones M1–M5 are all complete. Milestone 5 (Self-Sustaining Operations) was verified end-to-end on real Docker in Sprint 43 and shipped in **v0.40.0** — shared Claude/Maven caches (#37/#21), a per-project tools volume (#27), mobile-WebSocket resilience (#29), Dockerfile layer efficiency + pinned/checksum-verified installers (#51), the coordinator-mount fix (#55), and idempotent trust handling. The classic tmux launch path was retired (the Milestone 4 tail); the runner/coordinator stack is now the sole architecture.
 
-- **v0.38.0** shipped the runner foundation — `daedalus-runner` PID-1 binary, `runproto` wire protocol, host-side `runclient`, per-runner adapters, and an in-process `coordinator`. CLI (`DAEDALUS_USE_RUNNER=1`) and Web (`?mode=runner`) can attach through the runner socket today, opt-in.
-- **v0.39.0** (Sprint 40, complete on `master` awaiting release) promoted the coordinator to a real daemon: `daedalus-coordinator` binary with an HTTP-over-Unix-socket API, a Go client, ssh-agent-style auto-spawn, and `sessions.json` persistence with `docker ps` reconciliation across restarts. The CLI and Web both go through the daemon; sessions are now host-wide discoverable.
-
-Remaining for M4: migrate the TUI list to the coordinator client, make the runner path the default (drop `DAEDALUS_USE_RUNNER=1`), retire the tmux launch path once feature parity is reached, and address the trust-prompt handling gap that surfaces under the runner path (Backlog #38).
-
-See `BACKLOG.md` for work items and `SPRINTS.md` for sprint execution.
+The next milestone is not yet defined — candidate work lives in `BACKLOG.md`; `SPRINTS.md` tracks sprint execution.
