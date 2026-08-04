@@ -1,11 +1,28 @@
 # Milestone 5 — Host Verification Checklist
 
 Milestone 5 was implemented in an environment without a Docker daemon or a
-browser, so every image/container/volume/mobile behaviour is code-complete but
+browser, so every image/container/volume behaviour is code-complete but
 **unverified**. This checklist maps each assumption from the execution report
 to a concrete build/run step to tick off **on a Docker-capable host**. Full
 context: [milestone-5-plan.md](milestone-5-plan.md); the `[Unreleased]`
 CHANGELOG records the same assumptions.
+
+**These are the steps that cannot run in the container-only dev environment** —
+they need a machine with a Docker daemon and (for the runtime checks) Claude /
+Copilot credentials. Everything that *could* be verified statically or with a
+unit/shell test already has been.
+
+## Status (Sprint 43)
+
+| Sprint 43 item | State |
+|---|---|
+| 4 — Mobile #29 | ✅ Done — verified on a real phone |
+| 7 — Retire tmux | ✅ Done — code-only, landed |
+| 3 — Trust idempotency | 🔶 Logic regression-tested + entrypoint hardened; **on-image confirmation below** is the remaining step |
+| 5 — Installer pins | 🔶 Implemented (pinned + checksum-verified by the installers); **on-build confirmation below** |
+| 1 — Dockerfile build/cache | ⬜ Pending — needs a host build |
+| 2 — Runtime mounts (uid risk) | ⬜ Pending — needs a host run |
+| 6 — Maven overlay | ⬜ Deferred — only if the shared `.m2` shows pollution |
 
 ## Preconditions
 
@@ -52,28 +69,51 @@ Run a real project on the runner path and inspect the mounts.
 
 ## 3. Trust-prompt idempotency
 
+The config transform is already regression-tested off-host — the entrypoint's
+jq force-set is exercised against old-cache fixtures by
+`scripts/test-trust-idempotency.sh` (in CI), and the patch is hardened to be
+non-fatal so a malformed cache can't crash startup. What's left is confirming
+the *behaviour* against real Claude:
+
+- [ ] `bash scripts/test-trust-idempotency.sh` is green (fast, no Docker — run
+      it first as a smoke check of the filter itself).
 - [ ] On an **older project cache** whose `.claude.json` predates the trust
-      keys, start the project and confirm the "trust this folder?" dialog does
-      **not** fire (the entrypoint force-set patched it in).
+      keys (or carries `hasTrustDialogAccepted: false`), start the project and
+      confirm the "trust this folder?" dialog does **not** fire (the entrypoint
+      force-set patched it in). Simulate an old cache by editing
+      `<DataDir>/<project>/.claude-config/.claude.json` to drop the
+      `projects["/workspace"]` trust keys, then start the project.
 
-## 4. Mobile WebSocket resilience (#29)
+## 4. Mobile WebSocket resilience (#29) — ✅ DONE
 
-- [ ] On a phone, open the Web UI terminal; **background the tab** for >1 min →
-      returning reconnects and repaints (not `[Connection closed]`).
-- [ ] **Switch Wi-Fi ↔ cellular** mid-session → auto-reconnect within the
-      backoff window; the screen repaints via replay.
-- [ ] Desktop: kill the network briefly → `[Connection lost — reconnecting…]`
-      then recovery; a deliberate navigation still shows `[Connection closed]`
-      (intentional-close flag works).
+Verified on a real phone (Sprint 43 item 4): backgrounding the tab and
+switching Wi-Fi ↔ cellular both reconnect and repaint; a deliberate navigation
+still closes cleanly. No further host steps.
 
-## 5. Deferred — close after the above pass
+## 5. Installer pins (#51) — implemented, confirm on build
 
-- [ ] **#51 installer pinning** — pin the Claude and Copilot installers to a
-      known version + checksum (the `TODO(#51)` markers), removing the unpinned
-      `curl | bash` supply-chain risk.
-- [ ] **#21 Maven overlay** — if the single shared writable `.m2` shows
-      cross-project pollution problems, move to a read-only shared base + a
-      per-project writable overlay.
+The Claude and Copilot installers are now version-pinned via Dockerfile build
+args (`CLAUDE_VERSION`, `COPILOT_VERSION`), replacing the unpinned `latest`
+`curl | bash`. Both installers verify the downloaded binary's SHA-256 (Claude
+against Anthropic's release `manifest.json`; Copilot against the release's
+`SHA256SUMS.txt`), so the binaries are checksum-verified. Confirm on a build:
+
+- [ ] `docker build --target dev -t daedalus:m5 .` succeeds with the pinned
+      `CLAUDE_VERSION`; inside the image, `claude --version` reports it (or a
+      newer runtime auto-update — the pin is the install floor).
+- [ ] `docker build --target copilot-dev -t daedalus:m5 .` succeeds; inside the
+      image, `copilot --version` reports the pinned `COPILOT_VERSION`.
+- [ ] Override works: `docker build --target dev --build-arg CLAUDE_VERSION=stable .`
+      builds (proves the arg is wired), and a bad pin fails fast (expected).
+- [ ] Bump procedure: update the `ARG CLAUDE_VERSION` / `ARG COPILOT_VERSION`
+      defaults in the `Dockerfile` to a newer released version when refreshing
+      the floor.
+
+## 6. Deferred — Maven overlay (#21)
+
+- [ ] If the single shared writable `.m2` shows cross-project pollution
+      problems, move to a read-only shared base + a per-project writable
+      overlay.
 
 ## Verdict
 

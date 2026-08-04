@@ -38,12 +38,18 @@ its first, code-complete-but-unverified, slice.
 ### Changed
 - **All three UIs go through the coordinator daemon.** The TUI was migrated off
   tmux to the runner path (runner-only); the CLI and Web already were. `daedalus
-  web` shows a runner-mode badge and an "Open" action that autostarts a session
-  via the coordinator — no CLI pre-launch.
+  web` offers an "Open" action that autostarts a session via the coordinator —
+  no CLI pre-launch.
 - **The per-project dashboard is the project's journey** (Purpose → Arc →
   Backlog), replacing the five-KPI grid that read agent-self-reported data.
 - **`PROJECT-INIT.md` reconciled** to the structured-docs model and moved under
   `docs/`.
+- **Installers are version-pinned** (#51, supply-chain) — the Dockerfile pins
+  the Claude and Copilot CLIs via `CLAUDE_VERSION` / `COPILOT_VERSION` build
+  args instead of unpinned `latest` `curl | bash`. Both installers verify the
+  downloaded binary's SHA-256 (Claude against the release `manifest.json`,
+  Copilot against `SHA256SUMS.txt`). Claude auto-updates at runtime via the
+  shared versions cache, so the pin is an install floor, not a freeze.
 
 ### Fixed
 - **#38 — the Web UI no longer hangs on the trust prompt** on the runner path;

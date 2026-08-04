@@ -24,12 +24,17 @@ RUN mkdir -p /workspace && chown claude:claude /workspace
 
 USER claude
 
-# WARNING: This downloads and executes an unverified script from claude.ai.
-# The URL is not version-pinned and has no checksum verification.
-# If supply-chain integrity is a concern, audit /tmp/install.sh before building.
-# TODO(#51): pin the Claude installer to a known version + checksum.
+# Claude CLI, pinned to a specific version (#51, supply-chain). The bootstrap
+# script takes the version/channel as its first argument; passing a fixed
+# CLAUDE_VERSION makes the build reproducible instead of tracking bleeding-edge
+# `latest`, and the installer itself verifies the downloaded binary's SHA-256
+# against Anthropic's release manifest.json (so the binary is checksum-verified;
+# the bootstrap script is still fetched fresh, the residual, lower risk).
+# Claude auto-updates at runtime via the shared versions cache, so this is a
+# floor, not a freeze. Bump with --build-arg CLAUDE_VERSION=X.Y.Z (or 'stable').
+ARG CLAUDE_VERSION=2.1.221
 RUN curl -fsSL https://claude.ai/install.sh > /tmp/install.sh && \
-    chmod u+x /tmp/install.sh && cd /tmp && ./install.sh
+    chmod u+x /tmp/install.sh && cd /tmp && ./install.sh "${CLAUDE_VERSION}"
 
 USER root
 RUN mv /home/claude/.local /opt/claude && \
@@ -127,8 +132,12 @@ USER claude
 FROM agent-base AS copilot-base-base
 
 USER claude
-# TODO(#51): pin the Copilot installer to a known version + checksum.
-RUN echo 'n' | curl -fsSL https://gh.io/copilot-install | bash
+# Copilot CLI, pinned to a specific version (#51, supply-chain). The installer
+# reads the VERSION env var (default `latest`); pinning it makes the build
+# reproducible, and the installer verifies the downloaded binary's SHA-256
+# against the release's SHA256SUMS.txt. Bump with --build-arg COPILOT_VERSION=vX.Y.Z.
+ARG COPILOT_VERSION=v1.0.78
+RUN echo 'n' | curl -fsSL https://gh.io/copilot-install | VERSION="${COPILOT_VERSION}" bash
 
 USER root
 RUN mv /home/claude/.local/bin/copilot /usr/local/bin/copilot
