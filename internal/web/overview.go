@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 
 	"github.com/techdelight/daedalus/core"
 )
@@ -160,4 +161,84 @@ func (ws *WebServer) lookupProject(w http.ResponseWriter, r *http.Request) (core
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(v)
+}
+
+// milestoneSprintJSON is one sprint in the active-milestone pipeline, tagged
+// with its derived ship-pipeline phase and item progress (Milestone 6).
+type milestoneSprintJSON struct {
+	Number  int              `json:"number"`
+	Title   string           `json:"title"`
+	Version string           `json:"version,omitempty"`
+	Phase   core.SprintPhase `json:"phase"`
+	Done    int              `json:"done"`
+	Total   int              `json:"total"`
+}
+
+// milestoneSprintsJSON is the response for the milestone-sprints endpoint: the
+// active (In Progress) milestone and its sprints, each phased. ActiveMilestone
+// is null when no milestone is In Progress — a valid state the sidebar renders
+// as "no active milestone".
+type milestoneSprintsJSON struct {
+	ActiveMilestone *core.Milestone       `json:"activeMilestone"`
+	Sprints         []milestoneSprintJSON `json:"sprints"`
+}
+
+// handleMilestoneSprints returns the active milestone and its sprints, framed
+// by ship-pipeline phase (Milestone 6) — the sidebar renders it as a
+// Building → Ready → Shipped (+ Proposed) pipeline for the milestone in flight.
+func (ws *WebServer) handleMilestoneSprints(w http.ResponseWriter, r *http.Request) {
+	entry, ok := ws.lookupProject(w, r)
+	if !ok {
+		return
+	}
+
+	milestones, err := readMilestones(entry.Directory)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("reading milestones: %v", err), http.StatusInternalServerError)
+		return
+	}
+	sprintData, err := readSprints(entry.Directory)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("reading sprints: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	resp := milestoneSprintsJSON{Sprints: []milestoneSprintJSON{}}
+	if active := activeMilestone(milestones); active != nil {
+		resp.ActiveMilestone = active
+		for _, s := range core.ParseSprints(string(sprintData)) {
+			if s.Milestone != active.Number {
+				continue
+			}
+			done, total := core.SprintProgress(s)
+			resp.Sprints = append(resp.Sprints, milestoneSprintJSON{
+				Number:  s.Number,
+				Title:   s.Title,
+				Version: s.Version,
+				Phase:   core.PhaseOf(s),
+				Done:    done,
+				Total:   total,
+			})
+		}
+		// Newest sprint first. The frontend groups by phase, so this only
+		// orders within a bucket (e.g. shipped sprints most-recent-first).
+		sort.Slice(resp.Sprints, func(i, j int) bool {
+			return resp.Sprints[i].Number > resp.Sprints[j].Number
+		})
+	}
+	writeJSON(w, resp)
+}
+
+// activeMilestone returns a copy of the first milestone marked In Progress, or
+// nil when none is — the roadmap's "what are we working on now". A copy so the
+// caller can take its address for the nullable JSON field without aliasing the
+// slice's backing array.
+func activeMilestone(milestones []core.Milestone) *core.Milestone {
+	for i := range milestones {
+		if milestones[i].Status == core.StatusInProgress {
+			m := milestones[i]
+			return &m
+		}
+	}
+	return nil
 }

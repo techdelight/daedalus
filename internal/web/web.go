@@ -163,6 +163,7 @@ func (ws *WebServer) RegisterRoutes(mux *http.ServeMux) {
 	// /milestones serves the arc alone for any caller that wants just it.
 	mux.HandleFunc("GET /api/projects/{name}/overview", ws.handleOverview)
 	mux.HandleFunc("GET /api/projects/{name}/milestones", ws.handleMilestones)
+	mux.HandleFunc("GET /api/projects/{name}/milestone-sprints", ws.handleMilestoneSprints)
 
 	// terminal.go
 	mux.HandleFunc("GET /api/projects/{name}/terminal", ws.handleTerminal)

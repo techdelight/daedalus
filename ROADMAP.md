@@ -29,16 +29,33 @@ Introduce daedalus-runner (in-container PID-1 process wrapping a runner via per-
 - Automatic trust prompt handling
 - Mobile WebSocket stability
 
+### Milestone 6: Roadmap Hierarchy, Made Visible (Done)
+
+From any project, the milestone → sprint hierarchy is visible at a glance,
+with sprints framed for how the tool actually works — verified batches that
+cut a release, not calendar timeboxes.
+
+- The active milestone and its sprints surface in the session sidebar
+- Sprints are shown by ship-pipeline state — Building → Ready → Shipped (+ optional Proposed) — not by calendar time
+- The verify/ship gate ("Ready": built but not yet released) is first-class; "active milestone, no sprints yet" is a valid, non-empty view
+
+### Milestone 7: Trustworthy, File-Derived Project State (In Progress)
+
+The project's own files — not agent self-reports — are the single source of
+truth for its state. Continues the M5–M6 thread (structured docs, milestone /
+sprint parsing) by deriving the remaining state host-side.
+
+- Derive vision (VISION.md), version (VERSION file), and progress (the current sprint's item statuses) host-side, and deprecate the `project-mgmt-mcp` write tools (#52)
+- Coordinator staleness visibility — warn when the running daemon is older than the on-disk binary after a rebuild (#47/#48)
+
 ## Phasing
 
 ```
-M1 (Done) ──► M2 (Done) ──► M3 (Done) ──► M4 (Done) ──► M5 (Done)
-Container      Programme      Terminal      Layered         Self-sustaining
-Runtime        Topology       Fidelity      Stack           Operations
+M1 (Done) ─► … ─► M5 (Done) ─► M6 (Done) ─► M7 (In Progress)
+Container         Self-sust.    Roadmap       File-derived
+Runtime           Operations    Hierarchy     State
 ```
 
 ## Current Focus
 
-Milestones M1–M5 are all complete. Milestone 5 (Self-Sustaining Operations) was verified end-to-end on real Docker in Sprint 43 and shipped in **v0.40.0** — shared Claude/Maven caches (#37/#21), a per-project tools volume (#27), mobile-WebSocket resilience (#29), Dockerfile layer efficiency + pinned/checksum-verified installers (#51), the coordinator-mount fix (#55), and idempotent trust handling. The classic tmux launch path was retired (the Milestone 4 tail); the runner/coordinator stack is now the sole architecture.
-
-The next milestone is not yet defined — candidate work lives in `BACKLOG.md`; `SPRINTS.md` tracks sprint execution.
+**Milestone 7: Trustworthy, File-Derived Project State.** Milestones M1–M6 are complete (M6 shipped in **v0.41.0** — the sidebar sprint pipeline). M7 continues the "the project's own files are the source of truth" thread: derive vision/version/progress host-side and deprecate the agent-self-reporting write tools (#52), plus coordinator staleness visibility (#47/#48). No sprint is open yet — see `SPRINTS.md` and `BACKLOG.md`.

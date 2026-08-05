@@ -1148,6 +1148,133 @@ tbody td {
     color: #a9b1d6;
 }
 
+/* --- Sprints (sidebar) --- */
+/* The active milestone's ship pipeline, mirroring the Milestones section's
+   density and typography. Sprints are grouped by phase in the markup; the
+   phase badge carries the colour, so the rows themselves stay quiet. */
+
+.sprints-list {
+    list-style: none;
+}
+
+/* The header line naming the milestone whose sprints these are. */
+.sprints-milestone-head {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    font-size: 12px;
+    line-height: 1.4;
+    padding: 3px 0 6px;
+    margin-bottom: 4px;
+    border-bottom: 1px solid #1f2335;
+}
+
+.sprints-milestone-num {
+    flex-shrink: 0;
+    color: #565f89;
+    font-variant-numeric: tabular-nums;
+}
+
+.sprints-milestone-title {
+    min-width: 0;
+    word-break: break-word;
+    color: #c0caf5;
+    font-weight: 600;
+}
+
+.sprint-row {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    font-size: 12px;
+    line-height: 1.4;
+    padding: 3px 0;
+}
+
+.sprint-num {
+    flex-shrink: 0;
+    color: #565f89;
+    font-variant-numeric: tabular-nums;
+}
+
+.sprint-name {
+    min-width: 0;
+    flex: 1;
+    word-break: break-word;
+    color: #a9b1d6;
+}
+
+/* Small uppercase phase pill — the colour-carrying element of the row. */
+.sprint-phase-badge {
+    flex-shrink: 0;
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 600;
+    padding: 1px 5px;
+    border-radius: 3px;
+    line-height: 1.5;
+}
+
+.sprint-detail {
+    flex-shrink: 0;
+    color: #565f89;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Building — work in flight, blue. */
+.sprint-building .sprint-phase-badge {
+    color: #7aa2f7;
+    background: rgba(122, 162, 247, 0.12);
+}
+
+/* Ready — the verify/ship gate, amber and the most prominent: the headline
+   concept of the pipeline. Filled badge, lit title. */
+.sprint-ready {
+    background: rgba(224, 175, 104, 0.1);
+    border-radius: 4px;
+    margin: 0 -6px;
+    padding: 3px 6px;
+}
+
+.sprint-ready .sprint-name {
+    color: #e0af68;
+    font-weight: 600;
+}
+
+.sprint-ready .sprint-phase-badge {
+    color: #1a1b26;
+    background: #e0af68;
+}
+
+.sprint-ready .sprint-detail {
+    color: #e0af68;
+}
+
+/* Proposed — declared, not started, muted. */
+.sprint-proposed .sprint-name {
+    color: #565f89;
+}
+
+.sprint-proposed .sprint-phase-badge {
+    color: #565f89;
+    background: rgba(86, 95, 137, 0.15);
+}
+
+/* Shipped — released, green but dimmed: the work is behind us. */
+.sprint-shipped {
+    opacity: 0.7;
+}
+
+.sprint-shipped .sprint-name {
+    color: #565f89;
+}
+
+.sprint-shipped .sprint-phase-badge {
+    color: #9ece6a;
+    background: rgba(158, 206, 106, 0.12);
+}
+
 .vision-text {
     font-size: 12px;
     line-height: 1.5;

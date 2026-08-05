@@ -296,3 +296,108 @@ func TestHandleMilestones_UnknownProject404s(t *testing.T) {
 		t.Errorf("status = %d, want 404", rec.Code)
 	}
 }
+
+func getMilestoneSprints(t *testing.T, ws *WebServer, project string) (*httptest.ResponseRecorder, milestoneSprintsJSON) {
+	t.Helper()
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/projects/{name}/milestone-sprints", ws.handleMilestoneSprints)
+	req := httptest.NewRequest("GET", "/api/projects/"+project+"/milestone-sprints", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	var resp milestoneSprintsJSON
+	if rec.Code == http.StatusOK {
+		if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+	}
+	return rec, resp
+}
+
+func TestHandleMilestoneSprints_FiltersToActiveAndPhases(t *testing.T) {
+	ws, _ := setupWebTest(t)
+	dir := newProject(t, ws, "app")
+	writeFile(t, dir, "ROADMAP.md", `# Roadmap
+
+### Milestone 1: Foundation (Done)
+
+Done work.
+
+### Milestone 2: Current Work (In Progress)
+
+The active one.
+`)
+	writeFile(t, dir, "SPRINTS.md", `# Sprints
+
+## Current Sprint
+
+### Sprint 10: Building It
+
+Milestone: 2
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | a | Done |
+| 2 | b | In Progress |
+
+## Sprint History
+
+### Sprint 9: Shipped It (v1.0.0)
+
+Milestone: 2
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | a | Done |
+
+### Sprint 8: Other Milestone (v0.9.0)
+
+Milestone: 1
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | a | Done |
+`)
+
+	rec, resp := getMilestoneSprints(t, ws, "app")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+	if resp.ActiveMilestone == nil || resp.ActiveMilestone.Number != 2 {
+		t.Fatalf("ActiveMilestone = %+v, want milestone 2", resp.ActiveMilestone)
+	}
+	// Sprint 8 (milestone 1) excluded; 10 and 9 kept, newest first.
+	if len(resp.Sprints) != 2 {
+		t.Fatalf("got %d sprints, want 2: %+v", len(resp.Sprints), resp.Sprints)
+	}
+	if resp.Sprints[0].Number != 10 || resp.Sprints[0].Phase != core.PhaseBuilding {
+		t.Errorf("sprint[0] = #%d %s, want #10 Building", resp.Sprints[0].Number, resp.Sprints[0].Phase)
+	}
+	if resp.Sprints[0].Done != 1 || resp.Sprints[0].Total != 2 {
+		t.Errorf("sprint[0] progress = %d/%d, want 1/2", resp.Sprints[0].Done, resp.Sprints[0].Total)
+	}
+	if resp.Sprints[1].Number != 9 || resp.Sprints[1].Phase != core.PhaseShipped || resp.Sprints[1].Version != "1.0.0" {
+		t.Errorf("sprint[1] = #%d %s %q, want #9 Shipped 1.0.0", resp.Sprints[1].Number, resp.Sprints[1].Phase, resp.Sprints[1].Version)
+	}
+}
+
+func TestHandleMilestoneSprints_NoActiveMilestone(t *testing.T) {
+	ws, _ := setupWebTest(t)
+	dir := newProject(t, ws, "app")
+	writeFile(t, dir, "ROADMAP.md", `# Roadmap
+
+### Milestone 1: Done Thing (Done)
+
+All done.
+`)
+	rec, resp := getMilestoneSprints(t, ws, "app")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+	if resp.ActiveMilestone != nil {
+		t.Errorf("ActiveMilestone = %+v, want nil", resp.ActiveMilestone)
+	}
+	if len(resp.Sprints) != 0 {
+		t.Errorf("Sprints = %+v, want empty", resp.Sprints)
+	}
+}

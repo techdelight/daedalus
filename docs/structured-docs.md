@@ -95,6 +95,45 @@ Milestone: 4
 > regardless of order. `SPRINTS.md` places them `Goal:` then `Milestone:` on
 > purpose, so the real document exercises that ordering.
 
+### Sprint phase — the ship pipeline
+
+A sprint's **phase** is where it sits in the ship pipeline. It is *derived*, not
+stored: `core.PhaseOf` reads it off a sprint's `Version` and its item statuses,
+so a phase is always consistent with the document and never drifts from it.
+
+| Phase        | Derived when                                        | Meaning                                   |
+|--------------|-----------------------------------------------------|-------------------------------------------|
+| `Shipped`    | `Version` is set                                    | cut a release — the version wins outright |
+| `Ready`      | no version, and **every** item is `Done`            | built, awaiting the verify/ship gate      |
+| `Building`   | no version, some items done or `In Progress`        | work in flight                            |
+| `Proposed`   | no version, and **no** items (or all `Pending`)     | declared, not started                     |
+
+The order of the checks is what makes them unambiguous: `Version` is tested
+first, so a released sprint reads as `Shipped` even if its table looks
+incomplete; the itemless / all-pending case reads as `Proposed`; all-done reads
+as `Ready`; anything else is `Building`. The active-milestone sidebar groups a
+milestone's sprints by these phases (Building → Ready → Proposed → Shipped),
+with `Ready` — the verify/ship gate — the most prominent.
+
+### Planned sprints — declaring the Proposed ones
+
+Future sprints are declared under a `## Planned Sprints` section, the same shape
+as `## Current Sprint` / `## Sprint History`. A planned sprint is just a header
+and a `Milestone: N` link, with **no item table**:
+
+```
+## Planned Sprints
+
+### Sprint 46: Mobile Sprint Overlay
+
+Milestone: 6
+```
+
+An itemless sprint is not dropped: it parses to a `Sprint` with its milestone
+link and empty items, which `PhaseOf` reports as `Proposed`. That is how a
+milestone shows the work still ahead of it — a real Proposed bucket in the
+pipeline — before anyone has written its table.
+
 ## BACKLOG.md — the pool
 
 Numbered rows in a table: `| # | Item |`. Everything after the number, up to the

@@ -129,6 +129,10 @@
                             <div class="sidebar-label">Milestones</div>
                             <ol class="milestones-list" id="milestones-list"></ol>
                         </div>
+                        <div class="sidebar-section">
+                            <div class="sidebar-label">Sprints</div>
+                            <ol class="sprints-list" id="sprints-list"></ol>
+                        </div>
                         <div class="sidebar-section sidebar-section-vision">
                             <div class="sidebar-label">Vision</div>
                             <pre class="vision-text" id="sidebar-vision-text"></pre>
@@ -582,6 +586,7 @@
             applySidebarState();
             loadDocs(name);
             loadMilestones(name);
+            loadMilestoneSprints(name);
             loadVision(name);
         }
 
@@ -623,6 +628,65 @@
                 fill(renderMilestonesHTML(milestones));
             } catch (err) {
                 fill('<li class="empty-state">Could not load milestones.</li>');
+            }
+        }
+
+        // Builds the sprint-pipeline markup for the active milestone: a header
+        // line naming the milestone, then its sprints grouped by ship phase in
+        // pipeline order — Building (in flight), Ready (the verify/ship gate),
+        // Proposed (declared, not started), Shipped (released, dimmed). The
+        // response is already newest-first, so preserving its order inside each
+        // group keeps recent sprints on top. Every string is file-derived, so
+        // it goes through escapeHtml — the one place project docs reach the DOM
+        // as markup, matching renderMilestonesHTML.
+        function renderMilestoneSprintsHTML(data) {
+            const active = data.activeMilestone || null;
+            if (!active) {
+                return '<li class="empty-state">No active milestone.</li>';
+            }
+            let html = `<li class="sprints-milestone-head">
+                <span class="sprints-milestone-num">#${escapeHtml(String(active.number))}</span>
+                <span class="sprints-milestone-title">${escapeHtml(active.title)}</span>
+            </li>`;
+
+            const sprints = Array.isArray(data.sprints) ? data.sprints : [];
+            if (!sprints.length) {
+                return html + '<li class="empty-state">No sprints yet.</li>';
+            }
+
+            // Group by phase in pipeline order; order within a group is the
+            // response's own newest-first order.
+            const order = ['Building', 'Ready', 'Proposed', 'Shipped'];
+            order.forEach(phase => {
+                sprints.filter(s => s.phase === phase).forEach(s => {
+                    const cls = phase.toLowerCase();
+                    const detail = phase === 'Shipped'
+                        ? 'v' + escapeHtml(String(s.version))
+                        : escapeHtml(String(s.done)) + '/' + escapeHtml(String(s.total));
+                    html += `<li class="sprint-row sprint-${cls}">
+                        <span class="sprint-num">#${escapeHtml(String(s.number))}</span>
+                        <span class="sprint-name">${escapeHtml(s.title)}</span>
+                        <span class="sprint-phase-badge">${escapeHtml(phase)}</span>
+                        <span class="sprint-detail">${detail}</span>
+                    </li>`;
+                });
+            });
+            return html;
+        }
+
+        // Fills the sidebar sprint pipeline for the active milestone. Desktop
+        // sidebar only — the section is hidden under the mobile breakpoint, like
+        // Milestones, so there's no overlay surface to mirror into.
+        async function loadMilestoneSprints(name) {
+            const list = document.getElementById('sprints-list');
+            if (!list) return;
+            try {
+                const resp = await fetch(`/api/projects/${encodeURIComponent(name)}/milestone-sprints`);
+                if (!resp.ok) throw new Error('failed to load sprints');
+                const data = await resp.json();
+                list.innerHTML = renderMilestoneSprintsHTML(data);
+            } catch (err) {
+                list.innerHTML = '<li class="empty-state">Could not load sprints.</li>';
             }
         }
 
