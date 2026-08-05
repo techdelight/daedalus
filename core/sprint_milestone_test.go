@@ -171,6 +171,36 @@ Milestone: 4
 	}
 }
 
+// A Proposed sprint is declared with just a header and a Milestone: link and
+// no item table — the "## Planned Sprints" authoring convention (Milestone 6).
+// ParseSprints must keep such a sprint (rather than drop the itemless one),
+// carry its milestone link, and PhaseOf must report it as Proposed so the
+// endpoint's Proposed bucket is real.
+func TestParseSprints_PlannedSprintIsProposed(t *testing.T) {
+	md := `## Planned Sprints
+
+### Sprint 46: Mobile Sprint Overlay
+
+Milestone: 6
+`
+	got := ParseSprints(md)
+	if len(got) != 1 {
+		t.Fatalf("parsed %d sprints, want 1 — an itemless sprint must not be dropped", len(got))
+	}
+	if got[0].Number != 46 {
+		t.Errorf("Number = %d, want 46", got[0].Number)
+	}
+	if got[0].Milestone != 6 {
+		t.Errorf("Milestone = %d, want 6 — the link must survive with no item table", got[0].Milestone)
+	}
+	if len(got[0].Items) != 0 {
+		t.Errorf("Items = %d, want 0 for a planned sprint", len(got[0].Items))
+	}
+	if p := PhaseOf(got[0]); p != PhaseProposed {
+		t.Errorf("PhaseOf = %q, want %q for a no-item sprint", p, PhaseProposed)
+	}
+}
+
 // The repo's own SPRINTS.md must keep parsing, and its current sprint must
 // link to the milestone ROADMAP.md marks in progress. If this fails, the two
 // documents have drifted apart.
