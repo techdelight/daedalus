@@ -39,29 +39,27 @@ cut a release, not calendar timeboxes.
 - Sprints are shown by ship-pipeline state — Building → Ready → Shipped (+ optional Proposed) — not by calendar time
 - The verify/ship gate ("Ready": built but not yet released) is first-class; "active milestone, no sprints yet" is a valid, non-empty view
 
-### Milestone 7: Agent-Governed Project Management (In Progress)
+### Milestone 7: Project-Management Tools & File-Derived State (In Progress)
 
-For projects that opt into Project Management (PM), the daedalus **agent** —
-not a human CLI — becomes the gatekeeper of the milestone/sprint lifecycle:
-it starts and closes milestones and sprints through validated transitions, so
-the roadmap can't drift into an inconsistent state. PM is **opt-in per project**
-(most projects want it; some don't). The project's own files stay the single
-source of truth — the read side of the same idea.
+Give the in-container agent (Claude / Copilot) proper MCP tools to manage the
+project's roadmap, and derive the rest of the project's state from its files —
+replacing unreliable agent self-reporting with structured reads and writes.
+daedalus **offers** these tools; it can't gate the agent, which runs as its own
+autonomous CLI (daedalus launches it and provides MCP servers, it is not the
+agent's harness). So this is capability, not enforcement.
 
-- **File-derived state (read side, #52)** — derive vision (`VISION.md`), version (`VERSION`), and progress (the current sprint's item statuses) host-side, and retire the unreliable agent self-report write tools (`report_progress` / `set_vision` / `set_version`).
-- **Agent-governed lifecycle gates (write side)** — the in-container agent performs guarded transitions (open/close milestone, open/close sprint) that enforce the invariants by construction: exactly one milestone In Progress; the current sprint links to it; a sprint closes only when its items are Done and a version is cut; closing a milestone opens the next. This replaces free-form status edits (and the deprecated self-report writes) with a small, validated write surface — and is the *enforcement* of the "Ready → Shipped" gate M6 made visible. The agent is instructed to route all lifecycle changes through the gates; the gates validate and refuse bad transitions.
-- **Per-project PM opt-in** — a `pm-enabled` flag on the registry `ProjectEntry` (default **true**), added via a registry migration. A PM-enabled project is governed/gated by the agent; a PM-disabled project is left entirely alone.
-- **Upgrade migration** — installing the PM-introducing version (from a version without it) prompts the user to choose which existing projects have PM enabled — default true, with an all/none bulk toggle.
-- **Coordinator staleness visibility (#47/#48)** — warn when the running daemon is older than the on-disk binary after a rebuild.
+- **Lifecycle MCP tools (write side)** — `project-mgmt-mcp` gains tools to **add / remove / move** milestones and sprints and **start / finish / pause** them, editing `ROADMAP.md` / `SPRINTS.md` structurally and keeping them internally consistent (the tool validates its own writes — e.g. one milestone In Progress, a current sprint linked to it). Replaces the free-form self-report write tools (`report_progress` / `set_vision` / `set_version`).
+- **File-derived state (read side, #52)** — derive vision (`VISION.md`), version (`VERSION`), and progress (the current sprint's item statuses) host-side, so read state never depends on the agent reporting it.
+- **A `Paused` lifecycle state** — for a milestone or sprint put on hold, distinct from Done / In Progress / Planned.
 
 ## Phasing
 
 ```
 M1 (Done) ─► … ─► M5 (Done) ─► M6 (Done) ─► M7 (In Progress)
-Container         Self-sust.    Roadmap       Agent-governed
-Runtime           Operations    Hierarchy     PM
+Container         Self-sust.    Roadmap       PM tools &
+Runtime           Operations    Hierarchy     file state
 ```
 
 ## Current Focus
 
-**Milestone 7: Agent-Governed Project Management.** Milestones M1–M6 are complete (M6 shipped in **v0.41.0** — the sidebar sprint pipeline). M7 makes the daedalus agent the gatekeeper of the milestone/sprint lifecycle for **PM-opt-in** projects: guarded open/close transitions that enforce the roadmap invariants by construction (the write side), paired with deriving vision/version/progress from files and retiring the agent self-report write tools (#52, the read side). PM is a per-project flag (default true) with an upgrade-time selection. No sprint is open yet — see `SPRINTS.md` and `BACKLOG.md`.
+**Milestone 7: Project-Management Tools & File-Derived State.** Milestones M1–M6 are complete (M6 shipped in **v0.41.0** — the sidebar sprint pipeline). M7 gives the in-container agent proper MCP tools to manage the roadmap — add / move / remove / start / finish / pause milestones and sprints — and derives vision/version/progress from files, replacing the flaky self-report write tools (#52). daedalus offers the tools and validates its own writes; it can't gate the agent (it launches the CLI, it isn't the agent's harness), so this is capability, not governance. No sprint is open yet — see `SPRINTS.md` and `BACKLOG.md`.
