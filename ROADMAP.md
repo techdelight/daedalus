@@ -39,23 +39,29 @@ cut a release, not calendar timeboxes.
 - Sprints are shown by ship-pipeline state — Building → Ready → Shipped (+ optional Proposed) — not by calendar time
 - The verify/ship gate ("Ready": built but not yet released) is first-class; "active milestone, no sprints yet" is a valid, non-empty view
 
-### Milestone 7: Trustworthy, File-Derived Project State (In Progress)
+### Milestone 7: Agent-Governed Project Management (In Progress)
 
-The project's own files — not agent self-reports — are the single source of
-truth for its state. Continues the M5–M6 thread (structured docs, milestone /
-sprint parsing) by deriving the remaining state host-side.
+For projects that opt into Project Management (PM), the daedalus **agent** —
+not a human CLI — becomes the gatekeeper of the milestone/sprint lifecycle:
+it starts and closes milestones and sprints through validated transitions, so
+the roadmap can't drift into an inconsistent state. PM is **opt-in per project**
+(most projects want it; some don't). The project's own files stay the single
+source of truth — the read side of the same idea.
 
-- Derive vision (VISION.md), version (VERSION file), and progress (the current sprint's item statuses) host-side, and deprecate the `project-mgmt-mcp` write tools (#52)
-- Coordinator staleness visibility — warn when the running daemon is older than the on-disk binary after a rebuild (#47/#48)
+- **File-derived state (read side, #52)** — derive vision (`VISION.md`), version (`VERSION`), and progress (the current sprint's item statuses) host-side, and retire the unreliable agent self-report write tools (`report_progress` / `set_vision` / `set_version`).
+- **Agent-governed lifecycle gates (write side)** — the in-container agent performs guarded transitions (open/close milestone, open/close sprint) that enforce the invariants by construction: exactly one milestone In Progress; the current sprint links to it; a sprint closes only when its items are Done and a version is cut; closing a milestone opens the next. This replaces free-form status edits (and the deprecated self-report writes) with a small, validated write surface — and is the *enforcement* of the "Ready → Shipped" gate M6 made visible. The agent is instructed to route all lifecycle changes through the gates; the gates validate and refuse bad transitions.
+- **Per-project PM opt-in** — a `pm-enabled` flag on the registry `ProjectEntry` (default **true**), added via a registry migration. A PM-enabled project is governed/gated by the agent; a PM-disabled project is left entirely alone.
+- **Upgrade migration** — installing the PM-introducing version (from a version without it) prompts the user to choose which existing projects have PM enabled — default true, with an all/none bulk toggle.
+- **Coordinator staleness visibility (#47/#48)** — warn when the running daemon is older than the on-disk binary after a rebuild.
 
 ## Phasing
 
 ```
 M1 (Done) ─► … ─► M5 (Done) ─► M6 (Done) ─► M7 (In Progress)
-Container         Self-sust.    Roadmap       File-derived
-Runtime           Operations    Hierarchy     State
+Container         Self-sust.    Roadmap       Agent-governed
+Runtime           Operations    Hierarchy     PM
 ```
 
 ## Current Focus
 
-**Milestone 7: Trustworthy, File-Derived Project State.** Milestones M1–M6 are complete (M6 shipped in **v0.41.0** — the sidebar sprint pipeline). M7 continues the "the project's own files are the source of truth" thread: derive vision/version/progress host-side and deprecate the agent-self-reporting write tools (#52), plus coordinator staleness visibility (#47/#48). No sprint is open yet — see `SPRINTS.md` and `BACKLOG.md`.
+**Milestone 7: Agent-Governed Project Management.** Milestones M1–M6 are complete (M6 shipped in **v0.41.0** — the sidebar sprint pipeline). M7 makes the daedalus agent the gatekeeper of the milestone/sprint lifecycle for **PM-opt-in** projects: guarded open/close transitions that enforce the roadmap invariants by construction (the write side), paired with deriving vision/version/progress from files and retiring the agent self-report write tools (#52, the read side). PM is a per-project flag (default true) with an upgrade-time selection. No sprint is open yet — see `SPRINTS.md` and `BACKLOG.md`.
