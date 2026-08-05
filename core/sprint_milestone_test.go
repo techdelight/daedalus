@@ -222,7 +222,11 @@ func TestParseSprints_RealSprintsLinksToInProgressMilestone(t *testing.T) {
 		}
 	}
 	if current == nil {
-		t.Fatal("repo SPRINTS.md has no current sprint")
+		// A milestone can be In Progress with no sprint started yet — "active
+		// milestone, no sprints" is a valid, first-class state (Milestone 6/7),
+		// so there is nothing to cross-check here. The exactly-one-in-progress
+		// invariant is enforced by TestParseMilestonesAgainstRealRoadmap.
+		return
 	}
 	if current.Milestone == 0 {
 		t.Fatalf("current sprint %d is not linked to a milestone", current.Number)

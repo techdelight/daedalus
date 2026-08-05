@@ -29,7 +29,7 @@ Introduce daedalus-runner (in-container PID-1 process wrapping a runner via per-
 - Automatic trust prompt handling
 - Mobile WebSocket stability
 
-### Milestone 6: Roadmap Hierarchy, Made Visible (In Progress)
+### Milestone 6: Roadmap Hierarchy, Made Visible (Done)
 
 From any project, the milestone → sprint hierarchy is visible at a glance,
 with sprints framed for how the tool actually works — verified batches that
@@ -39,14 +39,23 @@ cut a release, not calendar timeboxes.
 - Sprints are shown by ship-pipeline state — Building → Ready → Shipped (+ optional Proposed) — not by calendar time
 - The verify/ship gate ("Ready": built but not yet released) is first-class; "active milestone, no sprints yet" is a valid, non-empty view
 
+### Milestone 7: Trustworthy, File-Derived Project State (In Progress)
+
+The project's own files — not agent self-reports — are the single source of
+truth for its state. Continues the M5–M6 thread (structured docs, milestone /
+sprint parsing) by deriving the remaining state host-side.
+
+- Derive vision (VISION.md), version (VERSION file), and progress (the current sprint's item statuses) host-side, and deprecate the `project-mgmt-mcp` write tools (#52)
+- Coordinator staleness visibility — warn when the running daemon is older than the on-disk binary after a rebuild (#47/#48)
+
 ## Phasing
 
 ```
-M1 (Done) ─► M2 (Done) ─► M3 (Done) ─► M4 (Done) ─► M5 (Done) ─► M6 (In Progress)
-Container    Programme    Terminal    Layered      Self-sust.    Roadmap
-Runtime      Topology     Fidelity    Stack        Operations    Hierarchy
+M1 (Done) ─► … ─► M5 (Done) ─► M6 (Done) ─► M7 (In Progress)
+Container         Self-sust.    Roadmap       File-derived
+Runtime           Operations    Hierarchy     State
 ```
 
 ## Current Focus
 
-**Milestone 6: Roadmap Hierarchy, Made Visible.** Milestones M1–M5 shipped (M5 in **v0.40.0**); the runner/coordinator stack is the sole architecture. M6 turns the project's own milestone → sprint structure into a first-class, at-a-glance view in the UI — and reframes sprints around how agentic development actually flows (verified batches that cut a release) rather than calendar timeboxes. Sprint 44 delivers the active-milestone sprint pipeline in the session sidebar. See `SPRINTS.md`.
+**Milestone 7: Trustworthy, File-Derived Project State.** Milestones M1–M6 are complete (M6 shipped in **v0.41.0** — the sidebar sprint pipeline). M7 continues the "the project's own files are the source of truth" thread: derive vision/version/progress host-side and deprecate the agent-self-reporting write tools (#52), plus coordinator staleness visibility (#47/#48). No sprint is open yet — see `SPRINTS.md` and `BACKLOG.md`.

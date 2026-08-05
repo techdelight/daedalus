@@ -4,6 +4,35 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.41.0] - 2026-08-05
+
+**Milestone 6: Roadmap Hierarchy, Made Visible.** The session sidebar now shows
+the active milestone and its sprints, framed by how agentic development actually
+flows — verified batches that cut a release — rather than by calendar time.
+
+### Added
+- **Sprint ship-pipeline in the session sidebar.** For the active (In Progress)
+  milestone, its sprints render grouped by phase: **Building → Ready → Shipped**
+  (+ optional **Proposed**). The **Ready** phase — work complete but not yet
+  released — is first-class: it surfaces the verify/ship gate that a
+  past/current/future view hides. An active milestone with no sprints is a valid
+  view ("no sprints yet").
+- **`core.PhaseOf`** derives a sprint's phase from its `Version` + item statuses
+  (no schema change): Shipped = cut a release, Ready = all items done but no
+  version, Building = work in flight, Proposed = declared/not-started. Plus a
+  `SprintProgress` (done/total) helper.
+- **`GET /api/projects/{name}/milestone-sprints`** returns the active milestone
+  and its phased sprints. Sprints without an active milestone → an empty view.
+- **`## Planned Sprints` convention** — a sprint header + `Milestone: N` line
+  with no item table parses as a **Proposed** sprint (documented in
+  `docs/structured-docs.md`).
+
+### Notes
+- Desktop sidebar only; a mobile sprints overlay is deferred.
+- The full "sprint → batch/increment" vocabulary rename was considered and
+  deferred — the light reframe (keep "sprint", derive phase, surface Ready)
+  captures the agentic value at a fraction of the churn.
+
 ## [0.40.0] - 2026-08-04
 
 **Milestone 4 (Layered Runner/Coordinator Architecture) endgame, structured

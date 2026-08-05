@@ -186,8 +186,8 @@ func TestParseMilestonesAgainstRealRoadmap(t *testing.T) {
 	}
 
 	got := ParseMilestones(string(data))
-	if len(got) != 6 {
-		t.Fatalf("parsed %d milestones from the repo ROADMAP.md, want 6: %+v", len(got), got)
+	if len(got) != 7 {
+		t.Fatalf("parsed %d milestones from the repo ROADMAP.md, want 7: %+v", len(got), got)
 	}
 
 	for i, m := range got {
@@ -221,7 +221,10 @@ func TestParseMilestonesAgainstRealRoadmap(t *testing.T) {
 	if got[4].Status != StatusDone {
 		t.Errorf("Milestone 5 Status = %q, want %q", got[4].Status, StatusDone)
 	}
-	if got[5].Status != StatusInProgress {
-		t.Errorf("Milestone 6 Status = %q, want %q", got[5].Status, StatusInProgress)
+	if got[5].Status != StatusDone {
+		t.Errorf("Milestone 6 Status = %q, want %q", got[5].Status, StatusDone)
+	}
+	if got[6].Status != StatusInProgress {
+		t.Errorf("Milestone 7 Status = %q, want %q", got[6].Status, StatusInProgress)
 	}
 }
