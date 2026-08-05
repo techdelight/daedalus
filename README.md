@@ -497,18 +497,11 @@ Installing a skill copies it from the catalog to the project's `.claude/skills/`
 
 ## Project Management
 
-Each container includes a `project-mgmt` MCP server that Claude Code can use to report project progress back to Daedalus.
+Each container includes a `project-mgmt` MCP server Claude Code uses to read and manage the project's structured documents (`ROADMAP.md`, `SPRINTS.md`, `BACKLOG.md`, `VISION.md`).
 
-**Available MCP tools (inside the container):**
+**Read tools** derive state from the files — `get_roadmap`, `get_sprints`, `get_backlog`, `get_current_sprint`, and `get_progress` (version from the `VERSION` file, vision from `VISION.md`, completion from the current sprint's item statuses). Nothing is self-reported, so what Daedalus shows always matches the files.
 
-| Tool | Description |
-|---|---|
-| `report_progress` | Set completion percentage (0-100) with optional status message |
-| `set_vision` | Set the project vision statement |
-| `set_version` | Set the project version string |
-| `get_progress` | Read current progress data |
-
-Progress data is stored in `.daedalus/progress.json` in the project directory, visible to both the container and the host. The Web UI dashboard reads this file to display real-time progress.
+**Lifecycle tools** let the agent evolve the roadmap through validated transitions instead of hand-editing: `add_` / `remove_` / `start_` / `finish_` / `pause_milestone`, and `add_` / `remove_` / `move_` / `start_` / `finish_` / `pause_sprint`. Each validates the result (e.g. exactly one milestone In Progress; a sprint finishes only once its items are Done) and refuses an inconsistent write.
 
 Click any project name in the Web UI to see the project dashboard with progress bar, version, total session time, and vision. The roadmap is automatically loaded and displayed from the project's `ROADMAP.md`. Use the "Hide Roadmap" / "Show Roadmap" button to toggle visibility.
 

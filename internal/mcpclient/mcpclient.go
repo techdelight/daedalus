@@ -11,9 +11,9 @@ import (
 	"github.com/techdelight/daedalus/internal/progress"
 )
 
-// Client reads project state from the host filesystem.
-// Data is written by the project-mgmt-mcp server inside containers
-// and visible on the host via bind mounts.
+// Client reads project state from the host filesystem — the project's own
+// documents (ROADMAP.md, SPRINTS.md, BACKLOG.md, VISION.md, VERSION), visible
+// on the host directly or via the container bind mount.
 type Client struct{}
 
 // New creates a new MCP client.
@@ -21,7 +21,9 @@ func New() *Client {
 	return &Client{}
 }
 
-// ReadProgress reads progress data for a project from its .daedalus/progress.json.
+// ReadProgress derives a project's read-side state (version, vision, current
+// sprint progress) from its files. As of Backlog #52 this no longer reads a
+// self-reported .daedalus/progress.json; see progress.Read for the derivation.
 func (c *Client) ReadProgress(projectDir string) (progress.Data, error) {
 	return progress.Read(projectDir)
 }

@@ -47,11 +47,13 @@ survives as a bullet list.
 
 - **Number** — the integer after `Milestone`. Numbered from 1.
 - **Title** — the text after the colon, up to an optional trailing status.
-- **Status** — the parenthetical, **pinned** to exactly `(Done)` or
-  `(In Progress)`. No parenthetical means **Planned** — the deliberate-future
-  default. The pin is load-bearing: a permissive parenthetical would swallow a
-  title like `Rework (Phase 2)` as status "Phase 2". An unrecognised
-  parenthetical therefore stays part of the title, which is what it is.
+- **Status** — the parenthetical, **pinned** to exactly `(Done)`,
+  `(In Progress)` or `(Paused)`. No parenthetical means **Planned** — the
+  deliberate-future default. The pin is load-bearing: a permissive parenthetical
+  would swallow a title like `Rework (Phase 2)` as status "Phase 2". An
+  unrecognised parenthetical therefore stays part of the title, which is what it
+  is. A **Paused** milestone is one that was started (or planned) and then
+  parked — see [Paused](#the-paused-state).
 - **Description** — every line under the heading until the next heading (of any
   level), trimmed and newline-joined.
 
@@ -87,6 +89,11 @@ Milestone: 4
   would be absorbed into the lazy title group and silently drop the version.
   A missing or non-numeric value is `0`, meaning *unlinked*. Sprint history
   predating the convention is expected to be unlinked; that is not a fault.
+- **`Status: Paused`** — an optional line that parks the sprint. Like
+  `Milestone:` it is a header-block line of its own. It is normally **absent** —
+  a sprint's state is derived from its version and items (see below), not
+  stored — and set only to take the sprint out of that flow. See
+  [Paused](#the-paused-state).
 - **Item table** — `| # | Item | Status |` rows. An empty status cell is
   **Pending**.
 
@@ -103,15 +110,17 @@ so a phase is always consistent with the document and never drifts from it.
 
 | Phase        | Derived when                                        | Meaning                                   |
 |--------------|-----------------------------------------------------|-------------------------------------------|
+| `Paused`     | a `Status: Paused` line is present                  | parked — the override wins outright       |
 | `Shipped`    | `Version` is set                                    | cut a release — the version wins outright |
 | `Ready`      | no version, and **every** item is `Done`            | built, awaiting the verify/ship gate      |
 | `Building`   | no version, some items done or `In Progress`        | work in flight                            |
 | `Proposed`   | no version, and **no** items (or all `Pending`)     | declared, not started                     |
 
-The order of the checks is what makes them unambiguous: `Version` is tested
-first, so a released sprint reads as `Shipped` even if its table looks
-incomplete; the itemless / all-pending case reads as `Proposed`; all-done reads
-as `Ready`; anything else is `Building`. The active-milestone sidebar groups a
+The order of the checks is what makes them unambiguous: `Status: Paused` is
+tested first, so a parked sprint reads as `Paused` whatever its version or
+items; then `Version`, so a released sprint reads as `Shipped` even if its table
+looks incomplete; the itemless / all-pending case reads as `Proposed`; all-done
+reads as `Ready`; anything else is `Building`. The active-milestone sidebar groups a
 milestone's sprints by these phases (Building → Ready → Proposed → Shipped),
 with `Ready` — the verify/ship gate — the most prominent.
 
@@ -148,6 +157,7 @@ One shared, case-sensitive vocabulary spans milestones and sprint items
 |---------------|--------------------------------|---------------------|
 | `Done`        | finished                       | `StatusDone`        |
 | `In Progress` | under way                      | `StatusInProgress`  |
+| `Paused`      | started, then parked           | `StatusPaused`      |
 | *(empty)*     | sprint item, untouched         | `StatusPending`     |
 | *(no marker)* | milestone, not started         | `StatusPlanned`     |
 
@@ -155,6 +165,58 @@ The casing is exact. `In progress` (lowercase *p*) is **not** `In Progress`: it
 parses fine, is carried through verbatim, and then compares unequal everywhere —
 the item silently stops counting as in progress rather than failing loudly.
 Validation catches this; a parser will not.
+
+## The Paused state
+
+`Paused` is for a milestone or sprint that was started (or planned) and then
+deliberately put on hold — distinct from `Done` (finished), `In Progress`
+(under way) and the not-started defaults (`Planned` / Pending). It is written
+differently on each, matching where each already carries its state:
+
+- **A milestone** is paused with a heading parenthetical, exactly like its other
+  statuses: `### Milestone 8: Later Work (Paused)`.
+- **A sprint** is paused with a `Status: Paused` line in its header block, beside
+  `Goal:` and `Milestone:`. A sprint's phase is normally *derived* (from its
+  version and items), so this line is the one way to override that flow;
+  `core.PhaseOf` reports `Paused` ahead of every other phase. Resuming a sprint
+  is simply removing the line.
+
+Paused does not disturb the invariants: it is not `In Progress`, so a paused
+milestone does not count toward the one-current-focus rule, and a paused current
+sprint sitting on a paused milestone is a coherent state, not a drift the
+validator flags.
+
+## Lifecycle tools
+
+The documents above are hand-authored, but the milestone/sprint **lifecycle** —
+adding, removing, moving, and starting/finishing/pausing them — is also exposed
+as MCP tools on the in-container `project-mgmt` server, so an agent can manage
+the roadmap without hand-editing the markdown. Prefer the tools: each makes a
+**surgical, prose-preserving** edit (via `core`'s document writer, which changes
+only the lines it must and leaves every other byte identical), then **validates
+the whole result** before writing — a change that would leave the docs
+inconsistent (a second milestone `In Progress`, a dangling milestone link,
+finishing a milestone whose sprint is still open) is refused with a clear
+message and nothing is written.
+
+| Tool                                          | Effect                                                        |
+|-----------------------------------------------|---------------------------------------------------------------|
+| `add_milestone{title, description}`           | append a new milestone (auto-numbered, Planned)               |
+| `remove_milestone{number}`                    | delete a milestone                                            |
+| `start_milestone{number}`                     | mark it `In Progress` (refused if another already is)         |
+| `finish_milestone{number}`                    | mark it `Done` (refused while a current sprint links to it)   |
+| `pause_milestone{number}`                     | mark it `(Paused)`                                            |
+| `add_sprint{title, milestone, items[]}`       | add a sprint at the top of Current Sprint (items all Pending) |
+| `remove_sprint{number}`                       | delete a sprint                                               |
+| `move_sprint{number, to_milestone}`           | re-link a sprint to a different milestone                     |
+| `start_sprint{number}`                        | resume a paused sprint (remove its `Status: Paused` line)     |
+| `finish_sprint{number, version, force?}`      | roll it into history with `(vX)` (refused if items unfinished unless `force`) |
+| `pause_sprint{number}`                         | add a `Status: Paused` line                                  |
+
+The read side is **derived from files** too (Backlog #52): `get_progress`
+reports the version (`VERSION`), vision (`VISION.md`), and the current sprint's
+completion (its Done/total ratio) — there is no self-reported state to keep in
+sync.
 
 ## Validation
 
