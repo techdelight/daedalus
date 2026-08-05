@@ -19,6 +19,11 @@ const (
 	PhaseBuilding SprintPhase = "Building"
 	// PhaseProposed — declared but not started (no items, or all pending).
 	PhaseProposed SprintPhase = "Proposed"
+	// PhasePaused — deliberately parked (the sprint carries "Status: Paused").
+	// Unlike the other phases this one is not derived from Version or item
+	// state: it is an explicit override, so it is reported regardless of how
+	// far the items have progressed.
+	PhasePaused SprintPhase = "Paused"
 )
 
 // SprintProgress returns how many items are Done and the total item count.
@@ -37,6 +42,11 @@ func SprintProgress(s Sprint) (done, total int) {
 // started items is Proposed, one with every item Done (but no version yet) is
 // Ready, and anything in between is Building.
 func PhaseOf(s Sprint) SprintPhase {
+	// An explicit "Status: Paused" overrides the derived flow: a parked sprint
+	// is Paused whatever its version or item state, so this is checked first.
+	if s.Status == StatusPaused {
+		return PhasePaused
+	}
 	if s.Version != "" {
 		return PhaseShipped
 	}

@@ -82,6 +82,23 @@ func ParseSprints(markdown string) []Sprint {
 			}
 		}
 
+		// Match the sprint's own status line (a header-block line, like Goal:
+		// and Milestone:). "Status: Paused" parks the sprint out of the derived
+		// ship-pipeline flow; see Sprint.Status and PhaseOf.
+		//
+		// Its own guard block for the same reason Milestone: has one — folding
+		// it into another block would gate it on a sibling field being empty and
+		// drop it depending on which header line the author wrote first. Gated
+		// on len(Items) == 0 so a "| ... | Status |" table header (which is a
+		// table row, not a header-block line, and never starts with "Status:")
+		// and any later prose cannot be mistaken for the marker.
+		if current != nil && len(current.Items) == 0 && current.Status == "" {
+			if strings.HasPrefix(trimmed, "Status:") {
+				current.Status = Status(strings.TrimSpace(strings.TrimPrefix(trimmed, "Status:")))
+				continue
+			}
+		}
+
 		// Match table rows.
 		if current != nil {
 			if m := tableRowRe.FindStringSubmatch(trimmed); m != nil {

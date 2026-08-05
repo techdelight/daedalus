@@ -201,7 +201,12 @@ func validateLinks(milestones []Milestone, sprints []Sprint) []Finding {
 		// A current sprint driving a milestone that is Done or Planned means
 		// one of the two documents was not updated: work is happening against
 		// a milestone the roadmap does not show as under way.
-		if s.IsCurrent && m.Status != StatusInProgress {
+		//
+		// A sprint the author has explicitly parked ("Status: Paused") is not
+		// active work, so it is exempt: a paused current sprint sitting on a
+		// paused (or otherwise not-in-progress) milestone is a coherent state,
+		// not a drift between the two documents.
+		if s.IsCurrent && s.Status != StatusPaused && m.Status != StatusInProgress {
 			findings = append(findings, Finding{
 				Severity: SeverityWarning,
 				Doc:      "ROADMAP.md",

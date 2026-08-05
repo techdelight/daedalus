@@ -37,14 +37,15 @@ type Milestone struct {
 }
 
 // milestoneHeaderRe matches "### Milestone N: Title (Done)",
-// "### Milestone N: Title (In Progress)", or "### Milestone N: Title".
+// "### Milestone N: Title (In Progress)", "### Milestone N: Title (Paused)",
+// or "### Milestone N: Title".
 //
-// The status group is pinned to the two literal statuses rather than a
-// permissive ([^)]+). The title group is lazy, so a permissive group would
-// swallow any trailing parenthetical: "Milestone 2: Rework (Phase 2)" would
-// parse as title "Rework" with status "Phase 2". Pinning makes an unrecognised
-// parenthetical stay part of the title, which is what it is.
-var milestoneHeaderRe = regexp.MustCompile(`^###\s+Milestone\s+(\d+):\s+(.+?)(?:\s+\((Done|In Progress)\))?\s*$`)
+// The status group is pinned to the literal statuses rather than a permissive
+// ([^)]+). The title group is lazy, so a permissive group would swallow any
+// trailing parenthetical: "Milestone 2: Rework (Phase 2)" would parse as title
+// "Rework" with status "Phase 2". Pinning makes an unrecognised parenthetical
+// stay part of the title, which is what it is.
+var milestoneHeaderRe = regexp.MustCompile(`^###\s+Milestone\s+(\d+):\s+(.+?)(?:\s+\((Done|In Progress|Paused)\))?\s*$`)
 
 // ParseMilestones parses a ROADMAP.md into its milestones, in document order.
 //
