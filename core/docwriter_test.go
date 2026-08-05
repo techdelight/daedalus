@@ -15,6 +15,60 @@ import (
 // ROADMAP.md / SPRINTS.md so they exercise the real hand-written formatting the
 // writers must not disturb.
 
+// fixtureRoadmap / fixtureSprints are stable, self-contained documents for the
+// value-pinned writer tests (exact assigned numbers, specific prose). They do
+// NOT read the repo's own ROADMAP.md / SPRINTS.md, because those change every
+// time a milestone or sprint is opened or closed — in part by these very
+// functions — which would break any test pinned to their current contents. The
+// prose/consistency of the real docs is covered separately by the
+// "…AgainstRealRoadmap" / "…RealDoc" tests, which assert invariants rather than
+// exact values.
+const fixtureRoadmap = `# Roadmap
+
+## Milestones
+
+### Milestone 1: Foundation (Done)
+
+Prose about the foundation milestone.
+
+### Milestone 2: Current Work (In Progress)
+
+Prose about the current milestone.
+
+- a bullet
+- another bullet
+
+## Phasing
+
+A phasing diagram would live here.
+`
+
+const fixtureSprints = `# Sprints
+
+## Current Sprint
+
+### Sprint 5: Doing Things
+
+Goal: do the things.
+
+Milestone: 2
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | first thing | Done |
+| 2 | second thing | In Progress |
+
+Out of scope: nothing here.
+
+## Sprint History
+
+### Sprint 4: Older Work (v1.0.0)
+
+Goal: the older work.
+
+Milestone: 1
+`
+
 func readRepoDoc(t *testing.T, name string) string {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join("..", name))
@@ -122,26 +176,25 @@ func TestSetMilestoneStatus_NotFound(t *testing.T) {
 // --- AddMilestone ------------------------------------------------------------
 
 func TestAddMilestone_RoundTrip(t *testing.T) {
-	roadmap := readRepoDoc(t, "ROADMAP.md")
-	before := ParseMilestones(roadmap)
+	before := ParseMilestones(fixtureRoadmap)
 
-	got, number, err := AddMilestone(roadmap, "Frontier Features", "Some new frontier work.\n\n- bullet one\n- bullet two")
+	got, number, err := AddMilestone(fixtureRoadmap, "Frontier Features", "Some new frontier work.\n\n- bullet one\n- bullet two")
 	if err != nil {
 		t.Fatalf("AddMilestone: %v", err)
 	}
-	if number != 8 {
-		t.Errorf("assigned number = %d, want 8", number)
+	if number != 3 {
+		t.Errorf("assigned number = %d, want 3", number)
 	}
 	after := ParseMilestones(got)
 	if len(after) != len(before)+1 {
 		t.Fatalf("milestone count = %d, want %d", len(after), len(before)+1)
 	}
-	m, ok := milestoneByNumber(after, 8)
+	m, ok := milestoneByNumber(after, 3)
 	if !ok {
-		t.Fatal("milestone 8 not parsed back")
+		t.Fatal("milestone 3 not parsed back")
 	}
 	if m.Title != "Frontier Features" || m.Status != StatusPlanned {
-		t.Errorf("milestone 8 title=%q status=%q", m.Title, m.Status)
+		t.Errorf("milestone 3 title=%q status=%q", m.Title, m.Status)
 	}
 	if !strings.Contains(m.Description, "- bullet two") {
 		t.Errorf("description not preserved: %q", m.Description)
@@ -257,18 +310,17 @@ func TestSetSprintStatus_RoundTripAndRemoval(t *testing.T) {
 }
 
 func TestSetSprintStatus_PreservesProse(t *testing.T) {
-	sprints := readRepoDoc(t, "SPRINTS.md")
-	got, err := SetSprintStatus(sprints, 45, StatusPaused)
+	got, err := SetSprintStatus(fixtureSprints, 5, StatusPaused)
 	if err != nil {
 		t.Fatalf("SetSprintStatus: %v", err)
 	}
 	// The Sprint History section (everything from its heading on) is untouched.
-	tail := sprints[indexOf(t, sprints, "## Sprint History"):]
+	tail := fixtureSprints[indexOf(t, fixtureSprints, "## Sprint History"):]
 	if !strings.HasSuffix(got, tail) {
 		t.Error("Sprint History section changed")
 	}
-	if !strings.Contains(got, "Out of scope (deferred): any enforcement/gating") {
-		t.Error("sprint 45 out-of-scope prose was lost")
+	if !strings.Contains(got, "Out of scope: nothing here.") {
+		t.Error("sprint 5 out-of-scope prose was lost")
 	}
 }
 
@@ -381,17 +433,16 @@ func TestRemoveSprint_NotFound(t *testing.T) {
 // --- MoveSprint --------------------------------------------------------------
 
 func TestMoveSprint_RoundTrip(t *testing.T) {
-	sprints := readRepoDoc(t, "SPRINTS.md")
-	got, err := MoveSprint(sprints, 45, 6)
+	got, err := MoveSprint(fixtureSprints, 5, 1)
 	if err != nil {
 		t.Fatalf("MoveSprint: %v", err)
 	}
-	s, _ := sprintByNumber(ParseSprints(got), 45)
-	if s.Milestone != 6 {
-		t.Errorf("milestone = %d, want 6", s.Milestone)
+	s, _ := sprintByNumber(ParseSprints(got), 5)
+	if s.Milestone != 1 {
+		t.Errorf("milestone = %d, want 1", s.Milestone)
 	}
 	// Only the Milestone: line changed; Sprint History is untouched.
-	if !strings.HasSuffix(got, sprints[indexOf(t, sprints, "## Sprint History"):]) {
+	if !strings.HasSuffix(got, fixtureSprints[indexOf(t, fixtureSprints, "## Sprint History"):]) {
 		t.Error("Sprint History changed")
 	}
 }

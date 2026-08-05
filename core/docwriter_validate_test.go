@@ -120,10 +120,9 @@ func TestFinishSprint_AllDoneSucceeds(t *testing.T) {
 // --- FinishMilestone ---------------------------------------------------------
 
 func TestFinishMilestone_RefusesWithOpenSprint(t *testing.T) {
-	// Real docs: sprint 45 is current and links to milestone 7.
-	_, err := FinishMilestone(readRepoDoc(t, "ROADMAP.md"), readRepoDoc(t, "SPRINTS.md"), 7)
-	ie := asInvariant(t, err)
-	if ie == nil {
+	// Fixture: sprint 5 is the current sprint and links to milestone 2.
+	_, err := FinishMilestone(fixtureRoadmap, fixtureSprints, 2)
+	if ie := asInvariant(t, err); ie == nil {
 		t.Fatal("expected a rejection")
 	}
 }
