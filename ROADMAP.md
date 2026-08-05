@@ -29,16 +29,24 @@ Introduce daedalus-runner (in-container PID-1 process wrapping a runner via per-
 - Automatic trust prompt handling
 - Mobile WebSocket stability
 
+### Milestone 6: Roadmap Hierarchy, Made Visible (In Progress)
+
+From any project, the milestone → sprint hierarchy is visible at a glance,
+with sprints framed for how the tool actually works — verified batches that
+cut a release, not calendar timeboxes.
+
+- The active milestone and its sprints surface in the session sidebar
+- Sprints are shown by ship-pipeline state — Building → Ready → Shipped (+ optional Proposed) — not by calendar time
+- The verify/ship gate ("Ready": built but not yet released) is first-class; "active milestone, no sprints yet" is a valid, non-empty view
+
 ## Phasing
 
 ```
-M1 (Done) ──► M2 (Done) ──► M3 (Done) ──► M4 (Done) ──► M5 (Done)
-Container      Programme      Terminal      Layered         Self-sustaining
-Runtime        Topology       Fidelity      Stack           Operations
+M1 (Done) ─► M2 (Done) ─► M3 (Done) ─► M4 (Done) ─► M5 (Done) ─► M6 (In Progress)
+Container    Programme    Terminal    Layered      Self-sust.    Roadmap
+Runtime      Topology     Fidelity    Stack        Operations    Hierarchy
 ```
 
 ## Current Focus
 
-Milestones M1–M5 are all complete. Milestone 5 (Self-Sustaining Operations) was verified end-to-end on real Docker in Sprint 43 and shipped in **v0.40.0** — shared Claude/Maven caches (#37/#21), a per-project tools volume (#27), mobile-WebSocket resilience (#29), Dockerfile layer efficiency + pinned/checksum-verified installers (#51), the coordinator-mount fix (#55), and idempotent trust handling. The classic tmux launch path was retired (the Milestone 4 tail); the runner/coordinator stack is now the sole architecture.
-
-The next milestone is not yet defined — candidate work lives in `BACKLOG.md`; `SPRINTS.md` tracks sprint execution.
+**Milestone 6: Roadmap Hierarchy, Made Visible.** Milestones M1–M5 shipped (M5 in **v0.40.0**); the runner/coordinator stack is the sole architecture. M6 turns the project's own milestone → sprint structure into a first-class, at-a-glance view in the UI — and reframes sprints around how agentic development actually flows (verified batches that cut a release) rather than calendar timeboxes. Sprint 44 delivers the active-milestone sprint pipeline in the session sidebar. See `SPRINTS.md`.

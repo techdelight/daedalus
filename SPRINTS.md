@@ -2,7 +2,21 @@
 
 ## Current Sprint
 
-_No active sprint. Milestones M1–M5 are all complete; Milestone 5 shipped in **v0.40.0** (Sprint 43, in the history below). The next sprint is TBD — see `BACKLOG.md`._
+### Sprint 44: Sidebar Sprint Pipeline
+
+Goal: surface the active milestone and its sprints in the session sidebar, framed by **ship-pipeline state** (Building → Ready → Shipped, + optional Proposed) rather than calendar time — the light version of the agentic reframe (keep the word "sprint"; derive phase from existing fields; make the verify/ship gate first-class). Design in ROADMAP M6.
+
+Milestone: 6
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | `core.PhaseOf(Sprint) SprintPhase` (Shipped / Ready / Building / Proposed) derived from `Version` + item statuses, plus a done/total progress helper, with tests | Done |
+| 2 | `GET /api/projects/{name}/milestone-sprints` — the active (In Progress) milestone + its sprints with derived phase and progress; handler + tests | Done |
+| 3 | Sidebar "Sprints" section (`#docs-sidebar`) — markup, `loadMilestoneSprints`, renderer, phase-badge CSS; wired into `loadSidebar`. Order: Building, Ready (accented), Proposed, Shipped (dimmed) | |
+| 4 | Optional: parse a `Status: Planned` sprint / `## Planned Sprints` section so the **Proposed** bucket can be non-empty (defer-able) | |
+| 5 | Docs: define M6 (ROADMAP, In Progress), open Sprint 44 (SPRINTS, `Milestone: 6`), note the phase model in `docs/structured-docs.md` | In Progress |
+
+Out of scope (deferred): the full sprint → batch/increment vocabulary rename; a rich planned-sprint planning UI; a mobile sprints overlay.
 
 ## Sprint History
 
