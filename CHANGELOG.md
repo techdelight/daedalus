@@ -4,6 +4,39 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.42.0] - 2026-08-05
+
+**Milestone 7: Project-Management Tools & File-Derived State.** The in-container
+agent gets proper MCP tools to manage the project's roadmap, and Daedalus derives
+the rest of the project's state from its files instead of the agent self-reporting.
+
+### Added
+- **Lifecycle MCP tools** on `project-mgmt-mcp` — the agent evolves the roadmap
+  through validated transitions instead of hand-editing: `add`/`remove`/`start`/
+  `finish`/`pause_milestone` and `add`/`remove`/`move`/`start`/`finish`/`pause_sprint`.
+  Each edits `ROADMAP.md`/`SPRINTS.md` and refuses a write that would break an
+  invariant (exactly one milestone In Progress; a sprint finishes only once its
+  items are Done; a milestone finishes only with no open sprint under it).
+- **A `Paused` lifecycle state** — a milestone `(Paused)` heading and a sprint
+  `Status: Paused` line, distinct from Done / In Progress / Planned.
+- **Prose-preserving document writer** (`core/docwriter.go`) — structural edits to
+  the roadmap docs that never re-serialize, so every hand-written line survives
+  byte-for-byte. (This release's own milestone was closed by these functions.)
+
+### Changed
+- **Project state is derived from files (#52)** — version from `VERSION`, vision
+  from `VISION.md`, progress from the current sprint's item statuses. What Daedalus
+  shows always matches the files, with nothing self-reported.
+
+### Removed
+- **The self-report write tools** `report_progress` / `set_vision` / `set_version`
+  and the `.daedalus/progress.json` store — replaced by the derived read state.
+
+### Notes
+- Daedalus *offers* these tools; it can't *gate* the agent (it launches the CLI and
+  provides MCP servers — it is not the agent's harness), so this is capability, not
+  enforcement. `move_milestone` was deferred (no reorder need yet).
+
 ## [0.41.0] - 2026-08-05
 
 **Milestone 6: Roadmap Hierarchy, Made Visible.** The session sidebar now shows

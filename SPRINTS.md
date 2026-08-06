@@ -2,9 +2,26 @@
 
 ## Current Sprint
 
-_No active sprint. Milestone 6 shipped in **v0.41.0** (Sprint 44, in the history below). The next milestone/sprint is TBD — see `BACKLOG.md`._
+_No active sprint. Milestone 7 shipped in **v0.42.0** (Sprint 45, in the history below). The next sprint is TBD — see `BACKLOG.md`._
 
 ## Sprint History
+
+### Sprint 45: Project-Management MCP Tools & File-Derived State (v0.42.0)
+
+Goal: give the in-container agent MCP tools to manage the roadmap lifecycle (add/move/remove/start/finish/pause milestones & sprints), and derive project *read* state from files — replacing the unreliable self-report write tools. daedalus offers and validates its own writes; it does not gate the agent (it launches the CLI, it is not the agent's harness). Design in ROADMAP M7.
+
+Milestone: 7
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | **`Paused` lifecycle state (core)** — add `StatusPaused` to `core/status.go`; recognize `(Paused)` in milestone/sprint headers and a `Paused` item cell in `ParseMilestones`/`ParseSprints`; extend `PhaseOf` + `ValidateDocs`. Tests | Done |
+| 2 | **Structured doc writer (core) — the crux** — surgical, prose-preserving edits to `ROADMAP.md`/`SPRINTS.md`: `SetMilestoneStatus`, `AddMilestone`, `RemoveMilestone`, `AddSprint`, `SetSprintStatus`, `MoveSprint`, `RemoveSprint`, `RollSprintToHistory`. Round-trip + prose-preservation tests | Done |
+| 3 | **Invariant validation on write (core)** — refuse edits producing an inconsistent roadmap (>1 In Progress milestone; current sprint not linked to it; finish a sprint with unfinished items unless forced; finish a milestone with an open sprint). Reuses `ValidateDocs`. Tests | Done |
+| 4 | **Lifecycle MCP tools (`cmd/project-mgmt-mcp`)** — `add/remove/move/start/finish/pause_milestone` + `…_sprint`, each reading `ROADMAP.md`/`SPRINTS.md`, applying the #2 mutation, writing back, returning new state or a structured error. Tests; register in the server (+ `internal/mcpclient` if consumed) | Done |
+| 5 | **File-derived read state (#52)** — derive vision (`VISION.md`), version (`VERSION`), progress (sprint item statuses → %) host-side; remove the self-report write tools (`report_progress`/`set_vision`/`set_version`). Point host readers at the derived source. Tests | Done |
+| 6 | **Agent guidance + docs + close** — tool descriptions as agent guidance; document tools + `Paused` in `docs/structured-docs.md` (+ README); CHANGELOG; dogfood; close M7 + release | Done |
+
+Out of scope (deferred): any enforcement/gating of the agent (impossible — capability only); a human-facing CLI for these tools; a web reordering UI; the #47/#48 coordinator-staleness work.
 
 ### Sprint 44: Sidebar Sprint Pipeline (v0.41.0)
 

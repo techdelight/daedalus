@@ -106,9 +106,10 @@ func docPresent(dir, filename string) bool {
 // This deliberately does not follow handleStrategicRoadmap, which returns 200
 // with an empty string and lets the frontend infer absence.
 //
-// The content is the file on disk, not the `vision` tagline that
-// handleDashboard serves from progress.json — see Backlog #52 for
-// collapsing the two.
+// Both this endpoint and handleDashboard's `vision` now derive from VISION.md
+// (Backlog #52 collapsed the old self-reported progress.json tagline into the
+// file). This one returns the raw file and 404s its absence; handleDashboard
+// folds the same content into the dashboard payload.
 func (ws *WebServer) handleVision(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 

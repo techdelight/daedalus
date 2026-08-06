@@ -67,9 +67,9 @@ func (ws *WebServer) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Docker status check failed for %s: %v", name, err)
 	}
 
-	// Read progress data from .daedalus/progress.json in the project directory.
-	// This is written by the project-mgmt-mcp server inside the container
-	// and visible on the host via the bind mount.
+	// Derive progress/vision/version from the project's own files (VERSION,
+	// VISION.md, SPRINTS.md) — see progress.Read and Backlog #52. Preferred over
+	// the registry's stored copy below when a file supplies a value.
 	progData, err := progress.Read(entry.Directory)
 	if err != nil {
 		log.Printf("read progress for %s: %v", name, err)

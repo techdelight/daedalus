@@ -19,7 +19,6 @@ import (
 	"github.com/techdelight/daedalus/internal/agentstate"
 	"github.com/techdelight/daedalus/internal/docker"
 	"github.com/techdelight/daedalus/internal/executor"
-	"github.com/techdelight/daedalus/internal/progress"
 	"github.com/techdelight/daedalus/internal/registry"
 
 	"github.com/gorilla/websocket"
@@ -363,16 +362,20 @@ func TestHandleDashboard_ReadsProgressFile(t *testing.T) {
 	if err := ws.registry.AddProject("prog-app", projDir, "dev"); err != nil {
 		t.Fatal(err)
 	}
-	// Set registry values that should be overridden by progress file.
+	// Set registry values that should be overridden by the derived file state.
 	if err := ws.registry.UpdateProjectProgress("prog-app", 10, "Old vision", "0.1.0"); err != nil {
 		t.Fatal(err)
 	}
-	// Write progress file with more current data.
-	if err := progress.Write(projDir, progress.Data{
-		ProgressPct:    75,
-		Vision:         "Test vision",
-		ProjectVersion: "2.0.0",
-	}); err != nil {
+	// Derive from the project's own files (Backlog #52): VERSION, VISION.md, and
+	// a current sprint that is 75% done (3 of 4 items).
+	if err := os.WriteFile(filepath.Join(projDir, "VERSION"), []byte("2.0.0\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(projDir, "VISION.md"), []byte("Test vision\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	sprints := "## Current Sprint\n\n### Sprint 9: Work\n\n| # | Item | Status |\n|---|------|--------|\n| 1 | a | Done |\n| 2 | b | Done |\n| 3 | c | Done |\n| 4 | d | In Progress |\n"
+	if err := os.WriteFile(filepath.Join(projDir, "SPRINTS.md"), []byte(sprints), 0644); err != nil {
 		t.Fatal(err)
 	}
 	mock.Results["docker"] = executor.MockResult{Output: ""}

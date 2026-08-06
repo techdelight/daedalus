@@ -22,4 +22,11 @@ const (
 	StatusDone Status = "Done"
 	// StatusInProgress marks work under way.
 	StatusInProgress Status = "In Progress"
+	// StatusPaused marks work put on hold: a milestone or sprint that was
+	// started (or planned) and then deliberately parked, distinct from Done
+	// (finished), In Progress (under way) and the not-started defaults
+	// (StatusPlanned / StatusPending). Like the others its string value is the
+	// literal document text — "(Paused)" on a milestone heading, "Status:
+	// Paused" in a sprint's header block — so it round-trips.
+	StatusPaused Status = "Paused"
 )

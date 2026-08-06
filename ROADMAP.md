@@ -39,23 +39,35 @@ cut a release, not calendar timeboxes.
 - Sprints are shown by ship-pipeline state — Building → Ready → Shipped (+ optional Proposed) — not by calendar time
 - The verify/ship gate ("Ready": built but not yet released) is first-class; "active milestone, no sprints yet" is a valid, non-empty view
 
-### Milestone 7: Trustworthy, File-Derived Project State (In Progress)
+### Milestone 7: Project-Management Tools & File-Derived State (Done)
 
-The project's own files — not agent self-reports — are the single source of
-truth for its state. Continues the M5–M6 thread (structured docs, milestone /
-sprint parsing) by deriving the remaining state host-side.
+Give the in-container agent (Claude / Copilot) proper MCP tools to manage the
+project's roadmap, and derive the rest of the project's state from its files —
+replacing unreliable agent self-reporting with structured reads and writes.
+daedalus **offers** these tools; it can't gate the agent, which runs as its own
+autonomous CLI (daedalus launches it and provides MCP servers, it is not the
+agent's harness). So this is capability, not enforcement.
 
-- Derive vision (VISION.md), version (VERSION file), and progress (the current sprint's item statuses) host-side, and deprecate the `project-mgmt-mcp` write tools (#52)
-- Coordinator staleness visibility — warn when the running daemon is older than the on-disk binary after a rebuild (#47/#48)
+- **Lifecycle MCP tools (write side)** — `project-mgmt-mcp` gains tools to **add / remove / move** milestones and sprints and **start / finish / pause** them, editing `ROADMAP.md` / `SPRINTS.md` structurally and keeping them internally consistent (the tool validates its own writes — e.g. one milestone In Progress, a current sprint linked to it). Replaces the free-form self-report write tools (`report_progress` / `set_vision` / `set_version`).
+- **File-derived state (read side, #52)** — derive vision (`VISION.md`), version (`VERSION`), and progress (the current sprint's item statuses) host-side, so read state never depends on the agent reporting it.
+- **A `Paused` lifecycle state** — for a milestone or sprint put on hold, distinct from Done / In Progress / Planned.
+
+### Milestone 8: Onboarding & Adoption (In Progress)
+
+Make Daedalus approachable for a new user and a new project — from install to first productive session.
+
+- Post-install onboarding / first-run guidance (#45)
+- `daedalus docs scaffold` to bootstrap conformant project docs (#54)
+- Sharpen the value proposition in README + first-run messaging (#46)
 
 ## Phasing
 
 ```
-M1 (Done) ─► … ─► M5 (Done) ─► M6 (Done) ─► M7 (In Progress)
-Container         Self-sust.    Roadmap       File-derived
-Runtime           Operations    Hierarchy     State
+M1 (Done) ─► … ─► M6 (Done) ─► M7 (Done) ─► M8 (In Progress)
+Container         Roadmap       PM tools &    Onboarding
+Runtime           Hierarchy     file state    & Adoption
 ```
 
 ## Current Focus
 
-**Milestone 7: Trustworthy, File-Derived Project State.** Milestones M1–M6 are complete (M6 shipped in **v0.41.0** — the sidebar sprint pipeline). M7 continues the "the project's own files are the source of truth" thread: derive vision/version/progress host-side and deprecate the agent-self-reporting write tools (#52), plus coordinator staleness visibility (#47/#48). No sprint is open yet — see `SPRINTS.md` and `BACKLOG.md`.
+**Milestone 8: Onboarding & Adoption.** Milestones M1–M7 are complete (M7 shipped in **v0.42.0** — the agent-facing lifecycle MCP tools + file-derived state). M8 turns outward: make Daedalus approachable for a new user and a new project — post-install onboarding (#45), `daedalus docs scaffold` for conformant project docs (#54), and a sharper value proposition (#46). No sprint is open yet — see `SPRINTS.md` and `BACKLOG.md`.

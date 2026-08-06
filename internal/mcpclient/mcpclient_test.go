@@ -3,7 +3,6 @@
 package mcpclient
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -29,17 +28,21 @@ func TestReadProgress_NoFile(t *testing.T) {
 	}
 }
 
-func TestReadProgress_WithFile(t *testing.T) {
-	// Arrange
+func TestReadProgress_DerivesFromFiles(t *testing.T) {
+	// Arrange — state comes from the project's own files, not a progress.json.
 	client := New()
 	dir := t.TempDir()
-	want := progress.Data{
-		ProgressPct:    65,
-		Vision:         "Automate all the things",
-		ProjectVersion: "1.2.0",
-		Message:        "Sprint 5 underway",
-	}
-	writeProgressJSON(t, dir, want)
+	writeFile(t, filepath.Join(dir, "VERSION"), "1.2.0\n")
+	writeFile(t, filepath.Join(dir, "VISION.md"), "Automate all the things\n")
+	writeFile(t, filepath.Join(dir, "SPRINTS.md"), `## Current Sprint
+
+### Sprint 5: Underway
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | a | Done |
+| 2 | b | In Progress |
+`)
 
 	// Act
 	got, err := client.ReadProgress(dir)
@@ -47,6 +50,11 @@ func TestReadProgress_WithFile(t *testing.T) {
 	// Assert
 	if err != nil {
 		t.Fatalf("ReadProgress() error = %v", err)
+	}
+	want := progress.Data{
+		ProgressPct:    50, // 1 of 2 done
+		Vision:         "Automate all the things",
+		ProjectVersion: "1.2.0",
 	}
 	if got != want {
 		t.Errorf("ReadProgress() = %+v, want %+v", got, want)
@@ -167,25 +175,19 @@ func TestGetProjectStatus(t *testing.T) {
 	client := New()
 	dir := t.TempDir()
 
-	prog := progress.Data{
-		ProgressPct:    80,
-		Vision:         "Ship it",
-		ProjectVersion: "3.0.0",
-		Message:        "Almost there",
-	}
-	writeProgressJSON(t, dir, prog)
+	writeFile(t, filepath.Join(dir, "VERSION"), "3.0.0\n")
+	writeFile(t, filepath.Join(dir, "VISION.md"), "Ship it\n")
 
-	roadmap := `# Roadmap
+	sprints := `## Current Sprint
 
-## Current Sprint
-
-### Sprint 12: Final (v3.0.0)
+### Sprint 12: Final
 
 | # | Item | Status |
 |---|------|--------|
-| 1 | Release | In Progress |
+| 1 | Release | Done |
+| 2 | Verify | In Progress |
 `
-	writeFile(t, filepath.Join(dir, "ROADMAP.md"), roadmap)
+	writeFile(t, filepath.Join(dir, "SPRINTS.md"), sprints)
 
 	// Act
 	status, err := client.GetProjectStatus("my-project", dir)
@@ -197,17 +199,14 @@ func TestGetProjectStatus(t *testing.T) {
 	if status.Name != "my-project" {
 		t.Errorf("Name = %q, want %q", status.Name, "my-project")
 	}
-	if status.ProgressPct != 80 {
-		t.Errorf("ProgressPct = %d, want 80", status.ProgressPct)
+	if status.ProgressPct != 50 { // 1 of 2 done, derived
+		t.Errorf("ProgressPct = %d, want 50", status.ProgressPct)
 	}
 	if status.Vision != "Ship it" {
 		t.Errorf("Vision = %q, want %q", status.Vision, "Ship it")
 	}
 	if status.ProjectVersion != "3.0.0" {
 		t.Errorf("ProjectVersion = %q, want %q", status.ProjectVersion, "3.0.0")
-	}
-	if status.Message != "Almost there" {
-		t.Errorf("Message = %q, want %q", status.Message, "Almost there")
 	}
 	if status.CurrentSprint == nil {
 		t.Fatal("CurrentSprint = nil, want non-nil")
@@ -433,22 +432,6 @@ func TestReadMilestones_NoFallbackToSprints(t *testing.T) {
 	}
 	if milestones != nil {
 		t.Errorf("got %v, want nil (SPRINTS.md is not a milestone source)", milestones)
-	}
-}
-
-// writeProgressJSON writes a progress.json file in the .daedalus/ subdirectory.
-func writeProgressJSON(t *testing.T, dir string, d progress.Data) {
-	t.Helper()
-	daedalusDir := filepath.Join(dir, ".daedalus")
-	if err := os.MkdirAll(daedalusDir, 0755); err != nil {
-		t.Fatalf("creating .daedalus dir: %v", err)
-	}
-	b, err := json.MarshalIndent(d, "", "  ")
-	if err != nil {
-		t.Fatalf("marshaling progress data: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(daedalusDir, "progress.json"), b, 0644); err != nil {
-		t.Fatalf("writing progress.json: %v", err)
 	}
 }
 

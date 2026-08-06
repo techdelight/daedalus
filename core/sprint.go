@@ -38,4 +38,12 @@ type Sprint struct {
 	Milestone int          `json:"milestone,omitempty"`
 	Items     []SprintItem `json:"items"`
 	IsCurrent bool         `json:"isCurrent,omitempty"`
+	// Status is an optional lifecycle marker on the sprint itself, from a
+	// "Status: <status>" line in the sprint's header block (parsed like the
+	// "Milestone: N" line). It is empty for the common case — a sprint's state
+	// is normally derived by PhaseOf from its Version and item statuses — and
+	// is set only to park a sprint out of that flow: "Status: Paused" makes
+	// PhaseOf report PhasePaused regardless of item state. Empty means "no
+	// explicit marker; derive as usual".
+	Status Status `json:"status,omitempty"`
 }
