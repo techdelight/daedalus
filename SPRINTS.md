@@ -2,7 +2,24 @@
 
 ## Current Sprint
 
-### Sprint 48: Single Bundled Release Archive
+### Sprint 49: Side-by-Side Versions & Rollback
+
+Goal: a new install lands *alongside* the current one instead of clobbering it, and switching or rolling back is one command — so a user can try a new version and fall back if it misbehaves. Builds directly on Sprint 48's single archive. Design in ROADMAP M9 (#9).
+
+Milestone: 9
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | **Versioned install layout (`setup.sh`)** — install into `$PREFIX/versions/<version>/`; maintain `$PREFIX/current` → the active version and point the PATH symlink at `current/daedalus`. Upgrades keep prior versions. Transparently **migrate a legacy flat install** into `versions/<old>/` on the first versioned upgrade; uninstall handles the new layout. `bash -n`; `scripts/test-install.sh` extended |  |
+| 2 | **`daedalus version` subcommand (Go)** — `list` (installed versions, marking current), `use <version>` (repoint `current` + PATH symlink, recording the prior as previous), `rollback` (switch back to the previously-active version). Derives the install prefix from the running binary (`os.Executable`), `DAEDALUS_PREFIX` override for tests. Wire into dispatch + usage + `--help` + completions; unit tests over a fake prefix |  |
+| 3 | **Prune + safety** — `daedalus version prune [--keep N]` removes old versions keeping the last N + current; refuse to remove the current/active version; clear errors on unknown/again-current version. Tests |  |
+| 4 | **Docs + close** — README (versioned install + switch/rollback/prune), CHANGELOG; extended local simulation (install v1 → install v2 alongside → `list`/`use`/`rollback`/`prune` → uninstall, no GitHub/Docker); verify; close Milestone 9 + release |  |
+
+Out of scope: a web/TUI version switcher; auto-pruning on install (explicit `prune` only); cross-machine/remote version sync.
+
+## Sprint History
+
+### Sprint 48: Single Bundled Release Archive (v0.44.0)
 
 Goal: replace the ~27 individual release assets with one self-contained per-platform archive plus a checksums file, and make `install.sh` download and verify a single archive instead of curling each file. The packaging logic is factored into a script both the release workflow and a local simulation call, so the whole chain is verifiable here without GitHub or Docker. Foundation for side-by-side installs (M9 #9) and the Homebrew formula (M10 #11). Design in ROADMAP M9 (#8).
 
@@ -16,8 +33,6 @@ Milestone: 9
 | 4 | **Local end-to-end simulation + docs + close** — `scripts/test-release-bundle.sh`: build host binaries → `package-release.sh` → run `install`/`setup` from the archive into a temp prefix, asserting binaries + runtime files land and the symlink works (no GitHub, no Docker). `bash -n` on every touched script. CHANGELOG; README/CONTRIBUTING install notes; ship | Done |
 
 Out of scope: side-by-side versioned installs (#9, next sprint) and the Homebrew formula (M10); keeping the old individual-file assets as a parallel/back-compat path (new installs use the archive — older `install.sh` copies pin their own tag).
-
-## Sprint History
 
 ### Sprint 47: First-Run Onboarding & Value Proposition (v0.43.0)
 
