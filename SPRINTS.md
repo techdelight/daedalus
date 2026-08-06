@@ -2,7 +2,24 @@
 
 ## Current Sprint
 
-### Sprint 46: Bootstrap Conformant Project Docs (`docs scaffold`)
+### Sprint 47: First-Run Onboarding & Value Proposition
+
+Goal: close the "installed — now what?" gap. A new user gets a clear first step after install, and the README + first-run messaging say what Daedalus is and why in one breath. The messaging half of Milestone 8 (#45, #46), building on Sprint 46's doc-bootstrap backbone (`daedalus docs scaffold`). Design in ROADMAP M8.
+
+Milestone: 8
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | **`daedalus init`** — a first-step command that carries a new user from install to first session: getting-started guidance (register a project, scaffold docs, start a session) with next-step hints; optionally bootstraps the current directory's docs via `core.ScaffoldDocs`. Host-side, testable (#45) |  |
+| 2 | **Post-install next-steps** — `install.sh` prints a clear getting-started pointer on a successful install (what to run next), pointing at `daedalus init` (#45) |  |
+| 3 | **Sharpen the value proposition (#46)** — tighten the README opening + first-run / `--help` messaging to the "hands-off AI coding in a safe container" pitch; say what it is and why in one breath |  |
+| 4 | **Docs + close** — CHANGELOG; usage/help; verify; close Milestone 8 + release |  |
+
+Out of scope: any in-container/first-session UX that needs a running Docker daemon (host-side onboarding only); a GUI wizard.
+
+## Sprint History
+
+### Sprint 46: Bootstrap Conformant Project Docs (v0.43.0)
 
 Goal: turn "read `docs/PROJECT-INIT.md` and hope" into one command — `daedalus docs scaffold [dir]` writes the required-doc skeletons (`core.RequiredDocs()`), already conformant to the structured-docs contract so `daedalus docs lint` passes on a fresh project. The concrete first step of Milestone 8's "install → first productive session" arc: a new project starts with a valid roadmap arc instead of an empty tree. Design in ROADMAP M8 (#54).
 
@@ -14,10 +31,6 @@ Milestone: 8
 | 2 | **Single source of truth for templates** — factor the skeletons so `docs/PROJECT-INIT.md` and the scaffolder can't drift; the ROADMAP/SPRINTS stubs must satisfy the same strict-format checks `docs lint` enforces. Tests | Done |
 | 3 | **`daedalus docs scaffold [dir] [--force]` (CLI)** — wire into `manageDocs` beside `lint`; default to cwd; print a created/skipped summary; usage + `docs help` text | Done |
 | 4 | **Docs + close** — document `docs scaffold` in README + `docs/structured-docs.md` (sibling of `docs lint`); CHANGELOG; verify `docs lint` passes on freshly scaffolded output; ship | Done |
-
-Out of scope (deferred to later M8 sprints): post-install / first-run onboarding (#45) and the README/value-proposition sharpening (#46) — those are the messaging half of the milestone; this sprint delivers the doc-bootstrap backbone they point at.
-
-## Sprint History
 
 ### Sprint 45: Project-Management MCP Tools & File-Derived State (v0.42.0)
 
