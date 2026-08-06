@@ -92,18 +92,22 @@ jobs:
         with:
           path: artifacts
 
-      - name: Prepare release assets
+      - name: Package release archives
         run: |
-          mkdir -p release-assets
-          cp artifacts/binaries-*/daedalus-linux-* artifacts/binaries-*/daedalus-darwin-* release-assets/
-          cp artifacts/binaries-*/skill-catalog-mcp-* release-assets/
-          cp artifacts/binaries-*/project-mgmt-mcp-* release-assets/
-          cp artifacts/binaries-*/daedalus-coordinator-* release-assets/
-          cp artifacts/binaries-*/daedalus-runner-* release-assets/
-          cp claude.json install.sh setup.sh config.json docker-compose.yml Dockerfile entrypoint.sh settings.json logo.txt scripts/wsl2-network.bat release-assets/
-          sed -i 's/RELEASE_TAG="__RELEASE_TAG__"/RELEASE_TAG="dev"/' release-assets/install.sh
+          mkdir -p staging release-assets
+          # Collect every per-platform binary from the matrix artifacts into a
+          # single flat staging dir.
+          cp artifacts/binaries-*/* staging/
+          # Stage the shared runtime files (exactly what setup.sh installs) plus
+          # wsl2-network.bat.
+          cp claude.json config.json docker-compose.yml Dockerfile entrypoint.sh settings.json logo.txt setup.sh staging/
+          cp scripts/wsl2-network.bat staging/
+          # Bake a timestamped dev version into config.json via the packager.
           TIMESTAMP=$(date -u +%Y%m%d%H%M%S)
-          sed -i "s/\"version\": \"\"/\"version\": \"dev_$TIMESTAMP\"/" release-assets/config.json
+          bash scripts/package-release.sh --staging staging --out release-assets --version "dev_$TIMESTAMP"
+          # Ship a standalone install.sh with the dev tag baked in.
+          cp install.sh release-assets/install.sh
+          sed -i 's/RELEASE_TAG="__RELEASE_TAG__"/RELEASE_TAG="dev"/' release-assets/install.sh
 
       - name: Delete existing dev release
         env:
@@ -135,7 +139,7 @@ jobs:
           curl -fsSL https://github.com/techdelight/daedalus/releases/download/dev/install.sh | bash
           ```
 
-          This downloads the dev binary, runtime files, and creates a PATH symlink. See `install.sh --help` for options.
+          This downloads the dev release archive, verifies its checksum, extracts the binaries + runtime files, and creates a PATH symlink. See `install.sh --help` for options.
           EOF
           )" \
             release-assets/*

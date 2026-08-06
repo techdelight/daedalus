@@ -24,6 +24,16 @@ RUNTIME_FILES=(
     config.json
 )
 
+# Every binary the payload may carry (runner/coordinator are optional on old
+# archives). Used by install, migration, and uninstall so they stay in sync.
+BINARIES=(
+    daedalus
+    skill-catalog-mcp
+    project-mgmt-mcp
+    daedalus-runner
+    daedalus-coordinator
+)
+
 # ── Argument parsing ─────────────────────────────────────────────────────────
 usage() {
     cat <<EOF
@@ -44,8 +54,17 @@ Maintenance:
   --uninstall              Remove Daedalus installation (prompts before deleting project data)
   --verbose                Enable shell tracing (set -x) for debugging
 
-Installs Daedalus binaries and runtime files from WORK_DIR to the prefix
-directory, merges configuration on upgrade, and creates a PATH symlink.
+Installs Daedalus into a versioned layout under the prefix directory:
+
+  \$PREFIX/versions/<version>/   one full payload per installed version
+  \$PREFIX/current  -> versions/<active>   (the PATH symlink resolves through it)
+  \$PREFIX/previous -> versions/<prior>    (rollback target)
+  \$PREFIX/.cache/  shared data dir (registry etc.), never per-version
+
+Upgrades install alongside existing versions and flip \$PREFIX/current, so prior
+versions stay in place for 'daedalus version use/rollback'. A legacy flat
+install (binaries directly under \$PREFIX) is migrated into versions/<old>/ on
+the first versioned upgrade.
 
 For local-build test installs (e.g. while developing the runner stack):
 
@@ -56,8 +75,8 @@ For local-build test installs (e.g. while developing the runner stack):
       --container-prefix test-run- \\
       --image-prefix test/claude-runner
 
-This script is downloaded as a release asset and invoked by install.sh.
-Set WORK_DIR to the directory containing the downloaded assets (or
+This script is downloaded as part of the release archive and invoked by
+install.sh. Set WORK_DIR to the directory containing the extracted assets (or
 build artefacts, for a local-source install).
 EOF
     exit 0
@@ -107,6 +126,25 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# ── Layout paths ─────────────────────────────────────────────────────────────
+VERSIONS_DIR="$PREFIX/versions"
+CURRENT_LINK="$PREFIX/current"
+PREVIOUS_LINK="$PREFIX/previous"
+
+# Read the "version" field from a config.json; empty if missing/unset.
+read_config_version() {
+    local file="$1"
+    [[ -f "$file" ]] || { echo ""; return; }
+    grep '"version"' "$file" 2>/dev/null | sed 's/.*"version": *"\([^"]*\)".*/\1/' | head -1 || true
+}
+
+# Replace a symlink (or stray dir/file) at $1 with a symlink to $2.
+# $2 is kept relative to $PREFIX so the tree is relocatable.
+link_replace() {
+    rm -rf "$1"
+    ln -s "$2" "$1"
+}
+
 # ── Uninstall ─────────────────────────────────────────────────────────────────
 if [[ "$UNINSTALL" == true ]]; then
     if [[ ! -d "$PREFIX" ]]; then
@@ -116,7 +154,7 @@ if [[ "$UNINSTALL" == true ]]; then
 
     echo "Uninstalling Daedalus from $PREFIX..."
 
-    # Remove symlink. Use --link-name (default: "daedalus") so a test
+    # Remove PATH symlink. Use --link-name (default: "daedalus") so a test
     # install installed as `daedalus-test` is uninstalled cleanly.
     LINK="$HOME/.local/bin/$LINK_NAME"
     if [[ -L "$LINK" ]]; then
@@ -124,7 +162,7 @@ if [[ "$UNINSTALL" == true ]]; then
         echo "  Removed symlink $LINK"
     fi
 
-    # Prompt before removing project data
+    # Prompt before removing project data (shared across versions).
     if [[ -d "$PREFIX/.cache" ]]; then
         printf "Remove project data in %s/.cache/? (y/N) " "$PREFIX"
         read -r answer
@@ -136,16 +174,16 @@ if [[ "$UNINSTALL" == true ]]; then
         fi
     fi
 
-    # Remove runtime files and binary
-    for f in "${RUNTIME_FILES[@]}"; do
+    # Remove the versioned layout: current/previous links, all versions, plus
+    # any legacy flat files left directly under $PREFIX.
+    rm -f "$CURRENT_LINK" "$PREVIOUS_LINK"
+    if [[ -d "$VERSIONS_DIR" ]]; then
+        rm -rf "$VERSIONS_DIR"
+        echo "  Removed all installed versions."
+    fi
+    for f in "${BINARIES[@]}" setup.sh "${RUNTIME_FILES[@]}"; do
         rm -f "$PREFIX/$f"
     done
-    rm -f "$PREFIX/daedalus"
-    rm -f "$PREFIX/daedalus-runner"
-    rm -f "$PREFIX/daedalus-coordinator"
-    rm -f "$PREFIX/skill-catalog-mcp"
-    rm -f "$PREFIX/project-mgmt-mcp"
-    rm -f "$PREFIX/setup.sh"
     echo "  Removed binaries and runtime files."
 
     # Remove prefix directory if empty
@@ -169,30 +207,54 @@ if [[ -z "${WORK_DIR:-}" || ! -d "$WORK_DIR" ]]; then
     exit 1
 fi
 
-# ── Detect existing installation ────────────────────────────────────────────
+# ── Determine new version ──────────────────────────────────────────────────
+# install.sh/package-release bake the version into WORK_DIR/config.json.
+NEW_VERSION="$(read_config_version "$WORK_DIR/config.json")"
+if [[ -z "$NEW_VERSION" ]]; then
+    NEW_VERSION="unknown"
+fi
+
+# ── Migrate a legacy flat install into the versioned layout ──────────────────
+# Older installs placed binaries directly under $PREFIX. On the first versioned
+# upgrade, move that payload into versions/<old-version>/ and point `current` at
+# it, so the existing install keeps working and becomes a rollback target.
+if [[ -f "$PREFIX/daedalus" && ! -L "$PREFIX/daedalus" ]]; then
+    OLD_VERSION="$(read_config_version "$PREFIX/config.json")"
+    [[ -z "$OLD_VERSION" ]] && OLD_VERSION="legacy"
+    LEGACY_DIR="$VERSIONS_DIR/$OLD_VERSION"
+    echo ""
+    echo "Migrating legacy flat install ($OLD_VERSION) into $LEGACY_DIR..."
+    mkdir -p "$LEGACY_DIR"
+    for f in "${BINARIES[@]}" setup.sh "${RUNTIME_FILES[@]}"; do
+        if [[ -e "$PREFIX/$f" && ! -L "$PREFIX/$f" ]]; then
+            mv "$PREFIX/$f" "$LEGACY_DIR/$f"
+        fi
+    done
+    link_replace "$CURRENT_LINK" "versions/$OLD_VERSION"
+    echo "  Migrated. Prior version preserved as $OLD_VERSION."
+fi
+
+# ── Detect existing (versioned) installation ─────────────────────────────────
+PREV_CURRENT_TARGET=""
 INSTALLED_VERSION=""
 UPGRADING=false
-if [[ -f "$PREFIX/config.json" ]]; then
-    INSTALLED_VERSION="$(grep '"version"' "$PREFIX/config.json" | sed 's/.*"version": *"\([^"]*\)".*/\1/' || true)"
+if [[ -L "$CURRENT_LINK" ]]; then
+    PREV_CURRENT_TARGET="$(readlink "$CURRENT_LINK" 2>/dev/null || true)"  # versions/<v>
+    INSTALLED_VERSION="$(read_config_version "$CURRENT_LINK/config.json")"
     if [[ -n "$INSTALLED_VERSION" ]]; then
         UPGRADING=true
     fi
 fi
 
-# ── Determine new version ──────────────────────────────────────────────────
-# install.sh patches the version into WORK_DIR/config.json before calling us
-NEW_VERSION="$(grep '"version"' "$WORK_DIR/config.json" | sed 's/.*"version": *"\([^"]*\)".*/\1/' || true)"
-if [[ -z "$NEW_VERSION" ]]; then
-    NEW_VERSION="unknown"
-fi
+# ── Install into the versioned directory ─────────────────────────────────────
+VERSION_DIR="$VERSIONS_DIR/$NEW_VERSION"
 
-# ── Install ──────────────────────────────────────────────────────────────────
 if [[ "$UPGRADING" == true ]]; then
     echo ""
-    echo "Upgrading Daedalus from $INSTALLED_VERSION to $NEW_VERSION..."
+    echo "Installing Daedalus $NEW_VERSION (current: $INSTALLED_VERSION)..."
 
-    # Preserve user settings from existing config
-    OLD_CONFIG="$PREFIX/config.json"
+    # Preserve user settings from the active version's config.
+    OLD_CONFIG="$CURRENT_LINK/config.json"
     OLD_DATA_DIR="$(grep '"data-dir"' "$OLD_CONFIG" | sed 's/.*"data-dir": *"\([^"]*\)".*/\1/' || true)"
     OLD_DEBUG="$(grep '"debug"' "$OLD_CONFIG" | sed 's/.*"debug": *\([a-z]*\).*/\1/' || true)"
     OLD_IMAGE_PREFIX="$(grep '"image-prefix"' "$OLD_CONFIG" | sed 's/.*"image-prefix": *"\([^"]*\)".*/\1/' || true)"
@@ -200,52 +262,52 @@ if [[ "$UPGRADING" == true ]]; then
     OLD_LOG_FILE="$(grep '"log-file"' "$OLD_CONFIG" | sed 's/.*"log-file": *"\([^"]*\)".*/\1/' || true)"
 else
     echo ""
-    echo "Installing to $PREFIX..."
+    echo "Installing Daedalus $NEW_VERSION to $PREFIX..."
 fi
 
-mkdir -p "$PREFIX"
+mkdir -p "$VERSION_DIR"
 
-cp "$WORK_DIR/daedalus" "$PREFIX/daedalus"
-chmod 755 "$PREFIX/daedalus"
-cp "$WORK_DIR/skill-catalog-mcp" "$PREFIX/skill-catalog-mcp"
-chmod 755 "$PREFIX/skill-catalog-mcp"
-cp "$WORK_DIR/project-mgmt-mcp" "$PREFIX/project-mgmt-mcp"
-chmod 755 "$PREFIX/project-mgmt-mcp"
-# daedalus-runner is the in-container PID-1 binary the runner path
-# launches. The Dockerfile COPYs it from the build context (= PREFIX)
-# at image-build time, so it has to be staged here.
+# Required binaries.
+cp "$WORK_DIR/daedalus" "$VERSION_DIR/daedalus"
+chmod 755 "$VERSION_DIR/daedalus"
+cp "$WORK_DIR/skill-catalog-mcp" "$VERSION_DIR/skill-catalog-mcp"
+chmod 755 "$VERSION_DIR/skill-catalog-mcp"
+cp "$WORK_DIR/project-mgmt-mcp" "$VERSION_DIR/project-mgmt-mcp"
+chmod 755 "$VERSION_DIR/project-mgmt-mcp"
+# daedalus-runner is the in-container PID-1 binary the runner path launches; the
+# Dockerfile COPYs it from the build context (= the version dir) at image-build
+# time, so it has to be staged next to the main binary.
 if [[ -f "$WORK_DIR/daedalus-runner" ]]; then
-    cp "$WORK_DIR/daedalus-runner" "$PREFIX/daedalus-runner"
-    chmod 755 "$PREFIX/daedalus-runner"
+    cp "$WORK_DIR/daedalus-runner" "$VERSION_DIR/daedalus-runner"
+    chmod 755 "$VERSION_DIR/daedalus-runner"
 fi
-# daedalus-coordinator is the host-side daemon that owns runner-attached
-# container lifecycles. `daedalus coordinator start` expects it to sit
-# next to the main binary in PREFIX. Conditional because older release
-# tarballs won't ship it.
+# daedalus-coordinator is the host-side daemon; `daedalus coordinator start`
+# expects it beside the main binary. Conditional because older tarballs won't
+# ship it.
 if [[ -f "$WORK_DIR/daedalus-coordinator" ]]; then
-    cp "$WORK_DIR/daedalus-coordinator" "$PREFIX/daedalus-coordinator"
-    chmod 755 "$PREFIX/daedalus-coordinator"
+    cp "$WORK_DIR/daedalus-coordinator" "$VERSION_DIR/daedalus-coordinator"
+    chmod 755 "$VERSION_DIR/daedalus-coordinator"
 fi
 
-# Copy setup.sh itself so users can run uninstall locally
+# Copy setup.sh itself so users can run uninstall/upgrade locally.
 SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
-cp "$SELF" "$PREFIX/setup.sh"
-chmod 755 "$PREFIX/setup.sh"
+cp "$SELF" "$VERSION_DIR/setup.sh"
+chmod 755 "$VERSION_DIR/setup.sh"
 
 for f in "${RUNTIME_FILES[@]}"; do
-    # Config is written separately with merged settings
+    # config.json is written separately with merged settings.
     if [[ "$f" == "config.json" ]]; then
         continue
     fi
-    cp "$WORK_DIR/$f" "$PREFIX/$f"
+    cp "$WORK_DIR/$f" "$VERSION_DIR/$f"
 done
 
-# Write config.json with version and preserved/default settings.
-# CLI flags (--container-prefix, --image-prefix) win over the existing
-# config; otherwise the previous value is preserved on upgrade, and a
-# fresh install gets the documented defaults.
+# Write config.json for this version. The shared data dir lives at the prefix
+# root ($PREFIX/.cache), NOT per-version, so the registry and caches survive a
+# version switch. CLI flags win over the previous config; otherwise the prior
+# value is preserved on upgrade and a fresh install gets the documented defaults.
 if [[ "$UPGRADING" == true ]]; then
-    DATA_DIR="${OLD_DATA_DIR}"
+    DATA_DIR="${OLD_DATA_DIR:-$PREFIX/.cache}"
     DEBUG="${OLD_DEBUG:-false}"
     IMAGE_PREFIX="${IMAGE_PREFIX_OVERRIDE:-${OLD_IMAGE_PREFIX:-techdelight/claude-runner}}"
     CONTAINER_PREFIX_VAL="${CONTAINER_PREFIX:-${OLD_CONTAINER_PREFIX:-}}"
@@ -258,7 +320,7 @@ else
     LOG_FILE="$DATA_DIR/daedalus.log"
 fi
 
-cat > "$PREFIX/config.json" <<EOCFG
+cat > "$VERSION_DIR/config.json" <<EOCFG
 {
   "version": "$NEW_VERSION",
   "data-dir": "$DATA_DIR",
@@ -269,16 +331,26 @@ cat > "$PREFIX/config.json" <<EOCFG
 }
 EOCFG
 
-echo "  Copied 3 binaries and $((${#RUNTIME_FILES[@]} - 1)) runtime files."
-echo "  Configuration: $PREFIX/config.json"
+echo "  Installed payload into $VERSION_DIR"
+echo "  Configuration: $VERSION_DIR/config.json"
 
-# ── Symlink ──────────────────────────────────────────────────────────────────
+# ── Flip `current` (recording `previous` for rollback) ───────────────────────
+if [[ -n "$PREV_CURRENT_TARGET" && "$PREV_CURRENT_TARGET" != "versions/$NEW_VERSION" ]]; then
+    link_replace "$PREVIOUS_LINK" "$PREV_CURRENT_TARGET"
+    echo "  Recorded previous version: ${PREV_CURRENT_TARGET#versions/}"
+fi
+link_replace "$CURRENT_LINK" "versions/$NEW_VERSION"
+echo "  Active version: $NEW_VERSION (via $CURRENT_LINK)"
+
+# ── PATH symlink → current/daedalus ──────────────────────────────────────────
+# Pointing at `current` (not a specific version) means 'daedalus version
+# use/rollback' only has to repoint `current` for the switch to take effect.
 if [[ "$CREATE_LINK" == true ]]; then
     LINK_DIR="$HOME/.local/bin"
     mkdir -p "$LINK_DIR"
 
-    ln -sf "$PREFIX/daedalus" "$LINK_DIR/$LINK_NAME"
-    echo "  Symlinked $LINK_DIR/$LINK_NAME -> $PREFIX/daedalus"
+    ln -sf "$CURRENT_LINK/daedalus" "$LINK_DIR/$LINK_NAME"
+    echo "  Symlinked $LINK_DIR/$LINK_NAME -> $CURRENT_LINK/daedalus"
 
     # Check if the link directory is on PATH
     if [[ ":$PATH:" != *":$LINK_DIR:"* ]]; then
@@ -290,23 +362,30 @@ fi
 
 # ── Summary ──────────────────────────────────────────────────────────────────
 echo ""
-if [[ "$UPGRADING" == true ]]; then
-    echo "Daedalus upgraded successfully from $INSTALLED_VERSION to $NEW_VERSION."
+if [[ "$UPGRADING" == true && "$INSTALLED_VERSION" != "$NEW_VERSION" ]]; then
+    echo "Daedalus installed $NEW_VERSION alongside $INSTALLED_VERSION and switched to it."
+    echo "  Roll back with: $LINK_NAME version rollback"
 else
-    echo "Daedalus installed successfully."
+    echo "Daedalus $NEW_VERSION installed successfully."
 fi
 echo ""
-echo "  Location: $PREFIX/daedalus"
+echo "  Location: $VERSION_DIR/daedalus"
+echo "  Active:   $CURRENT_LINK -> versions/$NEW_VERSION"
 if [[ "$CREATE_LINK" == true ]]; then
     echo "  Symlink:  $LINK_DIR/$LINK_NAME"
 fi
-echo "  Config:   $PREFIX/config.json"
+echo "  Config:   $VERSION_DIR/config.json"
 if [[ -n "$CONTAINER_PREFIX_VAL" ]]; then
     echo "  Container prefix: ${CONTAINER_PREFIX_VAL:-claude-run-}"
 fi
 echo ""
 echo "  Note: Docker is required at runtime to run projects."
 echo "  Edit config.json to customize settings (data-dir, debug, etc.)."
+echo ""
+echo "  Manage versions:"
+echo "    $LINK_NAME version list                # show installed versions"
+echo "    $LINK_NAME version use <version>       # switch active version"
+echo "    $LINK_NAME version rollback            # revert to the previous version"
 echo ""
 echo "  Get started:"
 echo "    1. $LINK_NAME init /path/to/project    # scaffold docs + show next steps"

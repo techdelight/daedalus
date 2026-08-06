@@ -22,6 +22,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 INSTALL_SH="$REPO_ROOT/install.sh"
 SETUP_SH="$REPO_ROOT/setup.sh"
+PACKAGE_SH="$SCRIPT_DIR/package-release.sh"
 PASS=0
 FAIL=0
 
@@ -96,6 +97,51 @@ assert_dir_not_exists() {
     fi
 }
 
+assert_dir_exists() {
+    local test_name="$1"
+    local path="$2"
+    if [ -d "$path" ]; then
+        echo "  PASS: $test_name"
+        PASS=$((PASS + 1))
+    else
+        echo "  FAIL: $test_name"
+        echo "    directory does not exist: $path"
+        FAIL=$((FAIL + 1))
+    fi
+}
+
+assert_symlink() {
+    local test_name="$1"
+    local path="$2"
+    if [ -L "$path" ]; then
+        echo "  PASS: $test_name"
+        PASS=$((PASS + 1))
+    else
+        echo "  FAIL: $test_name"
+        echo "    not a symlink: $path"
+        FAIL=$((FAIL + 1))
+    fi
+}
+
+# Assert a symlink resolves (via readlink) to an expected relative/absolute target.
+assert_link_target() {
+    local test_name="$1"
+    local link="$2"
+    local expected="$3"
+    local actual
+    actual="$(readlink "$link" 2>/dev/null || true)"
+    if [ "$actual" = "$expected" ]; then
+        echo "  PASS: $test_name"
+        PASS=$((PASS + 1))
+    else
+        echo "  FAIL: $test_name"
+        echo "    link:     $link"
+        echo "    expected: $expected"
+        echo "    actual:   $actual"
+        FAIL=$((FAIL + 1))
+    fi
+}
+
 assert_executable() {
     local test_name="$1"
     local path="$2"
@@ -129,18 +175,10 @@ assert_exit_code() {
 TMPDIR_ROOT=$(mktemp -d)
 trap 'rm -rf "$TMPDIR_ROOT"' EXIT
 
-MOCK_RELEASE="$TMPDIR_ROOT/mock-release"
-PATCHED_INSTALLER="$TMPDIR_ROOT/install-patched.sh"
-
-RUNTIME_FILES=(
-    claude.json
-    docker-compose.yml
-    Dockerfile
-    entrypoint.sh
-    settings.json
-    logo.txt
-    config.json
-)
+# Directory that holds the produced daedalus-<os>-<arch>.tar.gz + SHA256SUMS.txt.
+# install.sh is pointed at it via DAEDALUS_ARCHIVE_DIR, so the real
+# verify + extract + setup.sh path runs with no network access.
+ARCHIVE_DIR="$TMPDIR_ROOT/archive"
 
 # Detect platform (same logic as install.sh)
 OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
@@ -154,76 +192,45 @@ case "$ARCH" in
     aarch64) ARCH="arm64" ;;
     arm64)   ARCH="arm64" ;;
 esac
+PLATFORM="${OS}-${ARCH}"
 
-BINARY_NAME="daedalus-${OS}-${ARCH}"
-MCP_BINARY_NAME="skill-catalog-mcp-${OS}-${ARCH}"
-PROJ_MCP_BINARY_NAME="project-mgmt-mcp-${OS}-${ARCH}"
-
-# Create mock release directory with fake files
+# Build a real release bundle (fake binaries, real runtime files + setup.sh)
+# through scripts/package-release.sh — the same packager CI uses — then point
+# install.sh at it via DAEDALUS_ARCHIVE_DIR. The version is baked into the
+# packaged config.json by the packager, exactly as in a real release.
 create_mock_release() {
     local version="$1"
-    rm -rf "$MOCK_RELEASE"
-    mkdir -p "$MOCK_RELEASE"
+    local staging
+    staging="$(mktemp -d)"
 
-    # Fake binaries
-    printf '#!/bin/sh\necho "daedalus %s"\n' "$version" > "$MOCK_RELEASE/$BINARY_NAME"
-    chmod 755 "$MOCK_RELEASE/$BINARY_NAME"
-    printf '#!/bin/sh\necho "skill-catalog-mcp %s"\n' "$version" > "$MOCK_RELEASE/$MCP_BINARY_NAME"
-    chmod 755 "$MOCK_RELEASE/$MCP_BINARY_NAME"
-    printf '#!/bin/sh\necho "project-mgmt-mcp %s"\n' "$version" > "$MOCK_RELEASE/$PROJ_MCP_BINARY_NAME"
-    chmod 755 "$MOCK_RELEASE/$PROJ_MCP_BINARY_NAME"
+    # Fake per-platform binaries (host platform names).
+    for b in daedalus skill-catalog-mcp project-mgmt-mcp daedalus-coordinator daedalus-runner; do
+        printf '#!/bin/sh\necho "%s %s"\n' "$b" "$version" > "$staging/${b}-${PLATFORM}"
+        chmod 755 "$staging/${b}-${PLATFORM}"
+    done
 
-    # Fake runtime files
-    echo '{"version":""}' > "$MOCK_RELEASE/config.json"
-    echo "compose: true" > "$MOCK_RELEASE/docker-compose.yml"
-    echo "FROM alpine" > "$MOCK_RELEASE/Dockerfile"
-    echo '#!/bin/sh' > "$MOCK_RELEASE/entrypoint.sh"
-    echo '{}' > "$MOCK_RELEASE/claude.json"
-    echo '{}' > "$MOCK_RELEASE/settings.json"
-    echo "DAEDALUS" > "$MOCK_RELEASE/logo.txt"
+    # Runtime files (config.json ships the empty-version template).
+    echo '{"version":""}' > "$staging/config.json"
+    echo "compose: true" > "$staging/docker-compose.yml"
+    echo "FROM alpine" > "$staging/Dockerfile"
+    echo '#!/bin/sh' > "$staging/entrypoint.sh"
+    echo '{}' > "$staging/claude.json"
+    echo '{}' > "$staging/settings.json"
+    echo "DAEDALUS" > "$staging/logo.txt"
+    echo "@echo off" > "$staging/wsl2-network.bat"
+    cp "$SETUP_SH" "$staging/setup.sh"
+    chmod 755 "$staging/setup.sh"
 
-    # Include real setup.sh
-    cp "$SETUP_SH" "$MOCK_RELEASE/setup.sh"
-    chmod 755 "$MOCK_RELEASE/setup.sh"
+    rm -rf "$ARCHIVE_DIR"
+    mkdir -p "$ARCHIVE_DIR"
+    bash "$PACKAGE_SH" --staging "$staging" --out "$ARCHIVE_DIR" \
+        --version "$version" --platforms "$PLATFORM" >/dev/null
+    rm -rf "$staging"
 }
 
-# Create a patched copy of install.sh that uses local files instead of curl.
-# Replaces the curl-based download section with local file copies and sets
-# a fixed TAG value so no network access is required.
-create_patched_installer() {
-    local version_tag="$1"
-    local mock_dir="$2"
-    local dest="$3"
-
-    cp "$INSTALL_SH" "$dest"
-
-    # Replace the release JSON fetch and TAG extraction with a fixed TAG.
-    # Original lines:
-    #   RELEASE_JSON="$(curl -fsSL "$GITHUB_API")"
-    #   TAG="$(echo "$RELEASE_JSON" | grep '"tag_name"' | ...)"
-    sed_inplace 's|^RELEASE_JSON=.*|TAG="'"$version_tag"'"|' "$dest"
-    sed_inplace 's|^TAG=.*grep.*|# patched: TAG already set above|' "$dest"
-
-    # Remove the empty-tag check (TAG is always set now)
-    sed_inplace 's|^if \[\[ -z "\$TAG" \]\];|if false;|' "$dest"
-
-    # Remove "Fetching latest release" echo (cosmetic)
-    sed_inplace 's|echo "Fetching latest release..."|# patched: no fetch needed|' "$dest"
-
-    # Replace binary download with local copy.
-    sed_inplace 's|curl -fsSL -o "\$WORK_DIR/daedalus" .*|cp "'"$mock_dir"'/'"$BINARY_NAME"'" "$WORK_DIR/daedalus"|' "$dest"
-
-    # Replace MCP binary downloads with local copies.
-    sed_inplace 's|curl -fsSL -o "\$WORK_DIR/skill-catalog-mcp" .*|cp "'"$mock_dir"'/'"$MCP_BINARY_NAME"'" "$WORK_DIR/skill-catalog-mcp"|' "$dest"
-    sed_inplace 's|curl -fsSL -o "\$WORK_DIR/project-mgmt-mcp" .*|cp "'"$mock_dir"'/'"$PROJ_MCP_BINARY_NAME"'" "$WORK_DIR/project-mgmt-mcp"|' "$dest"
-
-    # Replace setup.sh download with local copy.
-    sed_inplace 's|curl -fsSL -o "\$WORK_DIR/setup.sh" .*|cp "'"$mock_dir"'/setup.sh" "$WORK_DIR/setup.sh"|' "$dest"
-
-    # Replace runtime file downloads with local copies.
-    sed_inplace 's|curl -fsSL -o "\$WORK_DIR/\$f" .*|cp "'"$mock_dir"'/$f" "$WORK_DIR/$f"|' "$dest"
-
-    chmod +x "$dest"
+# Run install.sh against the produced local archive (no network).
+run_install() {
+    DAEDALUS_ARCHIVE_DIR="$ARCHIVE_DIR" bash "$INSTALL_SH" "$@"
 }
 
 # ── Tests ────────────────────────────────────────────────────────────────────
@@ -238,38 +245,44 @@ echo "Test 1: Fresh install"
 
 TEST_PREFIX="$TMPDIR_ROOT/test1-prefix"
 create_mock_release "0.8.0"
-create_patched_installer "v0.8.0" "$MOCK_RELEASE" "$PATCHED_INSTALLER"
 
-bash "$PATCHED_INSTALLER" --prefix "$TEST_PREFIX" --no-link > /dev/null 2>&1
+run_install --prefix "$TEST_PREFIX" --no-link > /dev/null 2>&1
 
-assert_file_exists "binary exists" "$TEST_PREFIX/daedalus"
-assert_executable "binary is executable" "$TEST_PREFIX/daedalus"
-assert_file_exists "skill-catalog-mcp binary exists" "$TEST_PREFIX/skill-catalog-mcp"
-assert_executable "skill-catalog-mcp binary is executable" "$TEST_PREFIX/skill-catalog-mcp"
-assert_file_exists "project-mgmt-mcp binary exists" "$TEST_PREFIX/project-mgmt-mcp"
-assert_executable "project-mgmt-mcp binary is executable" "$TEST_PREFIX/project-mgmt-mcp"
-assert_file_exists "claude.json present" "$TEST_PREFIX/claude.json"
-assert_file_exists "docker-compose.yml present" "$TEST_PREFIX/docker-compose.yml"
-assert_file_exists "Dockerfile present" "$TEST_PREFIX/Dockerfile"
-assert_file_exists "entrypoint.sh present" "$TEST_PREFIX/entrypoint.sh"
-assert_file_exists "settings.json present" "$TEST_PREFIX/settings.json"
-assert_file_exists "logo.txt present" "$TEST_PREFIX/logo.txt"
-assert_file_exists "config.json present" "$TEST_PREFIX/config.json"
-assert_file_exists "setup.sh copied to prefix" "$TEST_PREFIX/setup.sh"
-assert_executable "setup.sh is executable" "$TEST_PREFIX/setup.sh"
+# Versioned layout: payload lives under versions/<v>/, reachable via `current`.
+assert_dir_exists "versions/0.8.0 directory created" "$TEST_PREFIX/versions/0.8.0"
+assert_symlink "current symlink created" "$TEST_PREFIX/current"
+assert_file_exists "binary exists" "$TEST_PREFIX/current/daedalus"
+assert_executable "binary is executable" "$TEST_PREFIX/current/daedalus"
+assert_file_exists "skill-catalog-mcp binary exists" "$TEST_PREFIX/current/skill-catalog-mcp"
+assert_executable "skill-catalog-mcp binary is executable" "$TEST_PREFIX/current/skill-catalog-mcp"
+assert_file_exists "project-mgmt-mcp binary exists" "$TEST_PREFIX/current/project-mgmt-mcp"
+assert_executable "project-mgmt-mcp binary is executable" "$TEST_PREFIX/current/project-mgmt-mcp"
+assert_file_exists "daedalus-runner binary exists" "$TEST_PREFIX/current/daedalus-runner"
+assert_file_exists "daedalus-coordinator binary exists" "$TEST_PREFIX/current/daedalus-coordinator"
+assert_file_exists "claude.json present" "$TEST_PREFIX/current/claude.json"
+assert_file_exists "docker-compose.yml present" "$TEST_PREFIX/current/docker-compose.yml"
+assert_file_exists "Dockerfile present" "$TEST_PREFIX/current/Dockerfile"
+assert_file_exists "entrypoint.sh present" "$TEST_PREFIX/current/entrypoint.sh"
+assert_file_exists "settings.json present" "$TEST_PREFIX/current/settings.json"
+assert_file_exists "logo.txt present" "$TEST_PREFIX/current/logo.txt"
+assert_file_exists "config.json present" "$TEST_PREFIX/current/config.json"
+assert_file_exists "setup.sh copied to version dir" "$TEST_PREFIX/current/setup.sh"
+assert_executable "setup.sh is executable" "$TEST_PREFIX/current/setup.sh"
 
 # --------------------------------------------------------------------------
 # Test 2: Config.json fields
 # --------------------------------------------------------------------------
 echo "Test 2: Config.json fields"
 
-CONFIG_CONTENT="$(cat "$TEST_PREFIX/config.json")"
+CONFIG_CONTENT="$(cat "$TEST_PREFIX/current/config.json")"
 
 assert_contains "version field" '"version": "0.8.0"' "$CONFIG_CONTENT"
 assert_contains "data-dir field" '"data-dir":' "$CONFIG_CONTENT"
 assert_contains "debug field" '"debug": false' "$CONFIG_CONTENT"
 assert_contains "image-prefix field" '"image-prefix": "techdelight/claude-runner"' "$CONFIG_CONTENT"
 assert_contains "log-file field" '"log-file":' "$CONFIG_CONTENT"
+# The shared data dir must live at the prefix root, not inside the version dir.
+assert_contains "data-dir is prefix-level .cache" "\"data-dir\": \"$TEST_PREFIX/.cache\"" "$CONFIG_CONTENT"
 
 # --------------------------------------------------------------------------
 # Test 3: --no-link flag prevents symlink
@@ -282,7 +295,7 @@ echo "Test 3: --no-link flag"
 EXPECTED_LINK="$HOME/.local/bin/daedalus"
 if [ -L "$EXPECTED_LINK" ]; then
     LINK_TARGET="$(readlink "$EXPECTED_LINK")"
-    if [ "$LINK_TARGET" = "$TEST_PREFIX/daedalus" ]; then
+    if [ "$LINK_TARGET" = "$TEST_PREFIX/current/daedalus" ]; then
         echo "  FAIL: symlink was created despite --no-link"
         FAIL=$((FAIL + 1))
     else
@@ -303,11 +316,10 @@ TEST_PREFIX_UPG="$TMPDIR_ROOT/test4-prefix"
 
 # First install with v0.7.0
 create_mock_release "0.7.0"
-create_patched_installer "v0.7.0" "$MOCK_RELEASE" "$PATCHED_INSTALLER"
-bash "$PATCHED_INSTALLER" --prefix "$TEST_PREFIX_UPG" --no-link > /dev/null 2>&1
+run_install --prefix "$TEST_PREFIX_UPG" --no-link > /dev/null 2>&1
 
-# Modify config.json to simulate user customization
-cat > "$TEST_PREFIX_UPG/config.json" <<EOCFG
+# Modify the active version's config.json to simulate user customization
+cat > "$TEST_PREFIX_UPG/current/config.json" <<EOCFG
 {
   "version": "0.7.0",
   "data-dir": "/custom/data",
@@ -317,18 +329,23 @@ cat > "$TEST_PREFIX_UPG/config.json" <<EOCFG
 }
 EOCFG
 
-# Upgrade to v0.8.0
+# Upgrade to v0.8.0 (installs alongside 0.7.0 and flips current)
 create_mock_release "0.8.0"
-create_patched_installer "v0.8.0" "$MOCK_RELEASE" "$PATCHED_INSTALLER"
-bash "$PATCHED_INSTALLER" --prefix "$TEST_PREFIX_UPG" --no-link > /dev/null 2>&1
+run_install --prefix "$TEST_PREFIX_UPG" --no-link > /dev/null 2>&1
 
-UPG_CONFIG="$(cat "$TEST_PREFIX_UPG/config.json")"
+UPG_CONFIG="$(cat "$TEST_PREFIX_UPG/current/config.json")"
 
 assert_contains "version updated to 0.8.0" '"version": "0.8.0"' "$UPG_CONFIG"
 assert_contains "data-dir preserved" '"data-dir": "/custom/data"' "$UPG_CONFIG"
 assert_contains "debug preserved" '"debug": true' "$UPG_CONFIG"
 assert_contains "image-prefix preserved" '"image-prefix": "my-registry/runner"' "$UPG_CONFIG"
 assert_contains "log-file preserved" '"log-file": "/custom/data/my.log"' "$UPG_CONFIG"
+
+# Upgrade keeps the prior version and records it as `previous` for rollback.
+assert_dir_exists "prior version 0.7.0 kept" "$TEST_PREFIX_UPG/versions/0.7.0"
+assert_dir_exists "new version 0.8.0 present" "$TEST_PREFIX_UPG/versions/0.8.0"
+assert_link_target "current -> versions/0.8.0" "$TEST_PREFIX_UPG/current" "versions/0.8.0"
+assert_link_target "previous -> versions/0.7.0" "$TEST_PREFIX_UPG/previous" "versions/0.7.0"
 
 # --------------------------------------------------------------------------
 # Test 5: Uninstall removes files
@@ -339,26 +356,18 @@ TEST_PREFIX_RM="$TMPDIR_ROOT/test5-prefix"
 
 # Install first
 create_mock_release "0.8.0"
-create_patched_installer "v0.8.0" "$MOCK_RELEASE" "$PATCHED_INSTALLER"
-bash "$PATCHED_INSTALLER" --prefix "$TEST_PREFIX_RM" --no-link > /dev/null 2>&1
+run_install --prefix "$TEST_PREFIX_RM" --no-link > /dev/null 2>&1
 
 # Verify install worked before uninstalling
-assert_file_exists "pre-uninstall binary exists" "$TEST_PREFIX_RM/daedalus"
+assert_file_exists "pre-uninstall binary exists" "$TEST_PREFIX_RM/current/daedalus"
 
 # Uninstall via setup.sh directly (no download needed for uninstall)
-WORK_DIR="$MOCK_RELEASE" bash "$SETUP_SH" --prefix "$TEST_PREFIX_RM" --uninstall > /dev/null 2>&1
+WORK_DIR="$TMPDIR_ROOT" bash "$SETUP_SH" --prefix "$TEST_PREFIX_RM" --uninstall > /dev/null 2>&1
 
-assert_file_not_exists "binary removed" "$TEST_PREFIX_RM/daedalus"
-assert_file_not_exists "skill-catalog-mcp removed" "$TEST_PREFIX_RM/skill-catalog-mcp"
-assert_file_not_exists "project-mgmt-mcp removed" "$TEST_PREFIX_RM/project-mgmt-mcp"
-assert_file_not_exists "config.json removed" "$TEST_PREFIX_RM/config.json"
-assert_file_not_exists "claude.json removed" "$TEST_PREFIX_RM/claude.json"
-assert_file_not_exists "docker-compose.yml removed" "$TEST_PREFIX_RM/docker-compose.yml"
-assert_file_not_exists "Dockerfile removed" "$TEST_PREFIX_RM/Dockerfile"
-assert_file_not_exists "entrypoint.sh removed" "$TEST_PREFIX_RM/entrypoint.sh"
-assert_file_not_exists "settings.json removed" "$TEST_PREFIX_RM/settings.json"
-assert_file_not_exists "logo.txt removed" "$TEST_PREFIX_RM/logo.txt"
-assert_file_not_exists "setup.sh removed" "$TEST_PREFIX_RM/setup.sh"
+assert_dir_not_exists "versions directory removed" "$TEST_PREFIX_RM/versions"
+assert_file_not_exists "current symlink removed" "$TEST_PREFIX_RM/current"
+assert_file_not_exists "previous symlink removed" "$TEST_PREFIX_RM/previous"
+assert_file_not_exists "binary removed" "$TEST_PREFIX_RM/current/daedalus"
 
 # --------------------------------------------------------------------------
 # Test 6: Uninstall with --prefix removes directory
@@ -369,9 +378,8 @@ TEST_PREFIX_DIR="$TMPDIR_ROOT/test6-prefix"
 
 # Install, then uninstall
 create_mock_release "0.8.0"
-create_patched_installer "v0.8.0" "$MOCK_RELEASE" "$PATCHED_INSTALLER"
-bash "$PATCHED_INSTALLER" --prefix "$TEST_PREFIX_DIR" --no-link > /dev/null 2>&1
-WORK_DIR="$MOCK_RELEASE" bash "$SETUP_SH" --prefix "$TEST_PREFIX_DIR" --uninstall > /dev/null 2>&1
+run_install --prefix "$TEST_PREFIX_DIR" --no-link > /dev/null 2>&1
+WORK_DIR="$TMPDIR_ROOT" bash "$SETUP_SH" --prefix "$TEST_PREFIX_DIR" --uninstall > /dev/null 2>&1
 
 assert_dir_not_exists "prefix directory removed" "$TEST_PREFIX_DIR"
 
@@ -384,16 +392,19 @@ echo "Test 7: Install with no flags"
 # This test verifies the installer handles zero flags correctly.
 TEST_PREFIX_NOFLAGS="$TMPDIR_ROOT/test7-prefix"
 create_mock_release "0.8.0"
-create_patched_installer "v0.8.0" "$MOCK_RELEASE" "$PATCHED_INSTALLER"
 
 # Patch HOME so the symlink goes into our temp dir, not the real home
 set +e
-HOME="$TMPDIR_ROOT/fakehome" bash "$PATCHED_INSTALLER" > /dev/null 2>&1
+HOME="$TMPDIR_ROOT/fakehome" DAEDALUS_ARCHIVE_DIR="$ARCHIVE_DIR" \
+    bash "$INSTALL_SH" > /dev/null 2>&1
 exit_code=$?
 set -e
 
 assert_exit_code "exits with code 0" 0 "$exit_code"
-assert_file_exists "binary exists at default prefix" "$TMPDIR_ROOT/fakehome/.local/share/daedalus/daedalus"
+assert_file_exists "binary exists at default prefix" "$TMPDIR_ROOT/fakehome/.local/share/daedalus/current/daedalus"
+assert_link_target "default-prefix PATH symlink -> current/daedalus" \
+    "$TMPDIR_ROOT/fakehome/.local/bin/daedalus" \
+    "$TMPDIR_ROOT/fakehome/.local/share/daedalus/current/daedalus"
 
 # Clean up
 rm -rf "$TMPDIR_ROOT/fakehome"
@@ -406,8 +417,7 @@ echo "Test 8: Root rejection"
 if [ "$(id -u)" -eq 0 ]; then
     echo "  SKIP: running as root, cannot test root rejection"
 else
-    TEST_PREFIX_ROOT="$TMPDIR_ROOT/test7-prefix"
-    create_mock_release "0.8.0"
+    TEST_PREFIX_ROOT="$TMPDIR_ROOT/test8-prefix"
 
     # Test root rejection in setup.sh (where the check lives)
     # Patch setup.sh to fake EUID=0
@@ -416,13 +426,74 @@ else
     chmod +x "$TMPDIR_ROOT/setup-root-test.sh"
 
     set +e
-    WORK_DIR="$MOCK_RELEASE" bash "$TMPDIR_ROOT/setup-root-test.sh" --prefix "$TEST_PREFIX_ROOT" --no-link > /dev/null 2>&1
+    WORK_DIR="$TMPDIR_ROOT" bash "$TMPDIR_ROOT/setup-root-test.sh" --prefix "$TEST_PREFIX_ROOT" --no-link > /dev/null 2>&1
     exit_code=$?
     set -e
 
     assert_exit_code "exits with code 1" 1 "$exit_code"
     assert_dir_not_exists "no files installed" "$TEST_PREFIX_ROOT"
 fi
+
+# --------------------------------------------------------------------------
+# Test 9: Side-by-side install keeps both versions
+# --------------------------------------------------------------------------
+echo "Test 9: Side-by-side install"
+
+TEST_PREFIX_SBS="$TMPDIR_ROOT/test9-prefix"
+
+create_mock_release "1.0.0"
+run_install --prefix "$TEST_PREFIX_SBS" --no-link > /dev/null 2>&1
+create_mock_release "1.1.0"
+run_install --prefix "$TEST_PREFIX_SBS" --no-link > /dev/null 2>&1
+
+assert_dir_exists "v1.0.0 dir kept" "$TEST_PREFIX_SBS/versions/1.0.0"
+assert_dir_exists "v1.1.0 dir present" "$TEST_PREFIX_SBS/versions/1.1.0"
+assert_link_target "current -> versions/1.1.0" "$TEST_PREFIX_SBS/current" "versions/1.1.0"
+assert_link_target "previous -> versions/1.0.0" "$TEST_PREFIX_SBS/previous" "versions/1.0.0"
+
+# --------------------------------------------------------------------------
+# Test 10: Flat -> versioned migration
+# --------------------------------------------------------------------------
+echo "Test 10: Flat -> versioned migration"
+
+TEST_PREFIX_MIG="$TMPDIR_ROOT/test10-prefix"
+
+# Fabricate a legacy flat install (binaries + config directly under $PREFIX).
+mkdir -p "$TEST_PREFIX_MIG/.cache"
+printf '#!/bin/sh\necho old\n' > "$TEST_PREFIX_MIG/daedalus"
+chmod 755 "$TEST_PREFIX_MIG/daedalus"
+for f in skill-catalog-mcp project-mgmt-mcp; do
+    printf '#!/bin/sh\n' > "$TEST_PREFIX_MIG/$f"; chmod 755 "$TEST_PREFIX_MIG/$f"
+done
+echo '{}' > "$TEST_PREFIX_MIG/claude.json"
+echo '{}' > "$TEST_PREFIX_MIG/settings.json"
+echo "DAEDALUS" > "$TEST_PREFIX_MIG/logo.txt"
+echo "compose: true" > "$TEST_PREFIX_MIG/docker-compose.yml"
+echo "FROM alpine" > "$TEST_PREFIX_MIG/Dockerfile"
+echo '#!/bin/sh' > "$TEST_PREFIX_MIG/entrypoint.sh"
+cp "$SETUP_SH" "$TEST_PREFIX_MIG/setup.sh"
+cat > "$TEST_PREFIX_MIG/config.json" <<EOCFG
+{
+  "version": "0.6.0",
+  "data-dir": "$TEST_PREFIX_MIG/.cache",
+  "debug": false,
+  "image-prefix": "techdelight/claude-runner",
+  "log-file": "$TEST_PREFIX_MIG/.cache/daedalus.log"
+}
+EOCFG
+
+# Upgrade to 0.8.0 — should migrate the flat 0.6.0 payload into versions/0.6.0.
+create_mock_release "0.8.0"
+run_install --prefix "$TEST_PREFIX_MIG" --no-link > /dev/null 2>&1
+
+assert_dir_exists "legacy payload migrated to versions/0.6.0" "$TEST_PREFIX_MIG/versions/0.6.0"
+assert_file_exists "migrated legacy binary present" "$TEST_PREFIX_MIG/versions/0.6.0/daedalus"
+assert_dir_exists "new version 0.8.0 installed" "$TEST_PREFIX_MIG/versions/0.8.0"
+assert_link_target "current -> versions/0.8.0 after migration" "$TEST_PREFIX_MIG/current" "versions/0.8.0"
+assert_link_target "previous -> versions/0.6.0 after migration" "$TEST_PREFIX_MIG/previous" "versions/0.6.0"
+assert_file_not_exists "flat binary no longer at prefix root" "$TEST_PREFIX_MIG/daedalus"
+# Shared data dir preserved in place (not moved into a version dir).
+assert_dir_exists ".cache preserved at prefix root" "$TEST_PREFIX_MIG/.cache"
 
 # ── Summary ──────────────────────────────────────────────────────────────────
 

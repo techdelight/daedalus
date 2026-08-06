@@ -9,20 +9,15 @@ RELEASE_TAG="__RELEASE_TAG__"
 
 GITHUB_REPO="https://api.github.com/repos/techdelight/daedalus/releases"
 
-# ── Runtime files to download alongside binaries ─────────────────────────────
-RUNTIME_FILES=(
-    claude.json
-    docker-compose.yml
-    Dockerfile
-    entrypoint.sh
-    settings.json
-    logo.txt
-    config.json
-)
+# ── Test/offline hook ─────────────────────────────────────────────────────────
+# When DAEDALUS_ARCHIVE_DIR is set, install from a local directory holding
+# daedalus-<os>-<arch>.tar.gz + SHA256SUMS.txt instead of downloading from a
+# GitHub Release. scripts/test-release-bundle.sh uses this to exercise the real
+# checksum-verify + extract + setup.sh path end to end without touching GitHub.
+LOCAL_ARCHIVE_DIR="${DAEDALUS_ARCHIVE_DIR:-}"
 
 # ── Collect flags to forward to setup.sh ─────────────────────────────────────
 FORWARD_ARGS=()
-UNINSTALL=false
 
 usage() {
     cat <<EOF
@@ -43,8 +38,10 @@ Maintenance:
   --uninstall              Remove Daedalus installation (prompts before deleting project data)
   --verbose                Enable shell tracing (set -x) for debugging
 
-Downloads a pre-built Daedalus binary from the latest GitHub Release,
-then invokes setup.sh to install runtime files and create a PATH symlink.
+Downloads a single pre-built Daedalus release archive
+(daedalus-<os>-<arch>.tar.gz) from the GitHub Release, verifies it against
+SHA256SUMS.txt, extracts it, then invokes the bundled setup.sh to install the
+binaries + runtime files and create a PATH symlink.
 
 The RELEASE_TAG variable is baked in during the release pipeline.
 Current RELEASE_TAG: ${RELEASE_TAG}
@@ -79,7 +76,6 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --uninstall)
-            UNINSTALL=true
             FORWARD_ARGS+=("--uninstall")
             shift
             ;;
@@ -98,51 +94,17 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# ── Uninstall shortcut (no downloads needed) ──────────────────────────────────
-# setup.sh handles uninstall with just PREFIX — no WORK_DIR required.
-# Download a minimal setup.sh from the release to perform the uninstall.
-if [[ "$UNINSTALL" == true ]]; then
-    if ! command -v curl &>/dev/null; then
-        echo "Error: curl is not installed or not in PATH." >&2
-        exit 1
-    fi
-
-    WORK_DIR="$(mktemp -d)"
-    cleanup() { rm -rf "$WORK_DIR"; }
-    trap cleanup EXIT
-
-    # Resolve tag for download URL
-    if [[ "$RELEASE_TAG" == "latest" ]]; then
-        GITHUB_API="${GITHUB_REPO}/latest"
+# ── Portable sha256 over a single file → bare hash ───────────────────────────
+sha256_of() {
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$1" | awk '{print $1}'
+    elif command -v shasum >/dev/null 2>&1; then
+        shasum -a 256 "$1" | awk '{print $1}'
     else
-        GITHUB_API="${GITHUB_REPO}/tags/${RELEASE_TAG}"
-    fi
-
-    RELEASE_JSON="$(curl -fsSL "$GITHUB_API")"
-    TAG="$(echo "$RELEASE_JSON" | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')"
-
-    if [[ -z "$TAG" ]]; then
-        echo "Error: could not determine release tag." >&2
+        echo "Error: neither sha256sum nor shasum is available to verify the download." >&2
         exit 1
     fi
-
-    DOWNLOAD_BASE="https://github.com/techdelight/daedalus/releases/download/${TAG}"
-    curl -fsSL -o "$WORK_DIR/setup.sh" "${DOWNLOAD_BASE}/setup.sh"
-    chmod 755 "$WORK_DIR/setup.sh"
-
-    export WORK_DIR
-    exec "$WORK_DIR/setup.sh" ${FORWARD_ARGS[@]+"${FORWARD_ARGS[@]}"}
-fi
-
-# ── Prerequisite checks ──────────────────────────────────────────────────────
-echo "Checking prerequisites..."
-
-if ! command -v curl &>/dev/null; then
-    echo "Error: curl is not installed or not in PATH." >&2
-    exit 1
-fi
-
-echo "  curl: OK"
+}
 
 # ── Detect OS and architecture ───────────────────────────────────────────────
 OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
@@ -167,104 +129,115 @@ case "$ARCH" in
         ;;
 esac
 
-echo "  Platform: ${OS}/${ARCH}"
+ARCHIVE_NAME="daedalus-${OS}-${ARCH}.tar.gz"
+SUMS_NAME="SHA256SUMS.txt"
 
-# ── Fetch release tag ─────────────────────────────────────────────────────
-echo ""
-if [[ "$RELEASE_TAG" == "latest" ]]; then
-    echo "Fetching latest stable release..."
-    GITHUB_API="${GITHUB_REPO}/latest"
-else
-    echo "Fetching release: ${RELEASE_TAG}..."
-    GITHUB_API="${GITHUB_REPO}/tags/${RELEASE_TAG}"
-fi
-
-RELEASE_JSON="$(curl -fsSL "$GITHUB_API")"
-TAG="$(echo "$RELEASE_JSON" | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')"
-
-if [[ -z "$TAG" ]]; then
-    echo "Error: could not determine release tag." >&2
-    exit 1
-fi
-
-echo "  Release: $TAG"
-
-DOWNLOAD_BASE="https://github.com/techdelight/daedalus/releases/download/${TAG}"
-
-# ── Download binary and runtime files ────────────────────────────────────────
+# ── Working directory ─────────────────────────────────────────────────────────
 WORK_DIR="$(mktemp -d)"
 cleanup() { rm -rf "$WORK_DIR"; }
 trap cleanup EXIT
 
-BINARY_NAME="daedalus-${OS}-${ARCH}"
-SKILL_MCP_NAME="skill-catalog-mcp-${OS}-${ARCH}"
-PROJ_MCP_NAME="project-mgmt-mcp-${OS}-${ARCH}"
-COORD_NAME="daedalus-coordinator-${OS}-${ARCH}"
-RUNNER_NAME="daedalus-runner-${OS}-${ARCH}"
-echo ""
-echo "Downloading ${BINARY_NAME}..."
-curl -fsSL -o "$WORK_DIR/daedalus" "${DOWNLOAD_BASE}/${BINARY_NAME}"
-chmod 755 "$WORK_DIR/daedalus"
+ARCHIVE_PATH="$WORK_DIR/$ARCHIVE_NAME"
+SUMS_PATH="$WORK_DIR/$SUMS_NAME"
 
-echo "Downloading ${SKILL_MCP_NAME}..."
-curl -fsSL -o "$WORK_DIR/skill-catalog-mcp" "${DOWNLOAD_BASE}/${SKILL_MCP_NAME}"
-chmod 755 "$WORK_DIR/skill-catalog-mcp"
-
-echo "Downloading ${PROJ_MCP_NAME}..."
-curl -fsSL -o "$WORK_DIR/project-mgmt-mcp" "${DOWNLOAD_BASE}/${PROJ_MCP_NAME}"
-chmod 755 "$WORK_DIR/project-mgmt-mcp"
-
-# daedalus-runner is the in-container PID-1 binary. The Dockerfile
-# COPYs it from PREFIX at image-build time, so `daedalus --build`
-# fails without it. Best-effort because older releases (pre-v0.38.0)
-# don't ship it; on those, --build only works if the user staged it
-# in some other way. On v0.38.0+ this download must succeed.
-echo "Downloading ${RUNNER_NAME}..."
-if curl -fsSL -o "$WORK_DIR/daedalus-runner" "${DOWNLOAD_BASE}/${RUNNER_NAME}"; then
-    chmod 755 "$WORK_DIR/daedalus-runner"
-else
-    echo "  ${RUNNER_NAME} not published for this release; skipping."
-    echo "  \`daedalus --build\` will fail until the runner is staged manually."
-    rm -f "$WORK_DIR/daedalus-runner"
-fi
-
-# Coordinator daemon (best-effort — pre-v0.39.0 releases don't ship it).
-# curl -f treats a 404 as an error, so tolerate a missing asset without
-# aborting the install.
-echo "Downloading ${COORD_NAME} (optional)..."
-if curl -fsSL -o "$WORK_DIR/daedalus-coordinator" "${DOWNLOAD_BASE}/${COORD_NAME}"; then
-    chmod 755 "$WORK_DIR/daedalus-coordinator"
-else
-    echo "  ${COORD_NAME} not published for this release; skipping."
-    rm -f "$WORK_DIR/daedalus-coordinator"
-fi
-
-echo "Downloading setup.sh..."
-curl -fsSL -o "$WORK_DIR/setup.sh" "${DOWNLOAD_BASE}/setup.sh"
-chmod 755 "$WORK_DIR/setup.sh"
-
-echo "Downloading runtime files..."
-for f in "${RUNTIME_FILES[@]}"; do
-    curl -fsSL -o "$WORK_DIR/$f" "${DOWNLOAD_BASE}/${f}"
-done
-
-echo "  Downloaded 3 binaries, setup.sh, and ${#RUNTIME_FILES[@]} runtime files."
-
-# ── Patch version into config.json ───────────────────────────────────────────
-# The shipped config.json template has "version": "" — setup.sh reads the
-# version from it, so without this patch we would end up recording "unknown"
-# in the installed config. Strip the leading 'v' from the tag ("v0.8.0" →
-# "0.8.0"). Portable sed -i wrapper for BSD (macOS) vs GNU (Linux).
-sed_inplace() {
-    if sed --version >/dev/null 2>&1; then
-        sed -i "$@"
-    else
-        sed -i '' "$@"
+# ── Fetch the archive + checksums (network or local) ──────────────────────────
+if [[ -n "$LOCAL_ARCHIVE_DIR" ]]; then
+    echo "Installing from local archive directory: $LOCAL_ARCHIVE_DIR"
+    if [[ ! -f "$LOCAL_ARCHIVE_DIR/$ARCHIVE_NAME" ]]; then
+        echo "Error: $ARCHIVE_NAME not found in $LOCAL_ARCHIVE_DIR." >&2
+        exit 1
     fi
-}
-VERSION="${TAG#v}"
-sed_inplace 's/"version": *""/"version": "'"$VERSION"'"/' "$WORK_DIR/config.json"
+    if [[ ! -f "$LOCAL_ARCHIVE_DIR/$SUMS_NAME" ]]; then
+        echo "Error: $SUMS_NAME not found in $LOCAL_ARCHIVE_DIR." >&2
+        exit 1
+    fi
+    cp "$LOCAL_ARCHIVE_DIR/$ARCHIVE_NAME" "$ARCHIVE_PATH"
+    cp "$LOCAL_ARCHIVE_DIR/$SUMS_NAME" "$SUMS_PATH"
+    echo "  Platform: ${OS}/${ARCH}"
+else
+    # ── Prerequisite checks ──────────────────────────────────────────────────
+    echo "Checking prerequisites..."
+    if ! command -v curl &>/dev/null; then
+        echo "Error: curl is not installed or not in PATH." >&2
+        exit 1
+    fi
+    echo "  curl: OK"
+    echo "  Platform: ${OS}/${ARCH}"
+
+    # ── Resolve release tag ──────────────────────────────────────────────────
+    echo ""
+    if [[ "$RELEASE_TAG" == "latest" ]]; then
+        echo "Fetching latest stable release..."
+        GITHUB_API="${GITHUB_REPO}/latest"
+    else
+        echo "Fetching release: ${RELEASE_TAG}..."
+        GITHUB_API="${GITHUB_REPO}/tags/${RELEASE_TAG}"
+    fi
+
+    RELEASE_JSON="$(curl -fsSL "$GITHUB_API")"
+    TAG="$(echo "$RELEASE_JSON" | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')"
+
+    if [[ -z "$TAG" ]]; then
+        echo "Error: could not determine release tag." >&2
+        exit 1
+    fi
+    echo "  Release: $TAG"
+
+    DOWNLOAD_BASE="https://github.com/techdelight/daedalus/releases/download/${TAG}"
+
+    echo ""
+    echo "Downloading ${ARCHIVE_NAME}..."
+    if ! curl -fsSL -o "$ARCHIVE_PATH" "${DOWNLOAD_BASE}/${ARCHIVE_NAME}"; then
+        echo "Error: failed to download ${ARCHIVE_NAME} from release ${TAG}." >&2
+        echo "  This release may predate the bundled-archive format (pre-v0.44.0)," >&2
+        echo "  or may not publish an asset for ${OS}/${ARCH}." >&2
+        exit 1
+    fi
+
+    echo "Downloading ${SUMS_NAME}..."
+    if ! curl -fsSL -o "$SUMS_PATH" "${DOWNLOAD_BASE}/${SUMS_NAME}"; then
+        echo "Error: failed to download ${SUMS_NAME} from release ${TAG}." >&2
+        echo "  Cannot verify the archive without it; aborting." >&2
+        exit 1
+    fi
+fi
+
+# ── Verify the archive against SHA256SUMS.txt ─────────────────────────────────
+echo ""
+echo "Verifying ${ARCHIVE_NAME} against ${SUMS_NAME}..."
+EXPECTED_SUM="$(awk -v f="$ARCHIVE_NAME" '$2 == f {print $1}' "$SUMS_PATH")"
+if [[ -z "$EXPECTED_SUM" ]]; then
+    echo "Error: no checksum for ${ARCHIVE_NAME} found in ${SUMS_NAME}." >&2
+    exit 1
+fi
+ACTUAL_SUM="$(sha256_of "$ARCHIVE_PATH")"
+if [[ "$EXPECTED_SUM" != "$ACTUAL_SUM" ]]; then
+    echo "Error: checksum mismatch for ${ARCHIVE_NAME}." >&2
+    echo "  expected: $EXPECTED_SUM" >&2
+    echo "  actual:   $ACTUAL_SUM" >&2
+    echo "  The download may be corrupt or tampered with; aborting." >&2
+    exit 1
+fi
+echo "  Checksum OK: $ACTUAL_SUM"
+
+# ── Extract the archive (flat layout) ─────────────────────────────────────────
+EXTRACT_DIR="$WORK_DIR/extracted"
+mkdir -p "$EXTRACT_DIR"
+if ! tar -xzf "$ARCHIVE_PATH" -C "$EXTRACT_DIR"; then
+    echo "Error: failed to extract ${ARCHIVE_NAME}." >&2
+    exit 1
+fi
+
+if [[ ! -f "$EXTRACT_DIR/setup.sh" ]]; then
+    echo "Error: extracted archive does not contain setup.sh." >&2
+    exit 1
+fi
+chmod 755 "$EXTRACT_DIR/setup.sh"
+
+echo "  Extracted release archive."
 
 # ── Hand off to setup.sh ─────────────────────────────────────────────────────
-export WORK_DIR
-exec "$WORK_DIR/setup.sh" ${FORWARD_ARGS[@]+"${FORWARD_ARGS[@]}"}
+# The archive already carries a config.json with the version baked in at
+# package time (scripts/package-release.sh), so no version patch is needed here.
+export WORK_DIR="$EXTRACT_DIR"
+exec "$EXTRACT_DIR/setup.sh" ${FORWARD_ARGS[@]+"${FORWARD_ARGS[@]}"}

@@ -4,6 +4,74 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.44.0] - 2026-08-06
+
+**Milestone 9: Release Bundling & Safe Upgrades.** Upgrading is now effortless
+and reversible: a single checksum-verified release archive replaces the ~27
+individual assets, and installs land side by side so a new version can be tried
+and rolled back.
+
+**Sprint 49: Side-by-side versioned installs.** A new install lands alongside
+the current one instead of clobbering it, and switching or falling back is one
+command.
+
+### Added
+- **Versioned install layout** — `setup.sh` now installs the payload into
+  `$PREFIX/versions/<version>/` and maintains `$PREFIX/current` (the active
+  version) and `$PREFIX/previous` (the rollback target) symlinks; the PATH
+  symlink resolves through `current`, so a switch is a single symlink flip.
+  Upgrades install alongside prior versions and flip `current` instead of
+  overwriting. The shared project registry stays at `$PREFIX/.cache`, untouched
+  by switches. A legacy flat install is transparently migrated into
+  `versions/<old>/` on the first versioned upgrade.
+- **`daedalus version` subcommand** — `list` (installed versions, marking the
+  current one), `use <version>` (switch the active version, recording the prior
+  as `previous`), `rollback` (return to the previous version), and
+  `prune [--keep N]` (remove old versions, keeping the most-recent N — default 3
+  — plus the current version, which is never removed). The install prefix is
+  derived from the running binary (`os.Executable`), with a `DAEDALUS_PREFIX`
+  override. Wired into `--help`, usage, and bash/zsh/fish completions.
+
+### Changed
+- **Uninstall handles the versioned layout** — removes all installed versions,
+  the `current`/`previous` links, and the PATH symlink (and cleans up any
+  leftover legacy flat files).
+
+---
+
+**Sprint 48: Bundled release archive.** Replaces the ~27 individual GitHub
+Release assets with one self-contained, checksum-verified archive per platform.
+
+### Added
+- **`scripts/package-release.sh`** — the single source of truth for release
+  packaging. Given a staging directory of per-platform binaries plus the shared
+  runtime files and a version, it produces one `daedalus-<os>-<arch>.tar.gz` per
+  platform (linux/darwin × amd64/arm64) — each containing that platform's five
+  binaries renamed to their install names (`daedalus`, `skill-catalog-mcp`,
+  `project-mgmt-mcp`, `daedalus-coordinator`, `daedalus-runner`) plus exactly the
+  runtime files `setup.sh` installs — and a `SHA256SUMS.txt` over all archives.
+  Archives are flat (no top-level directory) and deterministic (fixed mtime,
+  sorted entries, `gzip -n`). Both the release workflows and the local
+  simulation invoke it, so the packaging logic is genuinely exercised in tests.
+- **`scripts/test-release-bundle.sh`** — a no-network end-to-end proof: builds
+  the host binaries, packages them, then drives `install.sh`'s real
+  verify + extract + `setup.sh` path against the produced archive into a
+  throwaway prefix, asserting the installed tree, the symlink, checksum
+  verification, and rejection of a corrupted archive.
+
+### Changed
+- **Release assets are now a single bundled archive per platform.** A release
+  publishes **6** assets (4 `daedalus-<os>-<arch>.tar.gz` + `SHA256SUMS.txt` +
+  `install.sh`) instead of ~27 individual files. The dev-release workflow uses
+  the same packager.
+- **`install.sh` downloads one archive** for the detected platform, **verifies
+  its SHA-256 against `SHA256SUMS.txt`** (failing loudly on a missing or
+  mismatched checksum), extracts it, and hands the result to `setup.sh` exactly
+  as before. Every existing flag and the `latest`-vs-pinned tag resolution are
+  preserved. The version is now baked into the packaged `config.json` at package
+  time rather than patched in during install. A `DAEDALUS_ARCHIVE_DIR` hook lets
+  the test suite install from a local archive without touching GitHub.
+
 ## [0.43.0] - 2026-08-06
 
 **Milestone 8: Onboarding & Adoption.** Get a new user from install to first
