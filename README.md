@@ -4,9 +4,11 @@
 
 # Daedalus
 
-A Docker environment for running AI coding agents ([Claude Code](https://claude.ai/code), [GitHub Copilot CLI](https://github.com/features/copilot)) autonomously without permission prompts. The container isolates the agent with write access only to the mounted project directory.
+**Hands-off AI coding in a safe container.** Daedalus runs an AI coding agent ([Claude Code](https://claude.ai/code), [GitHub Copilot CLI](https://github.com/features/copilot)) autonomously — no permission prompts — inside a locked-down Docker container that can only write to your project directory. Detach and reattach from anywhere, and drive every session from a CLI, TUI, or web dashboard.
 
-Daedalus launches every session through the **runner path**: a `daedalus-runner` PID-1 binary inside the container fans PTY I/O over a Unix socket, with a host-side `daedalus-coordinator` daemon owning session lifecycles. All UIs (CLI, TUI, Web) attach through it. See [Runner Path](#runner-path) below and [ARCHITECTURE.md](ARCHITECTURE.md) for the design.
+New to Daedalus? Run `daedalus init` in a project directory to scaffold its docs and print a short getting-started guide.
+
+Under the hood, every session runs through the **runner path**: a `daedalus-runner` PID-1 binary inside the container fans PTY I/O over a Unix socket, with a host-side `daedalus-coordinator` daemon owning session lifecycles. All UIs (CLI, TUI, Web) attach through it. See [Runner Path](#runner-path) below and [ARCHITECTURE.md](ARCHITECTURE.md) for the design.
 
 ## Why
 
@@ -23,6 +25,9 @@ Claude Code is powerful, but using it day-to-day has real friction:
 ```bash
 # Install Daedalus
 curl -fsSL https://raw.githubusercontent.com/techdelight/daedalus/master/install.sh | bash
+
+# (Optional) scaffold docs for a new project and see the getting-started guide
+daedalus init /path/to/project
 
 # Start a project
 daedalus my-awesome-app /path/to/project
@@ -80,6 +85,7 @@ The symlink is created in `~/.local/bin`. If this directory is not on your PATH,
 
 ```
 daedalus [flags] <project-name> [project-dir]
+daedalus init [--force] [--no-scaffold] [dir]
 daedalus list
 daedalus prune
 daedalus remove <name> [name...]
@@ -99,6 +105,7 @@ daedalus --help
 
 | Command | Description |
 |---|---|
+| `init [dir]` | Scaffold the required project docs and print a getting-started guide (`--force` to overwrite, `--no-scaffold` for guidance only) |
 | `<project-name>` | Open a registered project (uses stored directory) |
 | `<project-name> <project-dir>` | Register and open a new project |
 | `list` | List all registered projects |
@@ -138,6 +145,9 @@ daedalus --help
 **Examples:**
 
 ```bash
+# Scaffold docs for a new project and print the getting-started guide
+daedalus init /path/to/project
+
 # Open an existing project from the registry
 daedalus my-awesome-app
 
@@ -502,6 +512,16 @@ Each container includes a `project-mgmt` MCP server Claude Code uses to read and
 **Read tools** derive state from the files — `get_roadmap`, `get_sprints`, `get_backlog`, `get_current_sprint`, and `get_progress` (version from the `VERSION` file, vision from `VISION.md`, completion from the current sprint's item statuses). Nothing is self-reported, so what Daedalus shows always matches the files.
 
 **Lifecycle tools** let the agent evolve the roadmap through validated transitions instead of hand-editing: `add_` / `remove_` / `start_` / `finish_` / `pause_milestone`, and `add_` / `remove_` / `move_` / `start_` / `finish_` / `pause_sprint`. Each validates the result (e.g. exactly one milestone In Progress; a sprint finishes only once its items are Done) and refuses an inconsistent write.
+
+**Bootstrapping a new project's docs.** `daedalus docs scaffold [dir]` writes conformant skeletons for the eight required documents (`README`, `VISION`, `ARCHITECTURE`, `ROADMAP`, `BACKLOG`, `SPRINTS`, `CHANGELOG`, `CONTRIBUTING`) into `dir` (default: current directory). The `ROADMAP.md` and `SPRINTS.md` skeletons already satisfy the structured-docs contract, so `daedalus docs lint` passes on the fresh output — a new project starts with a valid roadmap arc instead of an empty tree. Existing files are left untouched and reported as skipped unless `--force` is given:
+
+```bash
+daedalus docs scaffold ./my-project    # write any missing required docs
+daedalus docs scaffold --force .       # overwrite existing docs from the templates
+daedalus docs lint ./my-project        # confirm the arc is consistent
+```
+
+`daedalus docs lint [--ci] [dir]` checks a project's `ROADMAP.md` and `SPRINTS.md` against the dashboard-arc format, exiting non-zero on any error (and, with `--ci`, on any warning) so it can gate a commit or CI. See [`docs/structured-docs.md`](docs/structured-docs.md) for the contract.
 
 Click any project name in the Web UI to see the project dashboard with progress bar, version, total session time, and vision. The roadmap is automatically loaded and displayed from the project's `ROADMAP.md`. Use the "Hide Roadmap" / "Show Roadmap" button to toggle visibility.
 

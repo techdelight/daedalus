@@ -85,6 +85,52 @@ func TestLintDocs_UnknownFlag(t *testing.T) {
 	}
 }
 
+func TestScaffoldDocs_CleanThenLints(t *testing.T) {
+	dir := t.TempDir()
+	if err := scaffoldDocs([]string{dir}, false); err != nil {
+		t.Fatalf("scaffoldDocs() = %v, want nil", err)
+	}
+	// Freshly scaffolded output must pass the --ci gate (warnings fail too).
+	if err := lintDocs([]string{"--ci", dir}); err != nil {
+		t.Errorf("lintDocs(--ci) on scaffolded dir = %v, want nil", err)
+	}
+}
+
+func TestScaffoldDocs_SkipThenForce(t *testing.T) {
+	dir := t.TempDir()
+	writeDoc(t, dir, "README.md", "sentinel\n")
+
+	// Without force the existing README is preserved.
+	if err := scaffoldDocs([]string{dir}, false); err != nil {
+		t.Fatalf("scaffoldDocs() = %v", err)
+	}
+	got, err := os.ReadFile(filepath.Join(dir, "README.md"))
+	if err != nil {
+		t.Fatalf("reading README.md: %v", err)
+	}
+	if string(got) != "sentinel\n" {
+		t.Errorf("README.md overwritten without force: %q", string(got))
+	}
+
+	// With force it is rewritten from the template.
+	if err := scaffoldDocs([]string{dir}, true); err != nil {
+		t.Fatalf("scaffoldDocs(force) = %v", err)
+	}
+	got, err = os.ReadFile(filepath.Join(dir, "README.md"))
+	if err != nil {
+		t.Fatalf("reading README.md: %v", err)
+	}
+	if string(got) == "sentinel\n" {
+		t.Error("README.md not overwritten under force")
+	}
+}
+
+func TestScaffoldDocs_UnknownFlag(t *testing.T) {
+	if err := scaffoldDocs([]string{"--nope"}, false); err == nil {
+		t.Error("scaffoldDocs(--nope) = nil, want an error")
+	}
+}
+
 func TestManageDocs_UnknownCommand(t *testing.T) {
 	cfg := &core.Config{DocsArgs: []string{"frobnicate"}}
 	if err := manageDocs(cfg); err == nil {

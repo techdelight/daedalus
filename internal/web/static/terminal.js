@@ -13,6 +13,26 @@ let ws = null;
 let fitAddon = null;
 let cleanupListeners = null;
 
+// #56 chat font size. The A−/A+ header buttons scale ONLY the terminal text —
+// not the surrounding UI — and the terminal container keeps its dimensions:
+// changing term.options.fontSize then re-fitting recomputes the cols/rows grid
+// to fill the same fixed box (and forwards the new size to the PTY via
+// onResize), so a bigger font means fewer cells, never a bigger window. The
+// choice is persisted across reconnects and page loads.
+var FONT_SIZE_KEY = 'daedalus.chatFontSize';
+var FONT_SIZE_DEFAULT = 14;
+var FONT_SIZE_MIN = 8; // floor only — no upper cap, the user can grow the text freely
+
+function loadChatFontSize() {
+    var n = parseInt(localStorage.getItem(FONT_SIZE_KEY), 10);
+    if (isNaN(n)) return FONT_SIZE_DEFAULT;
+    return Math.max(FONT_SIZE_MIN, n);
+}
+
+function saveChatFontSize(n) {
+    try { localStorage.setItem(FONT_SIZE_KEY, String(n)); } catch (e) { /* private mode: keep session-local */ }
+}
+
 // #29 mobile-WebSocket resilience: a dropped socket (Wi-Fi/cellular handoff,
 // backgrounded/throttled tab) auto-reconnects with backoff. The server keeps
 // the session alive across a drop and replays the screen on re-attach (the
@@ -60,7 +80,7 @@ function connectTerminal(projectName) {
 
     term = new Terminal({
         cursorBlink: true,
-        fontSize: 14,
+        fontSize: loadChatFontSize(),
         scrollback: 10000,
         fontFamily: "'SF Mono', 'Monaco', 'Inconsolata', 'Fira Code', monospace",
         theme: {
@@ -296,6 +316,25 @@ function connectTerminal(projectName) {
     milestonesDoneBtn.addEventListener('touchend', onMilestonesDoneTouch);
     milestonesDoneBtn.addEventListener('click', closeMilestones);
 
+    // Chat font-size controls (#56). Adjust term.options.fontSize within the
+    // clamp, then re-fit so the container keeps its size (fewer/more cells, same
+    // box) and the PTY is resized via onResize. Persisted for next time.
+    var fontDecreaseBtn = document.getElementById('font-decrease-btn');
+    var fontIncreaseBtn = document.getElementById('font-increase-btn');
+
+    function setChatFontSize(size) {
+        var clamped = Math.max(FONT_SIZE_MIN, size);
+        if (!term || clamped === term.options.fontSize) return;
+        term.options.fontSize = clamped;
+        saveChatFontSize(clamped);
+        if (fitAddon) fitAddon.fit();
+    }
+    function onFontDecrease() { if (term) setChatFontSize(term.options.fontSize - 1); }
+    function onFontIncrease() { if (term) setChatFontSize(term.options.fontSize + 1); }
+
+    if (fontDecreaseBtn) fontDecreaseBtn.addEventListener('click', onFontDecrease);
+    if (fontIncreaseBtn) fontIncreaseBtn.addEventListener('click', onFontIncrease);
+
     // Mobile input wiring
     var mobileInput = document.getElementById('mobile-input');
     var mobileSendBtn = document.getElementById('mobile-send-btn');
@@ -361,6 +400,8 @@ function connectTerminal(projectName) {
         mobileMilestonesBtn.removeEventListener('click', openMilestones);
         milestonesDoneBtn.removeEventListener('touchend', onMilestonesDoneTouch);
         milestonesDoneBtn.removeEventListener('click', closeMilestones);
+        if (fontDecreaseBtn) fontDecreaseBtn.removeEventListener('click', onFontDecrease);
+        if (fontIncreaseBtn) fontIncreaseBtn.removeEventListener('click', onFontIncrease);
         mobileSendBtn.removeEventListener('touchend', onMobileSendTouch);
         mobileSendBtn.removeEventListener('click', onMobileSendClick);
         mobileInput.removeEventListener('keydown', onMobileKeydown);

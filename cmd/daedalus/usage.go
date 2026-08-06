@@ -10,7 +10,12 @@ import (
 
 // printUsage prints the CLI usage message.
 func printUsage() {
+	fmt.Println(color.Bold("Daedalus") + " — hands-off AI coding agents in a safe, isolated Docker container.")
+	fmt.Println("Your agent runs autonomously with no permission prompts; the container can")
+	fmt.Println("only touch the project directory. Detach and reattach from anywhere.")
+	fmt.Println()
 	fmt.Printf("%s daedalus [flags] <project-name> [project-dir]\n", color.Bold("Usage:"))
+	fmt.Println("       daedalus init [--force] [--no-scaffold] [dir]")
 	fmt.Println("       daedalus --build")
 	fmt.Println("       daedalus list")
 	fmt.Println("       daedalus prune")
@@ -26,6 +31,7 @@ func printUsage() {
 	fmt.Println("       daedalus --help")
 	fmt.Println()
 	fmt.Println(color.Bold("Commands:"))
+	fmt.Println("  init [dir]                    Scaffold project docs and print a getting-started guide")
 	fmt.Println("  <project-name>                Open a registered project (uses stored directory)")
 	fmt.Println("  <project-name> <project-dir>  Register and open a new project")
 	fmt.Println("  --build                       Rebuild images for all registered projects")
@@ -40,6 +46,7 @@ func printUsage() {
 	fmt.Println("  runners                       List or show built-in runner profiles (claude, copilot)")
 	fmt.Println("  personas                      List, show, create, or remove named persona configurations")
 	fmt.Println("  docs lint [--ci] [dir]        Check ROADMAP.md/SPRINTS.md against the dashboard-arc format")
+	fmt.Println("  docs scaffold [--force] [dir] Write conformant project-doc skeletons into dir")
 	fmt.Println("  completion <shell>            Print shell completion script (bash, zsh, fish)")
 	fmt.Println()
 	fmt.Println(color.Bold("Flags:"))
@@ -62,6 +69,7 @@ func printUsage() {
 	fmt.Println("  --help, -h         Show this help message")
 	fmt.Println()
 	fmt.Println(color.Bold("Examples:"))
+	fmt.Println("  daedalus init                           Scaffold docs here and show getting-started steps")
 	fmt.Println("  daedalus my-app                         Open existing project from registry")
 	fmt.Println("  daedalus my-app /path/to/project        Register and open a new project")
 	fmt.Println("  daedalus my-app -p \"Fix linting errors\" Run a headless task")

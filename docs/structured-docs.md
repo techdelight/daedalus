@@ -256,6 +256,24 @@ warning too, so it can gate a commit, a session, or CI. A test holds this repo's
 own documents clean, so a future drift in Daedalus's own docs fails there rather
 than shipping.
 
+### Scaffolding a conformant starting point
+
+`daedalus docs scaffold [dir] [--force]` is the gate's sibling: instead of
+checking an existing project's docs, it writes the ones a new project is missing.
+It creates a skeleton for each of the eight `core.RequiredDocs()` documents in
+`dir` (default: the current directory), and — this is the point — the `ROADMAP.md`
+and `SPRINTS.md` it writes already satisfy every check above, so `daedalus docs
+lint --ci` reports nothing on freshly scaffolded output. A new project starts with
+a valid arc (one In-Progress milestone stub, a current sprint linked to it) rather
+than an empty tree.
+
+An existing file is **left untouched** and reported as skipped, never overwritten,
+unless `--force` is given — so re-running the command to fill in a document added
+later never clobbers the ones already hand-written. The skeleton bodies live in
+`core.ScaffoldDocs`'s templates, which are the single source of truth: a test
+scaffolds them, re-parses the result, and asserts `LintHeadings` + `ValidateDocs`
+find nothing, so the templates cannot drift out of contract without failing there.
+
 ## Retrieval
 
 The dashboard fetches the whole journey in **one** request:

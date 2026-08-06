@@ -4,6 +4,35 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.43.0] - 2026-08-06
+
+**Milestone 8: Onboarding & Adoption.** Get a new user from install to first
+productive session, and a new project from an empty tree to a valid roadmap arc.
+
+### Added
+- **`daedalus init [dir] [--force] [--no-scaffold]`** — the first-run entry point.
+  Scaffolds the required project docs (reusing `core.ScaffoldDocs`, so a fresh
+  project passes `daedalus docs lint` out of the box) and prints a short
+  getting-started guide: register & start a project, reattach, the TUI and web
+  dashboards, and the docs gate. Idempotent — existing docs are skipped unless
+  `--force`; `--no-scaffold` prints the guide without writing anything.
+- **Post-install next steps** — `install.sh`/`setup.sh` now point a new user at
+  `daedalus init` and then `daedalus <name> <dir>` on a successful install.
+- **`daedalus docs scaffold [dir] [--force]`** — writes conformant skeletons for
+  the eight required project documents (`README`, `VISION`, `ARCHITECTURE`,
+  `ROADMAP`, `BACKLOG`, `SPRINTS`, `CHANGELOG`, `CONTRIBUTING`) into a directory
+  (default: current). The `ROADMAP.md` and `SPRINTS.md` skeletons already satisfy
+  the structured-docs contract, so `daedalus docs lint --ci` passes on the fresh
+  output — a new project starts with a valid roadmap arc instead of an empty tree.
+  Existing files are skipped (never overwritten) unless `--force` is given. Backed
+  by `core.ScaffoldDocs`, whose templates are the single source of truth for the
+  skeleton bodies.
+
+### Changed
+- **Sharper value proposition** — the README hero and the CLI's no-args/`--help`
+  banner now lead with the one-line pitch ("hands-off AI coding in a safe,
+  isolated container") so a new user sees what Daedalus is and why immediately.
+
 ## [0.42.0] - 2026-08-05
 
 **Milestone 7: Project-Management Tools & File-Derived State.** The in-container

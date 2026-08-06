@@ -756,6 +756,14 @@ tbody td {
 .terminal-header .project-name {
     font-size: 13px;
     color: #bb9af7;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* The action buttons never shrink or wrap — the title truncates first. */
+.terminal-header-actions {
+    flex-shrink: 0;
 }
 
 .git-branch {
@@ -801,6 +809,26 @@ tbody td {
     background: rgba(158, 206, 106, 0.15);
     border-color: #9ece6a;
     color: #9ece6a;
+}
+
+/* Chat font-size controls (#56) — a compact A−/A+ pair that scales only the
+   terminal text. Grouped tight so they read as one control. */
+.font-controls {
+    display: inline-flex;
+    gap: 4px;
+}
+
+.terminal-header .btn-font {
+    border-color: #565f89;
+    color: #a9b1d6;
+    padding: 4px 8px;
+    min-width: 30px;
+    font-variant-numeric: tabular-nums;
+}
+
+.terminal-header .btn-font:hover {
+    color: #c0caf5;
+    border-color: #c0caf5;
 }
 
 /* Mobile-only trigger for the milestones overlay (shown in the media query

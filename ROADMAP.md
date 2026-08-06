@@ -52,22 +52,30 @@ agent's harness). So this is capability, not enforcement.
 - **File-derived state (read side, #52)** — derive vision (`VISION.md`), version (`VERSION`), and progress (the current sprint's item statuses) host-side, so read state never depends on the agent reporting it.
 - **A `Paused` lifecycle state** — for a milestone or sprint put on hold, distinct from Done / In Progress / Planned.
 
-### Milestone 8: Onboarding & Adoption (In Progress)
+### Milestone 8: Onboarding & Adoption (Done)
 
 Make Daedalus approachable for a new user and a new project — from install to first productive session.
 
-- Post-install onboarding / first-run guidance (#45)
 - `daedalus docs scaffold` to bootstrap conformant project docs (#54)
-- Sharpen the value proposition in README + first-run messaging (#46)
+- Post-install onboarding / first-run guidance — delivered as `daedalus init` (scaffold + getting-started guide) plus a post-install next-steps stanza (#45)
+- Sharpen the value proposition in README + first-run / `--help` messaging (#46)
+
+### Milestone 9: Distribution & Effortless Upgrades (In Progress)
+
+Continue the adoption arc from getting *started* to staying current: make Daedalus trivial to install, bundle, and upgrade, so a new or returning user is always one command from the latest version.
+
+- Homebrew installation (`brew install daedalus`) — tap, formula generator, CI automation (#11)
+- Bundle release assets into a single downloadable archive rather than many individual files (#8)
+- Side-by-side versions — install a new version alongside the current one for rollback / A-B before switching (#9)
 
 ## Phasing
 
 ```
-M1 (Done) ─► … ─► M6 (Done) ─► M7 (Done) ─► M8 (In Progress)
-Container         Roadmap       PM tools &    Onboarding
-Runtime           Hierarchy     file state    & Adoption
+M1 (Done) ─► … ─► M7 (Done) ─► M8 (Done) ─► M9 (In Progress)
+Container         PM tools &    Onboarding    Distribution
+Runtime           file state    & Adoption    & Upgrades
 ```
 
 ## Current Focus
 
-**Milestone 8: Onboarding & Adoption.** Milestones M1–M7 are complete (M7 shipped in **v0.42.0** — the agent-facing lifecycle MCP tools + file-derived state). M8 turns outward: make Daedalus approachable for a new user and a new project — post-install onboarding (#45), `daedalus docs scaffold` for conformant project docs (#54), and a sharper value proposition (#46). No sprint is open yet — see `SPRINTS.md` and `BACKLOG.md`.
+**Milestone 9: Distribution & Effortless Upgrades.** Milestones M1–M8 are complete (M8 shipped in **v0.43.0** — `daedalus docs scaffold` + `daedalus init` first-run onboarding + a sharpened value proposition). M9 continues the adoption arc from getting *started* to staying current: Homebrew installation (#11), a single bundled release archive (#8), and side-by-side versions for rollback (#9). No sprint is open yet — see `SPRINTS.md` and `BACKLOG.md`.

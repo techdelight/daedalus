@@ -24,6 +24,8 @@ func manageDocs(cfg *core.Config) error {
 	switch args[0] {
 	case "lint":
 		return lintDocs(args[1:])
+	case "scaffold":
+		return scaffoldDocs(args[1:], cfg.Force)
 	default:
 		return fmt.Errorf("unknown docs command %q\n%s daedalus docs help", args[0], color.Cyan("Hint:"))
 	}
@@ -95,6 +97,58 @@ func lintDocs(args []string) error {
 	return reportFindings(findings, ci)
 }
 
+// scaffoldDocs writes conformant skeletons for the required project documents
+// into a directory, mirroring lintDocs's flag/arg parsing: an optional single
+// directory (default: cwd) and a --force flag.
+//
+// It exists so a new project starts with a valid roadmap arc instead of an empty
+// tree: the ROADMAP.md and SPRINTS.md it writes already pass `daedalus docs
+// lint`. An existing file is left untouched (and reported as skipped) unless
+// --force is given, so re-running it never clobbers hand-written docs.
+//
+// force is seeded from the global flag parser, which owns --force (prune uses it
+// too); a --force sitting after the subcommand is honoured there and never
+// reaches these args, so accepting it here as well only keeps the local parse
+// self-describing.
+func scaffoldDocs(args []string, force bool) error {
+	dir := ""
+	for _, a := range args {
+		switch {
+		case a == "--force":
+			force = true
+		case len(a) > 0 && a[0] == '-':
+			return fmt.Errorf("unknown flag %q\n%s daedalus docs scaffold [--force] [dir]", a, color.Cyan("Hint:"))
+		case dir == "":
+			dir = a
+		default:
+			return fmt.Errorf("too many arguments; expected at most one directory")
+		}
+	}
+	if dir == "" {
+		wd, err := os.Getwd()
+		if err != nil {
+			return fmt.Errorf("resolving working directory: %w", err)
+		}
+		dir = wd
+	}
+
+	created, skipped, err := core.ScaffoldDocs(dir, force)
+	if err != nil {
+		return err
+	}
+
+	for _, name := range created {
+		fmt.Printf("%s %s\n", color.Green("✓"), name)
+	}
+	for _, name := range skipped {
+		fmt.Printf("%s %s (exists; use --force to overwrite)\n", color.Dim("—"), name)
+	}
+
+	fmt.Printf("\n%d created, %d skipped in %s\n", len(created), len(skipped), dir)
+	fmt.Printf("%s run %s to check them\n", color.Cyan("Hint:"), color.Bold("daedalus docs lint"))
+	return nil
+}
+
 // readDoc reads one document from dir. A missing file is not an error — it is
 // simply absent, the same convention the parsers and readers keep.
 func readDoc(dir, name string) (content string, present bool, err error) {
@@ -150,12 +204,17 @@ func printDocsUsage() {
 	fmt.Println(`daedalus docs — check project documents against the dashboard-arc format
 
 Usage:
-  daedalus docs lint [--ci] [dir]   Check ROADMAP.md and SPRINTS.md in dir
-                                    (default: current directory)
+  daedalus docs lint [--ci] [dir]       Check ROADMAP.md and SPRINTS.md in dir
+                                        (default: current directory)
+  daedalus docs scaffold [--force] [dir] Write conformant doc skeletons into dir
+                                        (default: current directory)
 
 Flags:
-  --ci    Treat warnings as failures too (exit non-zero on any finding)
+  --ci     (lint) Treat warnings as failures too (exit non-zero on any finding)
+  --force  (scaffold) Overwrite documents that already exist
 
-Exit status is 0 when the documents are consistent, non-zero on an error
-(or, with --ci, on any warning) — so it can gate a commit, a session, or CI.`)
+Exit status of lint is 0 when the documents are consistent, non-zero on an error
+(or, with --ci, on any warning) — so it can gate a commit, a session, or CI.
+scaffold writes the required-doc set (skipping any that already exist) so a fresh
+project passes docs lint out of the box.`)
 }
