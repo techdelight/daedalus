@@ -4,6 +4,39 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+**Sprint 48: Bundled release archive.** Replaces the ~27 individual GitHub
+Release assets with one self-contained, checksum-verified archive per platform.
+
+### Added
+- **`scripts/package-release.sh`** — the single source of truth for release
+  packaging. Given a staging directory of per-platform binaries plus the shared
+  runtime files and a version, it produces one `daedalus-<os>-<arch>.tar.gz` per
+  platform (linux/darwin × amd64/arm64) — each containing that platform's five
+  binaries renamed to their install names (`daedalus`, `skill-catalog-mcp`,
+  `project-mgmt-mcp`, `daedalus-coordinator`, `daedalus-runner`) plus exactly the
+  runtime files `setup.sh` installs — and a `SHA256SUMS.txt` over all archives.
+  Archives are flat (no top-level directory) and deterministic (fixed mtime,
+  sorted entries, `gzip -n`). Both the release workflows and the local
+  simulation invoke it, so the packaging logic is genuinely exercised in tests.
+- **`scripts/test-release-bundle.sh`** — a no-network end-to-end proof: builds
+  the host binaries, packages them, then drives `install.sh`'s real
+  verify + extract + `setup.sh` path against the produced archive into a
+  throwaway prefix, asserting the installed tree, the symlink, checksum
+  verification, and rejection of a corrupted archive.
+
+### Changed
+- **Release assets are now a single bundled archive per platform.** A release
+  publishes **6** assets (4 `daedalus-<os>-<arch>.tar.gz` + `SHA256SUMS.txt` +
+  `install.sh`) instead of ~27 individual files. The dev-release workflow uses
+  the same packager.
+- **`install.sh` downloads one archive** for the detected platform, **verifies
+  its SHA-256 against `SHA256SUMS.txt`** (failing loudly on a missing or
+  mismatched checksum), extracts it, and hands the result to `setup.sh` exactly
+  as before. Every existing flag and the `latest`-vs-pinned tag resolution are
+  preserved. The version is now baked into the packaged `config.json` at package
+  time rather than patched in during install. A `DAEDALUS_ARCHIVE_DIR` hook lets
+  the test suite install from a local archive without touching GitHub.
+
 ## [0.43.0] - 2026-08-06
 
 **Milestone 8: Onboarding & Adoption.** Get a new user from install to first

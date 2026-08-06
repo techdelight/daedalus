@@ -46,7 +46,11 @@ Detach is `Ctrl-D`, reattach is any `daedalus <project-name>` invocation, and mu
 
 ## Installation
 
-The install script downloads a pre-built binary and runtime files from the latest GitHub Release, copies them to a prefix directory, and symlinks `daedalus` into `~/.local/bin`. No build step required.
+The install script downloads a single pre-built release archive
+(`daedalus-<os>-<arch>.tar.gz`) for your platform from the latest GitHub
+Release, verifies it against the published `SHA256SUMS.txt`, extracts the
+binaries and runtime files into a prefix directory, and symlinks `daedalus`
+into `~/.local/bin`. No build step required.
 
 **Prerequisites:** curl. Docker is required at runtime but not for installation.
 
@@ -671,7 +675,7 @@ Daedalus tracks a SHA-256 checksum of build-relevant files (Dockerfile, entrypoi
 Rolling pre-release builds are published automatically from the latest `development` branch. These are useful for testing in-progress work before a stable release.
 
 ```bash
-# Install the latest dev build (binary + runtime files + symlink)
+# Install the latest dev build (bundled archive + checksum verify + symlink)
 curl -fsSL https://github.com/techdelight/daedalus/releases/download/dev/install.sh | bash
 ```
 

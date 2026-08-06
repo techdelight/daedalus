@@ -10,10 +10,10 @@ Milestone: 9
 
 | # | Item | Status |
 |---|------|--------|
-| 1 | **`scripts/package-release.sh` — the single packaging source of truth** — given a staging dir of built binaries + runtime files and a version, produce per-platform `daedalus-<os>-<arch>.tar.gz` + a `SHA256SUMS.txt`. `bash -n` clean; deterministic layout |  |
-| 2 | **`release.yml` calls the script** — replace the inline asset-prep (`cp`/`sed`) with `scripts/package-release.sh`; upload the archives + `SHA256SUMS.txt` + `install.sh` (still curl'd raw from master). Keep the changelog body + install one-liner intact |  |
-| 3 | **`install.sh` pulls one archive** — detect OS/arch, download the single `daedalus-<os>-<arch>.tar.gz` + `SHA256SUMS.txt`, verify the checksum, extract into `WORK_DIR`, then exec `setup.sh` — replacing the per-file curl sequence. Preserve `--prefix`/link flags + version patching; clear error if the archive/checksum is missing or mismatched |  |
-| 4 | **Local end-to-end simulation + docs + close** — `scripts/test-release-bundle.sh`: build host binaries → `package-release.sh` → run `install`/`setup` from the archive into a temp prefix, asserting binaries + runtime files land and the symlink works (no GitHub, no Docker). `bash -n` on every touched script. CHANGELOG; README/CONTRIBUTING install notes; ship |  |
+| 1 | **`scripts/package-release.sh` — the single packaging source of truth** — given a staging dir of built binaries + runtime files and a version, produce per-platform `daedalus-<os>-<arch>.tar.gz` + a `SHA256SUMS.txt`. `bash -n` clean; deterministic layout | Done |
+| 2 | **`release.yml` calls the script** — replace the inline asset-prep (`cp`/`sed`) with `scripts/package-release.sh`; upload the archives + `SHA256SUMS.txt` + `install.sh` (still curl'd raw from master). Keep the changelog body + install one-liner intact | Done |
+| 3 | **`install.sh` pulls one archive** — detect OS/arch, download the single `daedalus-<os>-<arch>.tar.gz` + `SHA256SUMS.txt`, verify the checksum, extract into `WORK_DIR`, then exec `setup.sh` — replacing the per-file curl sequence. Preserve `--prefix`/link flags + version patching; clear error if the archive/checksum is missing or mismatched | Done |
+| 4 | **Local end-to-end simulation + docs + close** — `scripts/test-release-bundle.sh`: build host binaries → `package-release.sh` → run `install`/`setup` from the archive into a temp prefix, asserting binaries + runtime files land and the symlink works (no GitHub, no Docker). `bash -n` on every touched script. CHANGELOG; README/CONTRIBUTING install notes; ship | Done |
 
 Out of scope: side-by-side versioned installs (#9, next sprint) and the Homebrew formula (M10); keeping the old individual-file assets as a parallel/back-compat path (new installs use the archive — older `install.sh` copies pin their own tag).
 
