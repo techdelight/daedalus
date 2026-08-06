@@ -503,6 +503,16 @@ Each container includes a `project-mgmt` MCP server Claude Code uses to read and
 
 **Lifecycle tools** let the agent evolve the roadmap through validated transitions instead of hand-editing: `add_` / `remove_` / `start_` / `finish_` / `pause_milestone`, and `add_` / `remove_` / `move_` / `start_` / `finish_` / `pause_sprint`. Each validates the result (e.g. exactly one milestone In Progress; a sprint finishes only once its items are Done) and refuses an inconsistent write.
 
+**Bootstrapping a new project's docs.** `daedalus docs scaffold [dir]` writes conformant skeletons for the eight required documents (`README`, `VISION`, `ARCHITECTURE`, `ROADMAP`, `BACKLOG`, `SPRINTS`, `CHANGELOG`, `CONTRIBUTING`) into `dir` (default: current directory). The `ROADMAP.md` and `SPRINTS.md` skeletons already satisfy the structured-docs contract, so `daedalus docs lint` passes on the fresh output — a new project starts with a valid roadmap arc instead of an empty tree. Existing files are left untouched and reported as skipped unless `--force` is given:
+
+```bash
+daedalus docs scaffold ./my-project    # write any missing required docs
+daedalus docs scaffold --force .       # overwrite existing docs from the templates
+daedalus docs lint ./my-project        # confirm the arc is consistent
+```
+
+`daedalus docs lint [--ci] [dir]` checks a project's `ROADMAP.md` and `SPRINTS.md` against the dashboard-arc format, exiting non-zero on any error (and, with `--ci`, on any warning) so it can gate a commit or CI. See [`docs/structured-docs.md`](docs/structured-docs.md) for the contract.
+
 Click any project name in the Web UI to see the project dashboard with progress bar, version, total session time, and vision. The roadmap is automatically loaded and displayed from the project's `ROADMAP.md`. Use the "Hide Roadmap" / "Show Roadmap" button to toggle visibility.
 
 **MCP roadmap tools (inside the container):**

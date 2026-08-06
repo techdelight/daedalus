@@ -475,18 +475,21 @@ func TestMoveSprint_NotFound(t *testing.T) {
 // --- RollSprintToHistory -----------------------------------------------------
 
 func TestRollSprintToHistory_RoundTrip(t *testing.T) {
-	sprints := readRepoDoc(t, "SPRINTS.md")
-	got, err := RollSprintToHistory(sprints, 45, "0.42.0")
+	// Fixture-backed, not repo-backed: the current sprint is Sprint 5, with
+	// Sprint 4 already in history. Reading the live SPRINTS.md made this test
+	// break whenever the board rolled forward (it hard-coded the then-current
+	// sprint number); the fixture pins the shape it actually exercises.
+	got, err := RollSprintToHistory(fixtureSprints, 5, "2.0.0")
 	if err != nil {
 		t.Fatalf("RollSprintToHistory: %v", err)
 	}
 	parsed := ParseSprints(got)
-	s, ok := sprintByNumber(parsed, 45)
+	s, ok := sprintByNumber(parsed, 5)
 	if !ok {
-		t.Fatal("sprint 45 not parsed back")
+		t.Fatal("sprint 5 not parsed back")
 	}
-	if s.Version != "0.42.0" {
-		t.Errorf("version = %q, want 0.42.0", s.Version)
+	if s.Version != "2.0.0" {
+		t.Errorf("version = %q, want 2.0.0", s.Version)
 	}
 	if s.IsCurrent {
 		t.Error("rolled sprint should no longer be current")
@@ -497,12 +500,12 @@ func TestRollSprintToHistory_RoundTrip(t *testing.T) {
 			t.Errorf("sprint %d is still current after the roll", s.Number)
 		}
 	}
-	// 45 lands at the top of history, immediately above 44, which is untouched.
-	if strings.Index(got, "### Sprint 45:") > strings.Index(got, "### Sprint 44:") {
-		t.Error("rolled sprint 45 is not above sprint 44 in history")
+	// 5 lands at the top of history, immediately above 4, which is untouched.
+	if strings.Index(got, "### Sprint 5:") > strings.Index(got, "### Sprint 4:") {
+		t.Error("rolled sprint 5 is not above sprint 4 in history")
 	}
-	if !strings.HasSuffix(got, sprints[indexOf(t, sprints, "### Sprint 44:"):]) {
-		t.Error("history from sprint 44 onward changed")
+	if !strings.HasSuffix(got, fixtureSprints[indexOf(t, fixtureSprints, "### Sprint 4:"):]) {
+		t.Error("history from sprint 4 onward changed")
 	}
 }
 

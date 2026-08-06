@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- **`daedalus docs scaffold [dir] [--force]`** — writes conformant skeletons for
+  the eight required project documents (`README`, `VISION`, `ARCHITECTURE`,
+  `ROADMAP`, `BACKLOG`, `SPRINTS`, `CHANGELOG`, `CONTRIBUTING`) into a directory
+  (default: current). The `ROADMAP.md` and `SPRINTS.md` skeletons already satisfy
+  the structured-docs contract, so `daedalus docs lint --ci` passes on the fresh
+  output — a new project starts with a valid roadmap arc instead of an empty tree.
+  Existing files are skipped (never overwritten) unless `--force` is given. Backed
+  by `core.ScaffoldDocs`, whose templates are the single source of truth for the
+  skeleton bodies.
+
 ## [0.42.0] - 2026-08-05
 
 **Milestone 7: Project-Management Tools & File-Derived State.** The in-container

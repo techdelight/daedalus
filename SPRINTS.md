@@ -10,14 +10,12 @@ Milestone: 8
 
 | # | Item | Status |
 |---|------|--------|
-| 1 | **`core.ScaffoldDocs(dir, force)` (core)** — write the 8 `RequiredDocs()` skeletons from templates; skip existing files unless `force`; return created/skipped lists. Tests assert the output parses and `ValidateDocs` is clean (one In-Progress milestone stub + a current-sprint stub linked to it). |  |
-| 2 | **Single source of truth for templates** — factor the skeletons so `docs/PROJECT-INIT.md` and the scaffolder can't drift; the ROADMAP/SPRINTS stubs must satisfy the same strict-format checks `docs lint` enforces. Tests |  |
-| 3 | **`daedalus docs scaffold [dir] [--force]` (CLI)** — wire into `manageDocs` beside `lint`; default to cwd; print a created/skipped summary; usage + `docs help` text |  |
-| 4 | **Docs + close** — document `docs scaffold` in README + `docs/structured-docs.md` (sibling of `docs lint`); CHANGELOG; verify `docs lint` passes on freshly scaffolded output; ship |  |
+| 1 | **`core.ScaffoldDocs(dir, force)` (core)** — write the 8 `RequiredDocs()` skeletons from templates; skip existing files unless `force`; return created/skipped lists. Tests assert the output parses and `ValidateDocs` is clean (one In-Progress milestone stub + a current-sprint stub linked to it). | Done |
+| 2 | **Single source of truth for templates** — factor the skeletons so `docs/PROJECT-INIT.md` and the scaffolder can't drift; the ROADMAP/SPRINTS stubs must satisfy the same strict-format checks `docs lint` enforces. Tests | Done |
+| 3 | **`daedalus docs scaffold [dir] [--force]` (CLI)** — wire into `manageDocs` beside `lint`; default to cwd; print a created/skipped summary; usage + `docs help` text | Done |
+| 4 | **Docs + close** — document `docs scaffold` in README + `docs/structured-docs.md` (sibling of `docs lint`); CHANGELOG; verify `docs lint` passes on freshly scaffolded output; ship | Done |
 
 Out of scope (deferred to later M8 sprints): post-install / first-run onboarding (#45) and the README/value-proposition sharpening (#46) — those are the messaging half of the milestone; this sprint delivers the doc-bootstrap backbone they point at.
-
-## Sprint History
 
 ## Sprint History
 
