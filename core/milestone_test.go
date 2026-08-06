@@ -186,8 +186,8 @@ func TestParseMilestonesAgainstRealRoadmap(t *testing.T) {
 	}
 
 	got := ParseMilestones(string(data))
-	if len(got) != 9 {
-		t.Fatalf("parsed %d milestones from the repo ROADMAP.md, want 9: %+v", len(got), got)
+	if len(got) != 10 {
+		t.Fatalf("parsed %d milestones from the repo ROADMAP.md, want 10: %+v", len(got), got)
 	}
 
 	for i, m := range got {
