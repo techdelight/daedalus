@@ -30,7 +30,7 @@ _daedalus() {
     local cur prev words cword
     _init_completion || return
 
-    local subcommands="list prune remove rename config tui web completion skills runners personas programmes docs"
+    local subcommands="list prune remove rename config tui web completion skills runners personas programmes docs init"
     local flags="--build --target --resume -p --debug --dind --display --force --port --host --no-color --runner --persona --auth --no-auth --help -h"
 
     # Complete subcommands and flags for the first argument
@@ -98,6 +98,7 @@ _daedalus() {
         'personas:Manage named persona configurations'
         'programmes:Manage multi-project programmes'
         'docs:Check project documents against the dashboard-arc format'
+        'init:Scaffold project docs and print a getting-started guide'
     )
 
     flags=(
@@ -157,6 +158,9 @@ _daedalus() {
                 docs)
                     _values 'action' lint --ci
                     ;;
+                init)
+                    _values 'flag' --force --no-scaffold
+                    ;;
                 *)
                     _describe -t flags 'flag' flags
                     ;;
@@ -187,6 +191,9 @@ complete -c daedalus -n '__fish_use_subcommand' -a 'programmes' -d 'Manage multi
 complete -c daedalus -n '__fish_use_subcommand' -a 'docs' -d 'Check project documents against the dashboard-arc format'
 complete -c daedalus -n '__fish_seen_subcommand_from docs' -a 'lint' -d 'Check ROADMAP.md/SPRINTS.md against the arc format'
 complete -c daedalus -n '__fish_seen_subcommand_from docs' -l ci -d 'Treat warnings as failures too'
+complete -c daedalus -n '__fish_use_subcommand' -a 'init' -d 'Scaffold project docs and print a getting-started guide'
+complete -c daedalus -n '__fish_seen_subcommand_from init' -l force -d 'Overwrite existing docs'
+complete -c daedalus -n '__fish_seen_subcommand_from init' -l no-scaffold -d 'Print guidance only, skip writing docs'
 
 # Global flags
 complete -c daedalus -l build -d 'Force rebuild the Docker image'

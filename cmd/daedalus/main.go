@@ -101,6 +101,9 @@ func run(args []string) error {
 	case "docs":
 		logging.Info("subcommand: docs")
 		return manageDocs(cfg)
+	case "init":
+		logging.Info("subcommand: init")
+		return runInit(cfg)
 	}
 
 	// --- Normal project flow ---

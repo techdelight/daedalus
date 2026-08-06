@@ -4,9 +4,11 @@
 
 # Daedalus
 
-A Docker environment for running AI coding agents ([Claude Code](https://claude.ai/code), [GitHub Copilot CLI](https://github.com/features/copilot)) autonomously without permission prompts. The container isolates the agent with write access only to the mounted project directory.
+**Hands-off AI coding in a safe container.** Daedalus runs an AI coding agent ([Claude Code](https://claude.ai/code), [GitHub Copilot CLI](https://github.com/features/copilot)) autonomously — no permission prompts — inside a locked-down Docker container that can only write to your project directory. Detach and reattach from anywhere, and drive every session from a CLI, TUI, or web dashboard.
 
-Daedalus launches every session through the **runner path**: a `daedalus-runner` PID-1 binary inside the container fans PTY I/O over a Unix socket, with a host-side `daedalus-coordinator` daemon owning session lifecycles. All UIs (CLI, TUI, Web) attach through it. See [Runner Path](#runner-path) below and [ARCHITECTURE.md](ARCHITECTURE.md) for the design.
+New to Daedalus? Run `daedalus init` in a project directory to scaffold its docs and print a short getting-started guide.
+
+Under the hood, every session runs through the **runner path**: a `daedalus-runner` PID-1 binary inside the container fans PTY I/O over a Unix socket, with a host-side `daedalus-coordinator` daemon owning session lifecycles. All UIs (CLI, TUI, Web) attach through it. See [Runner Path](#runner-path) below and [ARCHITECTURE.md](ARCHITECTURE.md) for the design.
 
 ## Why
 
@@ -23,6 +25,9 @@ Claude Code is powerful, but using it day-to-day has real friction:
 ```bash
 # Install Daedalus
 curl -fsSL https://raw.githubusercontent.com/techdelight/daedalus/master/install.sh | bash
+
+# (Optional) scaffold docs for a new project and see the getting-started guide
+daedalus init /path/to/project
 
 # Start a project
 daedalus my-awesome-app /path/to/project
@@ -80,6 +85,7 @@ The symlink is created in `~/.local/bin`. If this directory is not on your PATH,
 
 ```
 daedalus [flags] <project-name> [project-dir]
+daedalus init [--force] [--no-scaffold] [dir]
 daedalus list
 daedalus prune
 daedalus remove <name> [name...]
@@ -99,6 +105,7 @@ daedalus --help
 
 | Command | Description |
 |---|---|
+| `init [dir]` | Scaffold the required project docs and print a getting-started guide (`--force` to overwrite, `--no-scaffold` for guidance only) |
 | `<project-name>` | Open a registered project (uses stored directory) |
 | `<project-name> <project-dir>` | Register and open a new project |
 | `list` | List all registered projects |
@@ -138,6 +145,9 @@ daedalus --help
 **Examples:**
 
 ```bash
+# Scaffold docs for a new project and print the getting-started guide
+daedalus init /path/to/project
+
 # Open an existing project from the registry
 daedalus my-awesome-app
 

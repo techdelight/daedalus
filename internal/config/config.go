@@ -258,12 +258,13 @@ var collectorSubcommands = map[string]func(cfg *core.Config, positional []string
 			cfg.CompletionShell = p[1]
 		}
 	},
-	"skills":     func(cfg *core.Config, p []string) { cfg.SkillsArgs = p[1:] },
-	"personas":   func(cfg *core.Config, p []string) { cfg.PersonasArgs = p[1:] },
-	"runners":    func(cfg *core.Config, p []string) { cfg.RunnersArgs = p[1:] },
+	"skills":      func(cfg *core.Config, p []string) { cfg.SkillsArgs = p[1:] },
+	"personas":    func(cfg *core.Config, p []string) { cfg.PersonasArgs = p[1:] },
+	"runners":     func(cfg *core.Config, p []string) { cfg.RunnersArgs = p[1:] },
 	"programmes":  func(cfg *core.Config, p []string) { cfg.ProgrammesArgs = p[1:] },
 	"coordinator": func(cfg *core.Config, p []string) { cfg.CoordinatorArgs = p[1:] },
 	"docs":        func(cfg *core.Config, p []string) { cfg.DocsArgs = p[1:] },
+	"init":        func(cfg *core.Config, p []string) { cfg.InitArgs = p[1:] },
 }
 
 // isBareSubcommand reports whether name is a single-positional subcommand that

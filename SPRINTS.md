@@ -10,10 +10,10 @@ Milestone: 8
 
 | # | Item | Status |
 |---|------|--------|
-| 1 | **`daedalus init`** — a first-step command that carries a new user from install to first session: getting-started guidance (register a project, scaffold docs, start a session) with next-step hints; optionally bootstraps the current directory's docs via `core.ScaffoldDocs`. Host-side, testable (#45) |  |
-| 2 | **Post-install next-steps** — `install.sh` prints a clear getting-started pointer on a successful install (what to run next), pointing at `daedalus init` (#45) |  |
-| 3 | **Sharpen the value proposition (#46)** — tighten the README opening + first-run / `--help` messaging to the "hands-off AI coding in a safe container" pitch; say what it is and why in one breath |  |
-| 4 | **Docs + close** — CHANGELOG; usage/help; verify; close Milestone 8 + release |  |
+| 1 | **`daedalus init`** — a first-step command that carries a new user from install to first session: getting-started guidance (register a project, scaffold docs, start a session) with next-step hints; optionally bootstraps the current directory's docs via `core.ScaffoldDocs`. Host-side, testable (#45) | Done |
+| 2 | **Post-install next-steps** — `install.sh` prints a clear getting-started pointer on a successful install (what to run next), pointing at `daedalus init` (#45) | Done |
+| 3 | **Sharpen the value proposition (#46)** — tighten the README opening + first-run / `--help` messaging to the "hands-off AI coding in a safe container" pitch; say what it is and why in one breath | Done |
+| 4 | **Docs + close** — CHANGELOG; usage/help; verify; close Milestone 8 + release | Done |
 
 Out of scope: any in-container/first-session UX that needs a running Docker daemon (host-side onboarding only); a GUI wizard.
 

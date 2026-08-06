@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- **`daedalus init [dir] [--force] [--no-scaffold]`** — the first-run entry point.
+  Scaffolds the required project docs (reusing `core.ScaffoldDocs`, so a fresh
+  project passes `daedalus docs lint` out of the box) and prints a short
+  getting-started guide: register & start a project, reattach, the TUI and web
+  dashboards, and the docs gate. Idempotent — existing docs are skipped unless
+  `--force`; `--no-scaffold` prints the guide without writing anything.
+- **Post-install next steps** — `install.sh`/`setup.sh` now point a new user at
+  `daedalus init` and then `daedalus <name> <dir>` on a successful install.
 - **`daedalus docs scaffold [dir] [--force]`** — writes conformant skeletons for
   the eight required project documents (`README`, `VISION`, `ARCHITECTURE`,
   `ROADMAP`, `BACKLOG`, `SPRINTS`, `CHANGELOG`, `CONTRIBUTING`) into a directory
@@ -14,6 +22,11 @@ All notable changes to this project will be documented in this file.
   Existing files are skipped (never overwritten) unless `--force` is given. Backed
   by `core.ScaffoldDocs`, whose templates are the single source of truth for the
   skeleton bodies.
+
+### Changed
+- **Sharper value proposition** — the README hero and the CLI's no-args/`--help`
+  banner now lead with the one-line pitch ("hands-off AI coding in a safe,
+  isolated container") so a new user sees what Daedalus is and why immediately.
 
 ## [0.42.0] - 2026-08-05
 
