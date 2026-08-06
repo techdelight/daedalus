@@ -142,9 +142,10 @@ WORK_DIR=$PWD ./setup.sh \
 
 What this gives you:
 
-- Binary at `~/.local/share/daedalus-test/daedalus`
+- Binary at `~/.local/share/daedalus-test/current/daedalus` (a versioned install;
+  `current` -> `versions/<version>/`)
 - Symlink at `~/.local/bin/daedalus-test` (so `daedalus-test my-proj`)
-- Data directory at `~/.local/share/daedalus-test/.cache/`
+- Data directory at `~/.local/share/daedalus-test/.cache/` (shared across versions)
 - Containers named `test-run-<project>` (collide-free with prod's `claude-run-<project>`)
 - Tmux sessions named `test-claude-<project>` (legacy path only)
 - Docker image tagged `test/claude-runner:dev` etc.; `daedalus-test build`
@@ -153,11 +154,11 @@ What this gives you:
 Uninstall the test copy with the same `--prefix` and `--link-name`:
 
 ```bash
-~/.local/share/daedalus-test/setup.sh --uninstall \
+~/.local/share/daedalus-test/current/setup.sh --uninstall \
     --prefix ~/.local/share/daedalus-test --link-name daedalus-test
 ```
 
-Settings live in `<prefix>/config.json`; `container-prefix`,
+Settings live in `<prefix>/current/config.json`; `container-prefix`,
 `tmux-prefix`, and `image-prefix` are the keys.
 
 ## Code Quality

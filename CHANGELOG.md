@@ -4,6 +4,34 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+**Sprint 49: Side-by-side versioned installs.** A new install lands alongside
+the current one instead of clobbering it, and switching or falling back is one
+command.
+
+### Added
+- **Versioned install layout** — `setup.sh` now installs the payload into
+  `$PREFIX/versions/<version>/` and maintains `$PREFIX/current` (the active
+  version) and `$PREFIX/previous` (the rollback target) symlinks; the PATH
+  symlink resolves through `current`, so a switch is a single symlink flip.
+  Upgrades install alongside prior versions and flip `current` instead of
+  overwriting. The shared project registry stays at `$PREFIX/.cache`, untouched
+  by switches. A legacy flat install is transparently migrated into
+  `versions/<old>/` on the first versioned upgrade.
+- **`daedalus version` subcommand** — `list` (installed versions, marking the
+  current one), `use <version>` (switch the active version, recording the prior
+  as `previous`), `rollback` (return to the previous version), and
+  `prune [--keep N]` (remove old versions, keeping the most-recent N — default 3
+  — plus the current version, which is never removed). The install prefix is
+  derived from the running binary (`os.Executable`), with a `DAEDALUS_PREFIX`
+  override. Wired into `--help`, usage, and bash/zsh/fish completions.
+
+### Changed
+- **Uninstall handles the versioned layout** — removes all installed versions,
+  the `current`/`previous` links, and the PATH symlink (and cleans up any
+  leftover legacy flat files).
+
+---
+
 **Sprint 48: Bundled release archive.** Replaces the ~27 individual GitHub
 Release assets with one self-contained, checksum-verified archive per platform.
 

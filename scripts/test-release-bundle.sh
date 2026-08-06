@@ -36,6 +36,7 @@ fail() { echo "  FAIL: $1"; FAIL=$((FAIL + 1)); }
 
 check_file() { if [ -f "$2" ]; then pass "$1"; else fail "$1 (missing: $2)"; fi; }
 check_exec() { if [ -x "$2" ]; then pass "$1"; else fail "$1 (not executable: $2)"; fi; }
+check_dir()  { if [ -d "$2" ]; then pass "$1"; else fail "$1 (missing dir: $2)"; fi; }
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
@@ -119,35 +120,38 @@ HOME="$FAKE_HOME" DAEDALUS_ARCHIVE_DIR="$DIST" \
     bash "$INSTALL_SH" --prefix "$PREFIX" --link-name daedalus
 
 echo ""
-echo "  Verifying installed tree..."
-check_exec "daedalus binary installed"              "$PREFIX/daedalus"
-check_exec "skill-catalog-mcp installed"            "$PREFIX/skill-catalog-mcp"
-check_exec "project-mgmt-mcp installed"             "$PREFIX/project-mgmt-mcp"
-check_exec "daedalus-coordinator installed"         "$PREFIX/daedalus-coordinator"
-check_exec "daedalus-runner installed"              "$PREFIX/daedalus-runner"
-check_file "claude.json installed"                  "$PREFIX/claude.json"
-check_file "docker-compose.yml installed"           "$PREFIX/docker-compose.yml"
-check_file "Dockerfile installed"                   "$PREFIX/Dockerfile"
-check_file "entrypoint.sh installed"                "$PREFIX/entrypoint.sh"
-check_file "settings.json installed"                "$PREFIX/settings.json"
-check_file "logo.txt installed"                     "$PREFIX/logo.txt"
-check_file "config.json installed"                  "$PREFIX/config.json"
-check_file "setup.sh installed"                      "$PREFIX/setup.sh"
+echo "  Verifying installed tree (versioned layout)..."
+# The payload lands under versions/<version>/ and is reachable through `current`.
+VDIR="$PREFIX/versions/$TEST_VERSION"
+check_dir  "versions/$TEST_VERSION directory created"  "$VDIR"
+check_exec "daedalus binary installed"              "$PREFIX/current/daedalus"
+check_exec "skill-catalog-mcp installed"            "$PREFIX/current/skill-catalog-mcp"
+check_exec "project-mgmt-mcp installed"             "$PREFIX/current/project-mgmt-mcp"
+check_exec "daedalus-coordinator installed"         "$PREFIX/current/daedalus-coordinator"
+check_exec "daedalus-runner installed"              "$PREFIX/current/daedalus-runner"
+check_file "claude.json installed"                  "$PREFIX/current/claude.json"
+check_file "docker-compose.yml installed"           "$PREFIX/current/docker-compose.yml"
+check_file "Dockerfile installed"                   "$PREFIX/current/Dockerfile"
+check_file "entrypoint.sh installed"                "$PREFIX/current/entrypoint.sh"
+check_file "settings.json installed"                "$PREFIX/current/settings.json"
+check_file "logo.txt installed"                     "$PREFIX/current/logo.txt"
+check_file "config.json installed"                  "$PREFIX/current/config.json"
+check_file "setup.sh installed"                      "$PREFIX/current/setup.sh"
 
-# Symlink created in the (fake) home.
+# Symlink created in the (fake) home, pointing through `current`.
 LINK="$FAKE_HOME/.local/bin/daedalus"
-if [ -L "$LINK" ] && [ "$(readlink "$LINK")" = "$PREFIX/daedalus" ]; then
-    pass "symlink created -> $PREFIX/daedalus"
+if [ -L "$LINK" ] && [ "$(readlink "$LINK")" = "$PREFIX/current/daedalus" ]; then
+    pass "symlink created -> $PREFIX/current/daedalus"
 else
     fail "symlink not created correctly at $LINK"
 fi
 
 # Version baked into config.json at package time (not patched by install.sh).
-if grep -q "\"version\": \"$TEST_VERSION\"" "$PREFIX/config.json"; then
+if grep -q "\"version\": \"$TEST_VERSION\"" "$PREFIX/current/config.json"; then
     pass "config.json records packaged version $TEST_VERSION"
 else
     fail "config.json version not baked correctly"
-    sed 's/^/      /' "$PREFIX/config.json"
+    sed 's/^/      /' "$PREFIX/current/config.json"
 fi
 
 # ── 5. Corrupted-archive rejection ───────────────────────────────────────────

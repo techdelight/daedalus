@@ -10,10 +10,10 @@ Milestone: 9
 
 | # | Item | Status |
 |---|------|--------|
-| 1 | **Versioned install layout (`setup.sh`)** — install into `$PREFIX/versions/<version>/`; maintain `$PREFIX/current` → the active version and point the PATH symlink at `current/daedalus`. Upgrades keep prior versions. Transparently **migrate a legacy flat install** into `versions/<old>/` on the first versioned upgrade; uninstall handles the new layout. `bash -n`; `scripts/test-install.sh` extended |  |
-| 2 | **`daedalus version` subcommand (Go)** — `list` (installed versions, marking current), `use <version>` (repoint `current` + PATH symlink, recording the prior as previous), `rollback` (switch back to the previously-active version). Derives the install prefix from the running binary (`os.Executable`), `DAEDALUS_PREFIX` override for tests. Wire into dispatch + usage + `--help` + completions; unit tests over a fake prefix |  |
-| 3 | **Prune + safety** — `daedalus version prune [--keep N]` removes old versions keeping the last N + current; refuse to remove the current/active version; clear errors on unknown/again-current version. Tests |  |
-| 4 | **Docs + close** — README (versioned install + switch/rollback/prune), CHANGELOG; extended local simulation (install v1 → install v2 alongside → `list`/`use`/`rollback`/`prune` → uninstall, no GitHub/Docker); verify; close Milestone 9 + release |  |
+| 1 | **Versioned install layout (`setup.sh`)** — install into `$PREFIX/versions/<version>/`; maintain `$PREFIX/current` → the active version and point the PATH symlink at `current/daedalus`. Upgrades keep prior versions. Transparently **migrate a legacy flat install** into `versions/<old>/` on the first versioned upgrade; uninstall handles the new layout. `bash -n`; `scripts/test-install.sh` extended | Done |
+| 2 | **`daedalus version` subcommand (Go)** — `list` (installed versions, marking current), `use <version>` (repoint `current` + PATH symlink, recording the prior as previous), `rollback` (switch back to the previously-active version). Derives the install prefix from the running binary (`os.Executable`), `DAEDALUS_PREFIX` override for tests. Wire into dispatch + usage + `--help` + completions; unit tests over a fake prefix | Done |
+| 3 | **Prune + safety** — `daedalus version prune [--keep N]` removes old versions keeping the last N + current; refuse to remove the current/active version; clear errors on unknown/again-current version. Tests | Done |
+| 4 | **Docs + close** — README (versioned install + switch/rollback/prune), CHANGELOG; extended local simulation (install v1 → install v2 alongside → `list`/`use`/`rollback`/`prune` → uninstall, no GitHub/Docker); verify; close Milestone 9 + release | Done |
 
 Out of scope: a web/TUI version switcher; auto-pruning on install (explicit `prune` only); cross-machine/remote version sync.
 

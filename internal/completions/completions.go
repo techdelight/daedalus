@@ -30,7 +30,7 @@ _daedalus() {
     local cur prev words cword
     _init_completion || return
 
-    local subcommands="list prune remove rename config tui web completion skills runners personas programmes docs init"
+    local subcommands="list prune remove rename config tui web completion skills runners personas programmes docs init version"
     local flags="--build --target --resume -p --debug --dind --display --force --port --host --no-color --runner --persona --auth --no-auth --help -h"
 
     # Complete subcommands and flags for the first argument
@@ -68,6 +68,9 @@ _daedalus() {
         docs)
             COMPREPLY=($(compgen -W "lint --ci" -- "${cur}"))
             ;;
+        version)
+            COMPREPLY=($(compgen -W "list use rollback prune --keep" -- "${cur}"))
+            ;;
         *)
             COMPREPLY=($(compgen -W "${flags}" -- "${cur}"))
             ;;
@@ -99,6 +102,7 @@ _daedalus() {
         'programmes:Manage multi-project programmes'
         'docs:Check project documents against the dashboard-arc format'
         'init:Scaffold project docs and print a getting-started guide'
+        'version:Manage side-by-side installed versions'
     )
 
     flags=(
@@ -161,6 +165,9 @@ _daedalus() {
                 init)
                     _values 'flag' --force --no-scaffold
                     ;;
+                version)
+                    _values 'action' list use rollback prune --keep
+                    ;;
                 *)
                     _describe -t flags 'flag' flags
                     ;;
@@ -194,6 +201,9 @@ complete -c daedalus -n '__fish_seen_subcommand_from docs' -l ci -d 'Treat warni
 complete -c daedalus -n '__fish_use_subcommand' -a 'init' -d 'Scaffold project docs and print a getting-started guide'
 complete -c daedalus -n '__fish_seen_subcommand_from init' -l force -d 'Overwrite existing docs'
 complete -c daedalus -n '__fish_seen_subcommand_from init' -l no-scaffold -d 'Print guidance only, skip writing docs'
+complete -c daedalus -n '__fish_use_subcommand' -a 'version' -d 'Manage side-by-side installed versions'
+complete -c daedalus -n '__fish_seen_subcommand_from version' -a 'list use rollback prune' -d 'version action'
+complete -c daedalus -n '__fish_seen_subcommand_from version' -l keep -d 'Versions to keep when pruning' -r
 
 # Global flags
 complete -c daedalus -l build -d 'Force rebuild the Docker image'

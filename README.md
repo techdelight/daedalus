@@ -49,8 +49,25 @@ Detach is `Ctrl-D`, reattach is any `daedalus <project-name>` invocation, and mu
 The install script downloads a single pre-built release archive
 (`daedalus-<os>-<arch>.tar.gz`) for your platform from the latest GitHub
 Release, verifies it against the published `SHA256SUMS.txt`, extracts the
-binaries and runtime files into a prefix directory, and symlinks `daedalus`
-into `~/.local/bin`. No build step required.
+binaries and runtime files into a **versioned** directory under a prefix, and
+symlinks `daedalus` into `~/.local/bin`. No build step required.
+
+Installs are laid out side by side so upgrades never clobber the version you are
+running:
+
+```
+~/.local/share/daedalus/
+  versions/<version>/   one full payload per installed version
+  current  -> versions/<active>    (the PATH symlink resolves through it)
+  previous -> versions/<prior>     (rollback target)
+  .cache/  shared project registry + caches (survives version switches)
+```
+
+Upgrading installs the new version alongside the old one and flips `current`; the
+prior version stays put so you can switch back instantly (see
+[Managing versions](#managing-versions)). A legacy flat install (binaries
+directly under the prefix) is migrated into `versions/<old>/` automatically on
+the first versioned upgrade.
 
 **Prerequisites:** curl. Docker is required at runtime but not for installation.
 
@@ -65,11 +82,11 @@ curl -fsSL https://raw.githubusercontent.com/techdelight/daedalus/master/install
 **Uninstall:**
 
 ```bash
-# Uninstall (keeps project data by default)
-~/.local/share/daedalus/setup.sh --uninstall
+# Uninstall (keeps project data by default; removes all installed versions)
+~/.local/share/daedalus/current/setup.sh --uninstall
 
 # Uninstall from a custom prefix
-~/.local/share/daedalus/setup.sh --uninstall --prefix ~/daedalus
+~/.local/share/daedalus/current/setup.sh --uninstall --prefix ~/daedalus
 ```
 
 **Options:**
@@ -84,6 +101,32 @@ curl -fsSL https://raw.githubusercontent.com/techdelight/daedalus/master/install
 The symlink is created in `~/.local/bin`. If this directory is not on your PATH, the script prints a hint.
 
 > **Note:** zsh users (the default shell on macOS) may need to run `source ~/.zshrc` or open a new terminal before the `daedalus` command is available.
+
+### Managing versions
+
+Because installs are kept side by side, switching between them is one command —
+no reinstall or download needed. The `current` symlink selects the active
+version and the PATH symlink resolves through it, so a switch takes effect
+immediately.
+
+```bash
+# List installed versions (the active one is marked)
+daedalus version list
+
+# Switch to a specific installed version (records the prior as "previous")
+daedalus version use 0.42.0
+
+# Roll back to the version you were on before the last switch/upgrade
+daedalus version rollback
+
+# Remove old versions, keeping the most-recent N (default 3) plus the current one
+daedalus version prune            # keep the default number
+daedalus version prune --keep 1   # keep just the newest, plus current
+```
+
+`prune` never removes the active version, even if it is older than the ones
+being kept. The shared project registry lives in `.cache/` at the prefix root,
+so it is untouched by switching, rolling back, or pruning.
 
 ## Usage
 
