@@ -60,14 +60,14 @@ Make Daedalus approachable for a new user and a new project — from install to 
 - Post-install onboarding / first-run guidance — delivered as `daedalus init` (scaffold + getting-started guide) plus a post-install next-steps stanza (#45)
 - Sharpen the value proposition in README + first-run / `--help` messaging (#46)
 
-### Milestone 9: Release Bundling & Safe Upgrades (In Progress)
+### Milestone 9: Release Bundling & Safe Upgrades (Done)
 
 Make upgrading Daedalus effortless and reversible: one self-contained release artifact instead of a scatter of files, and the ability to run a new version alongside the current one before committing to it.
 
-- Bundle release assets into a single downloadable archive rather than many individual files (#8)
-- Side-by-side versions — install a new version alongside the current one for rollback / A-B before switching (#9)
+- Bundle release assets into a single checksum-verified per-platform archive rather than ~27 individual files (#8)
+- Side-by-side versions — versioned install layout + `daedalus version list/use/rollback/prune` for A-B and rollback before committing (#9)
 
-### Milestone 10: Homebrew Distribution (Planned)
+### Milestone 10: Homebrew Distribution (In Progress)
 
 `brew install daedalus` for macOS users — a Homebrew tap, a formula generator, and CI automation that publishes and updates the formula on each release, so install and upgrade both run through Homebrew. Builds on the single bundled release archive from M9 (#8), which a formula downloads and checksums. See `docs/homebrew-plan.md`.
 
@@ -76,11 +76,12 @@ Make upgrading Daedalus effortless and reversible: one self-contained release ar
 ## Phasing
 
 ```
-M1 (Done) ─► … ─► M8 (Done) ─► M9 (In Progress) ─► M10 (Planned)
-Container         Onboarding    Release Bundling    Homebrew
-Runtime           & Adoption    & Safe Upgrades     Distribution
+M1 (Done) ─► … ─► M9 (Done) ─► M10 (In Progress)
+Container         Release        Homebrew
+Runtime           Bundling       Distribution
+                  & Upgrades
 ```
 
 ## Current Focus
 
-**Milestone 9: Release Bundling & Safe Upgrades.** Milestones M1–M8 are complete (M8 shipped in **v0.43.0** — `daedalus docs scaffold` + `daedalus init` first-run onboarding + a sharpened value proposition). M9 makes upgrading effortless and reversible: a single bundled release archive (#8) and side-by-side versions for rollback (#9). Homebrew distribution (#11) was split out into **Milestone 10 (Planned)**, since a formula naturally builds on M9's bundled archive. No sprint is open yet — see `SPRINTS.md` and `BACKLOG.md`.
+**Milestone 10: Homebrew Distribution.** Milestones M1–M9 are complete (M9 shipped in **v0.44.0** — the single checksum-verified release archive (#8) and side-by-side versioned installs with `daedalus version use/rollback/prune` (#9)). M10 brings `brew install daedalus`: a Homebrew tap, a formula generator, and CI automation that publishes/updates the formula on each release — building on M9's bundled archive, which a formula downloads and checksums (#11). No sprint is open yet — see `SPRINTS.md` and `BACKLOG.md`.

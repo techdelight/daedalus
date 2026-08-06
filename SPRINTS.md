@@ -2,7 +2,11 @@
 
 ## Current Sprint
 
-### Sprint 49: Side-by-Side Versions & Rollback
+_No active sprint. Milestone 9 shipped in **v0.44.0** (Sprints 48–49, in the history below). The next milestone (M10, Homebrew Distribution) has no sprint open yet — see `BACKLOG.md`._
+
+## Sprint History
+
+### Sprint 49: Side-by-Side Versions & Rollback (v0.44.0)
 
 Goal: a new install lands *alongside* the current one instead of clobbering it, and switching or rolling back is one command — so a user can try a new version and fall back if it misbehaves. Builds directly on Sprint 48's single archive. Design in ROADMAP M9 (#9).
 
@@ -16,8 +20,6 @@ Milestone: 9
 | 4 | **Docs + close** — README (versioned install + switch/rollback/prune), CHANGELOG; extended local simulation (install v1 → install v2 alongside → `list`/`use`/`rollback`/`prune` → uninstall, no GitHub/Docker); verify; close Milestone 9 + release | Done |
 
 Out of scope: a web/TUI version switcher; auto-pruning on install (explicit `prune` only); cross-machine/remote version sync.
-
-## Sprint History
 
 ### Sprint 48: Single Bundled Release Archive (v0.44.0)
 

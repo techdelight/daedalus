@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.44.0] - 2026-08-06
+
+**Milestone 9: Release Bundling & Safe Upgrades.** Upgrading is now effortless
+and reversible: a single checksum-verified release archive replaces the ~27
+individual assets, and installs land side by side so a new version can be tried
+and rolled back.
+
 **Sprint 49: Side-by-side versioned installs.** A new install lands alongside
 the current one instead of clobbering it, and switching or falling back is one
 command.
