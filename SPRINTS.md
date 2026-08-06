@@ -2,7 +2,11 @@
 
 ## Current Sprint
 
-### Sprint 47: First-Run Onboarding & Value Proposition
+_No active sprint. Milestone 8 shipped in **v0.43.0** (Sprints 46–47, in the history below). The next milestone (M9, Distribution & Effortless Upgrades) has no sprint open yet — see `BACKLOG.md`._
+
+## Sprint History
+
+### Sprint 47: First-Run Onboarding & Value Proposition (v0.43.0)
 
 Goal: close the "installed — now what?" gap. A new user gets a clear first step after install, and the README + first-run messaging say what Daedalus is and why in one breath. The messaging half of Milestone 8 (#45, #46), building on Sprint 46's doc-bootstrap backbone (`daedalus docs scaffold`). Design in ROADMAP M8.
 
@@ -16,8 +20,6 @@ Milestone: 8
 | 4 | **Docs + close** — CHANGELOG; usage/help; verify; close Milestone 8 + release | Done |
 
 Out of scope: any in-container/first-session UX that needs a running Docker daemon (host-side onboarding only); a GUI wizard.
-
-## Sprint History
 
 ### Sprint 46: Bootstrap Conformant Project Docs (v0.43.0)
 

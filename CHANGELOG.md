@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.43.0] - 2026-08-06
+
+**Milestone 8: Onboarding & Adoption.** Get a new user from install to first
+productive session, and a new project from an empty tree to a valid roadmap arc.
+
 ### Added
 - **`daedalus init [dir] [--force] [--no-scaffold]`** — the first-run entry point.
   Scaffolds the required project docs (reusing `core.ScaffoldDocs`, so a fresh
