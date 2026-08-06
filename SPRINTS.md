@@ -2,7 +2,22 @@
 
 ## Current Sprint
 
-_No active sprint. Milestone 7 shipped in **v0.42.0** (Sprint 45, in the history below). The next sprint is TBD — see `BACKLOG.md`._
+### Sprint 46: Bootstrap Conformant Project Docs (`docs scaffold`)
+
+Goal: turn "read `docs/PROJECT-INIT.md` and hope" into one command — `daedalus docs scaffold [dir]` writes the required-doc skeletons (`core.RequiredDocs()`), already conformant to the structured-docs contract so `daedalus docs lint` passes on a fresh project. The concrete first step of Milestone 8's "install → first productive session" arc: a new project starts with a valid roadmap arc instead of an empty tree. Design in ROADMAP M8 (#54).
+
+Milestone: 8
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | **`core.ScaffoldDocs(dir, force)` (core)** — write the 8 `RequiredDocs()` skeletons from templates; skip existing files unless `force`; return created/skipped lists. Tests assert the output parses and `ValidateDocs` is clean (one In-Progress milestone stub + a current-sprint stub linked to it). |  |
+| 2 | **Single source of truth for templates** — factor the skeletons so `docs/PROJECT-INIT.md` and the scaffolder can't drift; the ROADMAP/SPRINTS stubs must satisfy the same strict-format checks `docs lint` enforces. Tests |  |
+| 3 | **`daedalus docs scaffold [dir] [--force]` (CLI)** — wire into `manageDocs` beside `lint`; default to cwd; print a created/skipped summary; usage + `docs help` text |  |
+| 4 | **Docs + close** — document `docs scaffold` in README + `docs/structured-docs.md` (sibling of `docs lint`); CHANGELOG; verify `docs lint` passes on freshly scaffolded output; ship |  |
+
+Out of scope (deferred to later M8 sprints): post-install / first-run onboarding (#45) and the README/value-proposition sharpening (#46) — those are the messaging half of the milestone; this sprint delivers the doc-bootstrap backbone they point at.
+
+## Sprint History
 
 ## Sprint History
 

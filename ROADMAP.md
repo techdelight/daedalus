@@ -70,4 +70,4 @@ Runtime           Hierarchy     file state    & Adoption
 
 ## Current Focus
 
-**Milestone 8: Onboarding & Adoption.** Milestones M1–M7 are complete (M7 shipped in **v0.42.0** — the agent-facing lifecycle MCP tools + file-derived state). M8 turns outward: make Daedalus approachable for a new user and a new project — post-install onboarding (#45), `daedalus docs scaffold` for conformant project docs (#54), and a sharper value proposition (#46). No sprint is open yet — see `SPRINTS.md` and `BACKLOG.md`.
+**Milestone 8: Onboarding & Adoption.** Milestones M1–M7 are complete (M7 shipped in **v0.42.0** — the agent-facing lifecycle MCP tools + file-derived state). M8 turns outward: make Daedalus approachable for a new user and a new project — post-install onboarding (#45), `daedalus docs scaffold` for conformant project docs (#54), and a sharper value proposition (#46). **Sprint 46** is open — `daedalus docs scaffold` (#54), the doc-bootstrap backbone the onboarding messaging points at; see `SPRINTS.md`.
