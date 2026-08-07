@@ -413,6 +413,73 @@ const stateLabels = {
     sleeping: 'Resting',
 };
 
+// --- Action ribbon (JRPG flavour from member.detail) -----------------------
+//
+// When a hero is `busy`, member.detail carries the agent's current activity
+// (usually a tool name). Map the common ones to JRPG flavour; fall back to the
+// raw detail string when unmapped. Keyed by the lower-cased base tool name.
+const ACTION_FLAVOR = {
+    edit: 'Casting Edit…',
+    multiedit: 'Casting Edit…',
+    update: 'Casting Edit…',
+    write: 'Inscribing runes…',
+    notebookedit: 'Inscribing runes…',
+    read: 'Reading the runes…',
+    notebookread: 'Reading the runes…',
+    bash: 'Forging…',
+    grep: 'Scouting…',
+    glob: 'Scouting…',
+    search: 'Scouting…',
+    ls: 'Scouting…',
+    webfetch: 'Gazing afar…',
+    websearch: 'Gazing afar…',
+    fetch: 'Gazing afar…',
+    task: 'Summoning allies…',
+    agent: 'Summoning allies…',
+    tool_use: 'Channelling…',
+    thinking: 'Pondering…',
+    think: 'Pondering…',
+    stop: 'Catching breath…',
+    waiting: 'Catching breath…',
+};
+
+// Resolve the ribbon {text, mood} for a member, or null when it should hide.
+//   busy  -> action flavour (mapped, else raw detail, else generic)
+//   idle  -> a quiet at-ease line
+//   sleep -> hidden
+function actionRibbon(member) {
+    if (member.activity === 'busy') {
+        const raw = (member.detail || '').trim();
+        const key = raw.toLowerCase();
+        const flavor = ACTION_FLAVOR[key];
+        if (flavor) return { text: flavor, mood: 'busy' };
+        if (raw) return { text: raw, mood: 'busy' };  // unmapped → raw detail
+        return { text: 'Channelling…', mood: 'busy' };
+    }
+    if (member.activity === 'idle') {
+        return { text: 'At ease…', mood: 'idle' };
+    }
+    return null; // sleeping → no ribbon
+}
+
+// Apply the ribbon to a card's .guild-action element (create + update share
+// this; it only touches text/visibility, never the sprite).
+function applyActionRibbon(card, member) {
+    const el = card.querySelector('.guild-action');
+    if (!el) return;
+    const ribbon = actionRibbon(member);
+    if (!ribbon) {
+        el.style.display = 'none';
+        el.textContent = '';
+        return;
+    }
+    el.style.display = '';
+    el.className = 'guild-action mood-' + ribbon.mood;
+    if (el.textContent !== ribbon.text) {
+        el.textContent = ribbon.text;
+    }
+}
+
 // --- Card construction (sprite built once; keyed by immutable name) ---------
 
 function createMemberCard(member) {
@@ -429,6 +496,12 @@ function createMemberCard(member) {
     tag.className = 'guild-class';
     tag.textContent = arch.label;
     card.appendChild(tag);
+
+    // Action ribbon (speech bubble over the sprite). Created once; its text and
+    // visibility are updated live on each poll — the sprite is never rebuilt.
+    const action = document.createElement('div');
+    action.className = 'guild-action';
+    card.appendChild(action);
 
     // Avatar (SVG sprite + activity overlays).
     const avatarContainer = document.createElement('div');
@@ -453,10 +526,20 @@ function createMemberCard(member) {
 
     card.appendChild(avatarContainer);
 
-    // Name plate.
+    // Name plate (with a small "Lv" pip from sessionCount).
     const nameEl = document.createElement('div');
     nameEl.className = 'guild-name';
-    nameEl.textContent = member.name;
+
+    const nameText = document.createElement('span');
+    nameText.className = 'guild-name-text';
+    nameText.textContent = member.name;
+    nameEl.appendChild(nameText);
+
+    const levelEl = document.createElement('span');
+    levelEl.className = 'guild-level';
+    levelEl.textContent = 'Lv ' + (member.sessionCount || 0);
+    nameEl.appendChild(levelEl);
+
     card.appendChild(nameEl);
 
     // State label.
@@ -495,6 +578,9 @@ function createMemberCard(member) {
     targetEl.textContent = member.target || '';
     card.appendChild(targetEl);
 
+    // Initial action ribbon.
+    applyActionRibbon(card, member);
+
     return card;
 }
 
@@ -528,6 +614,17 @@ function updateMemberCard(card, member) {
         targetEl.textContent = member.target || '';
     }
 
+    const levelEl = card.querySelector('.guild-level');
+    if (levelEl) {
+        const lv = 'Lv ' + (member.sessionCount || 0);
+        if (levelEl.textContent !== lv) {
+            levelEl.textContent = lv;
+        }
+    }
+
+    // Live action ribbon (text + visibility only — no sprite rebuild).
+    applyActionRibbon(card, member);
+
     const title = member.vision || member.name;
     if (card.title !== title) {
         card.title = title;
@@ -540,6 +637,7 @@ function renderGuildMembers(members) {
 
     if (!members || members.length === 0) {
         container.innerHTML = '';
+        empty.textContent = 'The guild hall stands empty — register a project to begin.';
         empty.style.display = 'block';
         return;
     }
@@ -603,6 +701,14 @@ function showGuildView() {
     // Show guild
     document.getElementById('guild-view').classList.add('active');
     document.title = 'Guild Hall — Daedalus';
+
+    // Sensible first-load state until the first poll resolves.
+    const empty = document.getElementById('guild-empty');
+    const container = document.getElementById('guild-members');
+    if (empty && container && container.querySelectorAll('.guild-card').length === 0) {
+        empty.textContent = 'Summoning the guild…';
+        empty.style.display = 'block';
+    }
 
     // Fetch immediately, then poll
     fetchGuildData();

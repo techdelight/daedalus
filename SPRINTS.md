@@ -10,10 +10,10 @@ Milestone: 11
 
 | # | Item | Status |
 |---|------|--------|
-| 1 | **Action label from `detail`** — when a hero is busy, surface the agent's `detail` (e.g. a tool name) as a themed JRPG action ribbon/speech ("Casting **Edit**", "Reading the runes…"); map common details to flavour, fall back to the raw string. Hidden when idle/sleeping. Reads live on the 3s poll via the diff-update | |
-| 2 | **Responsive / mobile** — the party roster reflows cleanly on a phone (the app has a 768px breakpoint used elsewhere); heroes scale, frames/gauges stay legible, no horizontal scroll | |
-| 3 | **Accessibility & graceful edges** — honour `prefers-reduced-motion` (freeze the working/idle loops to a static pose, keep state legible via colour/label); a JRPG-styled empty state ("The guild hall stands empty…") and a first-load state; optional light JRPG stats from `lastUsed`/`sessionCount` (e.g. "Lv" / "last seen") if they fit tastefully | |
-| 4 | **Docs + close** — CHANGELOG; refresh `guild-preview.html` to include a busy hero with an action label + a reduced-motion note; `go build`/`vet` + `TestHandleGuild` green; ship Milestone 11 | |
+| 1 | **Action label from `detail`** — when a hero is busy, surface the agent's `detail` (e.g. a tool name) as a themed JRPG action ribbon/speech ("Casting **Edit**", "Reading the runes…"); map common details to flavour, fall back to the raw string. Hidden when idle/sleeping. Reads live on the 3s poll via the diff-update | Done |
+| 2 | **Responsive / mobile** — the party roster reflows cleanly on a phone (the app has a 768px breakpoint used elsewhere); heroes scale, frames/gauges stay legible, no horizontal scroll | Done |
+| 3 | **Accessibility & graceful edges** — honour `prefers-reduced-motion` (freeze the working/idle loops to a static pose, keep state legible via colour/label); a JRPG-styled empty state ("The guild hall stands empty…") and a first-load state; optional light JRPG stats from `lastUsed`/`sessionCount` (e.g. "Lv" / "last seen") if they fit tastefully | Done |
+| 4 | **Docs + close** — CHANGELOG; refresh `guild-preview.html` to include a busy hero with an action label + a reduced-motion note; `go build`/`vet` + `TestHandleGuild` green; ship Milestone 11 | Done |
 
 Out of scope: any new backend activity plumbing (the signal is sufficient); a TUI equivalent; per-archetype bespoke idle poses beyond the shared set.
 

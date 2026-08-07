@@ -98,12 +98,32 @@
     padding: 20px 0;
 }
 
+/* Empty / first-load state — a framed JRPG message plate. */
 .guild-empty {
+    max-width: 420px;
+    margin: 48px auto;
     text-align: center;
-    color: var(--mana-text-dim);
-    padding: 48px;
-    font-size: 14px;
+    color: var(--mana-text);
+    padding: 26px 28px;
+    font-size: 13px;
+    line-height: 1.6;
     letter-spacing: 1px;
+    border-radius: 12px;
+    background: linear-gradient(180deg, var(--mana-panel-lit) 0%, var(--mana-panel) 100%);
+    border: 3px solid var(--mana-frame);
+    box-shadow:
+        inset 0 0 0 2px var(--mana-ink),
+        inset 0 0 0 5px var(--mana-frame-dk),
+        0 6px 18px rgba(0, 0, 0, 0.45);
+}
+
+.guild-empty::before {
+    content: "\2694";
+    display: block;
+    font-size: 22px;
+    color: var(--mana-frame);
+    margin-bottom: 8px;
+    text-shadow: 1px 1px 0 var(--mana-ink);
 }
 
 /* ============================================================
@@ -363,15 +383,84 @@
    ============================================================ */
 
 .guild-name {
+    display: flex;
+    align-items: baseline;
+    justify-content: center;
+    gap: 6px;
+    margin-bottom: 4px;
+    min-width: 0;
+}
+
+.guild-name-text {
     font-size: 14px;
     font-weight: 700;
     color: var(--mana-text);
-    margin-bottom: 4px;
     letter-spacing: 0.5px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     text-shadow: 1px 1px 0 var(--mana-ink);
+    min-width: 0;
+}
+
+/* "Lv N" pip from sessionCount — small, tasteful, never wraps. */
+.guild-level {
+    flex: none;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    color: var(--mana-ink);
+    background: linear-gradient(180deg, #fbe9b0, var(--mana-frame));
+    border: 1px solid var(--mana-frame-dk);
+    border-radius: 6px;
+    padding: 1px 5px;
+    line-height: 1.3;
+}
+
+/* --- Action ribbon (JRPG speech bubble over the sprite) --- */
+/* Absolutely positioned so appearing/disappearing never reflows the grid. */
+.guild-action {
+    position: absolute;
+    top: 22px;
+    left: 50%;
+    transform: translateX(-50%);
+    max-width: 82%;
+    padding: 3px 9px;
+    font-size: 10px;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    border-radius: 8px;
+    pointer-events: none;
+    z-index: 3;
+    border: 1px solid var(--mana-ink);
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.45);
+}
+
+/* Little bubble tail. */
+.guild-action::after {
+    content: "";
+    position: absolute;
+    bottom: -4px;
+    left: 50%;
+    transform: translateX(-50%);
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-top: 4px solid currentColor;
+}
+
+.guild-action.mood-busy {
+    color: #244a1c;
+    background: linear-gradient(180deg, #eafbd8, #b9e79a);
+    font-weight: 700;
+}
+
+.guild-action.mood-idle {
+    color: #3a4270;
+    background: linear-gradient(180deg, #eef1ff, #cfd7f5);
+    opacity: 0.9;
+    font-weight: 600;
 }
 
 .guild-state {
@@ -437,13 +526,69 @@
 }
 
 /* ============================================================
-   Responsive
+   Accessibility — reduced motion
+   ------------------------------------------------------------
+   Freeze every looping animation to a clean static pose. State stays
+   legible via colour, the state label, and the action ribbon — not motion.
    ============================================================ */
 
+@media (prefers-reduced-motion: reduce) {
+    .guild-card .fig-body,
+    .guild-card .fig-tool,
+    .guild-card.state-idle .fig-body,
+    .guild-card.state-busy .fig-body,
+    .guild-card.state-busy .fig-tool,
+    .guild-card.state-sleeping .fig-body,
+    .particle,
+    .zzz span {
+        animation: none !important;
+    }
+    /* Return the held tool to its authored resting pose. */
+    .guild-card .fig-tool {
+        transform: none;
+    }
+    /* Motion-only overlays add nothing static; hide to avoid a frozen artefact. */
+    .particle,
+    .zzz {
+        display: none !important;
+    }
+    .guild-card {
+        transition: none;
+    }
+}
+
+/* ============================================================
+   Responsive — reflow cleanly under 768px, no horizontal page scroll
+   ============================================================ */
+
+/* Border + inset frame must count inside the card's width so it can never
+   overflow the viewport. */
+.guild-card {
+    box-sizing: border-box;
+    max-width: 100%;
+}
+
+/* Belt-and-braces: the hall scrolls vertically only. */
+.guild-hall {
+    overflow-x: hidden;
+}
+
 @media (max-width: 768px) {
-    .guild-hall { padding: 16px 12px; }
-    .guild-members { gap: 16px; }
+    #guild-view {
+        /* Match the app's mobile viewport fix (100vh includes browser chrome). */
+        height: -webkit-fill-available;
+        height: 100dvh;
+    }
+    .guild-hall { padding: 16px 10px 28px; }
+    .guild-members { gap: 14px; }
     .guild-card { width: 150px; padding: 26px 12px 14px; }
     .avatar-container { width: 64px; height: 80px; }
     .fig { width: 64px; height: 80px; }
+    .guild-action { top: 18px; font-size: 9px; padding: 2px 7px; }
+    .guild-name-text { font-size: 13px; }
+}
+
+/* Very small phones: single tidy column, still fully framed. */
+@media (max-width: 360px) {
+    .guild-card { width: 100%; max-width: 260px; }
 }
