@@ -37,6 +37,7 @@ import (
 
 	"github.com/techdelight/daedalus/core"
 	"github.com/techdelight/daedalus/internal/executor"
+	"github.com/techdelight/daedalus/internal/registry"
 )
 
 // Session describes one running runner-attached project container.
@@ -210,6 +211,14 @@ func (c *Coordinator) Start(cfg *core.Config) (*Session, error) {
 	// (#27). These were absent on the coordinator path before (Backlog #55):
 	// only the legacy path called BuildExtraArgs.
 	args = append(args, core.RunnerVolumeArgs(cfg)...)
+	// The Guild Master additionally gets every OTHER registered project's
+	// directory mounted read-only at /guild/<name> (Sprint 53) — the
+	// cross-project visibility that gives it its purpose. This is a launch-time
+	// snapshot of the registry: a project registered later appears on the Guild
+	// Master's next launch. Normal projects get no /guild mounts.
+	if core.IsGuildMaster(name) {
+		args = append(args, guildMountArgs(cfg)...)
+	}
 	args = append(args, "--name", containerName, "claude")
 	log.Printf("coordinator: starting runner for %q (container %s, image %s)", name, containerName, cfg.Image())
 	if err := c.exec.RunWithEnv(env, "docker", args...); err != nil {
@@ -378,7 +387,28 @@ func runnerContainerEnv(cfg *core.Config) []string {
 	if cfg.Prompt != "" {
 		kv = append(kv, "DAEDALUS_PROMPT="+cfg.Prompt)
 	}
+	// Gate the guild-mcp server to the Guild Master only: entrypoint.sh adds the
+	// guild-mcp MCP entry to the agent's config solely when this env is set, so a
+	// normal project's agent never gets cross-project read tools.
+	if core.IsGuildMaster(cfg.ProjectName) {
+		kv = append(kv, "DAEDALUS_GUILD_MASTER=1")
+	}
 	return kv
+}
+
+// guildMountArgs reads the registry (the daemon has the same DataDir) and turns
+// it into the Guild Master's read-only /guild/<name> mounts. It is only ever
+// called for the Guild Master. A registry read failure is logged and yields no
+// mounts rather than failing the launch — the Guild Master still starts, just
+// without cross-project visibility this run.
+func guildMountArgs(cfg *core.Config) []string {
+	reg := registry.NewRegistry(cfg.RegistryPath())
+	projects, err := reg.GetProjectEntries()
+	if err != nil {
+		log.Printf("coordinator: guild mounts: reading registry: %v (continuing with none)", err)
+		return nil
+	}
+	return core.GuildMounts(cfg.ProjectName, projects)
 }
 
 // waitForSocket polls for path to appear on disk. The runner-detached

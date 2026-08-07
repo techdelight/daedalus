@@ -4,6 +4,23 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- **Guild Master — read visibility across every project.** When the built-in
+  Guild Master launches, every *other* registered project's directory is mounted
+  **read-only** into its container at `/guild/<name>`, and a new in-container
+  `guild-mcp` server exposes visibility-only tools over that tree:
+  `list_guild_projects` (each project + a one-line milestone/sprint state),
+  `read_project_doc` (read a named document, path-traversal rejected), and
+  `guild_overview` (parsed milestones/sprints/progress per project). It can see
+  every project and never write another's files. The mounts and the `guild-mcp`
+  server are gated to the Guild Master alone (via a launch-set
+  `DAEDALUS_GUILD_MASTER` env that `entrypoint.sh` keys the MCP entry on) — a
+  normal project's agent gets neither. This is visibility only: it does not, and
+  cannot, control or dispatch other agents. The Guild Master's workspace is
+  seeded with a role `CLAUDE.md` framing it as the read-only programme overseer.
+  Cross-project mounts are a launch-time snapshot: a project registered later
+  appears on the Guild Master's next launch.
+
 ## [0.46.0] - 2026-08-07
 
 ### Changed

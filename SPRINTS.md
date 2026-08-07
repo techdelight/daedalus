@@ -10,11 +10,11 @@ Milestone: 12
 
 | # | Item | Status |
 |---|------|--------|
-| 1 | **Read-only cross-project mount builder (core)** — a pure function that, for the guild-master project ONLY, emits read-only bind-mount args mounting every *other* registered project's directory at `/guild/<name>` (skip guild-master itself + missing dirs; sanitise the mount name). Wire into the coordinator/launch arg-building for that project. Unit tests over a fake registry |  |
-| 2 | **`cmd/guild-mcp` server** — MCP tools over the mounted `/guild/*` tree: `list_guild_projects` (names + basic parsed state), `read_project_doc(project, doc)` (a named doc's contents), `guild_overview` (per-project parsed milestones/sprints/progress via `core.Parse*`). Robust to missing/half-written docs. Tests over a fixture `/guild` tree |  |
-| 3 | **Scope + role wiring** — build `guild-mcp` into the image and declare it in `claude.json`, **gated so it is active only for the Guild Master** (the `/guild` mount presence / an env from launch). Seed the guild-master workspace with a short role doc (its scaffolded VISION/README or a CLAUDE.md) framing it as the read-only programme overseer. README/ARCHITECTURE note |  |
-| 3b | Keep the Sprint-52 protection + distinguished-hero behaviour intact |  |
-| 4 | **Verify + close** — `go build`/`vet`/`test` green; document the launch-time-mount limitation + the no-control scope + the host-only container bits; CHANGELOG; ship Milestone 12 |  |
+| 1 | **Read-only cross-project mount builder (core)** — a pure function that, for the guild-master project ONLY, emits read-only bind-mount args mounting every *other* registered project's directory at `/guild/<name>` (skip guild-master itself + missing dirs; sanitise the mount name). Wire into the coordinator/launch arg-building for that project. Unit tests over a fake registry | Done |
+| 2 | **`cmd/guild-mcp` server** — MCP tools over the mounted `/guild/*` tree: `list_guild_projects` (names + basic parsed state), `read_project_doc(project, doc)` (a named doc's contents), `guild_overview` (per-project parsed milestones/sprints/progress via `core.Parse*`). Robust to missing/half-written docs. Tests over a fixture `/guild` tree | Done |
+| 3 | **Scope + role wiring** — build `guild-mcp` into the image and declare it in `claude.json`, **gated so it is active only for the Guild Master** (the `/guild` mount presence / an env from launch). Seed the guild-master workspace with a short role doc (its scaffolded VISION/README or a CLAUDE.md) framing it as the read-only programme overseer. README/ARCHITECTURE note | Done |
+| 3b | Keep the Sprint-52 protection + distinguished-hero behaviour intact | Done |
+| 4 | **Verify + close** — `go build`/`vet`/`test` green; document the launch-time-mount limitation + the no-control scope + the host-only container bits; CHANGELOG; ship Milestone 12 | Done |
 
 Out of scope: any control/dispatch of other agents (impossible by design — read-only visibility only); a live registry watch (mounts resolve at launch); a TUI cross-project view.
 

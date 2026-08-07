@@ -46,6 +46,22 @@ case "$RUNNER" in
                 printf '%s\n' "$PATCHED" > "$LIVE"
             fi
         fi
+        # Guild Master only (Sprint 53): add the read-only cross-project
+        # guild-mcp server so its agent can enumerate and read every OTHER
+        # project mounted at /guild/<name>. Gated on DAEDALUS_GUILD_MASTER,
+        # which the launch sets for that one project only — so a normal
+        # project's agent never gets these cross-project tools. Non-fatal:
+        # a jq failure leaves the config untouched and startup continues.
+        if [ -n "${DAEDALUS_GUILD_MASTER:-}" ] && [ -f "$LIVE" ]; then
+            if PATCHED=$(jq '
+                .mcpServers["guild-mcp"] = {
+                    "command": "/usr/local/bin/guild-mcp",
+                    "args": ["--guild-root", "/guild"]
+                }
+            ' "$LIVE" 2>/dev/null) && [ -n "$PATCHED" ]; then
+                printf '%s\n' "$PATCHED" > "$LIVE"
+            fi
+        fi
         ;;
     copilot)
         mkdir -p "${COPILOT_HOME:-$HOME/.copilot}"

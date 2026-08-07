@@ -168,6 +168,14 @@ func (r *Registry) EnsureGuildMaster(workspaceDir string) error {
 	if _, _, err := core.ScaffoldDocs(workspaceDir, false); err != nil {
 		return fmt.Errorf("scaffolding Guild Master workspace: %w", err)
 	}
+	// Seed the role doc (CLAUDE.md) so the agent knows it is the read-only
+	// programme overseer. Written only if absent — never clobber user edits.
+	rolePath := filepath.Join(workspaceDir, "CLAUDE.md")
+	if _, statErr := os.Stat(rolePath); os.IsNotExist(statErr) {
+		if err := os.WriteFile(rolePath, []byte(core.GuildMasterRoleDoc), 0o644); err != nil {
+			return fmt.Errorf("writing Guild Master role doc: %w", err)
+		}
+	}
 	now := core.NowUTC()
 	data.Projects[core.GuildMasterName] = core.ProjectEntry{
 		Directory: workspaceDir,
