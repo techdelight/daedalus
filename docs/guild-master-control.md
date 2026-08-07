@@ -1,9 +1,13 @@
 # The Guild Master as a Controlling Entity — Research & Milestone Plan
 
-*Status: proposal. Research-backed targets and a milestone arc for evolving the
-Guild Master (M12) from a **read-only programme overseer** into a **controlling
-entity** over the guild of projects. Nothing here is built yet; the milestones
-below are candidates, not the active roadmap.*
+*Status: **evidence base**. This is the research digest behind the plan. The
+authoritative design has since evolved into a **control-plane architecture** —
+see [`guild-master-plan.md`](guild-master-plan.md) (and the evaluation it adopts,
+[`../daedalus-control-plane-report.md`](../daedalus-control-plane-report.md)). The
+findings below (§1–§4) remain the evidence; the **targets (§5) and milestone arc
+(§6) are the pre-control-plane framing** and are superseded by the plan doc's
+Task/Job/Artifact model and M13–M17 (V1→V2→V3). Read this for the "why", the plan
+for the "what".*
 
 ## 1. The control question, stated honestly
 
