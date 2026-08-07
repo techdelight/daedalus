@@ -1,59 +1,79 @@
 /* Copyright (C) 2026 Techdelight BV */
 
-/* --- Guild Hall View --- */
+/* ============================================================
+   Guild Hall — Secret-of-Mana-style JRPG party screen
+   ============================================================ */
 
+:root {
+    /* Mana-esque palette */
+    --mana-sky-top: #1b2a5e;
+    --mana-sky-bot: #0e1430;
+    --mana-panel: #22346e;
+    --mana-panel-lit: #2c4488;
+    --mana-frame: #e9c877;      /* gold trim */
+    --mana-frame-dk: #a67c2e;   /* gold shadow */
+    --mana-ink: #101632;
+    --mana-parchment: #f3ead2;
+    --mana-text: #f6f3e6;
+    --mana-text-dim: #b9c2e6;
+    --mana-hp-lo: #e2564b;
+    --mana-hp-mid: #e8c24a;
+    --mana-hp-hi: #7bd06a;
+}
+
+/* Retro display / body type without external fonts. */
 #guild-view {
     display: none;
     flex-direction: column;
     height: 100vh;
     background:
-        linear-gradient(180deg, #1a1b26 0%, #16161e 100%);
+        radial-gradient(120% 80% at 50% -10%, #34509c 0%, transparent 55%),
+        linear-gradient(180deg, var(--mana-sky-top) 0%, var(--mana-sky-bot) 100%);
     overflow: hidden;
+    font-family: ui-monospace, "DejaVu Sans Mono", "Courier New", monospace;
 }
 
 #guild-view.active {
     display: flex;
 }
 
-/* Stone floor pattern overlay */
+/* Scrolling hall with a soft dotted floor grid. */
 .guild-hall {
     flex: 1;
     overflow-y: auto;
-    padding: 24px;
+    padding: 28px 24px 40px;
     background-image:
-        repeating-linear-gradient(
-            0deg,
-            transparent,
-            transparent 63px,
-            rgba(41, 46, 66, 0.3) 63px,
-            rgba(41, 46, 66, 0.3) 64px
-        ),
-        repeating-linear-gradient(
-            90deg,
-            transparent,
-            transparent 63px,
-            rgba(41, 46, 66, 0.3) 63px,
-            rgba(41, 46, 66, 0.3) 64px
-        );
+        repeating-linear-gradient(0deg, transparent, transparent 47px,
+            rgba(120, 150, 230, 0.06) 47px, rgba(120, 150, 230, 0.06) 48px),
+        repeating-linear-gradient(90deg, transparent, transparent 47px,
+            rgba(120, 150, 230, 0.06) 47px, rgba(120, 150, 230, 0.06) 48px);
     scrollbar-width: thin;
-    scrollbar-color: #414868 #1a1b26;
+    scrollbar-color: var(--mana-frame-dk) var(--mana-sky-bot);
 }
 
-/* Guild header */
+/* --- Party-roster header --- */
+
 .guild-header {
-    padding: 16px 24px;
-    border-bottom: 1px solid #292e42;
+    padding: 14px 22px;
+    border-bottom: 2px solid var(--mana-frame-dk);
     display: flex;
     align-items: center;
-    gap: 12px;
-    background: #16161e;
+    gap: 14px;
+    background: linear-gradient(180deg, #223469 0%, #16224a 100%);
+    box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.4);
 }
 
 .guild-title {
     font-size: 18px;
-    color: #bb9af7;
-    font-weight: 600;
-    letter-spacing: 1px;
+    color: var(--mana-frame);
+    font-weight: 700;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    /* Chunky "pixel" outline faked with layered text-shadows. */
+    text-shadow:
+        -1px 0 var(--mana-ink), 1px 0 var(--mana-ink),
+        0 -1px var(--mana-ink), 0 1px var(--mana-ink),
+        2px 2px 0 var(--mana-frame-dk);
 }
 
 .guild-title::before {
@@ -62,376 +82,368 @@
 
 .guild-subtitle {
     font-size: 12px;
-    color: #565f89;
+    color: var(--mana-text-dim);
     margin-left: auto;
     margin-right: 12px;
+    letter-spacing: 1px;
 }
 
-/* Member grid */
+/* --- Member grid --- */
+
 .guild-members {
     display: flex;
     flex-wrap: wrap;
-    gap: 24px;
+    gap: 26px;
     justify-content: center;
-    padding: 16px 0;
+    padding: 20px 0;
 }
 
 .guild-empty {
     text-align: center;
-    color: #565f89;
+    color: var(--mana-text-dim);
     padding: 48px;
     font-size: 14px;
+    letter-spacing: 1px;
 }
 
-/* --- Guild Member Card --- */
+/* ============================================================
+   Hero card — ornate rounded JRPG frame
+   ============================================================ */
 
 .guild-card {
-    width: 180px;
-    padding: 20px 16px 16px;
-    border-radius: 8px;
-    background: rgba(22, 22, 30, 0.8);
-    border: 1px solid #292e42;
+    width: 190px;
+    padding: 30px 16px 16px;
+    border-radius: 14px;
     text-align: center;
     cursor: pointer;
-    transition: border-color 0.2s, transform 0.2s, box-shadow 0.2s;
     position: relative;
+    color: var(--mana-text);
+    background:
+        linear-gradient(180deg, var(--mana-panel-lit) 0%, var(--mana-panel) 60%, #1a2a5c 100%);
+    /* Double gold frame: inner bevel + outer trim + soft drop. */
+    border: 3px solid var(--mana-frame);
+    box-shadow:
+        inset 0 0 0 2px var(--mana-ink),
+        inset 0 0 0 5px var(--mana-frame-dk),
+        inset 0 2px 6px rgba(255, 255, 255, 0.12),
+        0 6px 18px rgba(0, 0, 0, 0.45);
+    transition: transform 0.18s ease, box-shadow 0.18s ease, filter 0.3s ease;
 }
 
 .guild-card:hover {
-    border-color: #414868;
-    transform: translateY(-2px);
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+    transform: translateY(-3px);
+    box-shadow:
+        inset 0 0 0 2px var(--mana-ink),
+        inset 0 0 0 5px var(--mana-frame),
+        inset 0 2px 6px rgba(255, 255, 255, 0.18),
+        0 10px 26px rgba(0, 0, 0, 0.55);
 }
 
-/* --- Pixel Art Avatar --- */
+/* Corner rivets — small ornamental studs. */
+.guild-card::before,
+.guild-card::after {
+    content: "";
+    position: absolute;
+    top: 7px;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 30% 30%, #fff6d8, var(--mana-frame-dk));
+    box-shadow: 0 0 0 1px var(--mana-ink);
+}
+
+.guild-card::before { left: 7px; }
+.guild-card::after { right: 7px; }
+
+/* Class ribbon (archetype label). */
+.guild-class {
+    position: absolute;
+    top: -1px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 2px 12px 3px;
+    font-size: 10px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--mana-ink);
+    background: linear-gradient(180deg, #fbe9b0, var(--mana-frame));
+    border: 1px solid var(--mana-frame-dk);
+    border-top: none;
+    border-radius: 0 0 8px 8px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+    font-weight: 700;
+}
+
+/* ============================================================
+   Avatar
+   ============================================================ */
 
 .avatar-container {
-    width: 48px;
-    height: 60px;
-    margin: 0 auto 12px;
+    width: 80px;
+    height: 100px;
+    margin: 6px auto 12px;
     position: relative;
     display: flex;
     align-items: flex-end;
     justify-content: center;
+    /* Little stage disc under the hero. */
+    background: radial-gradient(ellipse 44px 12px at 50% 96%,
+        rgba(0, 0, 0, 0.45) 0%, transparent 70%);
 }
 
-.avatar-sprite {
-    width: 1px;
-    height: 1px;
-    position: relative;
-    /* Base mage sprite via box-shadow pixel art — 16x20 at 3px scale */
-    box-shadow:
-        /* Hat tip */
-        21px 0px 0 0 var(--hat),
-        24px 0px 0 0 var(--hat),
-        /* Hat brim */
-        18px 3px 0 0 var(--hat),
-        21px 3px 0 0 var(--hat),
-        24px 3px 0 0 var(--hat),
-        27px 3px 0 0 var(--hat),
-        /* Hat band */
-        15px 6px 0 0 var(--hat),
-        18px 6px 0 0 var(--hat),
-        21px 6px 0 0 var(--accent),
-        24px 6px 0 0 var(--accent),
-        27px 6px 0 0 var(--hat),
-        30px 6px 0 0 var(--hat),
-        /* Face top */
-        18px 9px 0 0 var(--skin),
-        21px 9px 0 0 var(--skin),
-        24px 9px 0 0 var(--skin),
-        27px 9px 0 0 var(--skin),
-        /* Face with eyes */
-        18px 12px 0 0 var(--skin),
-        21px 12px 0 0 #1a1b26,
-        24px 12px 0 0 var(--skin),
-        27px 12px 0 0 #1a1b26,
-        /* Face bottom */
-        18px 15px 0 0 var(--skin),
-        21px 15px 0 0 var(--skin),
-        24px 15px 0 0 var(--skin),
-        27px 15px 0 0 var(--skin),
-        /* Collar */
-        15px 18px 0 0 var(--accent),
-        18px 18px 0 0 var(--accent),
-        21px 18px 0 0 var(--accent),
-        24px 18px 0 0 var(--accent),
-        27px 18px 0 0 var(--accent),
-        30px 18px 0 0 var(--accent),
-        /* Robe top */
-        12px 21px 0 0 var(--robe),
-        15px 21px 0 0 var(--robe),
-        18px 21px 0 0 var(--robe),
-        21px 21px 0 0 var(--robe),
-        24px 21px 0 0 var(--robe),
-        27px 21px 0 0 var(--robe),
-        30px 21px 0 0 var(--robe),
-        33px 21px 0 0 var(--robe),
-        /* Robe middle */
-        9px 24px 0 0 var(--robe),
-        12px 24px 0 0 var(--robe),
-        15px 24px 0 0 var(--robe),
-        18px 24px 0 0 var(--robe),
-        21px 24px 0 0 var(--accent),
-        24px 24px 0 0 var(--accent),
-        27px 24px 0 0 var(--robe),
-        30px 24px 0 0 var(--robe),
-        33px 24px 0 0 var(--robe),
-        36px 24px 0 0 var(--robe),
-        /* Robe bottom */
-        9px 27px 0 0 var(--robe),
-        12px 27px 0 0 var(--robe),
-        15px 27px 0 0 var(--robe),
-        18px 27px 0 0 var(--robe),
-        21px 27px 0 0 var(--robe),
-        24px 27px 0 0 var(--robe),
-        27px 27px 0 0 var(--robe),
-        30px 27px 0 0 var(--robe),
-        33px 27px 0 0 var(--robe),
-        36px 27px 0 0 var(--robe),
-        /* Robe hem */
-        6px 30px 0 0 var(--robe-dark),
-        9px 30px 0 0 var(--robe-dark),
-        12px 30px 0 0 var(--robe),
-        15px 30px 0 0 var(--robe),
-        18px 30px 0 0 var(--robe),
-        21px 30px 0 0 var(--robe),
-        24px 30px 0 0 var(--robe),
-        27px 30px 0 0 var(--robe),
-        30px 30px 0 0 var(--robe),
-        33px 30px 0 0 var(--robe),
-        36px 30px 0 0 var(--robe-dark),
-        39px 30px 0 0 var(--robe-dark),
-        /* Feet */
-        12px 33px 0 0 var(--shoe),
-        15px 33px 0 0 var(--shoe),
-        30px 33px 0 0 var(--shoe),
-        33px 33px 0 0 var(--shoe);
-}
-
-/* --- Color Palettes for Different Mages --- */
-
-.guild-card {
-    --hat: #7c3aed;
-    --accent: #fbbf24;
-    --robe: #6d28d9;
-    --robe-dark: #4c1d95;
-    --skin: #fcd9b6;
-    --shoe: #78350f;
-}
-
-/* --- State Animations --- */
-
-/* Busy: energetic bounce + glow */
-.guild-card.state-busy .avatar-container {
-    animation: avatar-bounce 0.6s ease-in-out infinite;
-}
-
-.guild-card.state-busy {
-    border-color: #9ece6a;
-    box-shadow: 0 0 12px rgba(158, 206, 106, 0.15);
-}
-
-.guild-card.state-busy .avatar-container::after {
-    content: "";
-    position: absolute;
-    bottom: -4px;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 32px;
-    height: 32px;
-    background: radial-gradient(ellipse, rgba(158, 206, 106, 0.3) 0%, transparent 70%);
-    animation: busy-glow 1.2s ease-in-out infinite;
-}
-
-/* Particles for busy state */
-.guild-card.state-busy .particles {
+.fig {
+    width: 80px;
+    height: 100px;
     display: block;
+    image-rendering: pixelated;
+    filter: drop-shadow(1px 2px 0 rgba(0, 0, 0, 0.45));
 }
 
+/* Tool group pivots at its own base so swings look hand-held. */
+.fig-tool {
+    transform-box: fill-box;
+    transform-origin: 50% 100%;
+}
+
+/* ============================================================
+   Activity-driven animation
+   ------------------------------------------------------------
+   busy     -> active working loop (body work-bob + tool motion + sparks)
+   idle     -> calm at-ease bob
+   sleeping -> dimmed, slow breathe, ZZZ
+   ============================================================ */
+
+/* --- IDLE: gentle breathing bob --- */
+.guild-card.state-idle .fig-body {
+    animation: hero-bob 3.2s ease-in-out infinite;
+}
+.guild-card.state-idle {
+    border-color: var(--mana-frame);
+}
+
+/* --- BUSY: obviously working --- */
+.guild-card.state-busy {
+    border-color: #9be08a;
+    box-shadow:
+        inset 0 0 0 2px var(--mana-ink),
+        inset 0 0 0 5px #4e7d3f,
+        inset 0 2px 6px rgba(255, 255, 255, 0.12),
+        0 0 18px rgba(123, 208, 106, 0.35),
+        0 6px 18px rgba(0, 0, 0, 0.45);
+}
+.guild-card.state-busy .fig-body {
+    animation: hero-work 0.5s ease-in-out infinite;
+}
+
+/* Per-archetype "work" motion for the held tool. */
+.guild-card.state-busy.arch-knight .fig-tool,
+.guild-card.state-busy.arch-rogue .fig-tool {
+    animation: tool-swing 0.55s ease-in-out infinite;
+}
+.guild-card.state-busy.arch-mage .fig-tool,
+.guild-card.state-busy.arch-cleric .fig-tool {
+    animation: tool-cast 0.9s ease-in-out infinite;
+}
+.guild-card.state-busy.arch-archer .fig-tool {
+    animation: tool-draw 0.7s ease-in-out infinite;
+}
+.guild-card.state-busy.arch-sprite .fig-tool {
+    animation: tool-wave 0.8s ease-in-out infinite;
+}
+
+/* --- SLEEPING: dimmed + slow breathe --- */
+.guild-card.state-sleeping {
+    filter: saturate(0.45) brightness(0.7);
+    opacity: 0.9;
+    border-color: #6f7bb0;
+}
+.guild-card.state-sleeping:hover {
+    filter: saturate(0.6) brightness(0.85);
+}
+.guild-card.state-sleeping .fig-body {
+    animation: hero-sleep 4s ease-in-out infinite;
+    transform-box: fill-box;
+    transform-origin: 50% 100%;
+}
+
+/* --- Busy sparks (particles) --- */
 .particles {
     display: none;
     position: absolute;
-    width: 48px;
-    height: 60px;
-    top: 0;
-    left: 0;
+    inset: 0;
     pointer-events: none;
 }
-
-.particle {
-    position: absolute;
-    width: 3px;
-    height: 3px;
-    border-radius: 50%;
-    background: #9ece6a;
-    opacity: 0;
-    animation: particle-rise 1.5s ease-out infinite;
-}
-
-.particle:nth-child(1) { left: 8px; animation-delay: 0s; }
-.particle:nth-child(2) { left: 20px; animation-delay: 0.5s; }
-.particle:nth-child(3) { left: 36px; animation-delay: 1.0s; }
-
-/* Idle: gentle float */
-.guild-card.state-idle .avatar-container {
-    animation: avatar-float 3s ease-in-out infinite;
-}
-
-.guild-card.state-idle {
-    border-color: #292e42;
-}
-
-/* Sleeping: dimmed + zzz */
-.guild-card.state-sleeping .avatar-container {
-    animation: avatar-sleep-pulse 4s ease-in-out infinite;
-    filter: saturate(0.4) brightness(0.6);
-}
-
-.guild-card.state-sleeping {
-    border-color: #292e42;
-    opacity: 0.65;
-}
-
-.guild-card.state-sleeping:hover {
-    opacity: 0.85;
-}
-
-.guild-card.state-sleeping .zzz {
+.guild-card.state-busy .particles {
     display: block;
 }
+.particle {
+    position: absolute;
+    width: 4px;
+    height: 4px;
+    border-radius: 1px;
+    background: #d8ffb0;
+    box-shadow: 0 0 6px rgba(155, 224, 138, 0.9);
+    opacity: 0;
+    animation: particle-rise 1.4s ease-out infinite;
+}
+.particle:nth-child(1) { left: 20px; animation-delay: 0s; }
+.particle:nth-child(2) { left: 40px; animation-delay: 0.45s; }
+.particle:nth-child(3) { left: 58px; animation-delay: 0.9s; }
 
+/* --- Sleeping ZZZ --- */
 .zzz {
     display: none;
     position: absolute;
-    top: -4px;
-    right: -8px;
-    font-size: 11px;
-    color: #7aa2f7;
+    top: 2px;
+    right: 4px;
     pointer-events: none;
 }
-
+.guild-card.state-sleeping .zzz {
+    display: block;
+}
 .zzz span {
     position: absolute;
+    color: #bcd0ff;
+    font-weight: 700;
     opacity: 0;
+    text-shadow: 0 1px 0 var(--mana-ink);
     animation: zzz-float 3s ease-out infinite;
 }
+.zzz span:nth-child(1) { right: 0;  font-size: 10px; animation-delay: 0s; }
+.zzz span:nth-child(2) { right: 8px; font-size: 13px; animation-delay: 0.9s; }
+.zzz span:nth-child(3) { right: 16px; font-size: 16px; animation-delay: 1.8s; }
 
-.zzz span:nth-child(1) { right: 0; font-size: 9px; animation-delay: 0s; }
-.zzz span:nth-child(2) { right: 6px; font-size: 11px; animation-delay: 0.8s; }
-.zzz span:nth-child(3) { right: 12px; font-size: 13px; animation-delay: 1.6s; }
+/* ============================================================
+   Keyframes
+   ============================================================ */
 
-/* --- Keyframe Animations --- */
-
-@keyframes avatar-bounce {
+@keyframes hero-bob {
     0%, 100% { transform: translateY(0); }
-    50% { transform: translateY(-5px); }
+    50%      { transform: translateY(-1.5px); }
 }
-
-@keyframes avatar-float {
-    0%, 100% { transform: translateY(0); }
-    50% { transform: translateY(-3px); }
+@keyframes hero-work {
+    0%, 100% { transform: translate(0, 0); }
+    25%      { transform: translate(-0.5px, -1px); }
+    75%      { transform: translate(0.5px, 0); }
 }
-
-@keyframes avatar-sleep-pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.7; }
+@keyframes hero-sleep {
+    0%, 100% { transform: scaleY(1); }
+    50%      { transform: scaleY(0.965); }
 }
-
-@keyframes busy-glow {
-    0%, 100% { opacity: 0.5; transform: translateX(-50%) scale(1); }
-    50% { opacity: 1; transform: translateX(-50%) scale(1.2); }
+@keyframes tool-swing {
+    0%, 100% { transform: rotate(-18deg); }
+    45%      { transform: rotate(26deg); }
+    60%      { transform: rotate(20deg); }
 }
-
+@keyframes tool-cast {
+    0%, 100% { transform: translateY(0) rotate(0deg); }
+    50%      { transform: translateY(-3px) rotate(-6deg); }
+}
+@keyframes tool-draw {
+    0%, 100% { transform: translateX(0); }
+    50%      { transform: translateX(-3px) scaleY(1.05); }
+}
+@keyframes tool-wave {
+    0%, 100% { transform: rotate(-14deg); }
+    50%      { transform: rotate(18deg); }
+}
 @keyframes particle-rise {
-    0% { opacity: 0; transform: translateY(0); }
-    20% { opacity: 0.8; }
-    100% { opacity: 0; transform: translateY(-30px); }
+    0%   { opacity: 0; transform: translateY(6px) scale(0.6); }
+    20%  { opacity: 1; }
+    100% { opacity: 0; transform: translateY(-40px) scale(1); }
 }
-
 @keyframes zzz-float {
-    0% { opacity: 0; transform: translate(0, 0); }
-    15% { opacity: 0.8; }
-    100% { opacity: 0; transform: translate(8px, -20px); }
+    0%   { opacity: 0; transform: translate(0, 0); }
+    15%  { opacity: 0.9; }
+    100% { opacity: 0; transform: translate(10px, -22px); }
 }
 
-/* --- Name Plate --- */
+/* ============================================================
+   Name plate / state / HP gauge / target
+   ============================================================ */
 
 .guild-name {
-    font-size: 13px;
-    font-weight: 600;
-    color: #c0caf5;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--mana-text);
     margin-bottom: 4px;
+    letter-spacing: 0.5px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    text-shadow: 1px 1px 0 var(--mana-ink);
 }
-
-/* --- State Label --- */
 
 .guild-state {
     font-size: 11px;
+    margin-bottom: 10px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+}
+.guild-state.state-busy     { color: #b6f09a; }
+.guild-state.state-idle     { color: #f2d47a; }
+.guild-state.state-sleeping { color: #9aa6d6; }
+
+/* --- HP gauge (bound to progressPct) --- */
+.guild-hp-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
     margin-bottom: 8px;
-    letter-spacing: 0.5px;
 }
-
-.guild-state.state-busy {
-    color: #9ece6a;
+.guild-hp-label {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    color: var(--mana-frame);
+    text-shadow: 1px 1px 0 var(--mana-ink);
 }
-
-.guild-state.state-idle {
-    color: #e0af68;
-}
-
-.guild-state.state-sleeping {
-    color: #565f89;
-}
-
-/* --- HP Bar (Progress) --- */
-
 .guild-hp {
-    height: 6px;
-    background: #292e42;
-    border-radius: 3px;
+    flex: 1;
+    height: 12px;
+    background: linear-gradient(180deg, #0b1026, #1a2450);
+    border: 1px solid var(--mana-ink);
+    border-radius: 6px;
     overflow: hidden;
-    margin-bottom: 6px;
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.6);
     position: relative;
 }
-
 .guild-hp-fill {
     height: 100%;
-    border-radius: 3px;
+    border-radius: 5px 0 0 5px;
     transition: width 0.5s ease;
-    background: linear-gradient(90deg, #f7768e, #ff9e64, #e0af68, #9ece6a);
-    background-size: 400% 100%;
+    background:
+        /* segment ticks */
+        repeating-linear-gradient(90deg, transparent 0 7px, rgba(0,0,0,0.22) 7px 8px),
+        linear-gradient(180deg, rgba(255,255,255,0.35) 0 40%, transparent 41%),
+        linear-gradient(90deg, var(--mana-hp-lo), var(--mana-hp-mid) 55%, var(--mana-hp-hi));
+    background-blend-mode: normal;
 }
-
 .guild-hp-text {
     font-size: 10px;
-    color: #565f89;
+    color: var(--mana-text-dim);
+    min-width: 30px;
+    text-align: right;
 }
-
-/* --- Target Badge --- */
 
 .guild-target {
     font-size: 10px;
-    color: #414868;
-    margin-top: 4px;
+    color: var(--mana-text-dim);
+    margin-top: 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    opacity: 0.8;
 }
 
-/* --- Responsive --- */
+/* ============================================================
+   Responsive
+   ============================================================ */
 
 @media (max-width: 768px) {
-    .guild-hall {
-        padding: 12px;
-    }
-
-    .guild-members {
-        gap: 16px;
-    }
-
-    .guild-card {
-        width: 150px;
-        padding: 16px 12px 12px;
-    }
+    .guild-hall { padding: 16px 12px; }
+    .guild-members { gap: 16px; }
+    .guild-card { width: 150px; padding: 26px 12px 14px; }
+    .avatar-container { width: 64px; height: 80px; }
+    .fig { width: 64px; height: 80px; }
 }

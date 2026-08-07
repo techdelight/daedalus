@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<!-- Copyright (C) 2026 Techdelight BV -->
+<!--
+  Guild Hall visual-verification preview (Sprint 50).
+
+  Self-contained: open this file directly in a browser (file://) — it needs NO
+  server and NO external assets. It references the REAL guild.css and guild.js
+  from the same directory (sibling files, not remote hosts), feeds them a small
+  mock roster covering all three activity states, and renders the party using
+  the production createMemberCard()/buildSprite() code paths.
+
+  This is a review artifact only; it is not linked from the app.
+-->
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Guild Hall — Preview</title>
+    <link rel="stylesheet" href="guild.css">
+    <style>
+        body {
+            margin: 0;
+            min-height: 100vh;
+            background:
+                radial-gradient(120% 80% at 50% -10%, #34509c 0%, transparent 55%),
+                linear-gradient(180deg, #1b2a5e 0%, #0e1430 100%);
+            font-family: ui-monospace, "Courier New", monospace;
+        }
+        .pv-header {
+            padding: 16px 22px;
+            border-bottom: 2px solid #a67c2e;
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            background: linear-gradient(180deg, #223469 0%, #16224a 100%);
+        }
+        .pv-note {
+            color: #b9c2e6;
+            font-size: 11px;
+            padding: 10px 22px 0;
+            letter-spacing: 0.5px;
+        }
+        /* showDashboard() is only referenced on click; stub so the preview
+           never throws if a card is clicked. */
+    </style>
+</head>
+<body>
+    <div class="pv-header">
+        <span class="guild-title">Guild Hall</span>
+        <span class="guild-subtitle" id="guild-subtitle"></span>
+    </div>
+    <div class="pv-note">
+        Preview roster — 6 heroes across busy / idle / sleeping. Same name always
+        yields the same hero + palette. Not a live view.
+    </div>
+
+    <div class="guild-hall">
+        <div class="guild-members" id="guild-members"></div>
+        <div class="guild-empty" id="guild-empty" style="display:none"></div>
+    </div>
+
+    <script>function showDashboard() {}</script>
+    <script src="guild.js"></script>
+    <script>
+        // Varied names so the archetype hash spreads across the 6 classes;
+        // all three activity states are represented.
+        // One name per archetype (knight/mage/archer/rogue/cleric/sprite),
+        // balanced across busy / idle / sleeping.
+        var roster = [
+            { name: 'daedalus', activity: 'busy',     progressPct: 72, vision: 'Ship the orchestrator', target: 'v0.42.0' },      // cleric
+            { name: 'atlas',    activity: 'busy',     progressPct: 30, vision: 'Hold up the sky',        target: 'load-test' },    // mage
+            { name: 'theseus',  activity: 'idle',     progressPct: 55, vision: 'Thread the maze',        target: 'exit found' },   // archer
+            { name: 'hydra',    activity: 'idle',     progressPct: 88, vision: 'Regrowing heads',        target: 'scale-out' },    // knight
+            { name: 'medusa',   activity: 'sleeping', progressPct: 45, vision: 'Petrify the flakes',     target: 'stone gaze' },   // rogue
+            { name: 'orion',    activity: 'sleeping', progressPct: 15, vision: 'Chart the stars',        target: 'star map' }      // sprite
+        ];
+
+        // Render via the production code path (diff-update aware).
+        renderGuildMembers(roster);
+
+        // Report the deterministic archetype mapping to the console for review.
+        console.log('name -> archetype / hue');
+        roster.forEach(function (m) {
+            var a = archetypeFor(m.name);
+            console.log('  ' + m.name + ' -> ' + a.label + ' (hue ' + nameToHue(m.name) + ')');
+        });
+    </script>
+</body>
+</html>
