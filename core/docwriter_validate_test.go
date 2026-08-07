@@ -31,8 +31,15 @@ func TestValidateWrite_RealDocsClean(t *testing.T) {
 // arc has one slot for the current focus. ValidateDocs only warns; a write must
 // refuse.
 func TestValidateWrite_RejectsSecondInProgress(t *testing.T) {
-	roadmap := readRepoDoc(t, "ROADMAP.md") // milestone 7 is already In Progress
-	twoInProgress, err := SetMilestoneStatus(roadmap, 5, StatusInProgress)
+	// Force two milestones In Progress regardless of the repo's current state
+	// (it may legitimately have zero, a between-milestones state): the point is
+	// that >1 must be refused.
+	roadmap := readRepoDoc(t, "ROADMAP.md")
+	oneInProgress, err := SetMilestoneStatus(roadmap, 5, StatusInProgress)
+	if err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	twoInProgress, err := SetMilestoneStatus(oneInProgress, 6, StatusInProgress)
 	if err != nil {
 		t.Fatalf("setup: %v", err)
 	}

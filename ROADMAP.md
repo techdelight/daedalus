@@ -67,7 +67,7 @@ Make upgrading Daedalus effortless and reversible: one self-contained release ar
 - Bundle release assets into a single checksum-verified per-platform archive rather than ~27 individual files (#8)
 - Side-by-side versions — versioned install layout + `daedalus version list/use/rollback/prune` for A-B and rollback before committing (#9)
 
-### Milestone 10: Homebrew Distribution (In Progress)
+### Milestone 10: Homebrew Distribution (Planned)
 
 `brew install daedalus` for macOS users — a Homebrew tap, a formula generator, and CI automation that publishes and updates the formula on each release, so install and upgrade both run through Homebrew. Builds on the single bundled release archive from M9 (#8), which a formula downloads and checksums. See `docs/homebrew-plan.md`.
 
@@ -84,12 +84,12 @@ Turn the Web UI's Guild view into a living Secret-of-Mana-style party screen: ev
 ## Phasing
 
 ```
-M1 (Done) ─► … ─► M9 (Done) ─► M11 (Done) ─► M10 (In Progress)
-Container         Release        Guild Hall     Homebrew
-Runtime           Bundling       Reforged       Distribution
-                  & Upgrades     (JRPG)         (resumed)
+M1 (Done) ─► … ─► M9 (Done) ─► M11 (Done) ─► ( no active milestone )
+Container         Release        Guild Hall     next focus undecided
+Runtime           Bundling       Reforged       — see BACKLOG.md
+                  & Upgrades     (JRPG)
 ```
 
 ## Current Focus
 
-**Milestone 10: Homebrew Distribution.** Milestones M1–M9 and M11 are complete (M11 shipped in **v0.45.0** — the Guild view reforged into a Secret-of-Mana party screen: a distinct pixel-art hero per project animated by its real `/api/guild` activity). M10, un-parked now that M11 has shipped, brings `brew install daedalus`: a Homebrew tap, a formula generator, and CI automation that publishes/updates the formula on each release, building on M9's bundled archive (#11). No sprint is open yet — see `SPRINTS.md` and `BACKLOG.md`.
+**No active milestone.** Milestones M1–M9 and M11 are complete (M11 shipped in **v0.45.0** — the Guild view reforged into a Secret-of-Mana party screen). The next focus is undecided: candidates include M10 (Homebrew Distribution, Planned) and the open items in `BACKLOG.md`. No milestone or sprint is in progress — a deliberate between-milestones state, so `daedalus docs lint` noting "no milestone is marked (In Progress)" is expected here, not a defect.

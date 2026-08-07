@@ -4,6 +4,23 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.46.0] - 2026-08-07
+
+### Changed
+- **Guild Hall — hero levels now mean progress (Web UI).** A project's "Lv N" is
+  now its **milestones completed** (parsed from `ROADMAP.md`), falling back to
+  shipped-sprint count for a young project with no milestones yet, and `Lv 0` for
+  one with neither — replacing the old "level = session count". So a hero's level
+  reflects real accomplishment, not how often the project was launched. Derived
+  host-side in a pure, unit-tested `guildProgression` helper via `/api/guild`.
+
+### Added
+- **Guild Hall — achievement badges (Web UI).** Hero cards now show earned
+  badges derived from the project's own docs: 🏆 First Release (shipped a
+  version), 🎖️ Milestone Master (5+ milestones done), 🧭 Trailblazer (a milestone
+  underway), 🏃 Sprinter (10+ sprints shipped), ⭐ Veteran (10+ sessions). Badges
+  refresh live on the existing 3s poll via the no-flicker diff-update.
+
 ## [0.45.0] - 2026-08-07
 
 **Milestone 11: The Guild Hall, Reforged.** The Web UI's Guild view is now a
