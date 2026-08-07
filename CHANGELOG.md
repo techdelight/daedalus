@@ -4,6 +4,28 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.45.0] - 2026-08-07
+
+**Milestone 11: The Guild Hall, Reforged.** The Web UI's Guild view is now a
+Secret-of-Mana-style party screen — every project is a distinct pixel-art hero
+whose animation reflects its real activity (busy → working, idle → at ease,
+sleeping → resting), riding the existing `/api/guild` busy/idle/sleeping signal.
+
+### Changed
+- **Guild Hall reforge, Sprint 51 (Web UI).** Finished the Secret-of-Mana-style
+  party screen. Busy heroes now surface a themed **action ribbon** derived from
+  the agent's live `detail` (e.g. `Edit`→"Casting Edit…", `Bash`→"Forging…",
+  `Read`→"Reading the runes…"), falling back to the raw `detail` string when
+  unmapped; idle heroes show a quiet "At ease…" line and sleeping heroes none.
+  The ribbon updates live on the existing 3s poll via the no-flicker
+  diff-update, without rebuilding the sprite. Added a small "Lv N" pip from
+  `sessionCount`. The roster now reflows cleanly under the 768px breakpoint with
+  no horizontal page scroll, honours `prefers-reduced-motion: reduce` (looping
+  animations freeze to a clean static pose; state stays legible via colour and
+  labels), and gained a framed JRPG empty/first-load state. `guild-preview.html`
+  refreshed to showcase all three states plus a busy action ribbon. All
+  frontend — no API or JSON-shape change.
+
 ## [0.44.0] - 2026-08-06
 
 **Milestone 9: Release Bundling & Safe Upgrades.** Upgrading is now effortless

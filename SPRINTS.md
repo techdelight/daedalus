@@ -2,9 +2,39 @@
 
 ## Current Sprint
 
-_No active sprint. Milestone 9 shipped in **v0.44.0** (Sprints 48–49, in the history below). The next milestone (M10, Homebrew Distribution) has no sprint open yet — see `BACKLOG.md`._
+_No active sprint. Milestone 11 shipped in **v0.45.0** (Sprints 50–51, in the history below). The next milestone (M10, Homebrew Distribution) is un-parked to In Progress but has no sprint open yet — see `BACKLOG.md`._
 
 ## Sprint History
+
+### Sprint 51: Activity Fidelity & Party Polish (v0.45.0)
+
+Goal: finish the Guild reforge — surface *what* each busy hero is doing, and make the party screen production-grade (responsive, accessible, graceful edges). All frontend: `/api/guild` already carries `detail`, `lastUsed`, and `sessionCount`. Design in ROADMAP M11.
+
+Milestone: 11
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | **Action label from `detail`** — when a hero is busy, surface the agent's `detail` (e.g. a tool name) as a themed JRPG action ribbon/speech ("Casting **Edit**", "Reading the runes…"); map common details to flavour, fall back to the raw string. Hidden when idle/sleeping. Reads live on the 3s poll via the diff-update | Done |
+| 2 | **Responsive / mobile** — the party roster reflows cleanly on a phone (the app has a 768px breakpoint used elsewhere); heroes scale, frames/gauges stay legible, no horizontal scroll | Done |
+| 3 | **Accessibility & graceful edges** — honour `prefers-reduced-motion` (freeze the working/idle loops to a static pose, keep state legible via colour/label); a JRPG-styled empty state ("The guild hall stands empty…") and a first-load state; optional light JRPG stats from `lastUsed`/`sessionCount` (e.g. "Lv" / "last seen") if they fit tastefully | Done |
+| 4 | **Docs + close** — CHANGELOG; refresh `guild-preview.html` to include a busy hero with an action label + a reduced-motion note; `go build`/`vet` + `TestHandleGuild` green; ship Milestone 11 | Done |
+
+Out of scope: any new backend activity plumbing (the signal is sufficient); a TUI equivalent; per-archetype bespoke idle poses beyond the shared set.
+
+### Sprint 50: Heroes & Activity Animation (v0.45.0)
+
+Goal: the heart of the Guild reforge — replace the generic colour-permuted "mage" cards with a distinct **Secret-of-Mana-style pixel-art hero per project** whose animation is driven by real activity: **working** when the agent is busy, **at ease** when idle, **resting** when the container is asleep. Rides the existing `GET /api/guild` busy/idle/sleeping signal + 3s polling — no new activity plumbing. Design in ROADMAP M11.
+
+Milestone: 11
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | **Distinct per-project hero** — deterministic archetype (e.g. knight / mage / archer / sprite) **and** palette from the project name (extend the existing `nameToHue`/`avatarColors` in `guild.js`), rendered as crisp pixel art (CSS box-shadow sprite grid or inline SVG with `image-rendering: pixelated`; self-contained, no external image assets). At least ~4–6 visually distinct archetypes so a programme of projects reads as a varied party | Done |
+| 2 | **Activity-driven animation states** — bind the card's animation to `member.activity`: `busy` → an active working/casting loop (tool-swing, spell shimmer), `idle` → a calm idle-breathing/at-ease loop, `sleeping` → a resting loop (the existing ZZZ, dimmed). Smooth CSS transitions between states on the 3s poll; keep the diff-update (no flicker) already in `renderGuildMembers` | Done |
+| 3 | **Secret-of-Mana UI framing** — reskin `guild.css`: ornate rounded panel/border frame per hero, retro pixel/serif JRPG type, a Mana-esque palette, the "HP" bar restyled as a proper JRPG gauge (keep it bound to `progressPct`), party-roster header. Cohesive, not garish | Done |
+| 4 | **Wire-up + verification aids** — keep `/api/guild` + `showGuildView` polling intact; `go build` + existing `TestHandleGuild` green (extend if the JSON shape changes). Add a self-contained `internal/web/static/guild-preview.html` that renders the three states (busy/idle/sleeping) with mock data so the look can be reviewed without a running container/browser session. `bash`/`go vet` clean | Done |
+
+Out of scope (Sprint 51): surfacing the agent `detail` ("what it's doing") as an action label/effect; responsive/mobile overlay; `prefers-reduced-motion`; empty/loading polish; final close + any backend `detail` enrichment.
 
 ### Sprint 49: Side-by-Side Versions & Rollback (v0.44.0)
 
