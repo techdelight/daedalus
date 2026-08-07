@@ -525,6 +525,32 @@
     opacity: 0.8;
 }
 
+/* --- Achievement badges --- */
+/* Small gold-framed chips; wrap cleanly, hidden when the hero has none. */
+.guild-badges {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 4px;
+    margin-top: 8px;
+    min-height: 0;
+}
+
+.guild-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    font-size: 11px;
+    line-height: 1;
+    border-radius: 6px;
+    cursor: help;
+    background: linear-gradient(180deg, #fbe9b0, var(--mana-frame));
+    border: 1px solid var(--mana-frame-dk);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5), 0 1px 2px rgba(0, 0, 0, 0.4);
+}
+
 /* ============================================================
    Accessibility — reduced motion
    ------------------------------------------------------------

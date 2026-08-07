@@ -52,9 +52,13 @@
         Preview roster — 6 heroes across busy / idle / sleeping, one per archetype.
         Busy heroes show a JRPG <strong>action ribbon</strong> derived from
         <code>detail</code> ("Edit"→"Casting Edit…", "Bash"→"Forging…"). Same name
-        always yields the same hero + palette. Motion is frozen to a clean static
-        pose under <code>prefers-reduced-motion: reduce</code> (state stays legible
-        via colour, the state label, and the ribbon). Not a live view.
+        always yields the same hero + palette. The "Lv" pip now reflects
+        milestones completed (falling back to shipped sprints), and heroes earn
+        <strong>achievement badges</strong> (🏆 First Release, 🎖️ Milestone Master,
+        🧭 Trailblazer, 🏃 Sprinter, ⭐ Veteran) — hover a chip for its tooltip.
+        Motion is frozen to a clean static pose under
+        <code>prefers-reduced-motion: reduce</code> (state stays legible via
+        colour, the state label, and the ribbon). Not a live view.
     </div>
 
     <div class="guild-hall">
@@ -71,12 +75,26 @@
         // balanced across busy / idle / sleeping. Busy heroes carry `detail`
         // so the JRPG action ribbon is exercised (mapped + raw fallback).
         var roster = [
-            { name: 'daedalus', activity: 'busy',     detail: 'Edit', progressPct: 72, sessionCount: 12, vision: 'Ship the orchestrator', target: 'v0.42.0' },  // cleric → "Casting Edit…"
-            { name: 'atlas',    activity: 'busy',     detail: 'Bash', progressPct: 30, sessionCount: 5,  vision: 'Hold up the sky',        target: 'load-test' }, // mage → "Forging…"
-            { name: 'theseus',  activity: 'idle',                     progressPct: 55, sessionCount: 8,  vision: 'Thread the maze',        target: 'exit found' },// archer → "At ease…"
-            { name: 'hydra',    activity: 'idle',                     progressPct: 88, sessionCount: 3,  vision: 'Regrowing heads',        target: 'scale-out' }, // knight → "At ease…"
-            { name: 'medusa',   activity: 'sleeping',                 progressPct: 45, sessionCount: 20, vision: 'Petrify the flakes',     target: 'stone gaze' },// rogue → no ribbon
-            { name: 'orion',    activity: 'sleeping',                 progressPct: 15, sessionCount: 1,  vision: 'Chart the stars',        target: 'star map' }   // sprite → no ribbon
+            // Veteran, high level, full badge set.
+            { name: 'daedalus', activity: 'busy', detail: 'Edit', progressPct: 72, sessionCount: 30, level: 7,
+              achievements: ['first-release', 'milestone-master', 'trailblazer', 'sprinter', 'veteran'],
+              vision: 'Ship the orchestrator', target: 'v0.42.0' },   // cleric → "Casting Edit…"
+            { name: 'atlas',    activity: 'busy', detail: 'Bash', progressPct: 30, sessionCount: 4, level: 2,
+              achievements: ['first-release', 'trailblazer'],
+              vision: 'Hold up the sky',        target: 'load-test' }, // mage → "Forging…"
+            { name: 'theseus',  activity: 'idle',                  progressPct: 55, sessionCount: 12, level: 3,
+              achievements: ['first-release', 'veteran'],
+              vision: 'Thread the maze',        target: 'exit found' },// archer → "At ease…"
+            { name: 'hydra',    activity: 'idle',                  progressPct: 88, sessionCount: 2, level: 1,
+              achievements: ['first-release'],
+              vision: 'Regrowing heads',        target: 'scale-out' }, // knight → "At ease…"
+            { name: 'medusa',   activity: 'sleeping',              progressPct: 45, sessionCount: 8, level: 4,
+              achievements: ['first-release', 'milestone-master'],
+              vision: 'Petrify the flakes',     target: 'stone gaze' },// rogue → no ribbon
+            // Fresh project: Lv 0, no badges.
+            { name: 'orion',    activity: 'sleeping',              progressPct: 15, sessionCount: 1, level: 0,
+              achievements: [],
+              vision: 'Chart the stars',        target: 'star map' }   // sprite → no ribbon
         ];
 
         // Render via the production code path (diff-update aware).
