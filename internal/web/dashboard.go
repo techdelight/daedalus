@@ -37,14 +37,72 @@ type activityStateJSON struct {
 
 // guildMemberJSON is the JSON representation of a project for the guild hall view.
 type guildMemberJSON struct {
-	Name         string `json:"name"`
-	Activity     string `json:"activity"`
-	Detail       string `json:"detail"`
-	ProgressPct  int    `json:"progressPct"`
-	Vision       string `json:"vision"`
-	Target       string `json:"target"`
-	LastUsed     string `json:"lastUsed"`
-	SessionCount int    `json:"sessionCount"`
+	Name         string   `json:"name"`
+	Activity     string   `json:"activity"`
+	Detail       string   `json:"detail"`
+	ProgressPct  int      `json:"progressPct"`
+	Vision       string   `json:"vision"`
+	Target       string   `json:"target"`
+	LastUsed     string   `json:"lastUsed"`
+	SessionCount int      `json:"sessionCount"`
+	Level        int      `json:"level"`
+	Achievements []string `json:"achievements"`
+}
+
+// guildProgression derives a hero's "level" and earned achievement keys from a
+// project's parsed docs. Pure and total (no I/O) so it is unit-testable in
+// isolation; the caller does the file reads.
+//
+// Level rule: level = milestonesDone. When no milestone is marked Done yet, it
+// falls back to sprintsShipped, so a young project that has shipped sprints but
+// completed no milestone still shows a non-zero level; a project with neither
+// milestones nor shipped sprints is Lv 0. (sprintsShipped = sprints carrying a
+// non-empty Version — shipped/history sprints record one.)
+//
+// Achievement keys are returned in a stable order; the frontend owns their
+// icon/label/tooltip. Only earned keys are returned.
+func guildProgression(milestones []core.Milestone, sprints []core.Sprint, sessionCount int) (int, []string) {
+	milestonesDone := 0
+	milestoneInProgress := false
+	for _, m := range milestones {
+		switch m.Status {
+		case core.StatusDone:
+			milestonesDone++
+		case core.StatusInProgress:
+			milestoneInProgress = true
+		}
+	}
+
+	sprintsShipped := 0
+	for _, s := range sprints {
+		if s.Version != "" {
+			sprintsShipped++
+		}
+	}
+
+	level := milestonesDone
+	if milestonesDone == 0 {
+		level = sprintsShipped
+	}
+
+	// Non-nil so an empty result serialises as [] rather than null.
+	achievements := []string{}
+	if sprintsShipped >= 1 {
+		achievements = append(achievements, "first-release")
+	}
+	if milestonesDone >= 5 {
+		achievements = append(achievements, "milestone-master")
+	}
+	if milestoneInProgress {
+		achievements = append(achievements, "trailblazer")
+	}
+	if sprintsShipped >= 10 {
+		achievements = append(achievements, "sprinter")
+	}
+	if sessionCount >= 10 {
+		achievements = append(achievements, "veteran")
+	}
+	return level, achievements
 }
 
 // handleDashboard returns dashboard data for a single project.
@@ -172,6 +230,20 @@ func (ws *WebServer) handleGuild(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
+		// Level + achievements from the project's own docs. A missing/half-written
+		// ROADMAP/SPRINTS is a normal state — the readers return empty, not error,
+		// so the hero simply shows Lv 0 with no badges.
+		milestones, err := readMilestones(e.Entry.Directory)
+		if err != nil {
+			log.Printf("read milestones for %s: %v", e.Name, err)
+		}
+		sprintData, err := readSprints(e.Entry.Directory)
+		if err != nil {
+			log.Printf("read sprints for %s: %v", e.Name, err)
+		}
+		sessionCount := len(e.Entry.Sessions)
+		level, achievements := guildProgression(milestones, core.ParseSprints(string(sprintData)), sessionCount)
+
 		members = append(members, guildMemberJSON{
 			Name:         e.Name,
 			Activity:     string(info.State),
@@ -180,7 +252,9 @@ func (ws *WebServer) handleGuild(w http.ResponseWriter, r *http.Request) {
 			Vision:       vision,
 			Target:       e.Entry.Target,
 			LastUsed:     e.Entry.LastUsed,
-			SessionCount: len(e.Entry.Sessions),
+			SessionCount: sessionCount,
+			Level:        level,
+			Achievements: achievements,
 		})
 	}
 

@@ -1430,6 +1430,102 @@ func TestHandleGuild(t *testing.T) {
 	}
 }
 
+func TestGuildProgression(t *testing.T) {
+	ms := func(statuses ...core.Status) []core.Milestone {
+		out := make([]core.Milestone, len(statuses))
+		for i, s := range statuses {
+			out[i] = core.Milestone{Number: i + 1, Status: s}
+		}
+		return out
+	}
+	sp := func(n int) []core.Sprint {
+		out := make([]core.Sprint, n)
+		for i := range out {
+			out[i] = core.Sprint{Number: i + 1, Version: fmt.Sprintf("0.%d.0", i+1)}
+		}
+		return out
+	}
+	has := func(keys []string, k string) bool {
+		for _, x := range keys {
+			if x == k {
+				return true
+			}
+		}
+		return false
+	}
+
+	t.Run("level from milestonesDone", func(t *testing.T) {
+		lvl, _ := guildProgression(
+			ms(core.StatusDone, core.StatusDone, core.StatusInProgress, core.StatusPlanned), sp(3), 0)
+		if lvl != 2 {
+			t.Errorf("level = %d, want 2 (milestones done)", lvl)
+		}
+	})
+
+	t.Run("fallback to sprintsShipped when no milestone done", func(t *testing.T) {
+		lvl, _ := guildProgression(ms(core.StatusInProgress, core.StatusPlanned), sp(4), 0)
+		if lvl != 4 {
+			t.Errorf("level = %d, want 4 (fallback to shipped sprints)", lvl)
+		}
+	})
+
+	t.Run("level 0 with neither", func(t *testing.T) {
+		lvl, ach := guildProgression(nil, nil, 3)
+		if lvl != 0 {
+			t.Errorf("level = %d, want 0", lvl)
+		}
+		if len(ach) != 0 {
+			t.Errorf("achievements = %v, want none", ach)
+		}
+	})
+
+	// Achievement thresholds — on/off boundaries.
+	t.Run("first-release boundary", func(t *testing.T) {
+		if _, a := guildProgression(nil, sp(0), 0); has(a, "first-release") {
+			t.Error("first-release earned with 0 shipped sprints")
+		}
+		if _, a := guildProgression(nil, sp(1), 0); !has(a, "first-release") {
+			t.Error("first-release not earned with 1 shipped sprint")
+		}
+	})
+
+	t.Run("milestone-master boundary", func(t *testing.T) {
+		if _, a := guildProgression(ms(core.StatusDone, core.StatusDone, core.StatusDone, core.StatusDone), nil, 0); has(a, "milestone-master") {
+			t.Error("milestone-master earned with 4 done")
+		}
+		if _, a := guildProgression(ms(core.StatusDone, core.StatusDone, core.StatusDone, core.StatusDone, core.StatusDone), nil, 0); !has(a, "milestone-master") {
+			t.Error("milestone-master not earned with 5 done")
+		}
+	})
+
+	t.Run("trailblazer when a milestone is in progress", func(t *testing.T) {
+		if _, a := guildProgression(ms(core.StatusDone, core.StatusPlanned), nil, 0); has(a, "trailblazer") {
+			t.Error("trailblazer earned with none in progress")
+		}
+		if _, a := guildProgression(ms(core.StatusInProgress), nil, 0); !has(a, "trailblazer") {
+			t.Error("trailblazer not earned with one in progress")
+		}
+	})
+
+	t.Run("sprinter boundary", func(t *testing.T) {
+		if _, a := guildProgression(nil, sp(9), 0); has(a, "sprinter") {
+			t.Error("sprinter earned with 9 shipped")
+		}
+		if _, a := guildProgression(nil, sp(10), 0); !has(a, "sprinter") {
+			t.Error("sprinter not earned with 10 shipped")
+		}
+	})
+
+	t.Run("veteran boundary", func(t *testing.T) {
+		if _, a := guildProgression(nil, nil, 9); has(a, "veteran") {
+			t.Error("veteran earned with 9 sessions")
+		}
+		if _, a := guildProgression(nil, nil, 10); !has(a, "veteran") {
+			t.Error("veteran not earned with 10 sessions")
+		}
+	})
+}
+
 func TestRenderIndexHTML_InjectsVersion(t *testing.T) {
 	raw := []byte(`<title>Daedalus</title>`)
 

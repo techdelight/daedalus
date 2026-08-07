@@ -2,7 +2,7 @@
 
 ## Current Sprint
 
-_No active sprint. Milestone 11 shipped in **v0.45.0** (Sprints 50–51, in the history below). The next milestone (M10, Homebrew Distribution) is un-parked to In Progress but has no sprint open yet — see `BACKLOG.md`._
+_No active sprint, and no active milestone. Milestone 11 shipped in **v0.45.0** (Sprints 50–51, in the history below). A between-milestones state — the next focus is undecided; see `ROADMAP.md` and `BACKLOG.md`._
 
 ## Sprint History
 

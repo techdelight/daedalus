@@ -405,6 +405,49 @@ function buildSprite(name) {
         + '</svg>';
 }
 
+// --- Achievements ----------------------------------------------------------
+//
+// The backend returns earned achievement KEYS (stable order); the frontend
+// owns the glyph/label/tooltip (mirrors how the action-ribbon flavour lives
+// client-side). Unknown keys render nothing.
+const ACHIEVEMENTS = {
+    'first-release':    { icon: '🏆',  label: 'First Release',    desc: 'Shipped at least one version' },
+    'milestone-master': { icon: '🎖️',  label: 'Milestone Master', desc: '5+ milestones completed' },
+    'trailblazer':      { icon: '🧭',  label: 'Trailblazer',      desc: 'A milestone is underway' },
+    'sprinter':         { icon: '🏃',  label: 'Sprinter',         desc: '10+ sprints shipped' },
+    'veteran':          { icon: '⭐',  label: 'Veteran',          desc: 'A long-running project (10+ sessions)' },
+};
+
+// Hero level — prefer the doc-derived member.level; fall back to sessionCount
+// only when level is absent (older payloads / safety).
+function heroLevel(member) {
+    return (typeof member.level === 'number') ? member.level : (member.sessionCount || 0);
+}
+
+// Render earned achievement chips into the card's badge row. Only mutates the
+// row's children (never the sprite), and skips all DOM work when the earned
+// set is unchanged, preserving the no-flicker diff-update.
+function applyAchievements(card, member) {
+    const row = card.querySelector('.guild-badges');
+    if (!row) return;
+    const desired = (member.achievements || []).filter(function (k) {
+        return ACHIEVEMENTS[k];
+    });
+    const sig = desired.join(',');
+    if (row.dataset.sig === sig) return; // unchanged → no churn
+    row.dataset.sig = sig;
+    row.innerHTML = '';
+    desired.forEach(function (k) {
+        const a = ACHIEVEMENTS[k];
+        const chip = document.createElement('span');
+        chip.className = 'guild-badge';
+        chip.textContent = a.icon;
+        chip.title = a.label + ' — ' + a.desc;
+        row.appendChild(chip);
+    });
+    row.style.display = desired.length ? '' : 'none';
+}
+
 // --- State labels ----------------------------------------------------------
 
 const stateLabels = {
@@ -537,7 +580,7 @@ function createMemberCard(member) {
 
     const levelEl = document.createElement('span');
     levelEl.className = 'guild-level';
-    levelEl.textContent = 'Lv ' + (member.sessionCount || 0);
+    levelEl.textContent = 'Lv ' + heroLevel(member);
     nameEl.appendChild(levelEl);
 
     card.appendChild(nameEl);
@@ -578,8 +621,14 @@ function createMemberCard(member) {
     targetEl.textContent = member.target || '';
     card.appendChild(targetEl);
 
-    // Initial action ribbon.
+    // Achievement badge row (created once; children updated on poll).
+    const badges = document.createElement('div');
+    badges.className = 'guild-badges';
+    card.appendChild(badges);
+
+    // Initial action ribbon + achievements.
     applyActionRibbon(card, member);
+    applyAchievements(card, member);
 
     return card;
 }
@@ -616,14 +665,15 @@ function updateMemberCard(card, member) {
 
     const levelEl = card.querySelector('.guild-level');
     if (levelEl) {
-        const lv = 'Lv ' + (member.sessionCount || 0);
+        const lv = 'Lv ' + heroLevel(member);
         if (levelEl.textContent !== lv) {
             levelEl.textContent = lv;
         }
     }
 
-    // Live action ribbon (text + visibility only — no sprite rebuild).
+    // Live action ribbon + achievements (text/children only — no sprite rebuild).
     applyActionRibbon(card, member);
+    applyAchievements(card, member);
 
     const title = member.vision || member.name;
     if (card.title !== title) {

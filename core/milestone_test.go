@@ -202,17 +202,19 @@ func TestParseMilestonesAgainstRealRoadmap(t *testing.T) {
 		}
 	}
 
-	// Exactly one milestone is in progress: the arc nests the current sprint
-	// inside it, so a document with two (or none) would leave the timeline
-	// with nowhere to put it.
+	// At most one milestone is in progress: the arc nests the current sprint
+	// inside the one in-progress milestone, so two would leave the timeline with
+	// a choice of places to put it. Zero is a valid between-milestones state (one
+	// milestone shipped, the next not yet chosen) — and then there is no current
+	// sprint to place either.
 	var inProgress int
 	for _, m := range got {
 		if m.Status == StatusInProgress {
 			inProgress++
 		}
 	}
-	if inProgress != 1 {
-		t.Errorf("repo ROADMAP.md has %d in-progress milestones, want exactly 1", inProgress)
+	if inProgress > 1 {
+		t.Errorf("repo ROADMAP.md has %d in-progress milestones, want at most 1", inProgress)
 	}
 
 	if got[3].Status != StatusDone {
@@ -233,8 +235,8 @@ func TestParseMilestonesAgainstRealRoadmap(t *testing.T) {
 	if got[8].Status != StatusDone {
 		t.Errorf("Milestone 9 Status = %q, want %q", got[8].Status, StatusDone)
 	}
-	if got[9].Status != StatusInProgress {
-		t.Errorf("Milestone 10 Status = %q, want %q (un-parked after M11)", got[9].Status, StatusInProgress)
+	if got[9].Status != StatusPlanned {
+		t.Errorf("Milestone 10 Status = %q, want %q (parked; no active milestone)", got[9].Status, StatusPlanned)
 	}
 	if got[10].Status != StatusDone {
 		t.Errorf("Milestone 11 Status = %q, want %q", got[10].Status, StatusDone)
