@@ -1016,3 +1016,122 @@ func TestRegistryMigrate_UnknownVersion(t *testing.T) {
 		t.Fatal("expected error for unknown version, got nil")
 	}
 }
+
+// --- Guild Master: ensure + protection (Sprint 52) -------------------------
+
+func TestEnsureGuildMaster_CreatesScaffoldsRegisters(t *testing.T) {
+	dir := t.TempDir()
+	regFile := filepath.Join(dir, "projects.json")
+	reg := NewRegistry(regFile)
+	if err := reg.Init(); err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+
+	ws := filepath.Join(dir, "projects", core.GuildMasterName)
+	if err := reg.EnsureGuildMaster(ws); err != nil {
+		t.Fatalf("EnsureGuildMaster failed: %v", err)
+	}
+
+	// Registered at dev target with the workspace as its directory.
+	entry, ok, err := reg.GetProject(core.GuildMasterName)
+	if err != nil {
+		t.Fatalf("GetProject: %v", err)
+	}
+	if !ok {
+		t.Fatal("guild-master not registered after ensure")
+	}
+	if entry.Directory != ws {
+		t.Errorf("directory = %q, want %q", entry.Directory, ws)
+	}
+	if entry.Target != "dev" {
+		t.Errorf("target = %q, want dev", entry.Target)
+	}
+
+	// Workspace scaffolded: every required doc exists on disk.
+	for _, doc := range core.RequiredDocs() {
+		if _, err := os.Stat(filepath.Join(ws, doc.Filename)); err != nil {
+			t.Errorf("scaffolded doc %s missing: %v", doc.Filename, err)
+		}
+	}
+}
+
+func TestEnsureGuildMaster_Idempotent(t *testing.T) {
+	dir := t.TempDir()
+	regFile := filepath.Join(dir, "projects.json")
+	reg := NewRegistry(regFile)
+	reg.Init()
+
+	ws := filepath.Join(dir, "projects", core.GuildMasterName)
+	if err := reg.EnsureGuildMaster(ws); err != nil {
+		t.Fatalf("first ensure: %v", err)
+	}
+	entry1, _, _ := reg.GetProject(core.GuildMasterName)
+
+	// A second ensure must not error and must not change the entry (created ts).
+	if err := reg.EnsureGuildMaster(ws); err != nil {
+		t.Fatalf("second ensure: %v", err)
+	}
+	entry2, _, _ := reg.GetProject(core.GuildMasterName)
+	if entry1.Created != entry2.Created {
+		t.Errorf("created changed on repeat ensure: %q -> %q", entry1.Created, entry2.Created)
+	}
+}
+
+func TestRemoveProject_RefusesGuildMaster(t *testing.T) {
+	dir := t.TempDir()
+	regFile := filepath.Join(dir, "projects.json")
+	reg := NewRegistry(regFile)
+	reg.Init()
+	reg.EnsureGuildMaster(filepath.Join(dir, "projects", core.GuildMasterName))
+
+	if err := reg.RemoveProject(core.GuildMasterName); err == nil {
+		t.Fatal("expected RemoveProject to refuse the guild master")
+	}
+	if ok, _ := reg.HasProject(core.GuildMasterName); !ok {
+		t.Error("guild master was removed despite refusal")
+	}
+}
+
+func TestRemoveProjects_SkipsGuildMasterRemovesRest(t *testing.T) {
+	dir := t.TempDir()
+	regFile := filepath.Join(dir, "projects.json")
+	reg := NewRegistry(regFile)
+	reg.Init()
+	reg.EnsureGuildMaster(filepath.Join(dir, "projects", core.GuildMasterName))
+	reg.AddProject("alpha", "/tmp/alpha", "dev")
+
+	removed, err := reg.RemoveProjects([]string{"alpha", core.GuildMasterName})
+	if err != nil {
+		t.Fatalf("RemoveProjects: %v", err)
+	}
+	if len(removed) != 1 || removed[0] != "alpha" {
+		t.Errorf("removed = %v, want [alpha]", removed)
+	}
+	if ok, _ := reg.HasProject(core.GuildMasterName); !ok {
+		t.Error("guild master was removed in batch despite protection")
+	}
+	if ok, _ := reg.HasProject("alpha"); ok {
+		t.Error("alpha should have been removed")
+	}
+}
+
+func TestRenameProject_RefusesGuildMaster(t *testing.T) {
+	dir := t.TempDir()
+	regFile := filepath.Join(dir, "projects.json")
+	reg := NewRegistry(regFile)
+	reg.Init()
+	reg.EnsureGuildMaster(filepath.Join(dir, "projects", core.GuildMasterName))
+	reg.AddProject("alpha", "/tmp/alpha", "dev")
+
+	// Refuse renaming the guild master away.
+	if err := reg.RenameProject(core.GuildMasterName, "something"); err == nil {
+		t.Error("expected refusal renaming guild master away")
+	}
+	// Refuse renaming another project INTO the reserved name.
+	if err := reg.RenameProject("alpha", core.GuildMasterName); err == nil {
+		t.Error("expected refusal renaming into the reserved guild master name")
+	}
+	if ok, _ := reg.HasProject(core.GuildMasterName); !ok {
+		t.Error("guild master entry disturbed")
+	}
+}

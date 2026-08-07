@@ -83,6 +83,11 @@ func (ws *WebServer) handleStopProject(w http.ResponseWriter, r *http.Request) {
 func (ws *WebServer) handleRenameProject(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 
+	if core.IsGuildMaster(name) {
+		http.Error(w, "cannot rename the built-in Guild Master", http.StatusForbidden)
+		return
+	}
+
 	_, found, err := ws.registry.GetProject(name)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)

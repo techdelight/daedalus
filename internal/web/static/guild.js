@@ -525,19 +525,39 @@ function applyActionRibbon(card, member) {
 
 // --- Card construction (sprite built once; keyed by immutable name) ---------
 
+// Class string for a card. The Guild Master carries an extra `guild-master`
+// class that drives its distinguished (crowned, gold-ribbon) frame; the flag is
+// immutable per card so this stays stable across diff-updates.
+function cardClass(member, arch) {
+    let c = 'guild-card arch-' + arch.key + ' state-' + member.activity;
+    if (member.builtin) c += ' guild-master';
+    return c;
+}
+
 function createMemberCard(member) {
     const arch = archetypeFor(member.name);
 
     const card = document.createElement('div');
-    card.className = 'guild-card arch-' + arch.key + ' state-' + member.activity;
+    card.className = cardClass(member, arch);
     card.dataset.name = member.name;
     card.onclick = function () { showDashboard(member.name); };
-    card.title = member.vision || member.name;
+    card.title = member.vision || (member.builtin ? 'Guild Master' : member.name);
 
-    // Ornate class-tag ribbon (top-left of frame).
+    // Distinguished hero: a crown glyph on the built-in Guild Master. Created
+    // once (builtin never changes for a name-keyed card) and never rebuilt.
+    if (member.builtin) {
+        const crown = document.createElement('div');
+        crown.className = 'guild-crown';
+        crown.textContent = '♛'; // ♛ crown
+        crown.setAttribute('aria-hidden', 'true');
+        card.appendChild(crown);
+    }
+
+    // Ornate class-tag ribbon (top-left of frame). The Guild Master overrides
+    // the archetype label with its own title.
     const tag = document.createElement('div');
     tag.className = 'guild-class';
-    tag.textContent = arch.label;
+    tag.textContent = member.builtin ? 'Guild Master' : arch.label;
     card.appendChild(tag);
 
     // Action ribbon (speech bubble over the sprite). Created once; its text and
@@ -637,7 +657,7 @@ function createMemberCard(member) {
 // keyed by the immutable project name and is never rebuilt → no flicker.
 function updateMemberCard(card, member) {
     const arch = archetypeFor(member.name);
-    const nextClass = 'guild-card arch-' + arch.key + ' state-' + member.activity;
+    const nextClass = cardClass(member, arch);
     if (card.className !== nextClass) {
         card.className = nextClass;
     }

@@ -107,3 +107,17 @@ func TestProjectEntry_MarshalOmitsZeroValueProgressFields(t *testing.T) {
 		}
 	}
 }
+
+func TestGuildMaster_SlugAndHelper(t *testing.T) {
+	// The reserved slug must satisfy ValidateProjectName (a hyphenated name is
+	// allowed) so it can live in the registry like any other project.
+	if err := ValidateProjectName(GuildMasterName); err != nil {
+		t.Errorf("ValidateProjectName(%q) = %v, want nil", GuildMasterName, err)
+	}
+	if !IsGuildMaster(GuildMasterName) {
+		t.Errorf("IsGuildMaster(%q) = false, want true", GuildMasterName)
+	}
+	if IsGuildMaster("some-other-project") {
+		t.Error("IsGuildMaster(some-other-project) = true, want false")
+	}
+}

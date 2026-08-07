@@ -63,6 +63,12 @@ func Run(cfg *core.Config) error {
 	if err := reg.Init(); err != nil {
 		return fmt.Errorf("initializing registry: %w", err)
 	}
+	// Ensure the built-in Guild Master is present at server startup so the guild
+	// view and project list always include it. Best-effort: a failure is logged
+	// but must not stop the server from booting.
+	if err := reg.EnsureGuildMaster(cfg.GuildMasterDir()); err != nil {
+		log.Printf("ensure guild master: %v", err)
+	}
 	docker := docker.NewDocker(exec, filepath.Join(cfg.ScriptDir, "docker-compose.yml"))
 
 	observer := agentstate.NewContainerObserver(exec)

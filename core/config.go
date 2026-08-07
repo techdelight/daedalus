@@ -155,6 +155,16 @@ func (c *Config) ProjectToolsDir() string {
 	return filepath.Join(c.DataDir, "tools", c.ProjectName)
 }
 
+// GuildMasterDir returns the Daedalus-owned workspace directory for the
+// built-in Guild Master project. It lives under the data root (alongside where
+// cloned project workspaces are placed, DataDir/projects) so all Daedalus state
+// stays in one host-visible place, and — crucially — is kept distinct from the
+// Guild Master's per-project cache dir (CacheDir → DataDir/guild-master) so the
+// workspace and the container-home mount never collide.
+func (c *Config) GuildMasterDir() string {
+	return filepath.Join(c.DataDir, "projects", GuildMasterName)
+}
+
 // ProgrammesDir returns the path to the programmes directory.
 func (c *Config) ProgrammesDir() string {
 	return filepath.Join(c.DataDir, "programmes")

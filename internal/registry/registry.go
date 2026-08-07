@@ -149,6 +149,35 @@ func (r *Registry) AddProject(name, directory, target string) error {
 	return r.write(data)
 }
 
+// EnsureGuildMaster makes the always-present built-in Guild Master project
+// exist. It is idempotent: if the entry is already registered it does nothing;
+// otherwise it scaffolds a conformant doc set into the Daedalus-owned workspace
+// (workspaceDir, from core.Config.GuildMasterDir) and registers the project at
+// the default "dev" target. Like the rest of the registry it is a
+// read-modify-write, so repeated/interleaved calls converge on a single entry.
+func (r *Registry) EnsureGuildMaster(workspaceDir string) error {
+	data, err := r.read()
+	if err != nil {
+		return err
+	}
+	if _, ok := data.Projects[core.GuildMasterName]; ok {
+		return nil // already present — nothing to do
+	}
+	// First create: scaffold the workspace so `docs lint` passes on it from the
+	// start. force=false leaves any pre-existing files untouched.
+	if _, _, err := core.ScaffoldDocs(workspaceDir, false); err != nil {
+		return fmt.Errorf("scaffolding Guild Master workspace: %w", err)
+	}
+	now := core.NowUTC()
+	data.Projects[core.GuildMasterName] = core.ProjectEntry{
+		Directory: workspaceDir,
+		Target:    "dev",
+		Created:   now,
+		LastUsed:  now,
+	}
+	return r.write(data)
+}
+
 // RenameProject changes a project's registry key from oldName to newName.
 // Returns an error if oldName does not exist or newName already exists.
 // The per-project cache directory is renamed best-effort (warning on failure).
@@ -156,6 +185,12 @@ func (r *Registry) RenameProject(oldName, newName string) error {
 	data, err := r.read()
 	if err != nil {
 		return err
+	}
+	if core.IsGuildMaster(oldName) {
+		return fmt.Errorf("cannot rename the built-in Guild Master")
+	}
+	if core.IsGuildMaster(newName) {
+		return fmt.Errorf("cannot rename to the reserved built-in Guild Master name")
 	}
 	entry, ok := data.Projects[oldName]
 	if !ok {
@@ -176,6 +211,9 @@ func (r *Registry) RenameProject(oldName, newName string) error {
 // RemoveProject deletes a project from the registry by name and cleans up
 // its per-project cache directory (#23).
 func (r *Registry) RemoveProject(name string) error {
+	if core.IsGuildMaster(name) {
+		return fmt.Errorf("cannot remove the built-in Guild Master")
+	}
 	data, err := r.read()
 	if err != nil {
 		return err
@@ -203,6 +241,12 @@ func (r *Registry) RemoveProjects(names []string) ([]string, error) {
 	}
 	var removed []string
 	for _, name := range names {
+		// The Guild Master is protected: skip it so the rest of the batch still
+		// proceeds, rather than aborting or silently deleting it. Callers should
+		// surface it as protected (see cmd/daedalus removeProjects).
+		if core.IsGuildMaster(name) {
+			continue
+		}
 		if _, ok := data.Projects[name]; ok {
 			delete(data.Projects, name)
 			removed = append(removed, name)

@@ -228,7 +228,7 @@
                             ? `<button class="btn btn-attach" onclick="attachProject('${escapeHtml(p.name)}')">Attach</button>
                                <button class="btn btn-stop" onclick="stopProject('${escapeHtml(p.name)}')">Stop</button>`
                             : `<button class="btn btn-attach" onclick="attachProject('${escapeHtml(p.name)}')">Open</button>
-                               <button class="btn btn-rename" onclick="renameProject('${escapeHtml(p.name)}')">Rename</button>`
+                               ${p.name === 'guild-master' ? '' : `<button class="btn btn-rename" onclick="renameProject('${escapeHtml(p.name)}')">Rename</button>`}`
                         }
                     </td>
                 </tr>

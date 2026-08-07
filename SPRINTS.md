@@ -10,10 +10,10 @@ Milestone: 12
 
 | # | Item | Status |
 |---|------|--------|
-| 1 | **Auto-ensured registry entry (core/registry)** — a reserved `guild-master` name + an `EnsureGuildMaster` that creates the entry if missing, with a Daedalus-owned workspace dir (`<DataDir>/guild-master`) scaffolded via `core.ScaffoldDocs` on first create. Idempotent; invoked on the startup paths (CLI launch/list, coordinator, web) so it is always present. Tests |  |
-| 2 | **Removal / rename protection** — `RemoveProject`/`RemoveProjects`/`RenameProject` refuse the guild-master with a clear error (the `persona.go` "cannot remove built-in" precedent); `prune` skips it; the CLI `remove`/`prune` + web/TUI remove paths surface the refusal cleanly. Tests |  |
-| 3 | **Launch parity** — `daedalus guild-master` resolves and launches through the normal runner path (its `<DataDir>/guild-master` workspace at `/workspace`); no special-casing beyond the ensure. Verify the resolution + launch-arg building host-side (the container run is host-only). Tests |  |
-| 4 | **UI presence + a distinguished hero** — appears in `daedalus list` (marked as the built-in manager) and in the Web Guild view as a distinguished hero (a crown / special class ribbon or badge), never offered for deletion. `go build`/`vet` + suite green |  |
+| 1 | **Auto-ensured registry entry (core/registry)** — a reserved `guild-master` name + an `EnsureGuildMaster` that creates the entry if missing, with a Daedalus-owned workspace dir (`<DataDir>/guild-master`) scaffolded via `core.ScaffoldDocs` on first create. Idempotent; invoked on the startup paths (CLI launch/list, coordinator, web) so it is always present. Tests | Done |
+| 2 | **Removal / rename protection** — `RemoveProject`/`RemoveProjects`/`RenameProject` refuse the guild-master with a clear error (the `persona.go` "cannot remove built-in" precedent); `prune` skips it; the CLI `remove`/`prune` + web/TUI remove paths surface the refusal cleanly. Tests | Done |
+| 3 | **Launch parity** — `daedalus guild-master` resolves and launches through the normal runner path (its `<DataDir>/guild-master` workspace at `/workspace`); no special-casing beyond the ensure. Verify the resolution + launch-arg building host-side (the container run is host-only). Tests | Done |
+| 4 | **UI presence + a distinguished hero** — appears in `daedalus list` (marked as the built-in manager) and in the Web Guild view as a distinguished hero (a crown / special class ribbon or badge), never offered for deletion. `go build`/`vet` + suite green | Done |
 
 Out of scope (Sprint 53): the cross-project read-only mounts and `guild-mcp` doc-access tools; the guild-master's programme-manager role doc; the milestone close.
 

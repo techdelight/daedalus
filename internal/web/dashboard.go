@@ -47,6 +47,7 @@ type guildMemberJSON struct {
 	SessionCount int      `json:"sessionCount"`
 	Level        int      `json:"level"`
 	Achievements []string `json:"achievements"`
+	Builtin      bool     `json:"builtin"` // true for the reserved Guild Master hero
 }
 
 // guildProgression derives a hero's "level" and earned achievement keys from a
@@ -255,6 +256,7 @@ func (ws *WebServer) handleGuild(w http.ResponseWriter, r *http.Request) {
 			SessionCount: sessionCount,
 			Level:        level,
 			Achievements: achievements,
+			Builtin:      core.IsGuildMaster(e.Name),
 		})
 	}
 
