@@ -67,13 +67,13 @@ Make upgrading Daedalus effortless and reversible: one self-contained release ar
 - Bundle release assets into a single checksum-verified per-platform archive rather than ~27 individual files (#8)
 - Side-by-side versions — versioned install layout + `daedalus version list/use/rollback/prune` for A-B and rollback before committing (#9)
 
-### Milestone 10: Homebrew Distribution (Planned)
+### Milestone 10: Homebrew Distribution (In Progress)
 
-`brew install daedalus` for macOS users — a Homebrew tap, a formula generator, and CI automation that publishes and updates the formula on each release, so install and upgrade both run through Homebrew. Builds on the single bundled release archive from M9 (#8), which a formula downloads and checksums. See `docs/homebrew-plan.md`. Parked while M11 is in flight.
+`brew install daedalus` for macOS users — a Homebrew tap, a formula generator, and CI automation that publishes and updates the formula on each release, so install and upgrade both run through Homebrew. Builds on the single bundled release archive from M9 (#8), which a formula downloads and checksums. See `docs/homebrew-plan.md`.
 
 - Homebrew tap + formula generator + release CI automation (#11)
 
-### Milestone 11: The Guild Hall, Reforged (In Progress)
+### Milestone 11: The Guild Hall, Reforged (Done)
 
 Turn the Web UI's Guild view into a living Secret-of-Mana-style party screen: every project is a distinct pixel-art hero whose animation reflects its real activity — working when the agent is busy, at ease when idle, resting when its container is asleep. A genuinely delightful, at-a-glance status board for a whole programme of projects. The activity signal already exists host-side (`/api/guild` derives busy/idle/sleeping from the in-container `.daedalus/activity.json` hook + container state); this milestone is the visual reforge on top of it.
 
@@ -84,12 +84,12 @@ Turn the Web UI's Guild view into a living Secret-of-Mana-style party screen: ev
 ## Phasing
 
 ```
-M1 (Done) ─► … ─► M9 (Done) ─► M11 (In Progress)   M10 (Planned)
-Container         Release        Guild Hall          Homebrew
-Runtime           Bundling       Reforged            Distribution
-                  & Upgrades     (JRPG activity)     (parked)
+M1 (Done) ─► … ─► M9 (Done) ─► M11 (Done) ─► M10 (In Progress)
+Container         Release        Guild Hall     Homebrew
+Runtime           Bundling       Reforged       Distribution
+                  & Upgrades     (JRPG)         (resumed)
 ```
 
 ## Current Focus
 
-**Milestone 11: The Guild Hall, Reforged.** Milestones M1–M9 are complete (M9 shipped in **v0.44.0**). M10 (Homebrew) is parked at Planned. M11 reforges the Web UI's Guild view into a Secret-of-Mana-style party screen: each project a distinct pixel-art hero animated by its real activity (busy → working, idle → at ease, sleeping → resting), riding the existing `/api/guild` busy/idle/sleeping signal. No sprint is open yet — see `SPRINTS.md` and `BACKLOG.md`.
+**Milestone 10: Homebrew Distribution.** Milestones M1–M9 and M11 are complete (M11 shipped in **v0.45.0** — the Guild view reforged into a Secret-of-Mana party screen: a distinct pixel-art hero per project animated by its real `/api/guild` activity). M10, un-parked now that M11 has shipped, brings `brew install daedalus`: a Homebrew tap, a formula generator, and CI automation that publishes/updates the formula on each release, building on M9's bundled archive (#11). No sprint is open yet — see `SPRINTS.md` and `BACKLOG.md`.

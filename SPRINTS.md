@@ -2,7 +2,11 @@
 
 ## Current Sprint
 
-### Sprint 51: Activity Fidelity & Party Polish
+_No active sprint. Milestone 11 shipped in **v0.45.0** (Sprints 50–51, in the history below). The next milestone (M10, Homebrew Distribution) is un-parked to In Progress but has no sprint open yet — see `BACKLOG.md`._
+
+## Sprint History
+
+### Sprint 51: Activity Fidelity & Party Polish (v0.45.0)
 
 Goal: finish the Guild reforge — surface *what* each busy hero is doing, and make the party screen production-grade (responsive, accessible, graceful edges). All frontend: `/api/guild` already carries `detail`, `lastUsed`, and `sessionCount`. Design in ROADMAP M11.
 
@@ -16,8 +20,6 @@ Milestone: 11
 | 4 | **Docs + close** — CHANGELOG; refresh `guild-preview.html` to include a busy hero with an action label + a reduced-motion note; `go build`/`vet` + `TestHandleGuild` green; ship Milestone 11 | Done |
 
 Out of scope: any new backend activity plumbing (the signal is sufficient); a TUI equivalent; per-archetype bespoke idle poses beyond the shared set.
-
-## Sprint History
 
 ### Sprint 50: Heroes & Activity Animation (v0.45.0)
 

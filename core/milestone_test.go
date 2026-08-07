@@ -233,10 +233,10 @@ func TestParseMilestonesAgainstRealRoadmap(t *testing.T) {
 	if got[8].Status != StatusDone {
 		t.Errorf("Milestone 9 Status = %q, want %q", got[8].Status, StatusDone)
 	}
-	if got[9].Status != StatusPlanned {
-		t.Errorf("Milestone 10 Status = %q, want %q (parked)", got[9].Status, StatusPlanned)
+	if got[9].Status != StatusInProgress {
+		t.Errorf("Milestone 10 Status = %q, want %q (un-parked after M11)", got[9].Status, StatusInProgress)
 	}
-	if got[10].Status != StatusInProgress {
-		t.Errorf("Milestone 11 Status = %q, want %q", got[10].Status, StatusInProgress)
+	if got[10].Status != StatusDone {
+		t.Errorf("Milestone 11 Status = %q, want %q", got[10].Status, StatusDone)
 	}
 }

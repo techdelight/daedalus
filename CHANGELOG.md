@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.45.0] - 2026-08-07
+
+**Milestone 11: The Guild Hall, Reforged.** The Web UI's Guild view is now a
+Secret-of-Mana-style party screen — every project is a distinct pixel-art hero
+whose animation reflects its real activity (busy → working, idle → at ease,
+sleeping → resting), riding the existing `/api/guild` busy/idle/sleeping signal.
+
 ### Changed
 - **Guild Hall reforge, Sprint 51 (Web UI).** Finished the Secret-of-Mana-style
   party screen. Busy heroes now surface a themed **action ribbon** derived from
