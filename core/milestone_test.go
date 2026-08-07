@@ -186,8 +186,8 @@ func TestParseMilestonesAgainstRealRoadmap(t *testing.T) {
 	}
 
 	got := ParseMilestones(string(data))
-	if len(got) != 12 {
-		t.Fatalf("parsed %d milestones from the repo ROADMAP.md, want 12: %+v", len(got), got)
+	if len(got) != 17 {
+		t.Fatalf("parsed %d milestones from the repo ROADMAP.md, want 17: %+v", len(got), got)
 	}
 
 	for i, m := range got {
@@ -243,5 +243,11 @@ func TestParseMilestonesAgainstRealRoadmap(t *testing.T) {
 	}
 	if got[10].Status != StatusDone {
 		t.Errorf("Milestone 11 Status = %q, want %q", got[10].Status, StatusDone)
+	}
+	// M13–M17 are the Planned "controlling Guild Master" arc.
+	for i := 12; i <= 16; i++ {
+		if got[i].Status != StatusPlanned {
+			t.Errorf("Milestone %d Status = %q, want %q (planned arc)", i+1, got[i].Status, StatusPlanned)
+		}
 	}
 }

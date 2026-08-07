@@ -91,14 +91,53 @@ An always-present, un-removable project — default name **`guild-master`** (sho
 - **Cross-project document access.** Every registered project's directory is mounted **read-only** into the Guild Master container (only there), and a dedicated `guild-mcp` server exposes tools to enumerate projects and read/parse any project's docs (`list_guild_projects`, `read_project_doc`, `guild_overview` — parsed milestones/sprints/progress per project). Read-only: it can *see* every project, never write another's files.
 - **Scope discipline.** No control/dispatch of other agents (impossible by design); the Guild Master advises and plans. Cross-project mounts are resolved at launch (a project added later appears on the next launch) — documented, not hidden.
 
+### Milestone 13: The Verify Gate (Planned)
+
+Make "done" mean something a machine checked, not something an agent self-reported — the highest-leverage step toward a controlling Guild Master (research in `docs/guild-master-control.md`, targets T1/T6; MAST shows ~24% of multi-agent failures are "declared done ≠ verified done", and structural verify gates beat prompt-engineering). A project declares a `daedalus verify` check (build + tests + `daedalus docs lint`) whose **exit code** is the gate; Daedalus injects it as a Claude Code **Stop-hook** so the project agent cannot stop on red; the Guild Master reads each project's verify status. Foundation the rest of the control arc gates on.
+
+- `daedalus verify` contract (per-project build/test/lint check) with an exit-code gate
+- Injected Claude Code Stop-hook so a project agent can't self-declare done while checks fail (runner-specific; graceful degradation for runners without hooks)
+- Per-project verify status exposed to the Guild Master (`guild-mcp`/coordinator); optional independent review-agent pass
+
+### Milestone 14: Guild Master Lifecycle Command & Budgets (Planned)
+
+Give the Guild Master externally-imposable control of the party: start / stop / pause any project's session through the coordinator (which already owns session lifecycles — the Devin/OpenHands "session over a sandbox" model), bounded by explicit budgets. This is pure imposable control that needs no cooperation from the project's agent (targets T2; `docs/guild-master-control.md`).
+
+- Guild-Master control tools (`start`/`stop`/`pause_project`) over the coordinator, surfaced in the Guild view (the crowned hero commands the party)
+- Concurrency caps + wall-clock / turn / cost budgets + auto-pause of stale sessions
+
+### Milestone 15: Task Dispatch & the Programme Ledger (Planned)
+
+Turn visibility into orchestration: the Guild Master hands a well-specified task to a project (headless run or session injection) and collects a **durable artifact** (branch / commit + structured status) via async dispatch → poll → artifact, keeping "return" semantics so the Guild Master stays authoritative. It maintains a persistent **Task Ledger + Progress Ledger** (the Magentic-One skeleton) in its workspace with a stall→replan escape and explicit budgets/termination (targets T3/T4).
+
+- GM→project task-dispatch tool returning a durable artifact + structured status
+- A programme-level Task Ledger (plan/facts) + Progress Ledger (satisfied? looping? progressing? next?) with stall→replan and termination conditions
+
+### Milestone 16: Boundary Gates & Approval (Planned)
+
+The gatekeeper, done at the seams Daedalus can actually gate (it cannot pause an agent mid-turn, but it can gate at tool-call and stop boundaries via injected hooks). For **PM-governed** projects only (opt-in, off by default), milestone/sprint transitions and merges require Guild-Master/human approval — an interrupt-state the controller owns (targets T5). Revives the earlier "gatekeeper" idea now that hooks make boundary gating imposable.
+
+- Approval gate on `project-mgmt-mcp` writes (extend `ValidateWrite` + a `PreToolUse` hook) for milestone/sprint transitions; a merge/integration gate
+- Opt-in per project ("PM enabled", default off); graceful for non-hook runners
+
+### Milestone 17: Cross-Project Coordination & Steering (Planned)
+
+The horizontal coordination layer: a non-destructive **steering channel** to redirect a running project agent at a tool-call boundary (runner injection + a `PreToolUse` hook surfacing queued steering) instead of a destructive `Ctrl-C`, and an internal A2A-style task/status/artifact contract + a cross-project task board for dependencies, composing with the `programmes` feature (targets T7/T8).
+
+- Non-destructive steering channel (priority message delivered at a tool-call boundary)
+- Internal task/status/artifact contract between the Guild Master and projects; a shared cross-project task board for dependencies
+
 ## Phasing
 
 ```
-M1 (Done) ─► … ─► M11 (Done) ─► M12 (Done) ─► ( no active milestone )
-Container         Guild Hall      Guild Master   next focus undecided
-Runtime           Reforged        (programme mgr) — see BACKLOG.md
+M1..M12 (Done, except M10) ─► ( no active milestone )
+
+Planned — the "controlling Guild Master" arc (docs/guild-master-control.md):
+  M13 Verify Gate ─► M14 Lifecycle Command ─► M15 Dispatch + Ledger
+    ─► M16 Boundary Gates ─► M17 Coordination & Steering
+Also Planned: M10 Homebrew Distribution.
 ```
 
 ## Current Focus
 
-**No active milestone.** Milestones M1–M9, M11 and M12 are complete (M12 shipped in **v0.47.0** — the embedded, un-removable `guild-master` project with read visibility across every project's docs). The next focus is undecided: candidates include M10 (Homebrew Distribution, Planned) and the open items in `BACKLOG.md`. No milestone or sprint is in progress — a deliberate between-milestones state, so `daedalus docs lint` noting "no milestone is marked (In Progress)" is expected here, not a defect.
+**No active milestone.** Milestones M1–M9, M11 and M12 are complete (M12 shipped in **v0.47.0** — the embedded, un-removable `guild-master` project with read visibility across every project's docs). Planned next: the **"controlling Guild Master" arc** (M13–M17) — evolving the Guild Master from a read-only overseer into a controlling entity via a verify gate, lifecycle command, task dispatch + a programme ledger, boundary approval gates, and cross-project coordination/steering (research + targets in `docs/guild-master-control.md`); plus M10 (Homebrew Distribution). The natural first is **M13 (The Verify Gate)** — highest leverage, mostly externally-imposable, fully host-testable. No milestone or sprint is in progress yet — a deliberate between-milestones state, so `daedalus docs lint` noting "no milestone is marked (In Progress)" is expected here, not a defect.
