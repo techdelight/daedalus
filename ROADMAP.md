@@ -81,15 +81,24 @@ Turn the Web UI's Guild view into a living Secret-of-Mana-style party screen: ev
 - Activity-driven animation: busy = working/casting, idle = at ease, sleeping = resting — bound to the existing `/api/guild` activity state (and its `detail`)
 - Polish: responsive/mobile layout, `prefers-reduced-motion`, empty/loading states
 
+### Milestone 12: The Guild Master (embedded programme manager) (In Progress)
+
+An always-present, un-removable project — default name **`guild-master`** (shown as "Guild Master") — that launches and behaves like any other Daedalus project, but whose agent has **read visibility across every registered project's documents**. It is the programme manager for the whole guild: a place to plan, reconcile, and report across projects, grounded in each project's own structured docs (ROADMAP / SPRINTS / VISION / BACKLOG) rather than in anyone's self-report.
+
+**How this compares to the multi-agent orchestration people build online.** The "manager over workers" idea is well-trodden — LangGraph's *supervisor* graph, CrewAI's *hierarchical process* (a manager delegating to a crew), AutoGen's *group-chat manager*, the OpenAI *orchestrator-worker*, and research systems like AgentMesh/MetaGPT (a PM/architect/engineer chain). Those are **control** hierarchies: the manager dispatches tasks, awaits results, and hands off. Daedalus deliberately can't do that — it launches each agent as its own autonomous CLI and *offers* tools; it never gates an agent's turns (see M7). So the Guild Master is not a task-dispatcher. It is a **read-only programme overseer** — the "AI PM that automates cross-project status, planning and consistency" use case — a supervisor by *visibility*, not by command. It sees the whole board and can advise or draft programme-level plans; the individual project agents stay autonomous. This is the honest, achievable shape of "manager" in Daedalus's architecture, and it composes with the existing Guild view (the Guild Master is the guild's leader) and the `programmes` feature (multi-project topology).
+
+- **Embedded, un-removable project (registry).** Auto-ensured on startup; `remove`/`prune`/`rename` refuse it (the "cannot remove built-in" precedent). Its own workspace is a Daedalus-owned dir scaffolded with docs (via `daedalus docs scaffold`) for programme-level planning. Appears in `list`, the TUI, the Web project list, and the Guild view as a distinguished hero.
+- **Cross-project document access.** Every registered project's directory is mounted **read-only** into the Guild Master container (only there), and a dedicated `guild-mcp` server exposes tools to enumerate projects and read/parse any project's docs (`list_guild_projects`, `read_project_doc`, `guild_overview` — parsed milestones/sprints/progress per project). Read-only: it can *see* every project, never write another's files.
+- **Scope discipline.** No control/dispatch of other agents (impossible by design); the Guild Master advises and plans. Cross-project mounts are resolved at launch (a project added later appears on the next launch) — documented, not hidden.
+
 ## Phasing
 
 ```
-M1 (Done) ─► … ─► M9 (Done) ─► M11 (Done) ─► ( no active milestone )
-Container         Release        Guild Hall     next focus undecided
-Runtime           Bundling       Reforged       — see BACKLOG.md
-                  & Upgrades     (JRPG)
+M1 (Done) ─► … ─► M11 (Done) ─► M12 (In Progress)      M10 (Planned)
+Container         Guild Hall      The Guild Master        Homebrew
+Runtime           Reforged        (programme manager)     Distribution
 ```
 
 ## Current Focus
 
-**No active milestone.** Milestones M1–M9 and M11 are complete (M11 shipped in **v0.45.0** — the Guild view reforged into a Secret-of-Mana party screen). The next focus is undecided: candidates include M10 (Homebrew Distribution, Planned) and the open items in `BACKLOG.md`. No milestone or sprint is in progress — a deliberate between-milestones state, so `daedalus docs lint` noting "no milestone is marked (In Progress)" is expected here, not a defect.
+**Milestone 12: The Guild Master.** Milestones M1–M9 and M11 are complete (v0.46.0 added guild levels + badges). M12 adds an always-present, un-removable `guild-master` project whose agent reads across every project's docs — a read-only programme overseer (a supervisor by visibility, not command, since Daedalus never gates an agent). M10 (Homebrew) stays Planned. See `SPRINTS.md` for the sprint breakdown.

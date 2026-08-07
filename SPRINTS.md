@@ -2,7 +2,20 @@
 
 ## Current Sprint
 
-_No active sprint, and no active milestone. Milestone 11 shipped in **v0.45.0** (Sprints 50–51, in the history below). A between-milestones state — the next focus is undecided; see `ROADMAP.md` and `BACKLOG.md`._
+### Sprint 52: The Embedded Guild Master
+
+Goal: bring the `guild-master` project into being — always present, un-removable, and launchable like any other project. This is the registry + protection + UI half of Milestone 12; cross-project document access is Sprint 53. Host-side and fully testable without Docker (the container launch itself is host-only, as ever). Design in ROADMAP M12.
+
+Milestone: 12
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | **Auto-ensured registry entry (core/registry)** — a reserved `guild-master` name + an `EnsureGuildMaster` that creates the entry if missing, with a Daedalus-owned workspace dir (`<DataDir>/guild-master`) scaffolded via `core.ScaffoldDocs` on first create. Idempotent; invoked on the startup paths (CLI launch/list, coordinator, web) so it is always present. Tests |  |
+| 2 | **Removal / rename protection** — `RemoveProject`/`RemoveProjects`/`RenameProject` refuse the guild-master with a clear error (the `persona.go` "cannot remove built-in" precedent); `prune` skips it; the CLI `remove`/`prune` + web/TUI remove paths surface the refusal cleanly. Tests |  |
+| 3 | **Launch parity** — `daedalus guild-master` resolves and launches through the normal runner path (its `<DataDir>/guild-master` workspace at `/workspace`); no special-casing beyond the ensure. Verify the resolution + launch-arg building host-side (the container run is host-only). Tests |  |
+| 4 | **UI presence + a distinguished hero** — appears in `daedalus list` (marked as the built-in manager) and in the Web Guild view as a distinguished hero (a crown / special class ribbon or badge), never offered for deletion. `go build`/`vet` + suite green |  |
+
+Out of scope (Sprint 53): the cross-project read-only mounts and `guild-mcp` doc-access tools; the guild-master's programme-manager role doc; the milestone close.
 
 ## Sprint History
 
