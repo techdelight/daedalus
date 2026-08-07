@@ -2,7 +2,24 @@
 
 ## Current Sprint
 
-### Sprint 50: Heroes & Activity Animation
+### Sprint 51: Activity Fidelity & Party Polish
+
+Goal: finish the Guild reforge — surface *what* each busy hero is doing, and make the party screen production-grade (responsive, accessible, graceful edges). All frontend: `/api/guild` already carries `detail`, `lastUsed`, and `sessionCount`. Design in ROADMAP M11.
+
+Milestone: 11
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | **Action label from `detail`** — when a hero is busy, surface the agent's `detail` (e.g. a tool name) as a themed JRPG action ribbon/speech ("Casting **Edit**", "Reading the runes…"); map common details to flavour, fall back to the raw string. Hidden when idle/sleeping. Reads live on the 3s poll via the diff-update | |
+| 2 | **Responsive / mobile** — the party roster reflows cleanly on a phone (the app has a 768px breakpoint used elsewhere); heroes scale, frames/gauges stay legible, no horizontal scroll | |
+| 3 | **Accessibility & graceful edges** — honour `prefers-reduced-motion` (freeze the working/idle loops to a static pose, keep state legible via colour/label); a JRPG-styled empty state ("The guild hall stands empty…") and a first-load state; optional light JRPG stats from `lastUsed`/`sessionCount` (e.g. "Lv" / "last seen") if they fit tastefully | |
+| 4 | **Docs + close** — CHANGELOG; refresh `guild-preview.html` to include a busy hero with an action label + a reduced-motion note; `go build`/`vet` + `TestHandleGuild` green; ship Milestone 11 | |
+
+Out of scope: any new backend activity plumbing (the signal is sufficient); a TUI equivalent; per-archetype bespoke idle poses beyond the shared set.
+
+## Sprint History
+
+### Sprint 50: Heroes & Activity Animation (v0.45.0)
 
 Goal: the heart of the Guild reforge — replace the generic colour-permuted "mage" cards with a distinct **Secret-of-Mana-style pixel-art hero per project** whose animation is driven by real activity: **working** when the agent is busy, **at ease** when idle, **resting** when the container is asleep. Rides the existing `GET /api/guild` busy/idle/sleeping signal + 3s polling — no new activity plumbing. Design in ROADMAP M11.
 
@@ -16,8 +33,6 @@ Milestone: 11
 | 4 | **Wire-up + verification aids** — keep `/api/guild` + `showGuildView` polling intact; `go build` + existing `TestHandleGuild` green (extend if the JSON shape changes). Add a self-contained `internal/web/static/guild-preview.html` that renders the three states (busy/idle/sleeping) with mock data so the look can be reviewed without a running container/browser session. `bash`/`go vet` clean | Done |
 
 Out of scope (Sprint 51): surfacing the agent `detail` ("what it's doing") as an action label/effect; responsive/mobile overlay; `prefers-reduced-motion`; empty/loading polish; final close + any backend `detail` enrichment.
-
-## Sprint History
 
 ### Sprint 49: Side-by-Side Versions & Rollback (v0.44.0)
 
