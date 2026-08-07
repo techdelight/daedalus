@@ -2,7 +2,25 @@
 
 ## Current Sprint
 
-### Sprint 52: The Embedded Guild Master
+### Sprint 53: Cross-Project Document Access
+
+Goal: give the Guild Master's agent read visibility across every project — read-only mounts of each project's directory + a `guild-mcp` server that enumerates and reads them — then close Milestone 12. The mount-arg builder and the MCP doc logic are pure host-side Go, fully testable; the container run itself is host-only. Design in ROADMAP M12.
+
+Milestone: 12
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | **Read-only cross-project mount builder (core)** — a pure function that, for the guild-master project ONLY, emits read-only bind-mount args mounting every *other* registered project's directory at `/guild/<name>` (skip guild-master itself + missing dirs; sanitise the mount name). Wire into the coordinator/launch arg-building for that project. Unit tests over a fake registry |  |
+| 2 | **`cmd/guild-mcp` server** — MCP tools over the mounted `/guild/*` tree: `list_guild_projects` (names + basic parsed state), `read_project_doc(project, doc)` (a named doc's contents), `guild_overview` (per-project parsed milestones/sprints/progress via `core.Parse*`). Robust to missing/half-written docs. Tests over a fixture `/guild` tree |  |
+| 3 | **Scope + role wiring** — build `guild-mcp` into the image and declare it in `claude.json`, **gated so it is active only for the Guild Master** (the `/guild` mount presence / an env from launch). Seed the guild-master workspace with a short role doc (its scaffolded VISION/README or a CLAUDE.md) framing it as the read-only programme overseer. README/ARCHITECTURE note |  |
+| 3b | Keep the Sprint-52 protection + distinguished-hero behaviour intact |  |
+| 4 | **Verify + close** — `go build`/`vet`/`test` green; document the launch-time-mount limitation + the no-control scope + the host-only container bits; CHANGELOG; ship Milestone 12 |  |
+
+Out of scope: any control/dispatch of other agents (impossible by design — read-only visibility only); a live registry watch (mounts resolve at launch); a TUI cross-project view.
+
+## Sprint History
+
+### Sprint 52: The Embedded Guild Master (v0.47.0)
 
 Goal: bring the `guild-master` project into being — always present, un-removable, and launchable like any other project. This is the registry + protection + UI half of Milestone 12; cross-project document access is Sprint 53. Host-side and fully testable without Docker (the container launch itself is host-only, as ever). Design in ROADMAP M12.
 
@@ -16,8 +34,6 @@ Milestone: 12
 | 4 | **UI presence + a distinguished hero** — appears in `daedalus list` (marked as the built-in manager) and in the Web Guild view as a distinguished hero (a crown / special class ribbon or badge), never offered for deletion. `go build`/`vet` + suite green | Done |
 
 Out of scope (Sprint 53): the cross-project read-only mounts and `guild-mcp` doc-access tools; the guild-master's programme-manager role doc; the milestone close.
-
-## Sprint History
 
 ### Sprint 51: Activity Fidelity & Party Polish (v0.45.0)
 
