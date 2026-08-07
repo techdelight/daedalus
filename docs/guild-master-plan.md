@@ -14,8 +14,10 @@ opened.
 "control tools" and parked its task ledger in its own workspace docs. The
 evaluation correctly replaced that with a **host-side control plane** as the
 authority, and moved authoritative state out of any agent workspace. That is a
-strictly better, safer design and is adopted wholesale below; §7 records the
-handful of refinements added on top of it.
+strictly better, safer design and is adopted wholesale below. The refinements it
+left open are now **decided and folded into the design** — the execution model
+(the Job wrapper, §5), the verifier and gate decisions (§6), and the V1-minimal
+scoping (§8–§9); §7 records the provenance.
 
 ---
 
@@ -136,6 +138,17 @@ The worker may only drive `working → candidate` ("I think it's done"). **Only 
 control plane** performs `candidate → verified`. That single rule makes
 verification structural rather than conversational.
 
+**How a Job produces its Artifact (the execution model).** "The Artifact is a
+commit" only holds if a commit reliably exists — agents don't always make one. So
+a Job runs the project's agent through the coordinator inside a **Job wrapper**
+that: pins `base_sha`, runs the agent on branch `daedalus/<task>/<job>`, and
+captures `head_sha` as the Artifact — **auto-committing the working tree at job
+end** as a fallback. A Job and a live human session must not touch the same
+project at once: to start, there is **one active job per project and no concurrent
+interactive session** (V3 relaxes this with a worktree per job). The Guild Master
+sees none of this — it created a Task and asked to dispatch it; the control plane
+resolves the project through the trusted registry and constructs all execution.
+
 ## 6. The load-bearing guarantees
 
 - **Independent verification.** Verification never runs in the worker's live
@@ -145,7 +158,13 @@ verification structural rather than conversational.
   What's verified is the **artifact**, not the worker's environment — immune to
   uncommitted files, altered test config, residual caches. **Runner-agnostic:** it
   checks a git commit, so it works for Claude *or* Copilot; an injected Stop-hook
-  is only an optional early nudge.
+  is only an optional early nudge. (The verifier container is the project's own
+  image + a clean checkout, so it carries the project's toolchain; this roughly
+  doubles container use per verification — reuse cached images.)
+- **Two gates, decided.** The primary gate is **integration approval** of a code
+  Artifact (below). Governing *roadmap* transitions (milestone/sprint edits) is a
+  small **optional add-on** that reuses the same approval machinery (M15), not a
+  separate mechanism.
 - **Frozen acceptance policy.** When a Task is created, the control plane captures
   the verify policy from the task's `base_sha` and hashes it
   (`acceptance_policy: project-policy@924ab7f`). A worker **cannot weaken the check
@@ -165,32 +184,29 @@ verification structural rather than conversational.
   the runner/hook layer at the next supported boundary — not an ad-hoc terminal
   injection.
 
-## 7. Refinements added on top of the evaluation
+## 7. Provenance — what this plan settles
 
-The report's architecture is adopted as-is; these are the gaps worth closing
-during build (they do not change the design, only sharpen V1):
+This plan adopts the control-plane architecture from
+[`../daedalus-control-plane-report.md`](../daedalus-control-plane-report.md)
+wholesale (authority/initiative split, `control.sock` boundary, Task/Job/Artifact,
+host-side SQLite, independent verification, frozen acceptance policy, human
+approval, typed steering). On top of that architecture it **decides** five points
+the evaluation left implicit, now folded into the body above:
 
-1. **The artifact-capture problem (make it explicit in V1).** Agents don't
-   reliably `git commit`, yet "the Artifact is a commit" depends on it. V1 needs a
-   **Job wrapper** that pins `base_sha`, instructs/enforces a commit to
-   `daedalus/<task>/<job>`, and captures `head_sha` — otherwise there is nothing
-   to verify. (The wrapper can auto-commit the working tree at job end as a
-   fallback.)
-2. **Job vs. interactive session.** A dispatched Job and a human working the same
-   project collide. V1's "one active job per project" must also exclude a live
-   human session (or move to a per-job branch/worktree earlier than V3).
-3. **The verifier needs the project's toolchain.** The verifier container is the
-   project's image + a clean checkout — roughly doubling container use per
-   verification. Acceptable, but note it (and reuse cached images).
-4. **Two distinct gates, not one.** The report's **integration approval** (of code
-   artifacts) is primary. The earlier idea of **roadmap-transition governance**
-   (gating milestone/sprint edits) is a *small optional add-on* that reuses the
-   same approval machinery (M15), not its own milestone.
-5. **Scale honesty.** A control plane is a large expansion for a personal/small-
-   team tool. The report's **V1 → V2 → V3** incrementalism is the de-risking, and
-   the milestones below track it: V1 is deliberately minimal (SQLite, one job per
-   project, reuse the coordinator, a simple clean-worktree verifier) — enough to
-   prove the architecture before any governance or parallelism.
+- the **execution model** — the Job wrapper and one-job-per-project /
+  no-concurrent-human-session rule (§5);
+- the **verifier is the project's own image + clean checkout**, at ~2× container
+  cost (§6);
+- **two gates**, with integration approval primary and roadmap-transition
+  governance a reused add-on (§6, M15);
+- **V1 is deliberately minimal** — SQLite, one job/project, reuse the coordinator,
+  a simple clean-worktree verifier — enough to prove the architecture before any
+  governance or parallelism (§8);
+- a **natural stop point after V1** (§9).
+
+It supersedes the pre-control-plane targets and milestone arc in
+[`guild-master-control.md`](guild-master-control.md) §5–§6, which remain valid only
+as the research "why".
 
 ## 8. The milestone plan (M13–M17 = V1 → V2 → V3)
 
