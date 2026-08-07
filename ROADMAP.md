@@ -81,7 +81,7 @@ Turn the Web UI's Guild view into a living Secret-of-Mana-style party screen: ev
 - Activity-driven animation: busy = working/casting, idle = at ease, sleeping = resting — bound to the existing `/api/guild` activity state (and its `detail`)
 - Polish: responsive/mobile layout, `prefers-reduced-motion`, empty/loading states
 
-### Milestone 12: The Guild Master (embedded programme manager) (In Progress)
+### Milestone 12: The Guild Master (embedded programme manager) (Done)
 
 An always-present, un-removable project — default name **`guild-master`** (shown as "Guild Master") — that launches and behaves like any other Daedalus project, but whose agent has **read visibility across every registered project's documents**. It is the programme manager for the whole guild: a place to plan, reconcile, and report across projects, grounded in each project's own structured docs (ROADMAP / SPRINTS / VISION / BACKLOG) rather than in anyone's self-report.
 
@@ -94,11 +94,11 @@ An always-present, un-removable project — default name **`guild-master`** (sho
 ## Phasing
 
 ```
-M1 (Done) ─► … ─► M11 (Done) ─► M12 (In Progress)      M10 (Planned)
-Container         Guild Hall      The Guild Master        Homebrew
-Runtime           Reforged        (programme manager)     Distribution
+M1 (Done) ─► … ─► M11 (Done) ─► M12 (Done) ─► ( no active milestone )
+Container         Guild Hall      Guild Master   next focus undecided
+Runtime           Reforged        (programme mgr) — see BACKLOG.md
 ```
 
 ## Current Focus
 
-**Milestone 12: The Guild Master.** Milestones M1–M9 and M11 are complete (v0.46.0 added guild levels + badges). M12 adds an always-present, un-removable `guild-master` project whose agent reads across every project's docs — a read-only programme overseer (a supervisor by visibility, not command, since Daedalus never gates an agent). M10 (Homebrew) stays Planned. See `SPRINTS.md` for the sprint breakdown.
+**No active milestone.** Milestones M1–M9, M11 and M12 are complete (M12 shipped in **v0.47.0** — the embedded, un-removable `guild-master` project with read visibility across every project's docs). The next focus is undecided: candidates include M10 (Homebrew Distribution, Planned) and the open items in `BACKLOG.md`. No milestone or sprint is in progress — a deliberate between-milestones state, so `daedalus docs lint` noting "no milestone is marked (In Progress)" is expected here, not a defect.

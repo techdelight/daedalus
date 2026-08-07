@@ -2,7 +2,11 @@
 
 ## Current Sprint
 
-### Sprint 53: Cross-Project Document Access
+_No active sprint, and no active milestone. Milestone 12 shipped in **v0.47.0** (Sprints 52–53, in the history below). A between-milestones state — the next focus is undecided; see `ROADMAP.md` and `BACKLOG.md`._
+
+## Sprint History
+
+### Sprint 53: Cross-Project Document Access (v0.47.0)
 
 Goal: give the Guild Master's agent read visibility across every project — read-only mounts of each project's directory + a `guild-mcp` server that enumerates and reads them — then close Milestone 12. The mount-arg builder and the MCP doc logic are pure host-side Go, fully testable; the container run itself is host-only. Design in ROADMAP M12.
 
@@ -17,8 +21,6 @@ Milestone: 12
 | 4 | **Verify + close** — `go build`/`vet`/`test` green; document the launch-time-mount limitation + the no-control scope + the host-only container bits; CHANGELOG; ship Milestone 12 | Done |
 
 Out of scope: any control/dispatch of other agents (impossible by design — read-only visibility only); a live registry watch (mounts resolve at launch); a TUI cross-project view.
-
-## Sprint History
 
 ### Sprint 52: The Embedded Guild Master (v0.47.0)
 

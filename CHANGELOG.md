@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.47.0] - 2026-08-07
+
+**Milestone 12: The Guild Master.** An always-present, un-removable `guild-master`
+project whose agent reads across every project's documents — a read-only programme
+overseer (a supervisor by visibility, not command).
+
 ### Added
 - **Guild Master — read visibility across every project.** When the built-in
   Guild Master launches, every *other* registered project's directory is mounted
