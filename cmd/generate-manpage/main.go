@@ -376,6 +376,9 @@ func writeExitStatus(b *strings.Builder) {
 	b.WriteString(".TP\n")
 	b.WriteString("\\fB1\\fR\n")
 	b.WriteString("An error occurred (invalid arguments, Docker failure, missing project, etc.).\n")
+	b.WriteString(".TP\n")
+	b.WriteString("\\fB3\\fR\n")
+	b.WriteString("A \\fBtask\\fR request was refused by control-plane policy (over budget, attempts exhausted, concurrency exceeded). Distinct from \\fB1\\fR so a script can tell a policy refusal from a failure; the machine-readable reason is printed on standard error and recorded in \\fBdaedalus task events\\fR.\n")
 }
 
 // writeFiles writes the FILES section.

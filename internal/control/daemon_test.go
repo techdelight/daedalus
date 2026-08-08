@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -135,5 +136,112 @@ func TestDaemon_ErrorMapping(t *testing.T) {
 	}
 	if _, err := client.CreateTask(CreateTaskRequest{Project: "app", Objective: "second"}); err == nil {
 		t.Error("second active create over wire = nil, want conflict error")
+	}
+}
+
+// TestDaemon_GovernanceRoundTrip exercises the Sprint-58 routes end to end over
+// the socket: retry, replan, and the read-only event log.
+func TestDaemon_GovernanceRoundTrip(t *testing.T) {
+	repo := gitRepo(t)
+	svc, _, _ := newService(t, mapResolver{"app": repo},
+		StubRunner{Result: ExecSuccess, WriteFile: true}, nil, StubVerifyRunner{Pass: false})
+	client := serveUDS(t, svc)
+
+	task, err := client.CreateTask(CreateTaskRequest{Project: "app", Objective: "first go"})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	// The budget survives the wire (it is part of the Task).
+	if task.Budget != DefaultBudget() {
+		t.Errorf("budget over wire = %+v, want DefaultBudget", task.Budget)
+	}
+	if _, err := client.DispatchTask(task.ID); err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+	vres, err := client.VerifyTask(task.ID)
+	if err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	if vres.Reason != ReasonVerifyFailed {
+		t.Errorf("rejection reason over wire = %q, want %q", vres.Reason, ReasonVerifyFailed)
+	}
+
+	rres, err := client.RetryTask(task.ID, RetryRequest{})
+	if err != nil {
+		t.Fatalf("client RetryTask: %v", err)
+	}
+	if rres.Attempt != 2 || rres.Dispatch.Job.ID == "" {
+		t.Errorf("retry over wire = %+v, want attempt 2 with a fresh job", rres)
+	}
+
+	if _, err := client.VerifyTask(task.ID); err != nil {
+		t.Fatalf("verify 2: %v", err)
+	}
+	replanned, err := client.ReplanTask(task.ID, ReplanRequest{Objective: "second go"})
+	if err != nil {
+		t.Fatalf("client ReplanTask: %v", err)
+	}
+	if replanned.Objective != "second go" || replanned.State != StatePlanned {
+		t.Errorf("replan over wire = %+v, want 'second go' in planned", replanned)
+	}
+
+	events, err := client.TaskEvents(task.ID)
+	if err != nil {
+		t.Fatalf("client TaskEvents: %v", err)
+	}
+	if len(events) == 0 {
+		t.Fatal("no events over the wire")
+	}
+	if !hasEvent(events, EventRejection, ReasonVerifyFailed) {
+		t.Error("the typed rejection reason should survive the wire")
+	}
+	if _, err := client.TaskEvents("T-404"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("events for an unknown task = %v, want ErrNotFound", err)
+	}
+}
+
+// TestDaemon_RejectionSurvivesTheWire is the load-bearing half of "a client can
+// tell 'refused by policy' from 'failed'": the typed refusal must arrive as the
+// same *RejectionError the in-process Service raised, with its reason intact and
+// its message un-doubled.
+func TestDaemon_RejectionSurvivesTheWire(t *testing.T) {
+	repo := gitRepo(t)
+	svc, _, _ := newService(t, mapResolver{"app": repo},
+		StubRunner{Result: ExecSuccess, WriteFile: true}, nil, StubVerifyRunner{Pass: false})
+	svc.SetBudgetSource(StaticBudget(Budget{WallClockSeconds: 60, MaxAttempts: 1, MaxReviewCycles: 1, Concurrency: 1}))
+	client := serveUDS(t, svc)
+
+	// 1. An over-budget create.
+	_, err := client.CreateTask(CreateTaskRequest{Project: "app", Objective: "x", Budget: &Budget{MaxAttempts: 99}})
+	var rej *RejectionError
+	if !errors.As(err, &rej) {
+		t.Fatalf("over-budget create over wire = %v, want *RejectionError", err)
+	}
+	if rej.Reason != ReasonOverBudget {
+		t.Errorf("reason = %q, want %q", rej.Reason, ReasonOverBudget)
+	}
+	if strings.Count(err.Error(), "refused by policy") != 1 {
+		t.Errorf("the refusal message is doubled on the wire: %q", err.Error())
+	}
+
+	// 2. An exhausted attempt budget on dispatch.
+	task, err := client.CreateTask(CreateTaskRequest{Project: "app", Objective: "x"})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if _, err := client.DispatchTask(task.ID); err != nil {
+		t.Fatalf("dispatch 1: %v", err)
+	}
+	if _, err := client.VerifyTask(task.ID); err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	_, err = client.RetryTask(task.ID, RetryRequest{})
+	if !errors.As(err, &rej) || rej.Reason != ReasonAttemptsExhausted {
+		t.Fatalf("retry past the budget = %v, want attempts_exhausted", err)
+	}
+	// A refusal is NOT a not-found and NOT a bare error — the distinction is the
+	// whole point.
+	if errors.Is(err, ErrNotFound) {
+		t.Error("a policy refusal must not masquerade as ErrNotFound")
 	}
 }

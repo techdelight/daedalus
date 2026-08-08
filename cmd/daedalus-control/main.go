@@ -122,6 +122,16 @@ func main() {
 
 	svc := control.NewService(store, resolver, worktrees, runner, verifier, sessions)
 
+	// Governance budgets (M15): per-project ceilings from a HOST-SIDE policy file
+	// under the data dir — never from a project checkout, so an agent cannot raise
+	// the envelope that bounds its own work. Re-read per lookup, so an operator's
+	// edit applies to the next task without a daemon restart; a missing or
+	// malformed file degrades to the built-in defaults.
+	budgetPath := control.DefaultBudgetPolicyPath(cfg.dataDir)
+	svc.SetBudgetSource(control.FileBudgetPolicy{Path: budgetPath})
+	log.Printf("budget policy: %s (enforced: %v; policy-only, not enforced: %v)",
+		budgetPath, control.EnforcedAxes(), control.PolicyOnlyAxes())
+
 	// Image-digest pin: capture the project image's sha256 digest so the verifier
 	// runs against the exact environment the artifact was authored against. Only
 	// wired when the real verifier is active — under DAEDALUS_CONTROL_FAKE_VERIFY

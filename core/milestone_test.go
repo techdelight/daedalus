@@ -251,7 +251,11 @@ func TestParseMilestonesAgainstRealRoadmap(t *testing.T) {
 	if got[13].Status != StatusDone {
 		t.Errorf("Milestone 14 Status = %q, want %q", got[13].Status, StatusDone)
 	}
-	for i := 14; i <= 16; i++ {
+	// M15 (governance) is the open milestone; M16–M17 remain Planned.
+	if got[14].Status != StatusInProgress {
+		t.Errorf("Milestone 15 Status = %q, want %q", got[14].Status, StatusInProgress)
+	}
+	for i := 15; i <= 16; i++ {
 		if got[i].Status != StatusPlanned {
 			t.Errorf("Milestone %d Status = %q, want %q (planned arc)", i+1, got[i].Status, StatusPlanned)
 		}

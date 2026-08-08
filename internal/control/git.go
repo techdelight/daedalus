@@ -64,6 +64,32 @@ func ReadHeadSHA(dir string) (string, error) {
 		"make an initial commit before creating a task", dir, ref)
 }
 
+// TargetTipSHA returns the commit an artifact would ultimately land on: the
+// project checkout's current HEAD.
+//
+// V1 assumption, stated plainly: the *target branch is whatever the developer's
+// project checkout has checked out*. The control plane has no separate notion of
+// a target ref yet (that arrives with the M15 integration transaction), and a
+// Job's own worktree is a detached side branch under the data dir, so it never
+// moves this tip.
+func TargetTipSHA(repoDir string) (string, error) { return ReadHeadSHA(repoDir) }
+
+// IsStaleBase reports whether baseSHA is no longer the project's target tip —
+// §6's "artifact built from a stale base → REJECTED, must rebase + re-verify".
+// A candidate verified against a base the project has since moved past proves
+// something about a tree nobody will ever integrate, so the plane refuses to
+// call it verified.
+//
+// Returns (stale, currentTip, err). A repo whose tip cannot be read is an error,
+// never a silent "not stale": failing open here would quietly retire the check.
+func IsStaleBase(repoDir, baseSHA string) (bool, string, error) {
+	tip, err := TargetTipSHA(repoDir)
+	if err != nil {
+		return false, "", err
+	}
+	return baseSHA != "" && tip != baseSHA, tip, nil
+}
+
 // resolveGitDir returns the real git directory for a project dir, following a
 // ".git file" gitdir pointer if present. Returns *ErrNotGitRepo when absent.
 func resolveGitDir(dir string) (string, error) {

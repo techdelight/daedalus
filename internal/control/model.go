@@ -129,6 +129,13 @@ var legalTransitions = map[State]map[State]bool{
 // whole governance/integration tail — is control-plane-only. This is the
 // structural encoding of "verification is not conversational" (§5): a worker
 // literally cannot name `verified` as a target.
+//
+// Sprint 58 (governance) deliberately added NOTHING here and nothing to
+// legalTransitions: retry reuses rejected → queued, replan reuses
+// rejected → planned, a wall-clock kill reuses working → failed, and a budget
+// refusal changes no state at all. The event log's `actor` label (EventMeta) is
+// likewise a label only — authority still comes from this table plus the
+// byWorker flag, never from what an event says.
 var workerReachable = map[State]map[State]bool{
 	StateWorking: {
 		StateCandidate:     true, // "I think it's done."
@@ -232,9 +239,14 @@ type Task struct {
 	// captured at create or first verify, so the clean verifier runs the artifact
 	// in the same environment it was authored against (§6). Empty until captured.
 	ImageDigest string `json:"imageDigest"`
-	State       State  `json:"state"`
-	CreatedAt   string `json:"createdAt"` // ISO 8601 UTC
-	UpdatedAt   string `json:"updatedAt"` // ISO 8601 UTC
+	// Budget is the governance envelope resolved at create (request narrowed
+	// against the project ceiling) and stored authoritatively here, so the bounds
+	// on a Task cannot drift and no agent can widen its own (§6). Legacy rows
+	// written before Sprint 58 carry no budget and read back as DefaultBudget().
+	Budget    Budget `json:"budget"`
+	State     State  `json:"state"`
+	CreatedAt string `json:"createdAt"` // ISO 8601 UTC
+	UpdatedAt string `json:"updatedAt"` // ISO 8601 UTC
 }
 
 // Job is one attempt at a Task (§5): a headless runner invocation pinned to a

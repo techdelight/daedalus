@@ -81,6 +81,10 @@ the logic directly (tests) or over the socket (production).
 | `task list` | All tasks: id, project, state, objective snippet. |
 | `task status <id>` | A task with its jobs and artifacts. |
 | `task dispatch <id>` | Run one headless Job attempt (see below). |
+| `task verify <id>` | Plane-owned verification of a candidate (see below). |
+| `task retry <id> [--rebase]` | Retry a rejected task as a fresh Job (see *Governance*). |
+| `task replan <id> --objective <text>` | Return a rejected task to `planned` with a revised objective. |
+| `task events <id>` | The control-plane-managed event log for a task. |
 | `task cancel <id>` | Cancel the task, cancel its active jobs, reclaim their worktrees. |
 
 ### The execution model (Sprint 55 / M13 — built)
@@ -198,16 +202,156 @@ transitions) is fully host-tested with a fake `VerifyRunner`, and
 `DAEDALUS_CONTROL_FAKE_VERIFY` selects the stub so CI and the verify scripts stay
 Docker-free. See `scripts/verify-m14.sh`.
 
+## Governance — budgets, rejection, retry/replan, the event log (Sprint 58 / M15 — built)
+
+A plane that can only execute is not an authority. Governance is what lets it say
+**no**, say *why* in a form a machine can act on, and keep a record of having said
+it.
+
+### Budgets
+
+Every Task carries a **budget**, resolved at create and stored authoritatively on
+the Task row (`budget`, new column + idempotent migration). §6 splits the axes
+honestly, and so does the code:
+
+| Axis | Status | How |
+|---|---|---|
+| **wall-clock** (per Job) | **Enforced** | the plane races the runner against a deadline context; an overrun is `execution_result=timeout` and the Job/Task go terminal |
+| **max-attempts** (per Task) | **Enforced** | Jobs are counted; a dispatch/retry beyond the count is refused |
+| **max-review-cycles** (per Task) | **Enforced** | transitions into `verifying` are counted **from the event log**; a further verify is refused |
+| **concurrency** (per project) | **Enforced** | running Jobs (`queued`/`working`/`input_required`) are counted; a further dispatch is refused |
+| **turns · tokens · cost** | **Policy only — NOT enforced** | Daedalus takes *process exit* as the Job boundary and never sees an agent's turn/token/cost accounting. These are **runner-dependent measurement**: recorded on the Task, surfaced in `task status`, and honoured only by something that can measure them. **Nothing in Daedalus stops a Job that exceeds them.** |
+
+Defaults are `wall-clock=3600s, attempts=3, review-cycles=3, concurrency=1`, and
+are **per-project overridable** from a **host-side** file,
+`<data-dir>/control/budgets.json`:
+
+```json
+{
+  "default":  {"wallClockSeconds": 1800, "maxAttempts": 2},
+  "projects": {"big-app": {"wallClockSeconds": 7200, "maxAttempts": 5}}
+}
+```
+
+Unset (zero) fields inherit: request → project override → policy default →
+built-in. The file lives under the Daedalus data dir and **never in a project
+checkout** — a budget read from an agent-writable repo would let an agent raise
+its own ceiling by committing a file, the exact authority inversion §5 forbids.
+It is re-read per lookup (an edit applies to the next task, no restart), and a
+missing or malformed file degrades to the built-in defaults rather than taking
+the plane down.
+
+`task create` flags (`--wall-clock`, `--max-attempts`, `--max-review-cycles`,
+`--concurrency`) may only ever **narrow** the project's ceiling. Asking for more
+is refused with `over_budget` — raising a ceiling is a host-side act, out of
+reach of anything that talks to `control.sock`.
+
+**Honest limit on the wall-clock kill.** The plane guarantees its own verdict and
+cancels the Job's context; it cannot guarantee the death of a process it did not
+fork. A runner that ignores its context keeps running in the background until it
+exits. Killing the underlying container needs a context-honouring runner — the
+real `CoordinatorRunner` is `exec`-based and does not abort a command mid-flight
+today.
+
+### Typed rejection
+
+Two shapes of "no" share one machine-readable vocabulary:
+
+- a **refusal** — the plane declines a request; **nothing changes state**, a
+  decision event is appended, and the caller gets a `*RejectionError`
+  (HTTP **422** with `{"error", "reason", "message"}`, CLI **exit code 3**);
+- a **verdict** — the plane acted and the artifact was rejected; Task/Job land in
+  `rejected`, and the reason rides on the transition event and `VerifyResult.Reason`.
+
+| Reason | Kind | Meaning |
+|---|---|---|
+| `over_budget` | refusal | the requested budget widens the project's ceiling |
+| `attempts_exhausted` | refusal | the Task has used all its attempts |
+| `review_cycles_exhausted` | refusal | the Task has used all its review cycles (the candidate is left untouched — refusing to look is not a verdict) |
+| `concurrency_exceeded` | refusal | the project already has its budgeted running Jobs |
+| `stale_base` | verdict | the candidate's `base_sha` is no longer the project's target tip |
+| `null_agent_floor` | verdict | `head_sha == base_sha` — an empty change |
+| `policy_drift` | verdict | the acceptance policy at `base_sha` no longer hashes to the frozen value |
+| `integrity_gate` | verdict | the Job's diff edits frozen acceptance files |
+| `verify_failed` | verdict | the clean verifier ran and reported failure |
+
+**Stale base.** An artifact built on a base the project has moved past proves
+something about a tree nobody will integrate, so it is rejected **before** the
+integrity gate or the verifier — a doomed artifact never costs a verifier
+container. The target tip is the project checkout's current `HEAD` (V1 has no
+separate target ref; that arrives with the integration transaction). The remedy
+is named in the rejection: `daedalus task retry <id> --rebase`.
+
+Exit codes: `0` success, `1` failure, **`3` refused by policy**. That distinction
+is the whole point — a governed plane that only ever said "error" would be
+indistinguishable from a broken one.
+
+### Retry and replan
+
+```text
+rejected ──retry──→ queued → working → …      (a FRESH Job, attempt counter advanced)
+rejected ──replan─→ planned                    (a revised objective, same Task)
+```
+
+- `daedalus task retry <id> [--rebase]` — a fresh Job on the same Task, budget
+  re-checked first. **Attempt history is preserved, never overwritten**: the
+  previous Jobs (and the record of why each was rejected) stay exactly as they
+  were, so a Task carries its whole chain. `--rebase` first re-pins the Task to
+  the project's current tip **and re-freezes the acceptance policy there** — the
+  remedy for `stale_base`. It is opt-in precisely because re-freezing the oracle
+  at a newer commit adopts whatever verify policy that commit carries, so a human
+  asks for it by name.
+- `daedalus task replan <id> --objective <text>` — for when the *instruction* was
+  wrong rather than the work. Objective and state change in one transaction (no
+  window where `planned` carries the objective that was just rejected). It does
+  **not** reset the attempt counter: the budget bounds the Task, not the
+  objective, so replanning cannot be used to buy more attempts.
+
+Neither added a state or an edge: retry reuses `rejected → queued`, replan reuses
+`rejected → planned`. The two-transition-table invariant (`workerReachable` vs
+`legalTransitions`) is untouched, so nothing here brings a worker any closer to
+`verified`.
+
+### The control-plane-managed event log
+
+Every transition, budget decision, rejection, and verification outcome is a typed
+row in `events`: `kind` ∈ {`created`, `transition`, `budget`, `rejection`,
+`verification`, `governance`}, an optional machine-readable `reason`, the state
+change, and an `actor`.
+
+`daedalus task events <id>` renders the whole chain — the Task plus every Job it
+ever had and every Artifact those Jobs produced — in the order things happened.
+
+**Named honestly.** The log is **control-plane-managed** and **immutable through
+the API**: `INSERT` is the only statement the package ever runs against `events`,
+there is no update/delete/amend operation anywhere, the `TaskAPI` exposes exactly
+one event method and it reads, and `/tasks/{id}/events` answers `GET` only. Tests
+assert all four, including a source scan that fails the moment someone writes a
+mutating statement. It is **not cryptographically tamper-proof**: anyone with
+access to `control.db` can still edit the file. Hash-chaining remains an optional
+later property and is not claimed here.
+
+**On `actor`.** `human` / `control-plane` / `worker` / `system` label a request's
+*origin*, not an authenticated identity — today the only thing that can reach
+`control.sock` is the human CLI. When the Guild Master joins as a client the
+caller identity must be carried on the request and checked. The label grants no
+authority in any case: transitions are gated by the two tables in `model.go`.
+
 ## Scope boundary — what is deliberately NOT here yet
 
 Milestones 13–14 deliver the model, store, daemon, human CLI, isolated-worktree
 headless execution, reconciliation, and independent verification (clean checkout,
-digest pin, env policy, integrity gate, null-agent floor). Still ahead:
+digest pin, env policy, integrity gate, null-agent floor); Sprint 58 adds the
+governance core (budgets, typed rejection, retry/replan, the event log). Still
+ahead:
 
-- **No governance / integration / Guild Master client.** Budgets + request
-  rejection, the merge-queue integration transaction (rebase → re-verify merged →
-  compare-and-swap), human approval, retry/replan, an independent reviewer, and
-  the (tiered, injection-safe) `guild-control-mcp` client land in **M15**.
+- **No integration transaction, no human approval gate, no Guild Master client.**
+  The merge-queue integration transaction (serialize → rebase onto the current
+  tip → re-verify the *merged* result → compare-and-swap), the human
+  `verified → approval_required → approved → integrated` state machine with
+  Web/TUI approve-reject, and an independent reviewer pass are **Sprint 59**; the
+  (tiered, injection-safe) `guild-control-mcp` client is **Sprint 60**. Until
+  then a `verified` Task rests there — nothing lands automatically.
 - **No parallelism.** One active Job per project; multiple concurrent worktrees
   are **M16**. `task dispatch` runs the attempt synchronously.
 - **The real `CoordinatorRunner` is host-only.** It needs a Docker daemon and is

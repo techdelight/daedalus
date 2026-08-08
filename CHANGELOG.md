@@ -4,6 +4,53 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- **Governance core — budgets, typed rejection, retry/replan and the
+  control-plane-managed event log (Sprint 58, opening M15).** The control plane
+  can now say **no**. Every Task carries a **budget** captured at create and
+  stored authoritatively (`budget`, new column + idempotent migration): the plane
+  enforces the axes it genuinely can — **wall-clock** (a Job is raced against a
+  deadline; an overrun is `execution_result=timeout`), **max-attempts**,
+  **max-review-cycles** (counted from the event log), and **concurrency** — while
+  **turn/token/cost remain policy in the plane, explicitly NOT enforced**, because
+  Daedalus takes process exit as the Job boundary and cannot measure them.
+  Defaults are per-project-overridable from a **host-side**
+  `<data-dir>/control/budgets.json` — never a project checkout, so an agent cannot
+  raise its own ceiling — and `task create` flags may only ever *narrow* it.
+  **Typed rejection** gives every "no" a machine-readable `RejectionReason`:
+  refusals (`over_budget`, `attempts_exhausted`, `review_cycles_exhausted`,
+  `concurrency_exceeded`) change no state, are recorded, and surface as HTTP 422 +
+  **CLI exit code 3** so a client can tell *refused by policy* from *failed*;
+  verdicts (`stale_base`, `null_agent_floor`, `policy_drift`, `integrity_gate`,
+  `verify_failed`) ride on the transition event and `VerifyResult.Reason`. New
+  **stale-base** detection rejects a candidate whose `base_sha` is no longer the
+  project's target tip — before the integrity gate or the verifier — and names the
+  remedy. New `daedalus task retry <id> [--rebase]` creates a **fresh Job** with
+  the attempt counter advanced and the budget re-checked, **preserving the whole
+  Job chain** (attempt history is never overwritten); `--rebase` re-pins the Task
+  to the project tip and re-freezes the acceptance policy there (opt-in, because
+  it adopts a newer oracle). New `daedalus task replan <id> --objective <text>`
+  returns a rejected Task to `planned` with a revised objective in one atomic
+  transition, **without** resetting the attempt counter. New `daedalus task events
+  <id>` renders the **control-plane-managed event log** — every transition, budget
+  decision, rejection and verification outcome as a typed event (`kind`, `reason`,
+  `actor`) across the Task, its Jobs and its Artifacts. The log is **immutable
+  *through the API*** — `INSERT` is the only statement the package runs against
+  `events`, the `TaskAPI` exposes one read-only event method, and the route is
+  `GET`-only (all four asserted by tests, including a source scan) — and is
+  deliberately **not** claimed to be cryptographically tamper-proof. No state or
+  transition edge was added: retry reuses `rejected → queued`, replan reuses
+  `rejected → planned`, so the worker-vs-plane transition-table invariant is
+  untouched. Pure Go + git throughout, fully host-tested without Docker
+  (`CGO_ENABLED=0`); a v0.49.0 `control.db` migrates additively and keeps working.
+  See `docs/control-plane.md`.
+
+### Fixed
+- **`core` milestone test broke when M15 was opened.** `TestParseMilestonesAgainstRealRoadmap`
+  hard-asserted M15–M17 were all `Planned`; opening Milestone 15 in `ROADMAP.md`
+  turned that into a red suite. It now asserts M15 is `In Progress` and M16–M17
+  `Planned`.
+
 ## [0.49.0] - 2026-08-08
 
 **Milestone 14: Independent Verification (V1).** "Done" is now decided by the

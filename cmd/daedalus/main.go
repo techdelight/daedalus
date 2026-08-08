@@ -11,6 +11,7 @@ import (
 	"github.com/techdelight/daedalus/internal/color"
 	"github.com/techdelight/daedalus/internal/completions"
 	"github.com/techdelight/daedalus/internal/config"
+	"github.com/techdelight/daedalus/internal/control"
 	"github.com/techdelight/daedalus/internal/docker"
 	"github.com/techdelight/daedalus/internal/executor"
 	"github.com/techdelight/daedalus/internal/logging"
@@ -19,13 +20,40 @@ import (
 	"github.com/techdelight/daedalus/internal/web"
 )
 
+// Process exit codes. 2 is deliberately left unused (the conventional
+// "usage error" slot) so it stays available.
+const (
+	// exitFailure is the catch-all: something went wrong.
+	exitFailure = 1
+	// exitRefused means the control plane REFUSED the request as a matter of
+	// policy — over budget, attempts exhausted, concurrency exceeded (§6, "the
+	// plane can reject"). It is distinct from exitFailure so a script driving
+	// `daedalus task` can tell "the plane said no" from "something broke" without
+	// parsing prose. The reason itself is on stderr and in `task events`.
+	exitRefused = 3
+)
+
 func main() {
 	color.Init()
 	if err := run(os.Args[1:]); err != nil {
 		logging.Error(err.Error())
-		fmt.Fprintf(os.Stderr, "%s %v\n", color.Red("Error:"), err)
-		os.Exit(1)
+		if reason, refused := control.Rejected(err); refused {
+			fmt.Fprintf(os.Stderr, "%s %v\n", color.Yellow("Refused:"), err)
+			logging.Info("refused by control-plane policy: " + string(reason))
+		} else {
+			fmt.Fprintf(os.Stderr, "%s %v\n", color.Red("Error:"), err)
+		}
+		os.Exit(exitCodeFor(err))
 	}
+}
+
+// exitCodeFor maps an error to a process exit code: a control-plane policy
+// refusal gets its own code so callers can distinguish it from a failure.
+func exitCodeFor(err error) int {
+	if _, refused := control.Rejected(err); refused {
+		return exitRefused
+	}
+	return exitFailure
 }
 
 // run is the top-level dispatcher. Subcommand handlers live in topic

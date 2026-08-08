@@ -122,6 +122,53 @@ func (c *Client) VerifyTask(id string) (VerifyResult, error) {
 	return res, json.NewDecoder(resp.Body).Decode(&res)
 }
 
+// RetryTask implements TaskAPI.
+func (c *Client) RetryTask(id string, req RetryRequest) (RetryResult, error) {
+	var res RetryResult
+	return res, c.postJSON("/tasks/"+url.PathEscape(id)+"/retry", req, &res)
+}
+
+// ReplanTask implements TaskAPI.
+func (c *Client) ReplanTask(id string, req ReplanRequest) (Task, error) {
+	var t Task
+	return t, c.postJSON("/tasks/"+url.PathEscape(id)+"/replan", req, &t)
+}
+
+// TaskEvents implements TaskAPI. Read-only: the client has no counterpart that
+// writes to the log, because the daemon exposes no route that would accept one.
+func (c *Client) TaskEvents(id string) ([]Event, error) {
+	resp, err := c.httpClient.Get(c.baseURL + "/tasks/" + url.PathEscape(id) + "/events")
+	if err != nil {
+		return nil, fmt.Errorf("control client: GET /tasks/%s/events: %w", id, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, decodeError(resp)
+	}
+	var events []Event
+	if err := json.NewDecoder(resp.Body).Decode(&events); err != nil {
+		return nil, err
+	}
+	return events, nil
+}
+
+// postJSON posts body to path and decodes a 200 response into out.
+func (c *Client) postJSON(path string, body, out any) error {
+	payload, err := json.Marshal(body)
+	if err != nil {
+		return err
+	}
+	resp, err := c.httpClient.Post(c.baseURL+path, "application/json", bytes.NewReader(payload))
+	if err != nil {
+		return fmt.Errorf("control client: POST %s: %w", path, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return decodeError(resp)
+	}
+	return json.NewDecoder(resp.Body).Decode(out)
+}
+
 // CancelTask implements TaskAPI.
 func (c *Client) CancelTask(id string) (Task, error) {
 	req, _ := http.NewRequest(http.MethodDelete, c.baseURL+"/tasks/"+url.PathEscape(id), nil)
@@ -142,11 +189,23 @@ func (c *Client) CancelTask(id string) (Task, error) {
 func decodeError(resp *http.Response) error {
 	body, _ := io.ReadAll(resp.Body)
 	var env struct {
-		Error string `json:"error"`
+		Error   string          `json:"error"`
+		Reason  RejectionReason `json:"reason"`
+		Message string          `json:"message"`
 	}
 	msg := strings.TrimSpace(string(body))
 	if err := json.Unmarshal(body, &env); err == nil && env.Error != "" {
 		msg = env.Error
+	}
+	// A policy refusal is rebuilt as the same typed error the Service raised, so
+	// errors.As(&RejectionError) works identically in-process and over the socket
+	// — and the CLI's "refused" exit code does not depend on where the logic ran.
+	if resp.StatusCode == http.StatusUnprocessableEntity && IsValidRejectionReason(env.Reason) {
+		detail := env.Message
+		if detail == "" {
+			detail = msg
+		}
+		return &RejectionError{Reason: env.Reason, Message: detail}
 	}
 	if resp.StatusCode == http.StatusNotFound {
 		return fmt.Errorf("%w: %s", ErrNotFound, msg)

@@ -4,6 +4,7 @@ package control
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -48,11 +49,44 @@ func (e *ErrActiveTaskExists) Error() string {
 }
 
 // Actor labels who drove an event, recorded in the append-only event log.
+//
+// Honest caveat (§6): the actor is a *label of a request's origin*, not an
+// authenticated identity. Today the only thing that can reach control.sock is
+// the human `daedalus task` CLI, so ActorHuman marks the operations a person
+// explicitly asked for (cancel / retry / replan / rebase) as distinct from
+// decisions the plane made on its own. When an agent client joins (Sprint 60,
+// `guild-control-mcp`) the caller identity must be carried on the request and
+// checked — a label alone must never be read as proof of who acted, and it
+// grants no authority: transitions are gated by the two tables in model.go.
 const (
 	ActorPlane  = "control-plane"
 	ActorWorker = "worker"
+	ActorHuman  = "human"  // an operation a person explicitly requested
 	ActorSystem = "system" // creation, etc.
 )
+
+// Event kinds — the "typed" in "typed event" (§6). Every row carries one.
+const (
+	EventCreated      = "created"      // an entity was inserted
+	EventTransition   = "transition"   // a state change
+	EventBudget       = "budget"       // a budget decision (usually a refusal)
+	EventRejection    = "rejection"    // a request refused, or an artifact rejected
+	EventVerification = "verification" // a verification outcome
+	EventGovernance   = "governance"   // retry / replan / rebase and similar acts
+)
+
+// EventMeta annotates an event row. Kind defaults to EventTransition, Reason is
+// the machine-readable rejection reason (empty when not a rejection), and Actor
+// overrides the label otherwise derived from byWorker.
+//
+// Actor is a LABEL ONLY. Authority comes from the byWorker flag and the two
+// transition tables in model.go; setting Actor never widens what a transition
+// may do.
+type EventMeta struct {
+	Kind   string
+	Reason RejectionReason
+	Actor  string
+}
 
 // Store is a thin, durable layer over a SQLite database holding the control
 // plane's *desired* state (§5/§6): tasks, jobs, artifacts, and an append-only
@@ -112,6 +146,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     acceptance_ref  TEXT NOT NULL DEFAULT '',
     acceptance_hash TEXT NOT NULL DEFAULT '',
     image_digest    TEXT NOT NULL DEFAULT '',
+    budget          TEXT NOT NULL DEFAULT '',
     base_sha        TEXT NOT NULL,
     state           TEXT NOT NULL,
     created_at      TEXT NOT NULL,
@@ -154,8 +189,10 @@ CREATE INDEX IF NOT EXISTS idx_artifacts_job ON artifacts(job_id);
 -- managed event log, not cryptographically tamper-proof).
 CREATE TABLE IF NOT EXISTS events (
     seq         INTEGER PRIMARY KEY AUTOINCREMENT,
-    entity_type TEXT NOT NULL,   -- 'task' | 'job' | 'artifact'
+    entity_type TEXT NOT NULL,   -- 'task' | 'job' | 'artifact' | 'project'
     entity_id   TEXT NOT NULL,
+    kind        TEXT NOT NULL DEFAULT '',  -- created|transition|budget|rejection|verification|governance
+    reason      TEXT NOT NULL DEFAULT '',  -- RejectionReason, when this event is a rejection
     from_state  TEXT NOT NULL DEFAULT '',
     to_state    TEXT NOT NULL DEFAULT '',
     actor       TEXT NOT NULL,
@@ -173,6 +210,19 @@ CREATE INDEX IF NOT EXISTS idx_events_entity ON events(entity_type, entity_id);
 		return err
 	}
 	if err := s.addColumnIfMissing("tasks", "image_digest", "image_digest TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	// Sprint 58 (governance): the Task's authoritative budget, and the event log's
+	// type + machine-readable rejection reason. Additive and idempotent, so a
+	// v0.49.0 control.db opens, migrates, and keeps every existing row (legacy
+	// tasks read back with DefaultBudget(); legacy events with a derived kind).
+	if err := s.addColumnIfMissing("tasks", "budget", "budget TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := s.addColumnIfMissing("events", "kind", "kind TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := s.addColumnIfMissing("events", "reason", "reason TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
 	}
 	return nil
@@ -227,12 +277,24 @@ func nextID(tx *sql.Tx, table, prefix string) (string, error) {
 	return fmt.Sprintf("%s-%d", prefix, n+1), nil
 }
 
-// logEvent appends an immutable row to the events table within tx.
-func (s *Store) logEvent(tx *sql.Tx, entityType, entityID string, from, to State, actor, note string) error {
+// logEvent appends an immutable row to the events table within tx. INSERT is the
+// only statement this package ever runs against `events` — there is no update or
+// delete path anywhere (asserted by a test), which is exactly what
+// "control-plane-managed, immutable through the API" means (§6). It is NOT
+// cryptographically tamper-proof: anyone with the DB file can still edit it;
+// hash-chaining stays an optional later property.
+func (s *Store) logEvent(tx *sql.Tx, entityType, entityID string, from, to State, meta EventMeta, actor, note string) error {
+	kind := meta.Kind
+	if kind == "" {
+		kind = EventTransition
+	}
+	if meta.Actor != "" {
+		actor = meta.Actor
+	}
 	_, err := tx.Exec(
-		`INSERT INTO events (entity_type, entity_id, from_state, to_state, actor, note, at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		entityType, entityID, string(from), string(to), actor, note, s.now(),
+		`INSERT INTO events (entity_type, entity_id, kind, reason, from_state, to_state, actor, note, at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		entityType, entityID, kind, string(meta.Reason), string(from), string(to), actor, note, s.now(),
 	)
 	if err != nil {
 		return fmt.Errorf("logging event: %w", err)
@@ -240,13 +302,40 @@ func (s *Store) logEvent(tx *sql.Tx, entityType, entityID string, from, to State
 	return nil
 }
 
+// LogDecision appends a standalone event that accompanies NO state change — the
+// record of a decision the plane made about a request (a budget refusal, a
+// policy rejection). Governance that leaves no trace is not governance, so every
+// refusal is written even though nothing moved.
+func (s *Store) LogDecision(entityType, entityID string, meta EventMeta, note string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := s.logEvent(tx, entityType, entityID, "", "", meta, ActorPlane, note); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 // ---- Tasks -------------------------------------------------------------------
+
+// NewTask describes the caller-supplied fields of a task to insert; the store
+// assigns the id, state, and timestamps. Grouped into a struct because the
+// governance budget pushed the positional form past readability.
+type NewTask struct {
+	Project        string
+	Objective      string
+	AcceptanceRef  string
+	BaseSHA        string // git HEAD captured by the caller
+	AcceptanceHash string // frozen verify policy at BaseSHA (may be "")
+	Budget         Budget // the resolved governance envelope (§6)
+}
 
 // CreateTask inserts a new task in the given initial state (planned or queued)
 // and logs a creation event, atomically. It enforces the one-active-task-per-
-// project invariant. baseSHA is the git HEAD captured by the caller;
-// acceptanceHash freezes the verify policy at that sha (may be "").
-func (s *Store) CreateTask(project, objective, acceptanceRef, baseSHA, acceptanceHash string, initial State) (Task, error) {
+// project invariant.
+func (s *Store) CreateTask(spec NewTask, initial State) (Task, error) {
 	if !validState(initial) {
 		return Task{}, fmt.Errorf("control: invalid initial state %q", initial)
 	}
@@ -257,10 +346,10 @@ func (s *Store) CreateTask(project, objective, acceptanceRef, baseSHA, acceptanc
 	defer tx.Rollback()
 
 	// One active (non-terminal) task per project.
-	if existing, ok, err := activeTaskTx(tx, project); err != nil {
+	if existing, ok, err := activeTaskTx(tx, spec.Project); err != nil {
 		return Task{}, err
 	} else if ok {
-		return Task{}, &ErrActiveTaskExists{Project: project, ExistingID: existing.ID, State: existing.State}
+		return Task{}, &ErrActiveTaskExists{Project: spec.Project, ExistingID: existing.ID, State: existing.State}
 	}
 
 	id, err := nextID(tx, "tasks", "T")
@@ -269,19 +358,25 @@ func (s *Store) CreateTask(project, objective, acceptanceRef, baseSHA, acceptanc
 	}
 	now := s.now()
 	t := Task{
-		ID: id, Project: project, Objective: objective,
-		AcceptanceRef: acceptanceRef, AcceptanceHash: acceptanceHash, BaseSHA: baseSHA, State: initial,
+		ID: id, Project: spec.Project, Objective: spec.Objective,
+		AcceptanceRef: spec.AcceptanceRef, AcceptanceHash: spec.AcceptanceHash,
+		Budget: spec.Budget, BaseSHA: spec.BaseSHA, State: initial,
 		CreatedAt: now, UpdatedAt: now,
 	}
+	budgetJSON, err := json.Marshal(t.Budget)
+	if err != nil {
+		return Task{}, fmt.Errorf("encoding budget: %w", err)
+	}
 	_, err = tx.Exec(
-		`INSERT INTO tasks (id, project, objective, acceptance_ref, acceptance_hash, base_sha, state, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		t.ID, t.Project, t.Objective, t.AcceptanceRef, t.AcceptanceHash, t.BaseSHA, string(t.State), t.CreatedAt, t.UpdatedAt,
+		`INSERT INTO tasks (id, project, objective, acceptance_ref, acceptance_hash, budget, base_sha, state, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		t.ID, t.Project, t.Objective, t.AcceptanceRef, t.AcceptanceHash, string(budgetJSON), t.BaseSHA, string(t.State), t.CreatedAt, t.UpdatedAt,
 	)
 	if err != nil {
 		return Task{}, fmt.Errorf("inserting task: %w", err)
 	}
-	if err := s.logEvent(tx, "task", t.ID, "", t.State, ActorSystem, "created"); err != nil {
+	if err := s.logEvent(tx, "task", t.ID, "", t.State, EventMeta{Kind: EventCreated}, ActorSystem,
+		"created ("+t.Budget.String()+")"); err != nil {
 		return Task{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -364,6 +459,13 @@ func activeTaskTx(tx *sql.Tx, project string) (Task, bool, error) {
 // rows). The state-change event is written in the same transaction; on any
 // rejection nothing is written.
 func (s *Store) TransitionTask(id string, to State, byWorker bool, note string) (Task, error) {
+	return s.TransitionTaskWith(id, to, byWorker, EventMeta{}, note)
+}
+
+// TransitionTaskWith is TransitionTask with an explicit event annotation (kind,
+// rejection reason, actor label). The annotation affects only what is written to
+// the log — legality is still decided by CanTransitionBy.
+func (s *Store) TransitionTaskWith(id string, to State, byWorker bool, meta EventMeta, note string) (Task, error) {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return Task{}, err
@@ -396,7 +498,7 @@ func (s *Store) TransitionTask(id string, to State, byWorker bool, note string) 
 	if byWorker {
 		actor = ActorWorker
 	}
-	if err := s.logEvent(tx, "task", id, cur.State, to, actor, note); err != nil {
+	if err := s.logEvent(tx, "task", id, cur.State, to, meta, actor, note); err != nil {
 		return Task{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -407,7 +509,99 @@ func (s *Store) TransitionTask(id string, to State, byWorker bool, note string) 
 	return cur, nil
 }
 
-const taskSelect = `SELECT id, project, objective, acceptance_ref, acceptance_hash, image_digest, base_sha, state, created_at, updated_at FROM tasks`
+// ReplanTask atomically revises a rejected task's objective and moves it back to
+// `planned` — the replan half of §6's "retry/replan" ladder. Objective and state
+// change together in one transaction so a task can never rest in `planned` with
+// the stale objective that was just rejected. The Job chain is untouched:
+// attempt history is preserved, never overwritten.
+func (s *Store) ReplanTask(id, objective, note string) (Task, error) {
+	if objective == "" {
+		return Task{}, fmt.Errorf("control: replan requires a new objective")
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return Task{}, err
+	}
+	defer tx.Rollback()
+
+	cur, err := scanTask(tx.QueryRow(taskSelect+` WHERE id = ?`, id))
+	if err != nil {
+		return Task{}, err
+	}
+	if !CanTransition(cur.State, StatePlanned) {
+		return Task{}, fmt.Errorf("%w: task %s %s → %s (replan)", ErrIllegalTransition, id, cur.State, StatePlanned)
+	}
+	now := s.now()
+	res, err := tx.Exec(
+		`UPDATE tasks SET objective = ?, state = ?, updated_at = ? WHERE id = ? AND state = ?`,
+		objective, string(StatePlanned), now, id, string(cur.State),
+	)
+	if err != nil {
+		return Task{}, fmt.Errorf("replanning task: %w", err)
+	}
+	if n, err := res.RowsAffected(); err != nil {
+		return Task{}, err
+	} else if n != 1 {
+		return Task{}, fmt.Errorf("%w: task %s expected state %s", ErrConflict, id, cur.State)
+	}
+	if err := s.logEvent(tx, "task", id, cur.State, StatePlanned,
+		EventMeta{Kind: EventGovernance, Actor: ActorHuman}, ActorHuman, note); err != nil {
+		return Task{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Task{}, err
+	}
+	cur.Objective = objective
+	cur.State = StatePlanned
+	cur.UpdatedAt = now
+	return cur, nil
+}
+
+// RebaseTask re-pins a task to a new base_sha and re-freezes its acceptance hash
+// at that commit — the documented remedy for a `stale_base` rejection (§6:
+// "rejected, must rebase + re-verify"). It does not change state; the caller
+// drives the retry. Recorded as a governance event because re-freezing the
+// acceptance oracle is a consequential act: the policy now comes from a *newer*
+// commit, so a human asks for it explicitly (`task retry --rebase`).
+func (s *Store) RebaseTask(id, baseSHA, acceptanceHash, note string) (Task, error) {
+	if baseSHA == "" {
+		return Task{}, fmt.Errorf("control: rebase requires a base sha")
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return Task{}, err
+	}
+	defer tx.Rollback()
+
+	cur, err := scanTask(tx.QueryRow(taskSelect+` WHERE id = ?`, id))
+	if err != nil {
+		return Task{}, err
+	}
+	now := s.now()
+	res, err := tx.Exec(
+		`UPDATE tasks SET base_sha = ?, acceptance_hash = ?, updated_at = ? WHERE id = ?`,
+		baseSHA, acceptanceHash, now, id,
+	)
+	if err != nil {
+		return Task{}, fmt.Errorf("rebasing task: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		return Task{}, fmt.Errorf("%w: task %s", ErrNotFound, id)
+	}
+	if err := s.logEvent(tx, "task", id, cur.State, cur.State,
+		EventMeta{Kind: EventGovernance, Actor: ActorHuman}, ActorHuman, note); err != nil {
+		return Task{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Task{}, err
+	}
+	cur.BaseSHA = baseSHA
+	cur.AcceptanceHash = acceptanceHash
+	cur.UpdatedAt = now
+	return cur, nil
+}
+
+const taskSelect = `SELECT id, project, objective, acceptance_ref, acceptance_hash, image_digest, budget, base_sha, state, created_at, updated_at FROM tasks`
 
 // rowScanner is satisfied by both *sql.Row and *sql.Rows.
 type rowScanner interface {
@@ -416,8 +610,8 @@ type rowScanner interface {
 
 func scanTask(sc rowScanner) (Task, error) {
 	var t Task
-	var state string
-	err := sc.Scan(&t.ID, &t.Project, &t.Objective, &t.AcceptanceRef, &t.AcceptanceHash, &t.ImageDigest, &t.BaseSHA, &state, &t.CreatedAt, &t.UpdatedAt)
+	var state, budget string
+	err := sc.Scan(&t.ID, &t.Project, &t.Objective, &t.AcceptanceRef, &t.AcceptanceHash, &t.ImageDigest, &budget, &t.BaseSHA, &state, &t.CreatedAt, &t.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Task{}, ErrNotFound
 	}
@@ -425,7 +619,34 @@ func scanTask(sc rowScanner) (Task, error) {
 		return Task{}, err
 	}
 	t.State = State(state)
+	// A task written before Sprint 58 (or by a migration default) carries no
+	// budget; the built-in default is the only honest answer for it. Unparseable
+	// JSON degrades the same way rather than making the row unreadable — a
+	// governance record must never lock a task out of its own history.
+	t.Budget = DefaultBudget()
+	if budget != "" {
+		var b Budget
+		if json.Unmarshal([]byte(budget), &b) == nil {
+			t.Budget = b
+		}
+	}
 	return t, nil
+}
+
+// CountTaskTransitionsTo counts how many times a task has entered state `to`,
+// read from the append-only event log — the log is the authority for "how many
+// review cycles has this task consumed", so the counter cannot drift from the
+// history that justifies it.
+func (s *Store) CountTaskTransitionsTo(taskID string, to State) (int, error) {
+	var n int
+	err := s.db.QueryRow(
+		`SELECT COUNT(*) FROM events WHERE entity_type = 'task' AND entity_id = ? AND to_state = ? AND from_state != ''`,
+		taskID, string(to),
+	).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("counting transitions of %s to %s: %w", taskID, to, err)
+	}
+	return n, nil
 }
 
 // ---- Jobs --------------------------------------------------------------------
@@ -462,7 +683,7 @@ func (s *Store) CreateJob(taskID, baseSHA, runner string, budget int, initial St
 	if err != nil {
 		return Job{}, fmt.Errorf("inserting job: %w", err)
 	}
-	if err := s.logEvent(tx, "job", j.ID, "", j.State, ActorSystem, "created"); err != nil {
+	if err := s.logEvent(tx, "job", j.ID, "", j.State, EventMeta{Kind: EventCreated}, ActorSystem, "created"); err != nil {
 		return Job{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -517,6 +738,36 @@ func (s *Store) ListActiveJobs() ([]Job, error) {
 	return out, rows.Err()
 }
 
+// CountJobsForTask returns how many Jobs a task has ever had — the attempt
+// counter the max-attempts budget is enforced against (§6). Counting rows rather
+// than keeping a mutable counter is deliberate: the Job chain is append-only, so
+// the count cannot be laundered by a retry or a replan.
+func (s *Store) CountJobsForTask(taskID string) (int, error) {
+	var n int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM jobs WHERE task_id = ?`, taskID).Scan(&n); err != nil {
+		return 0, fmt.Errorf("counting jobs for %s: %w", taskID, err)
+	}
+	return n, nil
+}
+
+// CountRunningJobsForProject returns how many of a project's Jobs are currently
+// *running* — occupying a runner slot (queued / working / input_required). It
+// deliberately excludes `candidate`, `verifying`, and `rejected`: those are
+// non-terminal but idle, awaiting a plane or human decision, and counting them
+// would make a legitimate retry look like a concurrency breach.
+func (s *Store) CountRunningJobsForProject(project string) (int, error) {
+	var n int
+	err := s.db.QueryRow(
+		`SELECT COUNT(*) FROM jobs j JOIN tasks t ON t.id = j.task_id
+		 WHERE t.project = ? AND j.state IN (?, ?, ?)`,
+		project, string(StateQueued), string(StateWorking), string(StateInputRequired),
+	).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("counting running jobs for %s: %w", project, err)
+	}
+	return n, nil
+}
+
 // SetJobExecutionResult records how a job's run ended plus the committed tree
 // snapshot (head_sha), captured even on failure/timeout as a salvage snapshot
 // (§5). It does not change job state — that is a separate transition.
@@ -540,6 +791,12 @@ func (s *Store) SetJobExecutionResult(id string, result ExecutionResult, outputS
 
 // TransitionJob atomically moves a job's state, mirroring TransitionTask.
 func (s *Store) TransitionJob(id string, to State, byWorker bool, note string) (Job, error) {
+	return s.TransitionJobWith(id, to, byWorker, EventMeta{}, note)
+}
+
+// TransitionJobWith is TransitionJob with an explicit event annotation, mirroring
+// TransitionTaskWith. The annotation is log-only; legality is unaffected.
+func (s *Store) TransitionJobWith(id string, to State, byWorker bool, meta EventMeta, note string) (Job, error) {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return Job{}, err
@@ -570,7 +827,7 @@ func (s *Store) TransitionJob(id string, to State, byWorker bool, note string) (
 	if byWorker {
 		actor = ActorWorker
 	}
-	if err := s.logEvent(tx, "job", id, cur.State, to, actor, note); err != nil {
+	if err := s.logEvent(tx, "job", id, cur.State, to, meta, actor, note); err != nil {
 		return Job{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -629,7 +886,7 @@ func (s *Store) CreateArtifact(jobID, baseSHA, headSHA, branch string) (Artifact
 	if err != nil {
 		return Artifact{}, fmt.Errorf("inserting artifact: %w", err)
 	}
-	if err := s.logEvent(tx, "artifact", a.ID, "", "", ActorSystem, "created"); err != nil {
+	if err := s.logEvent(tx, "artifact", a.ID, "", "", EventMeta{Kind: EventCreated}, ActorSystem, "created"); err != nil {
 		return Artifact{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -697,47 +954,56 @@ func scanArtifact(sc rowScanner) (Artifact, error) {
 
 // ---- Events ------------------------------------------------------------------
 
-// Event is one row of the append-only control-plane event log.
+// Event is one row of the control-plane-managed event log (§6): every
+// transition, budget decision, rejection, and verification outcome, with the
+// actor that drove it. It is append-only and immutable **through the API** — the
+// package has no update or delete path for the table — which is NOT the same as
+// cryptographically tamper-proof; hash-chaining remains an optional later
+// property, and nothing here claims otherwise.
 type Event struct {
-	Seq        int64  `json:"seq"`
-	EntityType string `json:"entityType"`
-	EntityID   string `json:"entityId"`
-	From       State  `json:"from"`
-	To         State  `json:"to"`
-	Actor      string `json:"actor"`
-	Note       string `json:"note"`
-	At         string `json:"at"`
+	Seq        int64           `json:"seq"`
+	EntityType string          `json:"entityType"`
+	EntityID   string          `json:"entityId"`
+	Kind       string          `json:"kind"`
+	Reason     RejectionReason `json:"reason,omitempty"`
+	From       State           `json:"from"`
+	To         State           `json:"to"`
+	Actor      string          `json:"actor"`
+	Note       string          `json:"note"`
+	At         string          `json:"at"`
 }
+
+// eventSelect is the single column list every event query shares.
+const eventSelect = `SELECT seq, entity_type, entity_id, kind, reason, from_state, to_state, actor, note, at FROM events`
 
 // ListEvents returns the full event log ordered by seq (insertion) ascending.
 func (s *Store) ListEvents() ([]Event, error) {
-	rows, err := s.db.Query(
-		`SELECT seq, entity_type, entity_id, from_state, to_state, actor, note, at FROM events ORDER BY seq ASC`,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []Event
-	for rows.Next() {
-		var e Event
-		var from, to string
-		if err := rows.Scan(&e.Seq, &e.EntityType, &e.EntityID, &from, &to, &e.Actor, &e.Note, &e.At); err != nil {
-			return nil, err
-		}
-		e.From, e.To = State(from), State(to)
-		out = append(out, e)
-	}
-	return out, rows.Err()
+	return s.queryEvents(eventSelect + ` ORDER BY seq ASC`)
 }
 
 // ListEventsFor returns the event log for a single entity, ordered by seq.
 func (s *Store) ListEventsFor(entityType, entityID string) ([]Event, error) {
-	rows, err := s.db.Query(
-		`SELECT seq, entity_type, entity_id, from_state, to_state, actor, note, at
-		 FROM events WHERE entity_type = ? AND entity_id = ? ORDER BY seq ASC`,
-		entityType, entityID,
-	)
+	return s.queryEvents(eventSelect+` WHERE entity_type = ? AND entity_id = ? ORDER BY seq ASC`,
+		entityType, entityID)
+}
+
+// ListEventsForTask returns the whole chain for a task — its own events plus
+// those of every Job it ever had and every Artifact those Jobs produced —
+// ordered by seq, i.e. exactly the order things happened. This is what
+// `daedalus task events <id>` renders.
+func (s *Store) ListEventsForTask(taskID string) ([]Event, error) {
+	return s.queryEvents(eventSelect+`
+		 WHERE (entity_type = 'task' AND entity_id = ?)
+		    OR (entity_type = 'job' AND entity_id IN (SELECT id FROM jobs WHERE task_id = ?))
+		    OR (entity_type = 'artifact' AND entity_id IN (
+		          SELECT id FROM artifacts WHERE job_id IN (SELECT id FROM jobs WHERE task_id = ?)))
+		 ORDER BY seq ASC`, taskID, taskID, taskID)
+}
+
+// queryEvents runs an event query and scans the rows, deriving a kind for rows
+// written before the `kind` column existed (a create has no from-state).
+func (s *Store) queryEvents(query string, args ...any) ([]Event, error) {
+	rows, err := s.db.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -745,11 +1011,18 @@ func (s *Store) ListEventsFor(entityType, entityID string) ([]Event, error) {
 	var out []Event
 	for rows.Next() {
 		var e Event
-		var from, to string
-		if err := rows.Scan(&e.Seq, &e.EntityType, &e.EntityID, &from, &to, &e.Actor, &e.Note, &e.At); err != nil {
+		var from, to, reason string
+		if err := rows.Scan(&e.Seq, &e.EntityType, &e.EntityID, &e.Kind, &reason, &from, &to, &e.Actor, &e.Note, &e.At); err != nil {
 			return nil, err
 		}
 		e.From, e.To = State(from), State(to)
+		e.Reason = RejectionReason(reason)
+		if e.Kind == "" {
+			e.Kind = EventTransition
+			if from == "" {
+				e.Kind = EventCreated
+			}
+		}
 		out = append(out, e)
 	}
 	return out, rows.Err()

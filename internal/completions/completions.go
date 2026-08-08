@@ -72,7 +72,7 @@ _daedalus() {
             COMPREPLY=($(compgen -W "list use rollback prune --keep" -- "${cur}"))
             ;;
         task)
-            COMPREPLY=($(compgen -W "create list status dispatch verify cancel --project --objective --acceptance" -- "${cur}"))
+            COMPREPLY=($(compgen -W "create list status dispatch verify retry replan events cancel --project --objective --acceptance --wall-clock --max-attempts --max-review-cycles --concurrency --rebase" -- "${cur}"))
             ;;
         *)
             COMPREPLY=($(compgen -W "${flags}" -- "${cur}"))
@@ -173,7 +173,7 @@ _daedalus() {
                     _values 'action' list use rollback prune --keep
                     ;;
                 task)
-                    _values 'action' create list status dispatch verify cancel --project --objective --acceptance
+                    _values 'action' create list status dispatch verify retry replan events cancel --project --objective --acceptance --wall-clock --max-attempts --max-review-cycles --concurrency --rebase
                     ;;
                 *)
                     _describe -t flags 'flag' flags
@@ -212,10 +212,15 @@ complete -c daedalus -n '__fish_use_subcommand' -a 'version' -d 'Manage side-by-
 complete -c daedalus -n '__fish_seen_subcommand_from version' -a 'list use rollback prune' -d 'version action'
 complete -c daedalus -n '__fish_seen_subcommand_from version' -l keep -d 'Versions to keep when pruning' -r
 complete -c daedalus -n '__fish_use_subcommand' -a 'task' -d 'Manage host-side control-plane tasks'
-complete -c daedalus -n '__fish_seen_subcommand_from task' -a 'create list status dispatch verify cancel' -d 'task action'
+complete -c daedalus -n '__fish_seen_subcommand_from task' -a 'create list status dispatch verify retry replan events cancel' -d 'task action'
 complete -c daedalus -n '__fish_seen_subcommand_from task' -l project -d 'Project name for task create' -r
-complete -c daedalus -n '__fish_seen_subcommand_from task' -l objective -d 'Objective text for task create' -r
+complete -c daedalus -n '__fish_seen_subcommand_from task' -l objective -d 'Objective text for task create/replan' -r
 complete -c daedalus -n '__fish_seen_subcommand_from task' -l acceptance -d 'Acceptance reference for task create' -r
+complete -c daedalus -n '__fish_seen_subcommand_from task' -l wall-clock -d 'Wall-clock budget in seconds' -r
+complete -c daedalus -n '__fish_seen_subcommand_from task' -l max-attempts -d 'Maximum Job attempts for the task' -r
+complete -c daedalus -n '__fish_seen_subcommand_from task' -l max-review-cycles -d 'Maximum verification cycles for the task' -r
+complete -c daedalus -n '__fish_seen_subcommand_from task' -l concurrency -d 'Maximum concurrent Jobs for the project' -r
+complete -c daedalus -n '__fish_seen_subcommand_from task' -l rebase -d 'Re-pin a retry to the project tip (stale base)'
 
 # Global flags
 complete -c daedalus -l build -d 'Force rebuild the Docker image'

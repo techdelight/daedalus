@@ -35,7 +35,7 @@ func openTestStore(t *testing.T) *Store {
 func TestCreateReadListTask(t *testing.T) {
 	s := openTestStore(t)
 
-	t1, err := s.CreateTask("proj-a", "do the thing", "acc@abc", "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef", "", StatePlanned)
+	t1, err := s.CreateTask(NewTask{Project: "proj-a", Objective: "do the thing", AcceptanceRef: "acc@abc", BaseSHA: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"}, StatePlanned)
 	if err != nil {
 		t.Fatalf("CreateTask: %v", err)
 	}
@@ -59,7 +59,7 @@ func TestCreateReadListTask(t *testing.T) {
 	if _, err := s.TransitionTask("T-1", StateCancelled, false, ""); err != nil {
 		t.Fatalf("cancel: %v", err)
 	}
-	t2, err := s.CreateTask("proj-b", "second", "", "cafebabecafebabecafebabecafebabecafebabe", "", StatePlanned)
+	t2, err := s.CreateTask(NewTask{Project: "proj-b", Objective: "second", BaseSHA: "cafebabecafebabecafebabecafebabecafebabe"}, StatePlanned)
 	if err != nil {
 		t.Fatalf("CreateTask 2: %v", err)
 	}
@@ -89,10 +89,10 @@ func TestGetTask_NotFound(t *testing.T) {
 
 func TestOneActiveTaskPerProject(t *testing.T) {
 	s := openTestStore(t)
-	if _, err := s.CreateTask("proj", "first", "", "sha1", "", StatePlanned); err != nil {
+	if _, err := s.CreateTask(NewTask{Project: "proj", Objective: "first", BaseSHA: "sha1"}, StatePlanned); err != nil {
 		t.Fatalf("first create: %v", err)
 	}
-	_, err := s.CreateTask("proj", "second", "", "sha1", "", StatePlanned)
+	_, err := s.CreateTask(NewTask{Project: "proj", Objective: "second", BaseSHA: "sha1"}, StatePlanned)
 	var active *ErrActiveTaskExists
 	if !errors.As(err, &active) {
 		t.Fatalf("second create err = %v, want ErrActiveTaskExists", err)
@@ -105,14 +105,14 @@ func TestOneActiveTaskPerProject(t *testing.T) {
 	if _, err := s.TransitionTask("T-1", StateCancelled, false, ""); err != nil {
 		t.Fatalf("cancel: %v", err)
 	}
-	if _, err := s.CreateTask("proj", "third", "", "sha1", "", StatePlanned); err != nil {
+	if _, err := s.CreateTask(NewTask{Project: "proj", Objective: "third", BaseSHA: "sha1"}, StatePlanned); err != nil {
 		t.Errorf("create after cancel should succeed, got %v", err)
 	}
 }
 
 func TestLegalTransitionLogsEvent(t *testing.T) {
 	s := openTestStore(t)
-	if _, err := s.CreateTask("proj", "obj", "", "sha", "", StatePlanned); err != nil {
+	if _, err := s.CreateTask(NewTask{Project: "proj", Objective: "obj", BaseSHA: "sha"}, StatePlanned); err != nil {
 		t.Fatalf("create: %v", err)
 	}
 	// planned → queued → working (both legal, plane-driven).
@@ -154,7 +154,7 @@ func TestLegalTransitionLogsEvent(t *testing.T) {
 
 func TestIllegalTransitionRejectedAndLogsNothing(t *testing.T) {
 	s := openTestStore(t)
-	if _, err := s.CreateTask("proj", "obj", "", "sha", "", StatePlanned); err != nil {
+	if _, err := s.CreateTask(NewTask{Project: "proj", Objective: "obj", BaseSHA: "sha"}, StatePlanned); err != nil {
 		t.Fatalf("create: %v", err)
 	}
 	beforeAll, _ := s.ListEvents()
@@ -196,7 +196,7 @@ func TestIllegalTransitionRejectedAndLogsNothing(t *testing.T) {
 
 func TestStaleTransitionConflict(t *testing.T) {
 	s := openTestStore(t)
-	if _, err := s.CreateTask("proj", "obj", "", "sha", "", StatePlanned); err != nil {
+	if _, err := s.CreateTask(NewTask{Project: "proj", Objective: "obj", BaseSHA: "sha"}, StatePlanned); err != nil {
 		t.Fatalf("create: %v", err)
 	}
 	mustTransition(t, s, "T-1", StateQueued, false)
@@ -214,7 +214,7 @@ func TestStaleTransitionConflict(t *testing.T) {
 
 func TestJobAndArtifactLifecycle(t *testing.T) {
 	s := openTestStore(t)
-	if _, err := s.CreateTask("proj", "obj", "", "base-sha", "", StatePlanned); err != nil {
+	if _, err := s.CreateTask(NewTask{Project: "proj", Objective: "obj", BaseSHA: "base-sha"}, StatePlanned); err != nil {
 		t.Fatalf("create task: %v", err)
 	}
 	j, err := s.CreateJob("T-1", "base-sha", "claude", 3600, StateQueued)
@@ -263,7 +263,7 @@ func TestReopenPersists(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open 1: %v", err)
 	}
-	if _, err := s1.CreateTask("proj", "persist me", "", "sha", "", StatePlanned); err != nil {
+	if _, err := s1.CreateTask(NewTask{Project: "proj", Objective: "persist me", BaseSHA: "sha"}, StatePlanned); err != nil {
 		t.Fatalf("create: %v", err)
 	}
 	s1.Close()
@@ -282,7 +282,7 @@ func TestReopenPersists(t *testing.T) {
 		t.Errorf("objective = %q, want 'persist me'", got.Objective)
 	}
 	// Next id continues from the sqlite_sequence high-water mark.
-	t2, err := s2.CreateTask("proj2", "next", "", "sha", "", StatePlanned)
+	t2, err := s2.CreateTask(NewTask{Project: "proj2", Objective: "next", BaseSHA: "sha"}, StatePlanned)
 	if err != nil {
 		t.Fatalf("create after reopen: %v", err)
 	}

@@ -4,6 +4,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -166,5 +167,185 @@ func TestManageTasks_NoSubcommand(t *testing.T) {
 	// The empty-args guard fires before controlClient, so no daemon is needed.
 	if err := manageTasks(&core.Config{}); err == nil {
 		t.Error("no subcommand = nil, want error")
+	}
+}
+
+// --- governance (Sprint 58) ---------------------------------------------------
+
+// newRejectingService is newTestService with a verifier that always fails, so a
+// dispatched task lands in `rejected` and the retry/replan paths are reachable.
+func newRejectingService(t *testing.T, resolver control.ProjectResolver) *control.Service {
+	t.Helper()
+	dataDir := t.TempDir()
+	store, err := control.Open(filepath.Join(dataDir, "control.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { store.Close() })
+	wt := control.NewWorktreeManager(dataDir)
+	runner := control.StubRunner{Result: control.ExecSuccess, WriteFile: true}
+	return control.NewService(store, resolver, wt, runner, control.StubVerifyRunner{Pass: false}, nil)
+}
+
+func TestCLI_TaskCreate_BudgetFlags(t *testing.T) {
+	dir := makeGitRepo(t)
+	svc := newTestService(t, mapResolver{"app": dir})
+	if err := runTaskCommand(svc, []string{
+		"create", "--project", "app", "--objective", "x",
+		"--wall-clock", "120", "--max-attempts", "2", "--max-review-cycles", "1", "--concurrency", "1",
+	}); err != nil {
+		t.Fatalf("create with budget flags: %v", err)
+	}
+	tasks, _ := svc.ListTasks()
+	got := tasks[0].Budget
+	if got.WallClockSeconds != 120 || got.MaxAttempts != 2 || got.MaxReviewCycles != 1 || got.Concurrency != 1 {
+		t.Errorf("budget = %+v, want the requested narrowing", got)
+	}
+}
+
+func TestCLI_TaskCreate_BadBudgetFlags(t *testing.T) {
+	dir := makeGitRepo(t)
+	svc := newTestService(t, mapResolver{"app": dir})
+	tests := [][]string{
+		{"create", "--project", "app", "--objective", "x", "--max-attempts"},
+		{"create", "--project", "app", "--objective", "x", "--max-attempts", "banana"},
+		{"create", "--project", "app", "--objective", "x", "--wall-clock", "-5"},
+	}
+	for _, args := range tests {
+		if err := runTaskCommand(svc, args); err == nil {
+			t.Errorf("%v = nil, want an error", args)
+		}
+	}
+}
+
+// TestCLI_TaskCreate_OverBudgetIsRefused proves the CLI surfaces a policy refusal
+// as a *control.RejectionError — which is what main.go turns into exit code 3.
+func TestCLI_TaskCreate_OverBudgetIsRefused(t *testing.T) {
+	dir := makeGitRepo(t)
+	svc := newTestService(t, mapResolver{"app": dir})
+	svc.SetBudgetSource(control.StaticBudget(control.Budget{
+		WallClockSeconds: 60, MaxAttempts: 1, MaxReviewCycles: 1, Concurrency: 1,
+	}))
+	err := runTaskCommand(svc, []string{
+		"create", "--project", "app", "--objective", "x", "--max-attempts", "50",
+	})
+	reason, refused := control.Rejected(err)
+	if !refused {
+		t.Fatalf("over-budget create err = %v, want a policy refusal", err)
+	}
+	if reason != control.ReasonOverBudget {
+		t.Errorf("reason = %q, want %q", reason, control.ReasonOverBudget)
+	}
+	if code := exitCodeFor(err); code != exitRefused {
+		t.Errorf("exit code = %d, want %d", code, exitRefused)
+	}
+}
+
+func TestCLI_TaskRetryAndReplan(t *testing.T) {
+	dir := makeGitRepo(t)
+	svc := newRejectingService(t, mapResolver{"app": dir})
+	if err := runTaskCommand(svc, []string{"create", "--project", "app", "--objective", "first go"}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if err := runTaskCommand(svc, []string{"dispatch", "T-1"}); err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+	if err := runTaskCommand(svc, []string{"verify", "T-1"}); err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	// retry → a fresh Job; the chain keeps both attempts.
+	if err := runTaskCommand(svc, []string{"retry", "T-1"}); err != nil {
+		t.Fatalf("retry: %v", err)
+	}
+	view, _ := svc.TaskStatus("T-1")
+	if len(view.Jobs) != 2 {
+		t.Errorf("job chain = %d, want 2 preserved attempts", len(view.Jobs))
+	}
+	// replan needs the task rejected again.
+	if err := runTaskCommand(svc, []string{"verify", "T-1"}); err != nil {
+		t.Fatalf("verify 2: %v", err)
+	}
+	if err := runTaskCommand(svc, []string{"replan", "T-1", "--objective", "second go"}); err != nil {
+		t.Fatalf("replan: %v", err)
+	}
+	view, _ = svc.TaskStatus("T-1")
+	if view.Task.Objective != "second go" || view.Task.State != control.StatePlanned {
+		t.Errorf("after replan: %+v, want 'second go' in planned", view.Task)
+	}
+	if len(view.Jobs) != 2 {
+		t.Errorf("replan must preserve the job chain, got %d jobs", len(view.Jobs))
+	}
+}
+
+func TestCLI_TaskRetryReplanGuards(t *testing.T) {
+	dir := makeGitRepo(t)
+	svc := newRejectingService(t, mapResolver{"app": dir})
+	if err := runTaskCommand(svc, []string{"create", "--project", "app", "--objective", "x"}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{"retry without an id", []string{"retry"}},
+		{"retry with an unknown flag", []string{"retry", "T-1", "--nope"}},
+		{"retry a planned task", []string{"retry", "T-1"}},
+		{"replan without an id", []string{"replan"}},
+		{"replan without an objective", []string{"replan", "T-1"}},
+		{"replan with an unknown flag", []string{"replan", "T-1", "--nope", "x"}},
+		{"events without an id", []string{"events"}},
+		{"events for an unknown task", []string{"events", "T-404"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := runTaskCommand(svc, tc.args); err == nil {
+				t.Errorf("%v = nil, want an error", tc.args)
+			}
+		})
+	}
+}
+
+func TestCLI_TaskEvents(t *testing.T) {
+	dir := makeGitRepo(t)
+	svc := newTestService(t, mapResolver{"app": dir})
+	if err := runTaskCommand(svc, []string{"create", "--project", "app", "--objective", "x"}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if err := runTaskCommand(svc, []string{"dispatch", "T-1"}); err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+	if err := runTaskCommand(svc, []string{"events", "T-1"}); err != nil {
+		t.Fatalf("events: %v", err)
+	}
+	// The alias reads the same log.
+	if err := runTaskCommand(svc, []string{"log", "T-1"}); err != nil {
+		t.Fatalf("log alias: %v", err)
+	}
+	events, err := svc.TaskEvents("T-1")
+	if err != nil || len(events) == 0 {
+		t.Fatalf("TaskEvents = (%d events, %v), want a populated log", len(events), err)
+	}
+}
+
+// TestExitCodeFor pins the exit-code contract: a policy refusal is 3, everything
+// else is 1. A script driving `daedalus task` branches on this.
+func TestExitCodeFor(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want int
+	}{
+		{"a plain failure", errors.New("boom"), exitFailure},
+		{"a not-found", control.ErrNotFound, exitFailure},
+		{"a policy refusal", &control.RejectionError{Reason: control.ReasonAttemptsExhausted}, exitRefused},
+		{"a wrapped policy refusal",
+			fmt.Errorf("dispatching: %w", &control.RejectionError{Reason: control.ReasonOverBudget}), exitRefused},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := exitCodeFor(tc.err); got != tc.want {
+				t.Errorf("exitCodeFor(%v) = %d, want %d", tc.err, got, tc.want)
+			}
+		})
 	}
 }

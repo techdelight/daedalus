@@ -9,6 +9,7 @@ import (
 	"log"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/techdelight/daedalus/internal/registry"
 )
@@ -35,6 +36,36 @@ type CreateTaskRequest struct {
 	Project    string `json:"project"`
 	Objective  string `json:"objective"`
 	Acceptance string `json:"acceptance,omitempty"`
+	// Budget optionally narrows the project's ceiling for this task. Unset axes
+	// inherit the ceiling; an axis that *widens* it is refused with
+	// ReasonOverBudget (§6 — "budget too high → REJECTED"). Raising a ceiling is a
+	// host-side act, out of reach of anything speaking to control.sock.
+	Budget *Budget `json:"budget,omitempty"`
+}
+
+// RetryRequest is the input to Service.RetryTask (and POST /tasks/{id}/retry).
+type RetryRequest struct {
+	// Rebase re-pins the task to the project's current tip and re-freezes the
+	// acceptance policy there before the new attempt — the documented remedy for a
+	// `stale_base` rejection. Off by default: it is deliberately an explicit human
+	// act, because it re-freezes the acceptance oracle at a newer commit.
+	Rebase bool `json:"rebase,omitempty"`
+}
+
+// ReplanRequest is the input to Service.ReplanTask (and POST /tasks/{id}/replan).
+type ReplanRequest struct {
+	Objective string `json:"objective"`
+}
+
+// RetryResult reports a retry attempt: the dispatch outcome plus the governance
+// bookkeeping a caller needs to reason about the budget.
+type RetryResult struct {
+	Dispatch    DispatchResult `json:"dispatch"`
+	Attempt     int            `json:"attempt"`     // this attempt's ordinal (1-based)
+	Attempts    int            `json:"attempts"`    // attempts used after this one
+	Rebased     bool           `json:"rebased"`     // the task was re-pinned to a new base
+	BaseSHA     string         `json:"baseSha"`     // the base this attempt ran from
+	MaxAttempts int            `json:"maxAttempts"` // 0 = unbounded
 }
 
 // JobView is a Job plus its artifacts, for status rendering.
@@ -57,14 +88,18 @@ type DispatchResult struct {
 
 // VerifyResult is the outcome of a plane-owned verify pass over a candidate Job.
 type VerifyResult struct {
-	Job            Job       `json:"job"`
-	Task           Task      `json:"task"`
-	Artifact       *Artifact `json:"artifact,omitempty"`
-	GateTouched    bool      `json:"gateTouched"` // integrity gate matched → rejected without the verifier
-	TouchedFiles   []string  `json:"touchedFiles,omitempty"`
-	VerifierCalled bool      `json:"verifierCalled"` // false when the gate short-circuited
-	Verified       bool      `json:"verified"`       // final verdict: reached `verified`
-	Detail         string    `json:"detail"`
+	Job          Job       `json:"job"`
+	Task         Task      `json:"task"`
+	Artifact     *Artifact `json:"artifact,omitempty"`
+	GateTouched  bool      `json:"gateTouched"` // integrity gate matched → rejected without the verifier
+	TouchedFiles []string  `json:"touchedFiles,omitempty"`
+	// Reason is the machine-readable "why" of a negative verdict (stale_base,
+	// null_agent_floor, policy_drift, integrity_gate, verify_failed) and is empty
+	// on a pass — so a client never has to parse Detail to know what happened.
+	Reason         RejectionReason `json:"reason,omitempty"`
+	VerifierCalled bool            `json:"verifierCalled"` // false when the gate short-circuited
+	Verified       bool            `json:"verified"`       // final verdict: reached `verified`
+	Detail         string          `json:"detail"`
 }
 
 // TaskAPI is the surface the CLI drives and the daemon serves. Both the
@@ -77,6 +112,12 @@ type TaskAPI interface {
 	CancelTask(id string) (Task, error)
 	DispatchTask(id string) (DispatchResult, error)
 	VerifyTask(id string) (VerifyResult, error)
+	RetryTask(id string, req RetryRequest) (RetryResult, error)
+	ReplanTask(id string, req ReplanRequest) (Task, error)
+	// TaskEvents is READ-ONLY and is the only event-facing operation on this
+	// interface — there is deliberately no append/amend/delete counterpart, which
+	// is what "immutable through the API" means in practice (§6).
+	TaskEvents(id string) ([]Event, error)
 }
 
 // Service is the host-side control plane: the single owner of the store plus the
@@ -91,6 +132,7 @@ type Service struct {
 	verifier  VerifyRunner    // may be nil until a candidate is verified
 	digester  ImageDigester   // may be nil (digest pinning then skipped)
 	sessions  SessionObserver // may be nil (reconcile then skips session checks)
+	budgets   BudgetSource    // may be nil (then DefaultBudget() for every project)
 
 	// mu serialises Dispatch, Verify and Reconcile: V1 is one active Job per
 	// project with no parallelism, and a single SQLite writer conn. It is NOT
@@ -112,6 +154,31 @@ func (s *Service) Store() *Store { return s.store }
 // construction, so NewService callers that don't pin images (host tests) stay
 // unchanged. Nil disables digest pinning.
 func (s *Service) SetImageDigester(d ImageDigester) { s.digester = d }
+
+// SetBudgetSource installs the per-project budget ceiling source (the daemon
+// passes FileBudgetPolicy; tests pass a static one). Nil means every project gets
+// DefaultBudget().
+func (s *Service) SetBudgetSource(b BudgetSource) { s.budgets = b }
+
+// budgetCeiling resolves the ceiling for a project: the configured source, or
+// the built-in default when none is installed.
+func (s *Service) budgetCeiling(project string) Budget {
+	if s.budgets == nil {
+		return DefaultBudget()
+	}
+	return s.budgets.BudgetFor(project).withDefaults(DefaultBudget())
+}
+
+// refuse records a policy refusal in the event log and returns the typed error.
+// Refusals change no state — that is the point: the plane declined to act, and
+// the only trace is the log entry plus the RejectionError the caller sees.
+func (s *Service) refuse(entityType, entityID string, kind string, reason RejectionReason, msg string) error {
+	if err := s.store.LogDecision(entityType, entityID,
+		EventMeta{Kind: kind, Reason: reason, Actor: ActorPlane}, msg); err != nil {
+		log.Printf("control: logging %s refusal for %s: %v", reason, entityID, err)
+	}
+	return &RejectionError{Reason: reason, Message: msg, Entity: entityID}
+}
 
 // CreateTask resolves the project through the trusted registry, enforces the
 // Git-native prerequisite (captures base_sha from HEAD), and inserts a planned
@@ -139,7 +206,17 @@ func (s *Service) CreateTask(req CreateTaskRequest) (Task, error) {
 	if err != nil {
 		return Task{}, err
 	}
-	t, err := s.store.CreateTask(req.Project, req.Objective, req.Acceptance, baseSHA, policy.Hash(), StatePlanned)
+	// Resolve the governance envelope BEFORE inserting anything: a request that
+	// tries to widen the project's ceiling is refused outright, so an over-budget
+	// task never exists (§6 — "budget too high → REJECTED").
+	budget, err := s.resolveBudget(req)
+	if err != nil {
+		return Task{}, err
+	}
+	t, err := s.store.CreateTask(NewTask{
+		Project: req.Project, Objective: req.Objective, AcceptanceRef: req.Acceptance,
+		BaseSHA: baseSHA, AcceptanceHash: policy.Hash(), Budget: budget,
+	}, StatePlanned)
 	if err != nil {
 		return Task{}, err
 	}
@@ -150,6 +227,25 @@ func (s *Service) CreateTask(req CreateTaskRequest) (Task, error) {
 		t = t2
 	}
 	return t, nil
+}
+
+// resolveBudget layers a create request's budget over the project's ceiling. A
+// request may only narrow: any axis that widens the ceiling is refused with
+// ReasonOverBudget rather than silently clamped, because a caller that asked for
+// more than it may have should be told so — a governed plane says no out loud.
+func (s *Service) resolveBudget(req CreateTaskRequest) (Budget, error) {
+	ceiling := s.budgetCeiling(req.Project)
+	if req.Budget == nil {
+		return ceiling, nil
+	}
+	if axis, over := ceiling.exceededBy(*req.Budget); over {
+		// Recorded against the PROJECT, not a task: the refusal happened before any
+		// task existed, and an event with an empty entity id would be unqueryable.
+		return Budget{}, s.refuse("project", req.Project, EventBudget, ReasonOverBudget, fmt.Sprintf(
+			"requested %s exceeds project %q ceiling (%s); raise it in the host-side budget policy, not in the request",
+			axis, req.Project, ceiling))
+	}
+	return req.Budget.withDefaults(ceiling), nil
 }
 
 // captureDigest records the project image's sha256 digest on the task if a
@@ -209,7 +305,8 @@ func (s *Service) CancelTask(id string) (Task, error) {
 	jobs, _ := s.store.ListJobsForTask(id)
 	for _, j := range jobs {
 		if IsActive(j.State) {
-			if _, err := s.store.TransitionJob(j.ID, StateCancelled, false, "task cancelled"); err != nil {
+			if _, err := s.store.TransitionJobWith(j.ID, StateCancelled, false,
+				EventMeta{Actor: ActorHuman}, "task cancelled"); err != nil {
 				log.Printf("control: cancel job %s: %v", j.ID, err)
 			}
 			if s.worktrees != nil {
@@ -217,7 +314,8 @@ func (s *Service) CancelTask(id string) (Task, error) {
 			}
 		}
 	}
-	return s.store.TransitionTask(id, StateCancelled, false, "cancelled via CLI")
+	return s.store.TransitionTaskWith(id, StateCancelled, false,
+		EventMeta{Actor: ActorHuman}, "cancelled via CLI")
 }
 
 // DispatchTask runs one headless Job attempt for a task: create the Job, add its
@@ -228,7 +326,12 @@ func (s *Service) CancelTask(id string) (Task, error) {
 func (s *Service) DispatchTask(id string) (DispatchResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.dispatchLocked(id)
+}
 
+// dispatchLocked is DispatchTask's body, callable from another already-locked
+// governance op (RetryTask). s.mu must be held.
+func (s *Service) dispatchLocked(id string) (DispatchResult, error) {
 	if s.runner == nil || s.worktrees == nil {
 		return DispatchResult{}, fmt.Errorf("control: dispatch not configured (no runner/worktrees)")
 	}
@@ -241,6 +344,11 @@ func (s *Service) DispatchTask(id string) (DispatchResult, error) {
 	// failed verify — rejected → queued is the retry path from §6's ladder).
 	if task.State != StatePlanned && task.State != StateQueued && task.State != StateRejected {
 		return DispatchResult{}, fmt.Errorf("control: task %s is %s, not dispatchable (want planned/queued/rejected)", id, task.State)
+	}
+	// Budget gate, BEFORE any state change or side-effect: an over-budget dispatch
+	// must leave the task exactly as it found it.
+	if err := s.checkDispatchBudget(task); err != nil {
+		return DispatchResult{}, err
 	}
 	repoDir, err := s.projects.ProjectDir(task.Project)
 	if err != nil {
@@ -261,8 +369,8 @@ func (s *Service) DispatchTask(id string) (DispatchResult, error) {
 		return DispatchResult{}, err
 	}
 
-	// Create the Job (records base_sha, runner, budget) in working.
-	job, err := s.store.CreateJob(id, task.BaseSHA, "claude", 0, StateWorking)
+	// Create the Job (records base_sha, runner, the wall-clock budget) in working.
+	job, err := s.store.CreateJob(id, task.BaseSHA, "claude", task.Budget.WallClockSeconds, StateWorking)
 	if err != nil {
 		return DispatchResult{}, err
 	}
@@ -275,11 +383,11 @@ func (s *Service) DispatchTask(id string) (DispatchResult, error) {
 		return DispatchResult{}, err
 	}
 
-	// Run the agent to process exit. NOT under a DB transaction — the store is
-	// touched only before and after.
-	outcome := s.runner.Run(context.Background(), JobSpec{
+	// Run the agent to process exit, under the wall-clock budget. NOT under a DB
+	// transaction — the store is touched only before and after.
+	outcome := runUnderWallClock(s.runner, JobSpec{
 		TaskID: id, JobID: job.ID, Project: task.Project, Objective: task.Objective,
-		Runner: "claude", Budget: 0, BaseSHA: task.BaseSHA, WorktreeDir: wtPath,
+		Runner: "claude", Budget: task.Budget.WallClockSeconds, BaseSHA: task.BaseSHA, WorktreeDir: wtPath,
 	})
 
 	// Capture the tree (salvage snapshot even on failure). Best-effort: a capture
@@ -320,6 +428,74 @@ func (s *Service) DispatchTask(id string) (DispatchResult, error) {
 	return DispatchResult{Job: j}, nil
 }
 
+// checkDispatchBudget enforces the two dispatch-time budget axes the plane can
+// genuinely enforce (§6): max-attempts (how many Jobs this Task may ever have)
+// and concurrency (how many of this project's Jobs may be running at once).
+// Both are refusals: nothing moves, a decision event is logged, and the caller
+// gets a *RejectionError it can tell apart from a failure.
+func (s *Service) checkDispatchBudget(task Task) error {
+	b := task.Budget
+	if b.MaxAttempts > 0 {
+		used, err := s.store.CountJobsForTask(task.ID)
+		if err != nil {
+			return err
+		}
+		if used >= b.MaxAttempts {
+			// Deliberately does NOT suggest a replan: a replan is bounded by the same
+			// counter, so pointing at it would be advice that cannot work.
+			return s.refuse("task", task.ID, EventBudget, ReasonAttemptsExhausted, fmt.Sprintf(
+				"task %s has used all %d attempt(s); cancel it, or raise maxAttempts for %q in the host-side budget policy and create a new task",
+				task.ID, b.MaxAttempts, task.Project))
+		}
+	}
+	if b.Concurrency > 0 {
+		running, err := s.store.CountRunningJobsForProject(task.Project)
+		if err != nil {
+			return err
+		}
+		if running >= b.Concurrency {
+			return s.refuse("task", task.ID, EventBudget, ReasonConcurrencyExceeded, fmt.Sprintf(
+				"project %q already has %d running job(s) (concurrency budget %d)",
+				task.Project, running, b.Concurrency))
+		}
+	}
+	return nil
+}
+
+// runUnderWallClock runs one attempt bounded by the Job's wall-clock budget, the
+// first of §6's "strongly enforceable" axes. The runner is handed a deadline
+// context AND raced against it, so the plane's verdict does not depend on the
+// runner cooperating: an overrun is classified execution_result=timeout on the
+// spot and the Job is terminated.
+//
+// Honest limit, worth stating: the plane can guarantee its own bookkeeping and
+// the context cancellation, not the death of a process it did not fork. A runner
+// that ignores its context keeps running in the background until it exits (the
+// goroutine below is parked on a buffered channel, so nothing here blocks or
+// leaks a lock, but the container may outlive the verdict). Killing the
+// underlying container needs a runner that honours the context — the real
+// CoordinatorRunner is exec-based and does not abort a command mid-flight today.
+// A budget of 0 means unbounded and skips all of this.
+func runUnderWallClock(runner AgentRunner, spec JobSpec) RunOutcome {
+	if spec.Budget <= 0 {
+		return runner.Run(context.Background(), spec)
+	}
+	limit := time.Duration(spec.Budget) * time.Second
+	ctx, cancel := context.WithTimeout(context.Background(), limit)
+	defer cancel()
+
+	done := make(chan RunOutcome, 1) // buffered: an abandoned runner never blocks
+	go func() { done <- runner.Run(ctx, spec) }()
+
+	select {
+	case outcome := <-done:
+		return outcome
+	case <-ctx.Done():
+		return RunOutcome{Result: ExecTimeout, Detail: fmt.Sprintf(
+			"wall-clock budget of %ds exceeded", spec.Budget)}
+	}
+}
+
 // VerifyTask runs the plane-owned verify pass over a task's candidate Job (§6).
 // The test-integrity gate runs FIRST: if the Job's diff (base..head) touches any
 // frozen acceptance file, it goes straight to `rejected` and the VerifyRunner is
@@ -350,12 +526,46 @@ func (s *Service) VerifyTask(id string) (VerifyResult, error) {
 	}
 	art := s.firstArtifact(job.ID)
 
+	// Review-cycle budget (§6, strongly enforceable). A REFUSAL, not a verdict:
+	// the plane declines to spend another verification on this task and leaves it
+	// resting at `candidate` for a human to inspect, cancel, or supersede. A
+	// verdict here would be a lie — nothing about the artifact was examined.
+	if max := task.Budget.MaxReviewCycles; max > 0 {
+		used, err := s.store.CountTaskTransitionsTo(id, StateVerifying)
+		if err != nil {
+			return VerifyResult{}, err
+		}
+		if used >= max {
+			return VerifyResult{}, s.refuse("task", id, EventBudget, ReasonReviewCyclesExhausted, fmt.Sprintf(
+				"task %s has used all %d review cycle(s); the candidate is unchanged — cancel it or raise the project budget",
+				id, max))
+		}
+	}
+
 	// Null-agent floor (§6): an artifact identical to base_sha is no change at all
 	// — it must never verify as "done". Reject before any gate/verifier work so a
 	// do-nothing (or capture-failed) job can't earn a vacuous pass.
 	if job.OutputSnapshot == "" || job.OutputSnapshot == task.BaseSHA {
 		note := "null-agent floor: empty change (head == base) — nothing to verify"
-		res := s.doReject(task, job, art, repoDir, note)
+		res := s.doReject(task, job, art, repoDir, ReasonNullAgentFloor, note)
+		res.Detail = note
+		return res, nil
+	}
+
+	// Stale base (§6): the artifact was built on a base the project has since moved
+	// past, so verifying it would prove something about a tree nobody will
+	// integrate. Rejected as a verdict, with the remedy named in the note —
+	// `task retry --rebase` re-pins the task to the new tip and re-freezes the
+	// acceptance policy there. Checked before the gate/verifier so a doomed
+	// artifact never costs a verifier container.
+	stale, tip, err := IsStaleBase(repoDir, task.BaseSHA)
+	if err != nil {
+		return VerifyResult{}, err
+	}
+	if stale {
+		note := fmt.Sprintf("stale base: artifact built on %s but the project tip is now %s — rebase + re-verify (daedalus task retry %s --rebase)",
+			shortSHA(task.BaseSHA), shortSHA(tip), id)
+		res := s.doReject(task, job, art, repoDir, ReasonStaleBase, note)
 		res.Detail = note
 		return res, nil
 	}
@@ -369,7 +579,7 @@ func (s *Service) VerifyTask(id string) (VerifyResult, error) {
 	}
 	if task.AcceptanceHash != "" && policy.Hash() != task.AcceptanceHash {
 		note := "acceptance policy hash drift since base_sha — rejected"
-		res := s.doReject(task, job, art, repoDir, note)
+		res := s.doReject(task, job, art, repoDir, ReasonPolicyDrift, note)
 		res.Detail = note
 		return res, nil
 	}
@@ -381,7 +591,7 @@ func (s *Service) VerifyTask(id string) (VerifyResult, error) {
 	}
 	if touched {
 		note := "integrity gate: job diff edits frozen acceptance files: " + strings.Join(files, ", ")
-		res := s.doReject(task, job, art, repoDir, note)
+		res := s.doReject(task, job, art, repoDir, ReasonIntegrityGate, note)
 		res.GateTouched = true
 		res.TouchedFiles = files
 		res.VerifierCalled = false
@@ -418,19 +628,20 @@ func (s *Service) VerifyTask(id string) (VerifyResult, error) {
 	})
 
 	if !outcome.Passed {
-		res := s.doReject(task, job, art, repoDir, withDetail("verify failed", outcome.Detail))
+		res := s.doReject(task, job, art, repoDir, ReasonVerifyFailed, withDetail("verify failed", outcome.Detail))
 		res.VerifierCalled = true
 		res.Detail = outcome.Detail
 		return res, nil
 	}
 
 	// verifying → verified (job + task); artifact verify = pass. The worktree is
-	// KEPT: a verified candidate awaits approval/integration (M15).
-	jb, err := s.store.TransitionJob(job.ID, StateVerified, false, withDetail("verified", outcome.Detail))
+	// KEPT: a verified candidate awaits approval/integration (Sprint 59).
+	verifyMeta := EventMeta{Kind: EventVerification}
+	jb, err := s.store.TransitionJobWith(job.ID, StateVerified, false, verifyMeta, withDetail("verified", outcome.Detail))
 	if err != nil {
 		return VerifyResult{}, err
 	}
-	tk, err := s.store.TransitionTask(id, StateVerified, false, "verified")
+	tk, err := s.store.TransitionTaskWith(id, StateVerified, false, verifyMeta, "verified")
 	if err != nil {
 		return VerifyResult{}, err
 	}
@@ -445,13 +656,16 @@ func (s *Service) VerifyTask(id string) (VerifyResult, error) {
 // doReject drives a candidate-or-verifying job+task to `rejected` (legal from
 // both), marks the artifact verify=fail, and reclaims the attempt's worktree (a
 // retry makes a fresh one). job and task are kept in lockstep so `from` matches.
-func (s *Service) doReject(task Task, job Job, art *Artifact, repoDir, note string) VerifyResult {
-	jb, err := s.store.TransitionJob(job.ID, StateRejected, false, note)
+// The typed reason is carried onto both transition events and back to the
+// caller, so "why was this rejected" is answerable without parsing prose.
+func (s *Service) doReject(task Task, job Job, art *Artifact, repoDir string, reason RejectionReason, note string) VerifyResult {
+	meta := EventMeta{Kind: EventRejection, Reason: reason}
+	jb, err := s.store.TransitionJobWith(job.ID, StateRejected, false, meta, note)
 	if err != nil {
 		log.Printf("control: reject job %s: %v", job.ID, err)
 		jb = job
 	}
-	tk, err := s.store.TransitionTask(task.ID, StateRejected, false, note)
+	tk, err := s.store.TransitionTaskWith(task.ID, StateRejected, false, meta, note)
 	if err != nil {
 		log.Printf("control: reject task %s: %v", task.ID, err)
 		tk = task
@@ -464,7 +678,124 @@ func (s *Service) doReject(task Task, job Job, art *Artifact, repoDir, note stri
 	if s.worktrees != nil {
 		_ = s.worktrees.Remove(repoDir, job.ID)
 	}
-	return VerifyResult{Job: jb, Task: tk, Artifact: art, Verified: false}
+	return VerifyResult{Job: jb, Task: tk, Artifact: art, Reason: reason, Verified: false}
+}
+
+// RetryTask retries a rejected Task: a FRESH Job on the same Task, with the
+// attempt counter advanced and the budget re-checked (§6's retry rung). The
+// previous Job is left exactly as it is — attempt history is preserved, never
+// overwritten, so a Task carries its whole Job chain and the record of why each
+// attempt was rejected survives the retry.
+//
+// With Rebase, the Task is first re-pinned to the project's current tip and its
+// acceptance policy re-frozen there — the remedy for a `stale_base` rejection.
+// That is deliberately opt-in: re-freezing the oracle at a newer commit adopts
+// whatever verify policy that commit carries, so a human asks for it by name.
+func (s *Service) RetryTask(id string, req RetryRequest) (RetryResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	task, err := s.store.GetTask(id)
+	if err != nil {
+		return RetryResult{}, err
+	}
+	if task.State != StateRejected {
+		return RetryResult{}, fmt.Errorf("control: task %s is %s, not retryable (want rejected)", id, task.State)
+	}
+	// Re-check the budget up front so an exhausted Task is refused before the
+	// rebase touches anything.
+	if err := s.checkDispatchBudget(task); err != nil {
+		return RetryResult{}, err
+	}
+
+	used, err := s.store.CountJobsForTask(id)
+	if err != nil {
+		return RetryResult{}, err
+	}
+	res := RetryResult{Attempt: used + 1, MaxAttempts: task.Budget.MaxAttempts}
+
+	if req.Rebase {
+		repoDir, err := s.projects.ProjectDir(task.Project)
+		if err != nil {
+			return RetryResult{}, err
+		}
+		tip, err := TargetTipSHA(repoDir)
+		if err != nil {
+			return RetryResult{}, err
+		}
+		if tip != task.BaseSHA {
+			policy, err := ReadAcceptancePolicyAt(repoDir, tip)
+			if err != nil {
+				return RetryResult{}, err
+			}
+			note := fmt.Sprintf("rebase: %s → %s (acceptance policy re-frozen at the new base)",
+				shortSHA(task.BaseSHA), shortSHA(tip))
+			updated, err := s.store.RebaseTask(id, tip, policy.Hash(), note)
+			if err != nil {
+				return RetryResult{}, err
+			}
+			task = updated
+			res.Rebased = true
+		}
+	}
+	res.BaseSHA = task.BaseSHA
+
+	if err := s.store.LogDecision("task", id,
+		EventMeta{Kind: EventGovernance, Actor: ActorHuman},
+		fmt.Sprintf("retry: attempt %d of %d", res.Attempt, task.Budget.MaxAttempts)); err != nil {
+		log.Printf("control: logging retry of %s: %v", id, err)
+	}
+
+	dispatch, err := s.dispatchLocked(id)
+	if err != nil {
+		return RetryResult{}, err
+	}
+	res.Dispatch = dispatch
+	if n, err := s.store.CountJobsForTask(id); err == nil {
+		res.Attempts = n
+	}
+	return res, nil
+}
+
+// ReplanTask revises a rejected Task's objective and returns it to `planned`
+// (§6's replan rung) — for when the attempt failed because the instruction was
+// wrong, not because the work was.
+//
+// It does NOT reset the attempt counter: the budget bounds the Task, not the
+// objective, so replanning cannot be used to buy more attempts. The Job chain is
+// preserved intact, and the new objective is recorded in the event log next to
+// the one it replaced.
+func (s *Service) ReplanTask(id string, req ReplanRequest) (Task, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if req.Objective == "" {
+		return Task{}, fmt.Errorf("control: replan requires --objective")
+	}
+	task, err := s.store.GetTask(id)
+	if err != nil {
+		return Task{}, err
+	}
+	if task.State != StateRejected {
+		return Task{}, fmt.Errorf("control: task %s is %s, not replannable (want rejected)", id, task.State)
+	}
+	// A replan that could never be dispatched is worth refusing now rather than
+	// leaving a `planned` task that only fails at the next dispatch.
+	if err := s.checkDispatchBudget(task); err != nil {
+		return Task{}, err
+	}
+	return s.store.ReplanTask(id, req.Objective,
+		fmt.Sprintf("replan: objective %q → %q", task.Objective, req.Objective))
+}
+
+// TaskEvents returns the control-plane-managed event log for a task: its own
+// events plus those of every Job and Artifact beneath it, in the order they
+// happened. Read-only — there is no counterpart that writes, amends, or deletes.
+func (s *Service) TaskEvents(id string) ([]Event, error) {
+	if _, err := s.store.GetTask(id); err != nil {
+		return nil, err
+	}
+	return s.store.ListEventsForTask(id)
 }
 
 // candidateJob returns the latest Job of a task that is in the candidate state.
