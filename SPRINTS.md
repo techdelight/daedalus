@@ -2,7 +2,11 @@
 
 ## Current Sprint
 
-### Sprint 55: Execution — daemon, worktree, headless Jobs & reconciliation
+_No active sprint, and no active milestone. Milestone 13 shipped in **v0.48.0** (Sprints 54–55, in the history below) — the control-plane foundation (Task/Job/Artifact + SQLite + the `daedalus task` CLI + daemon + isolated-worktree headless Jobs + reconciliation). A between-milestones state; the control-plane arc continues with **M14 (Independent Verification)** when opened — see `ROADMAP.md`._
+
+## Sprint History
+
+### Sprint 55: Execution — daemon, worktree, headless Jobs & reconciliation (v0.48.0)
 
 Goal: make the control plane *run work*. Stand up the `daedalus-control` daemon over `control.sock` (the `daedalus task` CLI becomes its client); dispatch a Task as a **Job in an isolated Git worktree** checked out clean at `base_sha`; run the agent **headless** via the coordinator, take **process exit** as the boundary, classify `execution_result`, capture the commit as `output_snapshot`, and promote **only success → candidate Artifact**; and add a **reconcile-on-boot + periodic loop** so state survives crashes. Completes Milestone 13. The daemon/worktree/reconcile *logic* is host-testable (coordinator behind an interface, real temp git repos); the actual container run is host-only. Design in `docs/guild-master-plan.md` (M13, V1); heed the critique's §4 (reconciliation) + §5/§6 (job-end, capture-vs-success).
 
@@ -16,8 +20,6 @@ Milestone: 13
 | 4 | **Reconcile-on-boot + periodic loop + close** — on daemon start (and on a tick), for every non-terminal Job compare desired (DB) vs observed (worktree/coordinator session) state and drive/repair (adopt, resume, or fail orphans) with idempotent, deterministically-named side-effects; tested with a fake coordinator. CHANGELOG; verify; close Milestone 13. | Done |
 
 Out of scope: the clean verifier performing `candidate → verified` + digest-pinning + the test-integrity gate (Milestone 14); budgets, the integration transaction, human approval, and the `guild-control-mcp` Guild Master client (Milestone 15); parallel Jobs (Milestone 16). One active Job per project still holds.
-
-## Sprint History
 
 ### Sprint 54: Control-Plane Core — model, store & the `daedalus task` CLI (v0.48.0)
 

@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.48.0] - 2026-08-08
+
+**Milestone 13: Control Plane Foundation (V1).** The first step of the controlling
+Guild Master arc — a host-side control plane, human-CLI-first. A `daedalus task`
+CLI + `daedalus-control` daemon over `control.sock` own a Task/Job/Artifact model
+in a pure-Go SQLite store; a dispatched Task runs as a headless Job in an isolated
+Git worktree (process-exit boundary; only success → a candidate Artifact); and a
+reconcile-on-boot/periodic loop keeps state consistent across crashes. No agent
+client and no verification yet (M14/M15). See `docs/control-plane.md` and
+`docs/guild-master-plan.md`.
+
 ### Added
 - **Control-plane execution — the `daedalus-control` daemon, isolated-worktree
   headless Jobs, and reconciliation (Sprint 55, completing M13).** A new

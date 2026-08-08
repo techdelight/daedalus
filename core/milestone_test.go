@@ -244,9 +244,9 @@ func TestParseMilestonesAgainstRealRoadmap(t *testing.T) {
 	if got[10].Status != StatusDone {
 		t.Errorf("Milestone 11 Status = %q, want %q", got[10].Status, StatusDone)
 	}
-	// M13 is In Progress (control-plane arc begun); M14–M17 remain Planned.
-	if got[12].Status != StatusInProgress {
-		t.Errorf("Milestone 13 Status = %q, want %q", got[12].Status, StatusInProgress)
+	// M13 is Done (control-plane V1 foundation); M14–M17 remain Planned.
+	if got[12].Status != StatusDone {
+		t.Errorf("Milestone 13 Status = %q, want %q", got[12].Status, StatusDone)
 	}
 	for i := 13; i <= 16; i++ {
 		if got[i].Status != StatusPlanned {

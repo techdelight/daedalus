@@ -107,7 +107,7 @@ An always-present, un-removable project — default name **`guild-master`** (sho
 > response to the critique) in `docs/guild-master-plan.md`; evidence in
 > `docs/guild-master-control.md`. Sequenced **V1 → V2 → V3**.
 
-### Milestone 13: Control Plane Foundation + the deterministic CLI path (V1) (In Progress)
+### Milestone 13: Control Plane Foundation + the deterministic CLI path (V1) (Done)
 
 Stand up the host-side control plane (`daedalus-control`) and its core data model — **Task** (what to accomplish) → **Job** (one attempt) → **Artifact** (a committed result + status) — with authoritative *desired* state in a Daedalus-owned SQLite store. Each Job runs in a **dedicated, isolated Git worktree** checked out clean at `base_sha` (isolation as artifact-provenance, so the captured commit holds only the Job's changes — never a developer's dirty edits); a Job ends at **process exit**, and only a `success` execution promotes its `output_snapshot` to a candidate Artifact (commit-exists ≠ succeeded). The **only client is a human CLI** — `daedalus task create|dispatch|status|cancel|verify` — the deterministic reference path that makes the plane useful at N=1 and isolates bugs before any agent drives it. **Git-native** (a managed project must be a Git repo).
 
@@ -152,7 +152,7 @@ Kept Planned but **low-priority / demotion candidate to BACKLOG**: for short Job
 ## Phasing
 
 ```
-M1..M12 (Done, except M10) ─► ( no active milestone )
+M1..M13 (Done, except M10) ─► ( no active milestone )
 
 Planned — the "controlling Guild Master" control-plane arc
 (design: docs/guild-master-plan.md; evidence: docs/guild-master-control.md):
@@ -164,4 +164,4 @@ Also Planned: M10 Homebrew Distribution.
 
 ## Current Focus
 
-**Milestone 13: Control Plane Foundation (In Progress).** Milestones M1–M9, M11 and M12 are complete (M12 shipped in **v0.47.0**). M13 has begun — **Sprint 54** lays the control-plane core (Task/Job/Artifact model + SQLite store + the human `daedalus task` CLI, pure Go, fully host-testable), ahead of Sprint 55's execution/worktree/reconciliation. The wider **"controlling Guild Master" control-plane arc** is M13–M17, which evolves the Guild Master from a read-only overseer into a controlling entity via a host-side **control plane** — the *Guild Master has initiative, the control plane has authority*. Revised after **two rounds of evaluation** (`daedalus-control-plane-report.md`, then `guild-master-plan-critical-evaluation.md`, both literature-checked): **V1** = a **human-CLI-first** control-plane foundation with isolated Git worktrees + crash reconciliation (M13) and independent, digest-pinned artifact verification with a test-integrity gate (M14); **V2** = governance, a race-safe integration transaction, and the Guild Master joining as a *gated, injection-safe* client (M15); **V3** = parallel execution (M16) and typed steering (M17, demoted). Full design + the graded response to the critique in `docs/guild-master-plan.md`; evidence in `docs/guild-master-control.md`. The natural first is **M13** — fully host-testable, and useful at N=1 before any agent orchestration exists. Also Planned: M10 (Homebrew). No milestone or sprint is in progress yet — a deliberate between-milestones state, so `daedalus docs lint` noting "no milestone is marked (In Progress)" is expected here, not a defect.
+**No active milestone.** Milestones M1–M9, M11, M12 and **M13** are complete (M13 shipped in **v0.48.0** — the control-plane **V1 foundation**: the Task/Job/Artifact model + a pure-Go SQLite store, the human `daedalus task` CLI, the `daedalus-control` daemon over `control.sock`, isolated-Git-worktree headless Jobs with a success→candidate gate, and crash reconciliation). The wider **"controlling Guild Master" control-plane arc** is M13–M17 (design + the graded response to two evaluation rounds in `docs/guild-master-plan.md`; evidence in `docs/guild-master-control.md`): **V1** = M13 (done) + **M14** independent, digest-pinned artifact verification with a test-integrity gate; **V2** = M15 governance, a race-safe integration transaction, and the Guild Master joining as a *gated, injection-safe* client; **V3** = M16 parallel execution and M17 typed steering (demoted). The natural next is **M14 (Independent Verification)** — the crown-jewel gate that makes `candidate → verified` real. Also Planned: M10 (Homebrew). No milestone or sprint is in progress — a deliberate between-milestones state, so `daedalus docs lint` noting "no milestone is marked (In Progress)" is expected here, not a defect.
