@@ -25,9 +25,17 @@
 #                                                #   an isolated worktree of <project>
 #   bash scripts/verify-m13.sh all <project>     # fake, then real if Docker is present
 #
-# Overrides: DATA_DIR (default: a fresh temp dir), BIN_DIR (default: built fresh
-# from ./cmd into a temp dir; set to an install prefix's version dir to test the
-# installed binaries instead).
+# Building: the repo needs Go 1.25. If your host Go is older or missing, the
+# script automatically builds the two binaries inside a golang:1.25 container
+# (like build.sh), so you only need Docker — not a matching host Go.
+#
+# Overrides:
+#   DATA_DIR   isolated state dir            (default: a fresh temp dir)
+#   BIN_DIR    dir with prebuilt daedalus +  (default: build fresh; set this to a
+#              daedalus-control binaries       version dir of a 0.48.0+ install to
+#                                              skip building entirely)
+#   BUILD      host | docker | auto          (default: auto — host Go if ≥1.25,
+#                                              else Docker)
 
 set -uo pipefail
 
@@ -57,19 +65,52 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Go version required by go.mod (host must match or newer; else we build in Docker).
+GO_MIN_MINOR=25
+
+host_go_ok() {
+    command -v go >/dev/null 2>&1 || return 1
+    local v; v="$(go version 2>/dev/null | grep -oE 'go[0-9]+\.[0-9]+' | head -1 | sed 's/go//')"
+    [[ -n "$v" ]] || return 1
+    local maj="${v%%.*}" min="${v##*.}"
+    [[ "$maj" -gt 1 || ( "$maj" -eq 1 && "$min" -ge "$GO_MIN_MINOR" ) ]]
+}
+
 # ── Build (or locate) the two binaries into one dir ──────────────────────────
+# BIN_DIR override → use as-is. Else: build with the host Go if it's ≥1.25;
+# otherwise build inside a golang:1.25 container (like build.sh), so the host's
+# Go version doesn't matter. Both binaries land in one dir so EnsureRunning finds
+# daedalus-control beside daedalus.
 ensure_binaries() {
     if [[ -n "$BIN_DIR" ]]; then
         [[ -x "$BIN_DIR/daedalus" && -x "$BIN_DIR/daedalus-control" ]] \
             || { echo "BIN_DIR=$BIN_DIR must contain daedalus + daedalus-control"; exit 2; }
-        info "using binaries in $BIN_DIR"
+        info "using pre-built binaries in $BIN_DIR"
         return
     fi
     BIN_DIR="$WORK/bin"; mkdir -p "$BIN_DIR"
-    info "building daedalus + daedalus-control…"
-    ( cd "$REPO_ROOT" && go build -o "$BIN_DIR/daedalus" ./cmd/daedalus \
-        && go build -o "$BIN_DIR/daedalus-control" ./cmd/daedalus-control ) \
-        || { echo "build failed"; exit 2; }
+
+    if [[ "${BUILD:-auto}" != docker ]] && host_go_ok; then
+        info "building daedalus + daedalus-control with host Go ($(go version | grep -oE 'go[0-9.]+' | head -1))…"
+        ( cd "$REPO_ROOT" && go build -o "$BIN_DIR/daedalus" ./cmd/daedalus \
+            && go build -o "$BIN_DIR/daedalus-control" ./cmd/daedalus-control ) \
+            || { echo "host build failed"; exit 2; }
+    elif command -v docker >/dev/null 2>&1; then
+        info "host Go missing or <1.$GO_MIN_MINOR — building in golang:1.25-bookworm (Docker)…"
+        docker run --rm \
+            -v "$REPO_ROOT":/src -v "$BIN_DIR":/out -w /src \
+            --user "$(id -u):$(id -g)" -e HOME=/tmp \
+            golang:1.25-bookworm \
+            sh -c "go build -buildvcs=false -o /out/daedalus ./cmd/daedalus && \
+                   go build -buildvcs=false -o /out/daedalus-control ./cmd/daedalus-control" \
+            || { echo "docker build failed"; exit 2; }
+    else
+        echo "Need either Go ≥ 1.$GO_MIN_MINOR or Docker to build, OR set BIN_DIR to a dir"
+        echo "containing pre-built daedalus + daedalus-control binaries."
+        exit 2
+    fi
+    [[ -x "$BIN_DIR/daedalus" && -x "$BIN_DIR/daedalus-control" ]] \
+        || { echo "build produced no binaries in $BIN_DIR"; exit 2; }
 }
 
 # `daedalus` with our isolated data dir. The daemon is auto-spawned from
