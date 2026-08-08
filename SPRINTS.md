@@ -2,7 +2,24 @@
 
 ## Current Sprint
 
-### Sprint 56: Acceptance Contract & the Test-Integrity Gate
+### Sprint 57: The Clean Verifier Container (closes M14)
+
+Goal: replace the stub with the **real clean verifier** — the piece that makes `candidate → verified` mean something. The control plane checks out the Artifact's `head_sha` into a **fresh, digest-pinned** project container (no worker mutable state), runs the frozen policy's `checks`, and reports pass/fail; plus the **`sha256:` image-digest pin**, an explicit **network/creds/`/opt/tools` verifier policy**, and a **null-agent floor** check. Closes Milestone 14. The verifier *logic* is host-testable (checkout + run behind the existing `VerifyRunner` interface, with a fake); the actual container run is host-only, as ever. Design in `docs/guild-master-plan.md` (M14) + §6.
+
+Milestone: 14
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | **Clean verifier container (real `VerifyRunner`)** — a host-only adapter that checks out the Artifact's `head_sha` into a **fresh, clean** checkout and runs the frozen `policy.checks` inside a container built from the project's image (never the worker's worktree/env); returns pass + per-check detail. Behind the Sprint-56 `VerifyRunner` interface; host-tested with a fake, container run host-only. |  |
+| 2 | **Image digest pinning** — capture the project image's `sha256:` digest (at task create or first verify) and run the verifier against **that digest**, not a mutable tag, so the artifact is verified in the same environment it was authored against. Recorded on the task/job; tests over the capture/compare logic. |  |
+| 3 | **Verifier environment policy + null-agent floor** — an explicit, documented policy for the verifier container (network off/allowlisted, no ambient credentials, no inherited `/opt/tools`); a **null-agent floor** check (an empty/no-op change must NOT verify as "done") so a vacuous pass is caught. Tests for the policy plumbing + the floor. |  |
+| 4 | **Docs + close** — `docs/control-plane.md` (verifier section: clean checkout, digest pin, env policy, "reproducible verification result, not proof of correctness"); a `verify` phase in `scripts/verify-m13.sh` (or a sibling) for the host seam; CHANGELOG; `CGO_ENABLED=0` build + suite green; close Milestone 14. |  |
+
+Out of scope (Milestone 15, V2): budgets + request rejection, the race-safe integration transaction (rebase → re-verify merged → CAS), human approval + integration, the independent reviewer pass, and the `guild-control-mcp` Guild Master client. Parallel Jobs are M16.
+
+## Sprint History
+
+### Sprint 56: Acceptance Contract & the Test-Integrity Gate (v0.49.0)
 
 Goal: the host-testable half of independent verification — everything except the container itself. Define the **`daedalus verify` acceptance contract** (how a project declares its check), **freeze + hash the acceptance policy at `base_sha`** when a Task is created (so a worker can't weaken the check it must pass), add the **test-integrity gate** (reject any Job whose diff touches the frozen test/acceptance files — the cheap, high-value defence against the 30–100% test-gaming rates), and wire the plane-owned `candidate → verifying → verified | rejected` transitions behind an injectable `VerifyRunner` (a stub now; the real clean verifier container is Sprint 57). Pure Go + git-diff logic, **fully host-testable without Docker**. Design in `docs/guild-master-plan.md` (M14, V1) + §6. Milestone 14.
 
@@ -16,10 +33,6 @@ Milestone: 14
 | 4 | **Plane-owned verify transitions + CLI** — wire `candidate → verifying → verified | rejected` into the control plane behind an injectable `VerifyRunner` interface (stub returns pass/fail for tests); `daedalus task verify <id>` drives it; `rejected → queued/planned` for retry. **Only the plane** performs `candidate → verified` (already structural). Tests; CHANGELOG. | Done |
 
 Out of scope (Sprint 57): the real **clean verifier container** (checkout the Artifact commit into a fresh container from the **digest-pinned** project image + run the policy), the network/creds/`/opt/tools` policy, the null-agent floor, and the M14 close. Governance/integration/approval + the Guild Master client are Milestone 15.
-
-## Sprint History
-
-## Sprint History
 
 ### Sprint 55: Execution — daemon, worktree, headless Jobs & reconciliation (v0.48.0)
 
