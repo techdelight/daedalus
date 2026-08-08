@@ -2,7 +2,24 @@
 
 ## Current Sprint
 
-### Sprint 54: Control-Plane Core — model, store & the `daedalus task` CLI
+### Sprint 55: Execution — daemon, worktree, headless Jobs & reconciliation
+
+Goal: make the control plane *run work*. Stand up the `daedalus-control` daemon over `control.sock` (the `daedalus task` CLI becomes its client); dispatch a Task as a **Job in an isolated Git worktree** checked out clean at `base_sha`; run the agent **headless** via the coordinator, take **process exit** as the boundary, classify `execution_result`, capture the commit as `output_snapshot`, and promote **only success → candidate Artifact**; and add a **reconcile-on-boot + periodic loop** so state survives crashes. Completes Milestone 13. The daemon/worktree/reconcile *logic* is host-testable (coordinator behind an interface, real temp git repos); the actual container run is host-only. Design in `docs/guild-master-plan.md` (M13, V1); heed the critique's §4 (reconciliation) + §5/§6 (job-end, capture-vs-success).
+
+Milestone: 13
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | **`daedalus-control` daemon + `control.sock`** — a long-running daemon that owns the SQLite store and an HTTP-over-UDS API (create/list/status/cancel/dispatch), with `EnsureRunning`/stale-detection modelled on `internal/coordinator`. The `daedalus task` CLI (Sprint 54) becomes a **thin client** of it. Tests over the API. |  |
+| 2 | **Isolated Git worktree per Job (the Job wrapper)** — `git worktree add` a clean checkout at `base_sha` on branch `daedalus/<task>/<job>`, at a deterministic path under `<DataDir>` (never the developer's checkout); cleanup on terminal. Pure git ops, host-tested against real temp repos. |  |
+| 3 | **Headless Job execution** — `daedalus task dispatch <id>` → the daemon creates a Job + worktree, runs the agent **headless** via the coordinator with the worktree as `/workspace`, waits for **process exit**, sets `execution_result` ∈ {success,failed,timeout,cancelled}, captures `head_sha` as `output_snapshot`, and promotes **only success → candidate**. Coordinator behind an injectable interface so the logic is host-tested; the real run is host-only. |  |
+| 4 | **Reconcile-on-boot + periodic loop + close** — on daemon start (and on a tick), for every non-terminal Job compare desired (DB) vs observed (worktree/coordinator session) state and drive/repair (adopt, resume, or fail orphans) with idempotent, deterministically-named side-effects; tested with a fake coordinator. CHANGELOG; verify; close Milestone 13. |  |
+
+Out of scope: the clean verifier performing `candidate → verified` + digest-pinning + the test-integrity gate (Milestone 14); budgets, the integration transaction, human approval, and the `guild-control-mcp` Guild Master client (Milestone 15); parallel Jobs (Milestone 16). One active Job per project still holds.
+
+## Sprint History
+
+### Sprint 54: Control-Plane Core — model, store & the `daedalus task` CLI (v0.48.0)
 
 Goal: lay the foundation of the host-side control plane — the Task/Job/Artifact data model, a SQLite store as the durable source of *desired* state, and a human `daedalus task` CLI as the first (and, for now, only) client. **No execution yet** — Sprint 55 adds the worktree, headless Job run, and reconciliation. This half is pure Go + SQLite, **fully host-testable without Docker or Git**. Design in `docs/guild-master-plan.md` (M13, V1); the CLI-first ordering is deliberate (a deterministic reference path, useful at N=1, before any agent client). Milestone 13.
 
@@ -16,10 +33,6 @@ Milestone: 13
 | 4 | **Docs + guardrails** — CHANGELOG `[Unreleased]`; a short `docs/control-plane.md` stub describing the model + the V1 scope boundary (no execution/agent client yet); `go build`/`vet`/suite green; `gofmt` clean. | Done |
 
 Out of scope (Sprint 55): the `daedalus-control` daemon + `control.sock`; the isolated Git worktree; headless Job execution via the coordinator; the reconcile-on-boot/periodic loop; `task dispatch`. Verification (the clean verifier) is Milestone 14; the Guild Master client is Milestone 15.
-
-## Sprint History
-
-## Sprint History
 
 ### Sprint 53: Cross-Project Document Access (v0.47.0)
 
