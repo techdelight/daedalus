@@ -63,6 +63,7 @@ jobs:
           go build -ldflags="-s -w -X github.com/techdelight/daedalus/core.Version=$VERSION" -o daedalus-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/daedalus
           go build -ldflags="-s -w" -o skill-catalog-mcp-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/skill-catalog-mcp
           go build -ldflags="-s -w" -o project-mgmt-mcp-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/project-mgmt-mcp
+          go build -ldflags="-s -w" -o guild-mcp-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/guild-mcp
           go build -ldflags="-s -w" -o daedalus-coordinator-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/daedalus-coordinator
           go build -ldflags="-s -w" -o daedalus-runner-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/daedalus-runner
 
@@ -74,6 +75,7 @@ jobs:
             daedalus-${{ matrix.goos }}-${{ matrix.goarch }}
             skill-catalog-mcp-${{ matrix.goos }}-${{ matrix.goarch }}
             project-mgmt-mcp-${{ matrix.goos }}-${{ matrix.goarch }}
+            guild-mcp-${{ matrix.goos }}-${{ matrix.goarch }}
             daedalus-coordinator-${{ matrix.goos }}-${{ matrix.goarch }}
             daedalus-runner-${{ matrix.goos }}-${{ matrix.goarch }}
 

@@ -262,6 +262,23 @@ daedalus completion bash
 daedalus --help
 ```
 
+## Guild Master
+
+`guild-master` is a built-in, always-present project (shown as "Guild Master")
+that you cannot remove, prune, or rename — it appears in `daedalus list` tagged
+as the built-in manager and as a distinguished, crowned hero in the Web Guild
+view. It is the **read-only programme overseer**: when it launches, every *other*
+registered project's directory is mounted **read-only** at `/guild/<name>` inside
+its container, and an in-container `guild-mcp` server (active for the Guild Master
+alone) lets its agent enumerate and read those projects — `list_guild_projects`,
+`read_project_doc`, `guild_overview`. It can see every project and never write
+another's files; it does not control or dispatch other agents. Launch it like any
+project:
+
+```bash
+daedalus guild-master
+```
+
 ## TUI Dashboard
 
 An interactive terminal dashboard for managing all registered projects.

@@ -54,7 +54,11 @@ func listProjects(cfg *core.Config) error {
 
 	// Print rows
 	for _, e := range entries {
-		fmt.Printf("%-*s  %-*s  %-*s  %-8d  %s\n", nameW, e.Name, dirW, e.Entry.Directory, targetW, e.Entry.Target, len(e.Entry.Sessions), e.Entry.LastUsed)
+		tag := ""
+		if core.IsGuildMaster(e.Name) {
+			tag = "  " + color.Cyan("[built-in manager]")
+		}
+		fmt.Printf("%-*s  %-*s  %-*s  %-8d  %s%s\n", nameW, e.Name, dirW, e.Entry.Directory, targetW, e.Entry.Target, len(e.Entry.Sessions), e.Entry.LastUsed, tag)
 	}
 	return nil
 }
@@ -73,6 +77,11 @@ func pruneProjects(cfg *core.Config) error {
 
 	var stale []string
 	for _, e := range entries {
+		// The Guild Master owns its workspace and is never pruned, even if its
+		// directory is somehow missing — it will be re-scaffolded on next ensure.
+		if core.IsGuildMaster(e.Name) {
+			continue
+		}
 		info, err := os.Stat(e.Entry.Directory)
 		if err != nil || !info.IsDir() {
 			stale = append(stale, e.Name)
@@ -168,8 +177,22 @@ func removeProjects(cfg *core.Config) error {
 		return fmt.Errorf("initializing registry: %w", err)
 	}
 
-	// Validate all targets exist before prompting
+	// Separate out the protected Guild Master: surface it as protected and drop
+	// it from the working set so the rest of the batch still proceeds.
+	var targets []string
 	for _, name := range cfg.RemoveTargets {
+		if core.IsGuildMaster(name) {
+			fmt.Printf("%s cannot remove the built-in Guild Master — skipping.\n", color.Yellow("Protected:"))
+			continue
+		}
+		targets = append(targets, name)
+	}
+	if len(targets) == 0 {
+		return nil
+	}
+
+	// Validate all targets exist before prompting
+	for _, name := range targets {
 		has, err := reg.HasProject(name)
 		if err != nil {
 			return fmt.Errorf("checking project '%s': %w", name, err)
@@ -182,10 +205,10 @@ func removeProjects(cfg *core.Config) error {
 	// Confirm removal
 	if !config.IsHeadless(cfg) {
 		scanner := bufio.NewScanner(os.Stdin)
-		if len(cfg.RemoveTargets) == 1 {
-			fmt.Printf("Remove project '%s'? [Y/n]: ", cfg.RemoveTargets[0])
+		if len(targets) == 1 {
+			fmt.Printf("Remove project '%s'? [Y/n]: ", targets[0])
 		} else {
-			fmt.Printf("Remove %d projects? [Y/n]: ", len(cfg.RemoveTargets))
+			fmt.Printf("Remove %d projects? [Y/n]: ", len(targets))
 		}
 		if !scanner.Scan() {
 			return fmt.Errorf("aborted")
@@ -199,7 +222,7 @@ func removeProjects(cfg *core.Config) error {
 		return nil
 	}
 
-	removed, err := reg.RemoveProjects(cfg.RemoveTargets)
+	removed, err := reg.RemoveProjects(targets)
 	if err != nil {
 		return fmt.Errorf("removing projects: %w", err)
 	}

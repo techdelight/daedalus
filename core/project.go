@@ -10,6 +10,17 @@ import (
 // CurrentRegistryVersion is the latest registry schema version.
 const CurrentRegistryVersion = 3
 
+// GuildMasterName is the reserved slug of the always-present, built-in
+// "Guild Master" project (displayed as "Guild Master"). It is created and
+// owned by Daedalus, cannot be removed, pruned, or renamed, and has a
+// Daedalus-owned workspace under the data root (see Config.GuildMasterDir).
+const GuildMasterName = "guild-master"
+
+// IsGuildMaster reports whether name is the reserved Guild Master slug.
+func IsGuildMaster(name string) bool {
+	return name == GuildMasterName
+}
+
 // RegistryData is the top-level JSON structure for the project registry.
 type RegistryData struct {
 	Version  int                     `json:"version"`

@@ -195,6 +195,67 @@
 }
 
 /* ============================================================
+   Guild Master — the distinguished, built-in hero
+   ------------------------------------------------------------
+   A brighter double-gold frame, a royal-purple tint, and a floating crown
+   mark the reserved manager project apart from ordinary heroes. Purely a
+   visual accent driven by the `guild-master` class (member.builtin).
+   ============================================================ */
+
+.guild-card.guild-master {
+    background:
+        linear-gradient(180deg, #3a2c68 0%, #2a2050 60%, #1c1740 100%);
+    border-color: #ffe9a3;
+    box-shadow:
+        inset 0 0 0 2px var(--mana-ink),
+        inset 0 0 0 5px var(--mana-frame),
+        inset 0 2px 6px rgba(255, 255, 255, 0.18),
+        0 0 20px rgba(233, 200, 119, 0.35),
+        0 6px 20px rgba(0, 0, 0, 0.5);
+}
+
+.guild-card.guild-master:hover {
+    box-shadow:
+        inset 0 0 0 2px var(--mana-ink),
+        inset 0 0 0 5px #fff2c8,
+        inset 0 2px 6px rgba(255, 255, 255, 0.24),
+        0 0 28px rgba(233, 200, 119, 0.5),
+        0 10px 28px rgba(0, 0, 0, 0.6);
+}
+
+/* Its class ribbon reads as regal rather than ordinary gold. */
+.guild-card.guild-master .guild-class {
+    background: linear-gradient(180deg, #fff3c4, #ffcf5a);
+    letter-spacing: 1.5px;
+}
+
+/* Floating crown above the frame. */
+.guild-crown {
+    position: absolute;
+    top: -16px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 20px;
+    line-height: 1;
+    color: var(--mana-frame);
+    text-shadow:
+        0 0 6px rgba(233, 200, 119, 0.8),
+        1px 1px 0 var(--mana-ink);
+    pointer-events: none;
+    z-index: 4;
+    animation: crown-float 3.6s ease-in-out infinite;
+}
+
+@keyframes crown-float {
+    0%, 100% { transform: translateX(-50%) translateY(0); }
+    50%      { transform: translateX(-50%) translateY(-2px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .guild-crown { animation: none !important; }
+}
+
+/* ============================================================
    Avatar
    ============================================================ */
 

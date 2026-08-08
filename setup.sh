@@ -30,6 +30,7 @@ BINARIES=(
     daedalus
     skill-catalog-mcp
     project-mgmt-mcp
+    guild-mcp
     daedalus-runner
     daedalus-coordinator
 )
@@ -274,6 +275,14 @@ cp "$WORK_DIR/skill-catalog-mcp" "$VERSION_DIR/skill-catalog-mcp"
 chmod 755 "$VERSION_DIR/skill-catalog-mcp"
 cp "$WORK_DIR/project-mgmt-mcp" "$VERSION_DIR/project-mgmt-mcp"
 chmod 755 "$VERSION_DIR/project-mgmt-mcp"
+# guild-mcp is the in-container read-only cross-project MCP server; the
+# Dockerfile COPYs it from the build context (= the version dir) at image-build
+# time, so it has to be staged next to the main binary. Conditional because
+# older tarballs (pre-Sprint 53) won't ship it.
+if [[ -f "$WORK_DIR/guild-mcp" ]]; then
+    cp "$WORK_DIR/guild-mcp" "$VERSION_DIR/guild-mcp"
+    chmod 755 "$VERSION_DIR/guild-mcp"
+fi
 # daedalus-runner is the in-container PID-1 binary the runner path launches; the
 # Dockerfile COPYs it from the build context (= the version dir) at image-build
 # time, so it has to be staged next to the main binary.

@@ -50,6 +50,18 @@ func run(args []string) error {
 		color.Disable()
 	}
 
+	// Ensure the built-in Guild Master exists before any command that enumerates
+	// or launches projects runs (list/tui/web/prune/remove and the normal launch
+	// flow all fall through this single point). Skipped for the purely
+	// informational, registry-free commands so `help`/`completion` stay fast and
+	// side-effect-free. Best-effort: never crashes the CLI (logs + continues).
+	switch cfg.Subcommand {
+	case "help", "completion":
+		// no registry work
+	default:
+		ensureGuildMaster(cfg)
+	}
+
 	switch cfg.Subcommand {
 	case "help":
 		printUsage()

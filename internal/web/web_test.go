@@ -1430,6 +1430,36 @@ func TestHandleGuild(t *testing.T) {
 	}
 }
 
+func TestHandleGuild_BuiltinFlag(t *testing.T) {
+	ws, mock := setupWebTest(t)
+	if err := ws.registry.AddProject(core.GuildMasterName, "/tmp/gm", "dev"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ws.registry.AddProject("alpha", "/tmp/alpha", "dev"); err != nil {
+		t.Fatal(err)
+	}
+	mock.Results["docker"] = executor.MockResult{Output: "exited\n"}
+
+	req := httptest.NewRequest("GET", "/api/guild", nil)
+	rec := httptest.NewRecorder()
+	ws.handleGuild(rec, req)
+
+	var members []guildMemberJSON
+	if err := json.Unmarshal(rec.Body.Bytes(), &members); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	seen := map[string]bool{}
+	for _, m := range members {
+		seen[m.Name] = m.Builtin
+	}
+	if !seen[core.GuildMasterName] {
+		t.Error("guild master member missing builtin=true")
+	}
+	if seen["alpha"] {
+		t.Error("ordinary project alpha should have builtin=false")
+	}
+}
+
 func TestGuildProgression(t *testing.T) {
 	ms := func(statuses ...core.Status) []core.Milestone {
 		out := make([]core.Milestone, len(statuses))

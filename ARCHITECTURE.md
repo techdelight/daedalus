@@ -322,11 +322,35 @@ Baked into image:
                                         /usr/local/bin/daedalus-runner
                                         /usr/local/bin/skill-catalog-mcp
                                         /usr/local/bin/project-mgmt-mcp
+                                        /usr/local/bin/guild-mcp   (Guild Master only)
 ```
 
 `<DataDir>` defaults to `<install-dir>/.cache` (set by installer to `~/.local/share/daedalus/.cache`).
 
 Security: non-root user, all capabilities dropped, `no-new-privileges`.
+
+### The Guild Master and cross-project mounts
+
+`guild-master` is an always-present, un-removable built-in project (the reserved
+slug is never removed, pruned, or renamed) with a Daedalus-owned workspace under
+`<DataDir>/projects/guild-master`. It is the read-only programme overseer.
+
+When the Guild Master launches — and only then — every *other* registered
+project's directory is bind-mounted **read-only** into its container:
+
+```
+<other ProjectDir> ──(ro)──► /guild/<name>     (one per other project)
+```
+
+`core.GuildMounts(current, projects)` builds these args (nil for any non-Guild-
+Master launch); the coordinator reads the registry at launch and appends them.
+The mount set is a **launch-time snapshot** — a project registered later appears
+on the Guild Master's next launch. The launch also sets `DAEDALUS_GUILD_MASTER=1`
+for that container alone, which `entrypoint.sh` keys the in-container `guild-mcp`
+MCP server on, so only the Guild Master's agent gets the cross-project read tools
+(`list_guild_projects`, `read_project_doc`, `guild_overview`). It can read every
+project and never write another's files; it cannot control or dispatch other
+agents — visibility only.
 
 ## Protocols and ports
 

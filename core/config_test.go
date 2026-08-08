@@ -69,6 +69,20 @@ func TestConfig_CacheDir(t *testing.T) {
 	}
 }
 
+func TestConfig_GuildMasterDir(t *testing.T) {
+	cfg := &Config{DataDir: "/data/daedalus", ProjectName: GuildMasterName}
+	got := cfg.GuildMasterDir()
+	want := filepath.Join("/data/daedalus", "projects", GuildMasterName)
+	if got != want {
+		t.Errorf("GuildMasterDir() = %q, want %q", got, want)
+	}
+	// Must be distinct from the guild master's per-project cache dir, or the
+	// workspace and the container-home mount would collide.
+	if got == cfg.CacheDir() {
+		t.Errorf("GuildMasterDir() must differ from CacheDir() (%q)", got)
+	}
+}
+
 func TestConfig_RegistryPath(t *testing.T) {
 	cfg := &Config{DataDir: "/data/daedalus"}
 	got := cfg.RegistryPath()

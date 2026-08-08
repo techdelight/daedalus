@@ -53,6 +53,7 @@ BINARIES=(
     daedalus
     skill-catalog-mcp
     project-mgmt-mcp
+    guild-mcp
     daedalus-coordinator
     daedalus-runner
 )
