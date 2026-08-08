@@ -29,9 +29,11 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
+	"github.com/techdelight/daedalus/core"
 	"github.com/techdelight/daedalus/internal/config"
 	"github.com/techdelight/daedalus/internal/control"
 	"github.com/techdelight/daedalus/internal/coordinator"
@@ -105,10 +107,12 @@ func main() {
 	// end-to-end flow is exercisable without a container runtime.
 	runner := selectRunner(filepath.Join(scriptDir, "daedalus"))
 
-	// Verifier: the real clean-verifier container lands in Sprint 57 (M14). Until
-	// then this is a stub that passes by default; DAEDALUS_CONTROL_FAKE_VERIFY=fail
-	// forces a rejection. The test-integrity gate runs BEFORE the verifier
-	// regardless, in the control plane.
+	// Verifier: the REAL clean-verifier container (M14, Sprint 57) by default — it
+	// checks out the artifact's head_sha into a fresh clean worktree and runs the
+	// frozen policy.checks in the project's pinned image. DAEDALUS_CONTROL_FAKE_VERIFY
+	// selects the Docker-free stub (=fail forces a rejection) so host tests and the
+	// M13/M14 verify scripts stay Docker-free. The test-integrity gate + null-agent
+	// floor run BEFORE the verifier regardless, in the control plane.
 	verifier := selectVerifier()
 
 	// Session observer: wrap the coordinator client. When the coordinator is
@@ -117,6 +121,15 @@ func main() {
 	sessions := coordinatorSessions{client: coordinator.NewClient(coordinator.DefaultSocketPath(cfg.dataDir))}
 
 	svc := control.NewService(store, resolver, worktrees, runner, verifier, sessions)
+
+	// Image-digest pin: capture the project image's sha256 digest so the verifier
+	// runs against the exact environment the artifact was authored against. Only
+	// wired when the real verifier is active — under DAEDALUS_CONTROL_FAKE_VERIFY
+	// there is no Docker, so digest capture is skipped to keep create/verify
+	// Docker-free.
+	if os.Getenv("DAEDALUS_CONTROL_FAKE_VERIFY") == "" {
+		svc.SetImageDigester(dockerImageDigester{exec: &executor.RealExecutor{}, reg: reg, imagePrefix: defaultImagePrefix})
+	}
 
 	// Reconcile on boot.
 	if rep, err := svc.Reconcile(); err != nil {
@@ -187,24 +200,58 @@ func selectRunner(daedalusBin string) control.AgentRunner {
 		if v == "fail" {
 			res = control.ExecFailed
 		}
+		// `empty` = a successful run that makes NO change (head == base) so the
+		// null-agent floor is demonstrable; otherwise a success writes a marker.
+		write := res == control.ExecSuccess && v != "empty"
 		// DAEDALUS_CONTROL_FAKE_RUNNER_MARKER lets a smoke choose the file the stub
 		// writes (e.g. a *_test.go name to exercise the integrity gate).
 		marker := os.Getenv("DAEDALUS_CONTROL_FAKE_RUNNER_MARKER")
 		log.Printf("WARNING using fake runner (DAEDALUS_CONTROL_FAKE_RUNNER=%s) — no real agent runs", v)
-		return control.StubRunner{Result: res, WriteFile: res == control.ExecSuccess, MarkerName: marker}
+		return control.StubRunner{Result: res, WriteFile: write, MarkerName: marker}
 	}
 	return control.CoordinatorRunner{Exec: &executor.RealExecutor{}, BinPath: daedalusBin}
 }
 
-// selectVerifier returns the stub verifier (the real clean-verifier container is
-// Sprint 57). It passes by default; DAEDALUS_CONTROL_FAKE_VERIFY=fail forces a
-// rejection so the rejected/retry path is demonstrable without Docker.
+// defaultImagePrefix mirrors config.ParseArgs' default; the digester needs it to
+// name a project's image without a full per-project Config.
+const defaultImagePrefix = "techdelight/claude-runner"
+
+// selectVerifier returns the real clean-verifier container by default; a
+// Docker-free stub when DAEDALUS_CONTROL_FAKE_VERIFY is set (=fail forces a
+// rejection) so host tests and the M13/M14 verify scripts stay Docker-free.
 func selectVerifier() control.VerifyRunner {
-	pass := os.Getenv("DAEDALUS_CONTROL_FAKE_VERIFY") != "fail"
-	if !pass {
-		log.Printf("WARNING stub verifier set to FAIL (DAEDALUS_CONTROL_FAKE_VERIFY=fail)")
+	if v := os.Getenv("DAEDALUS_CONTROL_FAKE_VERIFY"); v != "" {
+		pass := v != "fail"
+		log.Printf("WARNING using stub verifier (DAEDALUS_CONTROL_FAKE_VERIFY=%s) — no clean-container checks run", v)
+		return control.StubVerifyRunner{Pass: pass}
 	}
-	return control.StubVerifyRunner{Pass: pass}
+	return control.CleanVerifier{Exec: &executor.RealExecutor{}, Policy: control.DefaultVerifierEnvPolicy()}
+}
+
+// dockerImageDigester resolves a project's built image to an immutable sha256
+// digest via `docker image inspect`. Best-effort: a missing image or docker
+// error yields "" (not fatal) — the verifier then reports "no pinned image".
+type dockerImageDigester struct {
+	exec        executor.Executor
+	reg         *registry.Registry
+	imagePrefix string
+}
+
+// Digest implements control.ImageDigester.
+func (d dockerImageDigester) Digest(project string) (string, error) {
+	entry, ok, err := d.reg.GetProject(project)
+	if err != nil || !ok {
+		return "", nil // unknown project → no digest, not fatal
+	}
+	cfg := &core.Config{ProjectName: project, ImagePrefix: d.imagePrefix, Target: entry.Target}
+	image := cfg.Image()
+	// .Id is the image's local content digest (sha256:...), stable for a built
+	// image even without a registry RepoDigest.
+	out, err := d.exec.Output("docker", "image", "inspect", "--format", "{{.Id}}", image)
+	if err != nil {
+		return "", nil // image not built yet → capture later
+	}
+	return strings.TrimSpace(out), nil
 }
 
 // coordinatorSessions adapts the coordinator client to control.SessionObserver.

@@ -227,8 +227,12 @@ func taskVerify(api control.TaskAPI, args []string) error {
 		}
 		return nil
 	}
-	fmt.Printf("%s task %s REJECTED by the verifier — job %s → %s (%s)\n",
-		color.Yellow("Reject:"), args[0], res.Job.ID, res.Job.State, res.Detail)
+	by := "the verifier"
+	if !res.VerifierCalled {
+		by = "the control plane" // pre-verifier: null-agent floor or policy-hash drift
+	}
+	fmt.Printf("%s task %s REJECTED by %s — job %s → %s (%s)\n",
+		color.Yellow("Reject:"), args[0], by, res.Job.ID, res.Job.State, res.Detail)
 	fmt.Printf("     retry with `daedalus task dispatch %s`\n", args[0])
 	return nil
 }

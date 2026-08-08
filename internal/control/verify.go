@@ -9,14 +9,24 @@ import "context"
 // Sprint 57 the real runner checks out HeadSHA into a clean container and runs
 // Policy.Checks; here it is a stub.
 type VerifySpec struct {
-	TaskID  string
-	JobID   string
-	Project string
-	RepoDir string
-	BaseSHA string
-	HeadSHA string // the artifact's committed tree (output_snapshot)
-	Branch  string
-	Policy  AcceptancePolicy // frozen at base_sha
+	TaskID      string
+	JobID       string
+	Project     string
+	RepoDir     string
+	BaseSHA     string
+	HeadSHA     string // the artifact's committed tree (output_snapshot)
+	Branch      string
+	Policy      AcceptancePolicy // frozen at base_sha
+	ImageDigest string           // pinned project image (sha256:...); may be "" if uncaptured
+}
+
+// ImageDigester captures a project's image identity as an immutable sha256:
+// digest (not a mutable tag), so the verifier runs the artifact in the same
+// environment it was authored against (§6). It is the Docker-dependent seam
+// behind an interface: the real impl runs `docker image inspect`; tests inject a
+// fake. Digest may return "" (with nil error) when no image is available yet.
+type ImageDigester interface {
+	Digest(project string) (string, error)
 }
 
 // VerifyOutcome is a VerifyRunner's verdict. Passed drives candidate/verifying →

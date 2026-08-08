@@ -9,15 +9,18 @@ import (
 	"testing"
 )
 
-// recordingVerifier records whether Verify was called and returns a fixed verdict.
+// recordingVerifier records whether Verify was called, the spec it received, and
+// returns a fixed verdict.
 type recordingVerifier struct {
 	called bool
 	pass   bool
 	detail string
+	spec   VerifySpec
 }
 
-func (r *recordingVerifier) Verify(_ context.Context, _ VerifySpec) VerifyOutcome {
+func (r *recordingVerifier) Verify(_ context.Context, spec VerifySpec) VerifyOutcome {
 	r.called = true
+	r.spec = spec
 	return VerifyOutcome{Passed: r.pass, Detail: r.detail}
 }
 

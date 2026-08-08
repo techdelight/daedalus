@@ -89,6 +89,7 @@ type Service struct {
 	worktrees *WorktreeManager
 	runner    AgentRunner
 	verifier  VerifyRunner    // may be nil until a candidate is verified
+	digester  ImageDigester   // may be nil (digest pinning then skipped)
 	sessions  SessionObserver // may be nil (reconcile then skips session checks)
 
 	// mu serialises Dispatch, Verify and Reconcile: V1 is one active Job per
@@ -106,6 +107,11 @@ func NewService(store *Store, projects ProjectResolver, worktrees *WorktreeManag
 
 // Store exposes the underlying store (daemon reconcile ticker, tests).
 func (s *Service) Store() *Store { return s.store }
+
+// SetImageDigester installs the image-digest seam (Docker-dependent) after
+// construction, so NewService callers that don't pin images (host tests) stay
+// unchanged. Nil disables digest pinning.
+func (s *Service) SetImageDigester(d ImageDigester) { s.digester = d }
 
 // CreateTask resolves the project through the trusted registry, enforces the
 // Git-native prerequisite (captures base_sha from HEAD), and inserts a planned
@@ -133,7 +139,35 @@ func (s *Service) CreateTask(req CreateTaskRequest) (Task, error) {
 	if err != nil {
 		return Task{}, err
 	}
-	return s.store.CreateTask(req.Project, req.Objective, req.Acceptance, baseSHA, policy.Hash(), StatePlanned)
+	t, err := s.store.CreateTask(req.Project, req.Objective, req.Acceptance, baseSHA, policy.Hash(), StatePlanned)
+	if err != nil {
+		return Task{}, err
+	}
+	// Best-effort image-digest pin at create. If no digester (host tests) or the
+	// image is not built yet, the digest stays empty and is captured lazily at
+	// first verify instead.
+	if t2, ok := s.captureDigest(t); ok {
+		t = t2
+	}
+	return t, nil
+}
+
+// captureDigest records the project image's sha256 digest on the task if a
+// digester is configured and returns a non-empty value. Returns (updated, true)
+// when it changed the task. Best-effort: any error is swallowed (empty digest).
+func (s *Service) captureDigest(t Task) (Task, bool) {
+	if s.digester == nil || t.ImageDigest != "" {
+		return t, false
+	}
+	digest, err := s.digester.Digest(t.Project)
+	if err != nil || digest == "" {
+		return t, false
+	}
+	updated, err := s.store.SetTaskImageDigest(t.ID, digest)
+	if err != nil {
+		return t, false
+	}
+	return updated, true
 }
 
 // ListTasks returns all tasks.
@@ -316,6 +350,16 @@ func (s *Service) VerifyTask(id string) (VerifyResult, error) {
 	}
 	art := s.firstArtifact(job.ID)
 
+	// Null-agent floor (§6): an artifact identical to base_sha is no change at all
+	// — it must never verify as "done". Reject before any gate/verifier work so a
+	// do-nothing (or capture-failed) job can't earn a vacuous pass.
+	if job.OutputSnapshot == "" || job.OutputSnapshot == task.BaseSHA {
+		note := "null-agent floor: empty change (head == base) — nothing to verify"
+		res := s.doReject(task, job, art, repoDir, note)
+		res.Detail = note
+		return res, nil
+	}
+
 	// Re-derive the frozen policy from base_sha (immutable) and confirm it still
 	// hashes to what we froze at create; a mismatch means the acceptance oracle
 	// drifted in history → reject outright.
@@ -359,10 +403,18 @@ func (s *Service) VerifyTask(id string) (VerifyResult, error) {
 	job, _ = s.store.GetJob(job.ID)
 	task, _ = s.store.GetTask(id)
 
+	// Pin the image by digest. Lazily capture at first verify if it was not
+	// captured at create (e.g. the image was built after the task was created).
+	if task.ImageDigest == "" {
+		if updated, ok := s.captureDigest(task); ok {
+			task = updated
+		}
+	}
+
 	outcome := s.verifier.Verify(context.Background(), VerifySpec{
 		TaskID: id, JobID: job.ID, Project: task.Project, RepoDir: repoDir,
 		BaseSHA: task.BaseSHA, HeadSHA: job.OutputSnapshot,
-		Branch: BranchName(id, job.ID), Policy: policy,
+		Branch: BranchName(id, job.ID), Policy: policy, ImageDigest: task.ImageDigest,
 	})
 
 	if !outcome.Passed {

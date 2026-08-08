@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- **Independent verification — the real clean verifier, digest pinning, env
+  policy, and the null-agent floor (Sprint 57, closing M14).** `daedalus task
+  verify` now runs a real `CleanVerifier` by default: it checks out the artifact's
+  `head_sha` into a **fresh, separate clean worktree** (never the Job's mutable
+  one) and runs the frozen `policy.checks` in a container built from the project's
+  image, failing on the first non-zero check. The project image is **pinned by
+  `sha256:` digest** (`docker image inspect`) at task create — or lazily at first
+  verify — and recorded on the Task (`image_digest`, new column + idempotent
+  migration), so the artifact is verified in the environment it was authored
+  against; capture is behind an injectable `ImageDigester` seam. The verifier's
+  **environment policy** is explicit and hermetic-ish — `--network none`, no
+  ambient credentials, no inherited `/opt/tools`, only the clean checkout mounted
+  at `/workspace`, `--rm` — expressed as a pure `VerifierEnvPolicy.DockerRunArgs`
+  that a host test asserts leaks nothing. A **null-agent floor** rejects any Job
+  whose `head_sha == base_sha` (no change at all) with an "empty change" note,
+  before the gate or verifier, so a do-nothing job can never earn a vacuous pass.
+  The `CleanVerifier` + `dockerImageDigester` are the only Docker-dependent pieces
+  (host-only); everything else (floor, gate, freeze, digest plumbing, env-policy
+  args, transitions) is host-tested with a fake, and `DAEDALUS_CONTROL_FAKE_VERIFY`
+  still selects the stub so tests and the verify scripts stay Docker-free. New
+  `scripts/verify-m14.sh` exercises the whole flow (fake phase: 15 host-checkable
+  assertions; real phase: the clean verifier container). The verification result is
+  framed honestly as *reproducible*, not a *proof of correctness*. Pure-Go
+  throughout (`CGO_ENABLED=0`).
 - **Independent verification — acceptance contract, frozen oracle, test-integrity
   gate, and plane-owned verify transitions (Sprint 56, the host-testable half of
   M14).** Projects declare a verify policy in a committed `.daedalus/verify.json`

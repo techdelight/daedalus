@@ -111,6 +111,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     objective       TEXT NOT NULL,
     acceptance_ref  TEXT NOT NULL DEFAULT '',
     acceptance_hash TEXT NOT NULL DEFAULT '',
+    image_digest    TEXT NOT NULL DEFAULT '',
     base_sha        TEXT NOT NULL,
     state           TEXT NOT NULL,
     created_at      TEXT NOT NULL,
@@ -169,6 +170,9 @@ CREATE INDEX IF NOT EXISTS idx_events_entity ON events(entity_type, entity_id);
 	// Idempotent column additions for DBs created by an earlier schema. New DBs
 	// already have these from the CREATE above, so the ALTER is skipped.
 	if err := s.addColumnIfMissing("tasks", "acceptance_hash", "acceptance_hash TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := s.addColumnIfMissing("tasks", "image_digest", "image_digest TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
 	}
 	return nil
@@ -291,6 +295,23 @@ func (s *Store) GetTask(id string) (Task, error) {
 	return scanTask(s.db.QueryRow(taskSelect+` WHERE id = ?`, id))
 }
 
+// SetTaskImageDigest records the pinned image digest on a task (captured at
+// create or first verify). Derived environment state, not part of the append-only
+// event log, so a plain UPDATE is correct.
+func (s *Store) SetTaskImageDigest(id, digest string) (Task, error) {
+	res, err := s.db.Exec(
+		`UPDATE tasks SET image_digest = ?, updated_at = ? WHERE id = ?`,
+		digest, s.now(), id,
+	)
+	if err != nil {
+		return Task{}, err
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		return Task{}, fmt.Errorf("%w: task %s", ErrNotFound, id)
+	}
+	return s.GetTask(id)
+}
+
 // ListTasks returns all tasks ordered by creation (seq) ascending.
 func (s *Store) ListTasks() ([]Task, error) {
 	rows, err := s.db.Query(taskSelect + ` ORDER BY seq ASC`)
@@ -386,7 +407,7 @@ func (s *Store) TransitionTask(id string, to State, byWorker bool, note string) 
 	return cur, nil
 }
 
-const taskSelect = `SELECT id, project, objective, acceptance_ref, acceptance_hash, base_sha, state, created_at, updated_at FROM tasks`
+const taskSelect = `SELECT id, project, objective, acceptance_ref, acceptance_hash, image_digest, base_sha, state, created_at, updated_at FROM tasks`
 
 // rowScanner is satisfied by both *sql.Row and *sql.Rows.
 type rowScanner interface {
@@ -396,7 +417,7 @@ type rowScanner interface {
 func scanTask(sc rowScanner) (Task, error) {
 	var t Task
 	var state string
-	err := sc.Scan(&t.ID, &t.Project, &t.Objective, &t.AcceptanceRef, &t.AcceptanceHash, &t.BaseSHA, &state, &t.CreatedAt, &t.UpdatedAt)
+	err := sc.Scan(&t.ID, &t.Project, &t.Objective, &t.AcceptanceRef, &t.AcceptanceHash, &t.ImageDigest, &t.BaseSHA, &state, &t.CreatedAt, &t.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Task{}, ErrNotFound
 	}

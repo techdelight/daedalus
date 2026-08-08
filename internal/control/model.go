@@ -228,9 +228,13 @@ type Task struct {
 	// later working-tree edit to the policy does not change it — the acceptance
 	// oracle is pinned outside the agent's reach (§6).
 	AcceptanceHash string `json:"acceptanceHash"`
-	State          State  `json:"state"`
-	CreatedAt      string `json:"createdAt"` // ISO 8601 UTC
-	UpdatedAt      string `json:"updatedAt"` // ISO 8601 UTC
+	// ImageDigest pins the project image by sha256: digest (not a mutable tag),
+	// captured at create or first verify, so the clean verifier runs the artifact
+	// in the same environment it was authored against (§6). Empty until captured.
+	ImageDigest string `json:"imageDigest"`
+	State       State  `json:"state"`
+	CreatedAt   string `json:"createdAt"` // ISO 8601 UTC
+	UpdatedAt   string `json:"updatedAt"` // ISO 8601 UTC
 }
 
 // Job is one attempt at a Task (§5): a headless runner invocation pinned to a
