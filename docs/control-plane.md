@@ -143,3 +143,17 @@ isolated-worktree headless execution path, and reconciliation. Still ahead:
 Because there is still no agent client, the prompt-injection surface does not
 exist yet and the foundation stays small — boring reliability from a small
 surface area.
+
+## Verifying on a real host
+
+`scripts/verify-m13.sh` runs the control plane end to end against an **isolated**
+data dir (it never touches your real registry, `control.db`, or a running
+`daedalus-control` — the daemon it starts is killed by its own pidfile):
+
+- `bash scripts/verify-m13.sh fake` — the full daemon + CLI + isolated-worktree +
+  reconcile loop, asserted, **with no Docker** (uses `DAEDALUS_CONTROL_FAKE_RUNNER`).
+- `bash scripts/verify-m13.sh real <project> [objective]` — dispatches the **real**
+  headless agent (the `CoordinatorRunner`) against an isolated worktree of a
+  registered project. Needs a built image + working runner credentials; this is
+  the one seam CI cannot exercise. Your main checkout is untouched (the job runs
+  on a `daedalus/<task>/<job>` branch in a separate worktree).
