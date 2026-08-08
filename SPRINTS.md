@@ -2,7 +2,22 @@
 
 ## Current Sprint
 
-_No active sprint, and no active milestone. Milestone 12 shipped in **v0.47.0** (Sprints 52–53, in the history below). A between-milestones state — the next focus is undecided; see `ROADMAP.md` and `BACKLOG.md`._
+### Sprint 54: Control-Plane Core — model, store & the `daedalus task` CLI
+
+Goal: lay the foundation of the host-side control plane — the Task/Job/Artifact data model, a SQLite store as the durable source of *desired* state, and a human `daedalus task` CLI as the first (and, for now, only) client. **No execution yet** — Sprint 55 adds the worktree, headless Job run, and reconciliation. This half is pure Go + SQLite, **fully host-testable without Docker or Git**. Design in `docs/guild-master-plan.md` (M13, V1); the CLI-first ordering is deliberate (a deterministic reference path, useful at N=1, before any agent client). Milestone 13.
+
+Milestone: 13
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | **Core model + state machine (`internal/control`)** — pure-Go `Task` (project, objective, acceptance ref, base_sha) / `Job` (one attempt: base_sha, runner, budget, `execution_result`) / `Artifact` (head_sha, branch, verify/review status) types + the state machine (states + the legal transitions from `docs/guild-master-plan.md` §5), with the worker-can-only-reach-`candidate` / plane-owns-`verified` rule encoded. Unit-tested. |  |
+| 2 | **SQLite store (pure-Go, CGO-free)** — `modernc.org/sqlite` (must build under `CGO_ENABLED=0`) at `<DataDir>/control.db`; schema `tasks`/`jobs`/`artifacts`/`events`; open+migrate; CRUD + **atomic single-row state transitions** that reject illegal moves; an append-only `events` log write on every transition. SQLite holds *desired* state only. Tests over a temp DB. |  |
+| 3 | **`daedalus task` CLI (the reference client)** — `create` / `list` / `status <id>` / `cancel <id>` driving the store in-process (the daemon + `control.sock` are Sprint 55). Git-native + one-active-Job-per-project invariants enforced at create/dispatch. Wire into dispatch + `usage.go` + `--help` + completions. Tests. |  |
+| 4 | **Docs + guardrails** — CHANGELOG `[Unreleased]`; a short `docs/control-plane.md` stub describing the model + the V1 scope boundary (no execution/agent client yet); `go build`/`vet`/suite green; `gofmt` clean. |  |
+
+Out of scope (Sprint 55): the `daedalus-control` daemon + `control.sock`; the isolated Git worktree; headless Job execution via the coordinator; the reconcile-on-boot/periodic loop; `task dispatch`. Verification (the clean verifier) is Milestone 14; the Guild Master client is Milestone 15.
+
+## Sprint History
 
 ## Sprint History
 

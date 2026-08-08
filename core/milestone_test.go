@@ -244,8 +244,11 @@ func TestParseMilestonesAgainstRealRoadmap(t *testing.T) {
 	if got[10].Status != StatusDone {
 		t.Errorf("Milestone 11 Status = %q, want %q", got[10].Status, StatusDone)
 	}
-	// M13–M17 are the Planned "controlling Guild Master" arc.
-	for i := 12; i <= 16; i++ {
+	// M13 is In Progress (control-plane arc begun); M14–M17 remain Planned.
+	if got[12].Status != StatusInProgress {
+		t.Errorf("Milestone 13 Status = %q, want %q", got[12].Status, StatusInProgress)
+	}
+	for i := 13; i <= 16; i++ {
 		if got[i].Status != StatusPlanned {
 			t.Errorf("Milestone %d Status = %q, want %q (planned arc)", i+1, got[i].Status, StatusPlanned)
 		}
