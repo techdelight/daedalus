@@ -6,13 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/techdelight/daedalus/core"
 	"github.com/techdelight/daedalus/internal/color"
 	"github.com/techdelight/daedalus/internal/control"
 )
 
-// manageTasks dispatches `daedalus task <create|list|status|dispatch|cancel>`.
+// manageTasks dispatches `daedalus task <create|list|status|dispatch|verify|cancel>`.
 //
 // As of Sprint 55 the CLI is a THIN CLIENT of the daedalus-control daemon: it
 // obtains a client via control.EnsureRunning (auto-spawning the daemon, exactly
@@ -23,7 +24,7 @@ func manageTasks(cfg *core.Config) error {
 	args := cfg.TaskArgs
 	if len(args) == 0 {
 		printTaskUsage()
-		return fmt.Errorf("task: subcommand required (create|list|status|dispatch|cancel)")
+		return fmt.Errorf("task: subcommand required (create|list|status|dispatch|verify|cancel)")
 	}
 	if args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
 		printTaskUsage()
@@ -49,10 +50,12 @@ func runTaskCommand(api control.TaskAPI, args []string) error {
 		return taskStatus(api, args[1:])
 	case "dispatch", "run":
 		return taskDispatch(api, args[1:])
+	case "verify":
+		return taskVerify(api, args[1:])
 	case "cancel":
 		return taskCancel(api, args[1:])
 	default:
-		return fmt.Errorf("task: unknown subcommand %q\n%s daedalus task <create|list|status|dispatch|cancel>", args[0], color.Cyan("Hint:"))
+		return fmt.Errorf("task: unknown subcommand %q\n%s daedalus task <create|list|status|dispatch|verify|cancel>", args[0], color.Cyan("Hint:"))
 	}
 }
 
@@ -196,6 +199,40 @@ func taskDispatch(api control.TaskAPI, args []string) error {
 	return nil
 }
 
+// taskVerify implements `task verify <id>`: the plane-owned verify pass over a
+// candidate job (test-integrity gate → verifier → verified | rejected).
+func taskVerify(api control.TaskAPI, args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: daedalus task verify <id>")
+	}
+	res, err := api.VerifyTask(args[0])
+	if err != nil {
+		if errors.Is(err, control.ErrNotFound) {
+			return fmt.Errorf("task %q not found", args[0])
+		}
+		return fmt.Errorf("verifying task %s: %w", args[0], err)
+	}
+	if res.GateTouched {
+		fmt.Printf("%s task %s REJECTED by the integrity gate (verifier not called)\n",
+			color.Yellow("Gate:"), args[0])
+		fmt.Printf("     job %s → %s; edits to frozen acceptance files: %s\n",
+			res.Job.ID, res.Job.State, strings.Join(res.TouchedFiles, ", "))
+		return nil
+	}
+	if res.Verified {
+		fmt.Printf("%s task %s VERIFIED — job %s → %s (%s)\n",
+			color.Green("OK:"), args[0], color.Bold(res.Job.ID), res.Job.State, res.Detail)
+		if res.Artifact != nil {
+			fmt.Printf("     artifact %s verify=%s\n", res.Artifact.ID, res.Artifact.Verify)
+		}
+		return nil
+	}
+	fmt.Printf("%s task %s REJECTED by the verifier — job %s → %s (%s)\n",
+		color.Yellow("Reject:"), args[0], res.Job.ID, res.Job.State, res.Detail)
+	fmt.Printf("     retry with `daedalus task dispatch %s`\n", args[0])
+	return nil
+}
+
 // taskCancel implements `task cancel <id>` via a legal transition to cancelled.
 func taskCancel(api control.TaskAPI, args []string) error {
 	if len(args) < 1 {
@@ -253,6 +290,7 @@ func printTaskUsage() {
 	fmt.Println("  list                 List all tasks (id, project, state, objective)")
 	fmt.Println("  status <id>          Show a task with its jobs and artifacts")
 	fmt.Println("  dispatch <id>        Run one headless Job attempt (isolated worktree; success → candidate)")
+	fmt.Println("  verify <id>          Verify a candidate (integrity gate → verifier → verified | rejected)")
 	fmt.Println("  cancel <id>          Cancel a task (legal transition to cancelled)")
 	fmt.Println()
 	fmt.Println("The CLI talks to the daedalus-control daemon over <data-dir>/.daedalus/control.sock,")

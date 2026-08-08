@@ -72,7 +72,7 @@ _daedalus() {
             COMPREPLY=($(compgen -W "list use rollback prune --keep" -- "${cur}"))
             ;;
         task)
-            COMPREPLY=($(compgen -W "create list status dispatch cancel --project --objective --acceptance" -- "${cur}"))
+            COMPREPLY=($(compgen -W "create list status dispatch verify cancel --project --objective --acceptance" -- "${cur}"))
             ;;
         *)
             COMPREPLY=($(compgen -W "${flags}" -- "${cur}"))
@@ -173,7 +173,7 @@ _daedalus() {
                     _values 'action' list use rollback prune --keep
                     ;;
                 task)
-                    _values 'action' create list status dispatch cancel --project --objective --acceptance
+                    _values 'action' create list status dispatch verify cancel --project --objective --acceptance
                     ;;
                 *)
                     _describe -t flags 'flag' flags
@@ -212,7 +212,7 @@ complete -c daedalus -n '__fish_use_subcommand' -a 'version' -d 'Manage side-by-
 complete -c daedalus -n '__fish_seen_subcommand_from version' -a 'list use rollback prune' -d 'version action'
 complete -c daedalus -n '__fish_seen_subcommand_from version' -l keep -d 'Versions to keep when pruning' -r
 complete -c daedalus -n '__fish_use_subcommand' -a 'task' -d 'Manage host-side control-plane tasks'
-complete -c daedalus -n '__fish_seen_subcommand_from task' -a 'create list status dispatch cancel' -d 'task action'
+complete -c daedalus -n '__fish_seen_subcommand_from task' -a 'create list status dispatch verify cancel' -d 'task action'
 complete -c daedalus -n '__fish_seen_subcommand_from task' -l project -d 'Project name for task create' -r
 complete -c daedalus -n '__fish_seen_subcommand_from task' -l objective -d 'Objective text for task create' -r
 complete -c daedalus -n '__fish_seen_subcommand_from task' -l acceptance -d 'Acceptance reference for task create' -r

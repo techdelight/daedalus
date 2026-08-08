@@ -223,9 +223,14 @@ type Task struct {
 	Objective     string `json:"objective"`     // what to do
 	AcceptanceRef string `json:"acceptanceRef"` // optional acceptance-policy reference
 	BaseSHA       string `json:"baseSha"`       // git HEAD captured at creation
-	State         State  `json:"state"`
-	CreatedAt     string `json:"createdAt"` // ISO 8601 UTC
-	UpdatedAt     string `json:"updatedAt"` // ISO 8601 UTC
+	// AcceptanceHash freezes the project's verify policy (commands + globs) as it
+	// stood at BaseSHA (see AcceptancePolicy.Hash). Captured once at create; a
+	// later working-tree edit to the policy does not change it — the acceptance
+	// oracle is pinned outside the agent's reach (§6).
+	AcceptanceHash string `json:"acceptanceHash"`
+	State          State  `json:"state"`
+	CreatedAt      string `json:"createdAt"` // ISO 8601 UTC
+	UpdatedAt      string `json:"updatedAt"` // ISO 8601 UTC
 }
 
 // Job is one attempt at a Task (§5): a headless runner invocation pinned to a

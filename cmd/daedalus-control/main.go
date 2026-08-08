@@ -105,12 +105,18 @@ func main() {
 	// end-to-end flow is exercisable without a container runtime.
 	runner := selectRunner(filepath.Join(scriptDir, "daedalus"))
 
+	// Verifier: the real clean-verifier container lands in Sprint 57 (M14). Until
+	// then this is a stub that passes by default; DAEDALUS_CONTROL_FAKE_VERIFY=fail
+	// forces a rejection. The test-integrity gate runs BEFORE the verifier
+	// regardless, in the control plane.
+	verifier := selectVerifier()
+
 	// Session observer: wrap the coordinator client. When the coordinator is
 	// down, HasSession errors and reconcile treats liveness as unverifiable
 	// (leaves the job alone) rather than wrongly failing it.
 	sessions := coordinatorSessions{client: coordinator.NewClient(coordinator.DefaultSocketPath(cfg.dataDir))}
 
-	svc := control.NewService(store, resolver, worktrees, runner, sessions)
+	svc := control.NewService(store, resolver, worktrees, runner, verifier, sessions)
 
 	// Reconcile on boot.
 	if rep, err := svc.Reconcile(); err != nil {
@@ -181,10 +187,24 @@ func selectRunner(daedalusBin string) control.AgentRunner {
 		if v == "fail" {
 			res = control.ExecFailed
 		}
+		// DAEDALUS_CONTROL_FAKE_RUNNER_MARKER lets a smoke choose the file the stub
+		// writes (e.g. a *_test.go name to exercise the integrity gate).
+		marker := os.Getenv("DAEDALUS_CONTROL_FAKE_RUNNER_MARKER")
 		log.Printf("WARNING using fake runner (DAEDALUS_CONTROL_FAKE_RUNNER=%s) — no real agent runs", v)
-		return control.StubRunner{Result: res, WriteFile: res == control.ExecSuccess}
+		return control.StubRunner{Result: res, WriteFile: res == control.ExecSuccess, MarkerName: marker}
 	}
 	return control.CoordinatorRunner{Exec: &executor.RealExecutor{}, BinPath: daedalusBin}
+}
+
+// selectVerifier returns the stub verifier (the real clean-verifier container is
+// Sprint 57). It passes by default; DAEDALUS_CONTROL_FAKE_VERIFY=fail forces a
+// rejection so the rejected/retry path is demonstrable without Docker.
+func selectVerifier() control.VerifyRunner {
+	pass := os.Getenv("DAEDALUS_CONTROL_FAKE_VERIFY") != "fail"
+	if !pass {
+		log.Printf("WARNING stub verifier set to FAIL (DAEDALUS_CONTROL_FAKE_VERIFY=fail)")
+	}
+	return control.StubVerifyRunner{Pass: pass}
 }
 
 // coordinatorSessions adapts the coordinator client to control.SessionObserver.

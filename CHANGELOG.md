@@ -4,6 +4,32 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- **Independent verification — acceptance contract, frozen oracle, test-integrity
+  gate, and plane-owned verify transitions (Sprint 56, the host-testable half of
+  M14).** Projects declare a verify policy in a committed `.daedalus/verify.json`
+  (`checks` = the commands the clean verifier will run; `acceptanceGlobs` = paths
+  whose edits invalidate a Job); `control.ReadAcceptancePolicy` reads it from a
+  checkout, with a documented language-agnostic default (`daedalus docs lint --ci`
+  plus conventional test/fixture globs). At `task create` the policy is read **as
+  committed at `base_sha`** and a stable hash of the normalized (commands + globs)
+  is **frozen** on the Task (`acceptance_hash`, new column + idempotent migration)
+  — a later working-tree edit cannot change it, pinning the acceptance oracle
+  outside the agent's reach. A pure `DiffTouchesAcceptanceFiles` (git
+  `--no-renames --name-only` diff + a `**`-aware glob matcher) powers the
+  **test-integrity gate**. A new `daedalus task verify <id>` (client→daemon route)
+  drives the plane-owned flow behind an injectable `VerifyRunner`: confirm the
+  frozen hash, run the **integrity gate first** (a diff touching a frozen
+  acceptance file → straight to `rejected`, the verifier is **never called**),
+  else `candidate → verifying → verified | rejected`; a rejection reclaims the
+  worktree and a `task dispatch` retry is accepted (`rejected → queued → working`).
+  Only the control plane performs `candidate → verified` (structural). The real
+  clean-verifier **container** — checkout into a clean image, `sha256:` digest
+  pinning, network/credentials policy, null-agent floor — is **Sprint 57**; here
+  the runner is a stub (`StubVerifyRunner`; `DAEDALUS_CONTROL_FAKE_VERIFY=fail` to
+  force a rejection), so the gate, freeze, and transitions are fully host-tested
+  without Docker. Pure-Go throughout (`CGO_ENABLED=0`).
+
 ## [0.48.0] - 2026-08-08
 
 **Milestone 13: Control Plane Foundation (V1).** The first step of the controlling

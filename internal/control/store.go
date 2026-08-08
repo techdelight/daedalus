@@ -105,15 +105,16 @@ func (s *Store) now() string { return s.clock().UTC().Format(timeFormat) }
 func (s *Store) migrate() error {
 	const schema = `
 CREATE TABLE IF NOT EXISTS tasks (
-    seq            INTEGER PRIMARY KEY AUTOINCREMENT,
-    id             TEXT NOT NULL UNIQUE,
-    project        TEXT NOT NULL,
-    objective      TEXT NOT NULL,
-    acceptance_ref TEXT NOT NULL DEFAULT '',
-    base_sha       TEXT NOT NULL,
-    state          TEXT NOT NULL,
-    created_at     TEXT NOT NULL,
-    updated_at     TEXT NOT NULL
+    seq             INTEGER PRIMARY KEY AUTOINCREMENT,
+    id              TEXT NOT NULL UNIQUE,
+    project         TEXT NOT NULL,
+    objective       TEXT NOT NULL,
+    acceptance_ref  TEXT NOT NULL DEFAULT '',
+    acceptance_hash TEXT NOT NULL DEFAULT '',
+    base_sha        TEXT NOT NULL,
+    state           TEXT NOT NULL,
+    created_at      TEXT NOT NULL,
+    updated_at      TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project);
 
@@ -165,6 +166,42 @@ CREATE INDEX IF NOT EXISTS idx_events_entity ON events(entity_type, entity_id);
 	if _, err := s.db.Exec(schema); err != nil {
 		return fmt.Errorf("migrating control db: %w", err)
 	}
+	// Idempotent column additions for DBs created by an earlier schema. New DBs
+	// already have these from the CREATE above, so the ALTER is skipped.
+	if err := s.addColumnIfMissing("tasks", "acceptance_hash", "acceptance_hash TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	return nil
+}
+
+// addColumnIfMissing adds a column via ALTER TABLE only when it is not already
+// present (checked via PRAGMA table_info). SQLite has no ADD COLUMN IF NOT
+// EXISTS, so this makes the migration idempotent across daemon restarts.
+func (s *Store) addColumnIfMissing(table, column, ddl string) error {
+	rows, err := s.db.Query("PRAGMA table_info(" + table + ")")
+	if err != nil {
+		return fmt.Errorf("inspecting %s columns: %w", table, err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var (
+			cid, notnull, pk int
+			name, ctype      string
+			dfltValue        any
+		)
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dfltValue, &pk); err != nil {
+			return err
+		}
+		if name == column {
+			return nil // already present
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if _, err := s.db.Exec("ALTER TABLE " + table + " ADD COLUMN " + ddl); err != nil {
+		return fmt.Errorf("adding column %s.%s: %w", table, column, err)
+	}
 	return nil
 }
 
@@ -203,8 +240,9 @@ func (s *Store) logEvent(tx *sql.Tx, entityType, entityID string, from, to State
 
 // CreateTask inserts a new task in the given initial state (planned or queued)
 // and logs a creation event, atomically. It enforces the one-active-task-per-
-// project invariant. baseSHA is the git HEAD captured by the caller.
-func (s *Store) CreateTask(project, objective, acceptanceRef, baseSHA string, initial State) (Task, error) {
+// project invariant. baseSHA is the git HEAD captured by the caller;
+// acceptanceHash freezes the verify policy at that sha (may be "").
+func (s *Store) CreateTask(project, objective, acceptanceRef, baseSHA, acceptanceHash string, initial State) (Task, error) {
 	if !validState(initial) {
 		return Task{}, fmt.Errorf("control: invalid initial state %q", initial)
 	}
@@ -228,13 +266,13 @@ func (s *Store) CreateTask(project, objective, acceptanceRef, baseSHA string, in
 	now := s.now()
 	t := Task{
 		ID: id, Project: project, Objective: objective,
-		AcceptanceRef: acceptanceRef, BaseSHA: baseSHA, State: initial,
+		AcceptanceRef: acceptanceRef, AcceptanceHash: acceptanceHash, BaseSHA: baseSHA, State: initial,
 		CreatedAt: now, UpdatedAt: now,
 	}
 	_, err = tx.Exec(
-		`INSERT INTO tasks (id, project, objective, acceptance_ref, base_sha, state, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		t.ID, t.Project, t.Objective, t.AcceptanceRef, t.BaseSHA, string(t.State), t.CreatedAt, t.UpdatedAt,
+		`INSERT INTO tasks (id, project, objective, acceptance_ref, acceptance_hash, base_sha, state, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		t.ID, t.Project, t.Objective, t.AcceptanceRef, t.AcceptanceHash, t.BaseSHA, string(t.State), t.CreatedAt, t.UpdatedAt,
 	)
 	if err != nil {
 		return Task{}, fmt.Errorf("inserting task: %w", err)
@@ -348,7 +386,7 @@ func (s *Store) TransitionTask(id string, to State, byWorker bool, note string) 
 	return cur, nil
 }
 
-const taskSelect = `SELECT id, project, objective, acceptance_ref, base_sha, state, created_at, updated_at FROM tasks`
+const taskSelect = `SELECT id, project, objective, acceptance_ref, acceptance_hash, base_sha, state, created_at, updated_at FROM tasks`
 
 // rowScanner is satisfied by both *sql.Row and *sql.Rows.
 type rowScanner interface {
@@ -358,7 +396,7 @@ type rowScanner interface {
 func scanTask(sc rowScanner) (Task, error) {
 	var t Task
 	var state string
-	err := sc.Scan(&t.ID, &t.Project, &t.Objective, &t.AcceptanceRef, &t.BaseSHA, &state, &t.CreatedAt, &t.UpdatedAt)
+	err := sc.Scan(&t.ID, &t.Project, &t.Objective, &t.AcceptanceRef, &t.AcceptanceHash, &t.BaseSHA, &state, &t.CreatedAt, &t.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Task{}, ErrNotFound
 	}
@@ -582,6 +620,23 @@ func (s *Store) CreateArtifact(jobID, baseSHA, headSHA, branch string) (Artifact
 // GetArtifact returns the artifact with the given id, or ErrNotFound.
 func (s *Store) GetArtifact(id string) (Artifact, error) {
 	return scanArtifact(s.db.QueryRow(artifactSelect+` WHERE id = ?`, id))
+}
+
+// SetArtifactVerify records the independent-verification outcome on an artifact
+// (§6). It is derived state, not part of the append-only event log, so a plain
+// UPDATE is correct.
+func (s *Store) SetArtifactVerify(id string, status VerifyStatus) (Artifact, error) {
+	res, err := s.db.Exec(
+		`UPDATE artifacts SET verify = ?, updated_at = ? WHERE id = ?`,
+		string(status), s.now(), id,
+	)
+	if err != nil {
+		return Artifact{}, err
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		return Artifact{}, fmt.Errorf("%w: artifact %s", ErrNotFound, id)
+	}
+	return s.GetArtifact(id)
 }
 
 // ListArtifactsForJob returns a job's artifacts ordered by creation.

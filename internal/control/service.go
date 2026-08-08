@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 
 	"github.com/techdelight/daedalus/internal/registry"
@@ -54,6 +55,18 @@ type DispatchResult struct {
 	Artifact *Artifact `json:"artifact,omitempty"`
 }
 
+// VerifyResult is the outcome of a plane-owned verify pass over a candidate Job.
+type VerifyResult struct {
+	Job            Job       `json:"job"`
+	Task           Task      `json:"task"`
+	Artifact       *Artifact `json:"artifact,omitempty"`
+	GateTouched    bool      `json:"gateTouched"` // integrity gate matched → rejected without the verifier
+	TouchedFiles   []string  `json:"touchedFiles,omitempty"`
+	VerifierCalled bool      `json:"verifierCalled"` // false when the gate short-circuited
+	Verified       bool      `json:"verified"`       // final verdict: reached `verified`
+	Detail         string    `json:"detail"`
+}
+
 // TaskAPI is the surface the CLI drives and the daemon serves. Both the
 // in-process Service and the over-the-socket Client implement it, so the CLI is
 // identical whether it runs the logic directly (tests) or via the daemon.
@@ -63,6 +76,7 @@ type TaskAPI interface {
 	TaskStatus(id string) (StatusView, error)
 	CancelTask(id string) (Task, error)
 	DispatchTask(id string) (DispatchResult, error)
+	VerifyTask(id string) (VerifyResult, error)
 }
 
 // Service is the host-side control plane: the single owner of the store plus the
@@ -74,18 +88,20 @@ type Service struct {
 	projects  ProjectResolver
 	worktrees *WorktreeManager
 	runner    AgentRunner
+	verifier  VerifyRunner    // may be nil until a candidate is verified
 	sessions  SessionObserver // may be nil (reconcile then skips session checks)
 
-	// mu serialises Dispatch and Reconcile: V1 is one active Job per project
-	// with no parallelism, and a single SQLite writer conn. It is NOT held
-	// across the (potentially long) runner.Run — only around the DB bookkeeping.
+	// mu serialises Dispatch, Verify and Reconcile: V1 is one active Job per
+	// project with no parallelism, and a single SQLite writer conn. It is NOT
+	// held across the (potentially long) runner.Run — only around the DB
+	// bookkeeping.
 	mu sync.Mutex
 }
 
 // NewService wires a Service. runner/worktrees are required for Dispatch;
-// projects for CreateTask; sessions may be nil.
-func NewService(store *Store, projects ProjectResolver, worktrees *WorktreeManager, runner AgentRunner, sessions SessionObserver) *Service {
-	return &Service{store: store, projects: projects, worktrees: worktrees, runner: runner, sessions: sessions}
+// projects for CreateTask; verifier for VerifyTask; sessions may be nil.
+func NewService(store *Store, projects ProjectResolver, worktrees *WorktreeManager, runner AgentRunner, verifier VerifyRunner, sessions SessionObserver) *Service {
+	return &Service{store: store, projects: projects, worktrees: worktrees, runner: runner, verifier: verifier, sessions: sessions}
 }
 
 // Store exposes the underlying store (daemon reconcile ticker, tests).
@@ -109,7 +125,15 @@ func (s *Service) CreateTask(req CreateTaskRequest) (Task, error) {
 	if err != nil {
 		return Task{}, err
 	}
-	return s.store.CreateTask(req.Project, req.Objective, req.Acceptance, baseSHA, StatePlanned)
+	// Freeze the acceptance policy as it stands at base_sha: read the committed
+	// .daedalus/verify.json at that sha (or the default) and store its stable
+	// hash. Because it is read from the commit — not the working tree — a later
+	// edit to the policy cannot change this frozen value (§6).
+	policy, err := ReadAcceptancePolicyAt(dir, baseSHA)
+	if err != nil {
+		return Task{}, err
+	}
+	return s.store.CreateTask(req.Project, req.Objective, req.Acceptance, baseSHA, policy.Hash(), StatePlanned)
 }
 
 // ListTasks returns all tasks.
@@ -179,17 +203,23 @@ func (s *Service) DispatchTask(id string) (DispatchResult, error) {
 	if err != nil {
 		return DispatchResult{}, err
 	}
-	if task.State != StatePlanned && task.State != StateQueued {
-		return DispatchResult{}, fmt.Errorf("control: task %s is %s, not dispatchable (want planned/queued)", id, task.State)
+	// Dispatchable from planned/queued (first attempt) or rejected (retry after a
+	// failed verify — rejected → queued is the retry path from §6's ladder).
+	if task.State != StatePlanned && task.State != StateQueued && task.State != StateRejected {
+		return DispatchResult{}, fmt.Errorf("control: task %s is %s, not dispatchable (want planned/queued/rejected)", id, task.State)
 	}
 	repoDir, err := s.projects.ProjectDir(task.Project)
 	if err != nil {
 		return DispatchResult{}, err
 	}
 
-	// Drive the task into working: planned → queued → working.
+	// Drive the task into working: planned/rejected → queued → working.
 	if task.State == StatePlanned {
 		if _, err := s.store.TransitionTask(id, StateQueued, false, "dispatch"); err != nil {
+			return DispatchResult{}, err
+		}
+	} else if task.State == StateRejected {
+		if _, err := s.store.TransitionTask(id, StateQueued, false, "retry after rejection"); err != nil {
 			return DispatchResult{}, err
 		}
 	}
@@ -254,6 +284,166 @@ func (s *Service) DispatchTask(id string) (DispatchResult, error) {
 
 	j, _ := s.store.GetJob(job.ID)
 	return DispatchResult{Job: j}, nil
+}
+
+// VerifyTask runs the plane-owned verify pass over a task's candidate Job (§6).
+// The test-integrity gate runs FIRST: if the Job's diff (base..head) touches any
+// frozen acceptance file, it goes straight to `rejected` and the VerifyRunner is
+// never consulted. Otherwise candidate → verifying → VerifyRunner →
+// verified | rejected. Structurally this is a plane transition, so only the
+// control plane can reach `verified` (workers cannot).
+func (s *Service) VerifyTask(id string) (VerifyResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	task, err := s.store.GetTask(id)
+	if err != nil {
+		return VerifyResult{}, err
+	}
+	if task.State != StateCandidate {
+		return VerifyResult{}, fmt.Errorf("control: task %s is %s, not verifiable (want candidate)", id, task.State)
+	}
+	job, ok, err := s.candidateJob(id)
+	if err != nil {
+		return VerifyResult{}, err
+	}
+	if !ok {
+		return VerifyResult{}, fmt.Errorf("control: task %s has no candidate job to verify", id)
+	}
+	repoDir, err := s.projects.ProjectDir(task.Project)
+	if err != nil {
+		return VerifyResult{}, err
+	}
+	art := s.firstArtifact(job.ID)
+
+	// Re-derive the frozen policy from base_sha (immutable) and confirm it still
+	// hashes to what we froze at create; a mismatch means the acceptance oracle
+	// drifted in history → reject outright.
+	policy, err := ReadAcceptancePolicyAt(repoDir, task.BaseSHA)
+	if err != nil {
+		return VerifyResult{}, err
+	}
+	if task.AcceptanceHash != "" && policy.Hash() != task.AcceptanceHash {
+		note := "acceptance policy hash drift since base_sha — rejected"
+		res := s.doReject(task, job, art, repoDir, note)
+		res.Detail = note
+		return res, nil
+	}
+
+	// INTEGRITY GATE FIRST — before any VerifyRunner call.
+	touched, files, err := DiffTouchesAcceptanceFiles(repoDir, task.BaseSHA, job.OutputSnapshot, policy.AcceptanceGlobs)
+	if err != nil {
+		return VerifyResult{}, err
+	}
+	if touched {
+		note := "integrity gate: job diff edits frozen acceptance files: " + strings.Join(files, ", ")
+		res := s.doReject(task, job, art, repoDir, note)
+		res.GateTouched = true
+		res.TouchedFiles = files
+		res.VerifierCalled = false
+		res.Detail = note
+		return res, nil
+	}
+
+	// Gate clean → candidate → verifying (job + task), then run the verifier.
+	if _, err := s.store.TransitionJob(job.ID, StateVerifying, false, "integrity gate passed → verifying"); err != nil {
+		return VerifyResult{}, err
+	}
+	if _, err := s.store.TransitionTask(id, StateVerifying, false, "verifying"); err != nil {
+		return VerifyResult{}, err
+	}
+	if s.verifier == nil {
+		return VerifyResult{}, fmt.Errorf("control: no verifier configured")
+	}
+	// Refresh job/task snapshots for the return value + reject path.
+	job, _ = s.store.GetJob(job.ID)
+	task, _ = s.store.GetTask(id)
+
+	outcome := s.verifier.Verify(context.Background(), VerifySpec{
+		TaskID: id, JobID: job.ID, Project: task.Project, RepoDir: repoDir,
+		BaseSHA: task.BaseSHA, HeadSHA: job.OutputSnapshot,
+		Branch: BranchName(id, job.ID), Policy: policy,
+	})
+
+	if !outcome.Passed {
+		res := s.doReject(task, job, art, repoDir, withDetail("verify failed", outcome.Detail))
+		res.VerifierCalled = true
+		res.Detail = outcome.Detail
+		return res, nil
+	}
+
+	// verifying → verified (job + task); artifact verify = pass. The worktree is
+	// KEPT: a verified candidate awaits approval/integration (M15).
+	jb, err := s.store.TransitionJob(job.ID, StateVerified, false, withDetail("verified", outcome.Detail))
+	if err != nil {
+		return VerifyResult{}, err
+	}
+	tk, err := s.store.TransitionTask(id, StateVerified, false, "verified")
+	if err != nil {
+		return VerifyResult{}, err
+	}
+	if art != nil {
+		if a, err := s.store.SetArtifactVerify(art.ID, VerifyPass); err == nil {
+			art = &a
+		}
+	}
+	return VerifyResult{Job: jb, Task: tk, Artifact: art, VerifierCalled: true, Verified: true, Detail: outcome.Detail}, nil
+}
+
+// doReject drives a candidate-or-verifying job+task to `rejected` (legal from
+// both), marks the artifact verify=fail, and reclaims the attempt's worktree (a
+// retry makes a fresh one). job and task are kept in lockstep so `from` matches.
+func (s *Service) doReject(task Task, job Job, art *Artifact, repoDir, note string) VerifyResult {
+	jb, err := s.store.TransitionJob(job.ID, StateRejected, false, note)
+	if err != nil {
+		log.Printf("control: reject job %s: %v", job.ID, err)
+		jb = job
+	}
+	tk, err := s.store.TransitionTask(task.ID, StateRejected, false, note)
+	if err != nil {
+		log.Printf("control: reject task %s: %v", task.ID, err)
+		tk = task
+	}
+	if art != nil {
+		if a, err := s.store.SetArtifactVerify(art.ID, VerifyFail); err == nil {
+			art = &a
+		}
+	}
+	if s.worktrees != nil {
+		_ = s.worktrees.Remove(repoDir, job.ID)
+	}
+	return VerifyResult{Job: jb, Task: tk, Artifact: art, Verified: false}
+}
+
+// candidateJob returns the latest Job of a task that is in the candidate state.
+func (s *Service) candidateJob(taskID string) (Job, bool, error) {
+	jobs, err := s.store.ListJobsForTask(taskID)
+	if err != nil {
+		return Job{}, false, err
+	}
+	for i := len(jobs) - 1; i >= 0; i-- {
+		if jobs[i].State == StateCandidate {
+			return jobs[i], true, nil
+		}
+	}
+	return Job{}, false, nil
+}
+
+// firstArtifact returns a job's first artifact, or nil.
+func (s *Service) firstArtifact(jobID string) *Artifact {
+	arts, err := s.store.ListArtifactsForJob(jobID)
+	if err != nil || len(arts) == 0 {
+		return nil
+	}
+	return &arts[0]
+}
+
+// withDetail appends an optional detail in parentheses.
+func withDetail(base, detail string) string {
+	if detail == "" {
+		return base
+	}
+	return base + " (" + detail + ")"
 }
 
 // terminate drives a job+task to a terminal state and reclaims the worktree.

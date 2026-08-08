@@ -91,6 +91,29 @@ func TestDaemon_ClientRoundTrip(t *testing.T) {
 	}
 }
 
+func TestDaemon_VerifyRoundTrip(t *testing.T) {
+	repo := gitRepo(t)
+	// gate-clean marker + passing stub verifier (the helper's default).
+	svc, _, _ := newService(t, mapResolver{"app": repo},
+		StubRunner{Result: ExecSuccess, WriteFile: true, MarkerName: "AGENT_RAN.txt"}, nil)
+	client := serveUDS(t, svc)
+
+	task, err := client.CreateTask(CreateTaskRequest{Project: "app", Objective: "verify me"})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if _, err := client.DispatchTask(task.ID); err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+	res, err := client.VerifyTask(task.ID)
+	if err != nil {
+		t.Fatalf("client VerifyTask: %v", err)
+	}
+	if !res.Verified || res.Job.State != StateVerified {
+		t.Fatalf("verify over wire: verified=%v state=%s", res.Verified, res.Job.State)
+	}
+}
+
 func TestDaemon_ErrorMapping(t *testing.T) {
 	repo := gitRepo(t)
 	svc, _, _ := newService(t, mapResolver{"app": repo, "plain": t.TempDir()}, StubRunner{}, nil)

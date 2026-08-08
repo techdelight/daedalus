@@ -36,7 +36,8 @@ func newTestService(t *testing.T, resolver control.ProjectResolver) *control.Ser
 	t.Cleanup(func() { store.Close() })
 	wt := control.NewWorktreeManager(dataDir)
 	runner := control.StubRunner{Result: control.ExecSuccess, WriteFile: true}
-	return control.NewService(store, resolver, wt, runner, nil)
+	verifier := control.StubVerifyRunner{Pass: true}
+	return control.NewService(store, resolver, wt, runner, verifier, nil)
 }
 
 // makeGitRepo creates a temp git repo with one commit.

@@ -63,8 +63,9 @@ func git(t *testing.T, dir string, args ...string) {
 }
 
 // newService wires a Service over a temp DB + worktree root, with the given
-// runner and (optional) sessions.
-func newService(t *testing.T, resolver ProjectResolver, runner AgentRunner, sessions SessionObserver) (*Service, *WorktreeManager, *Store) {
+// runner and (optional) sessions. The verifier defaults to a passing stub;
+// pass one explicitly to override (verify tests).
+func newService(t *testing.T, resolver ProjectResolver, runner AgentRunner, sessions SessionObserver, verifier ...VerifyRunner) (*Service, *WorktreeManager, *Store) {
 	t.Helper()
 	dataDir := t.TempDir()
 	store, err := Open(filepath.Join(dataDir, "control.db"))
@@ -73,7 +74,11 @@ func newService(t *testing.T, resolver ProjectResolver, runner AgentRunner, sess
 	}
 	t.Cleanup(func() { store.Close() })
 	wt := NewWorktreeManager(dataDir)
-	return NewService(store, resolver, wt, runner, sessions), wt, store
+	var v VerifyRunner = StubVerifyRunner{Pass: true}
+	if len(verifier) > 0 {
+		v = verifier[0]
+	}
+	return NewService(store, resolver, wt, runner, v, sessions), wt, store
 }
 
 // --- dispatch: success → candidate -------------------------------------------

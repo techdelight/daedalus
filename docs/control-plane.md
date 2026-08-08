@@ -122,15 +122,64 @@ non-terminal Job it compares desired (DB) vs observed reality:
 
 Side-effects are idempotent and deterministically named, so a re-run is a no-op.
 
+### Independent verification (Milestone 14, Sprint 56 — host-testable half built)
+
+"Done" is decided by the control plane checking a committed artifact against an
+oracle the worker cannot edit (§6) — never by the worker's self-report. A worker
+only ever reaches `candidate`; **only the control plane** performs
+`candidate → verified`.
+
+**Acceptance contract.** A project declares its verify policy in a committed
+`.daedalus/verify.json`:
+
+```json
+{
+  "checks": ["go build ./...", "go test ./...", "daedalus docs lint --ci"],
+  "acceptanceGlobs": ["**/*_test.go", "testdata/**", ".daedalus/verify.json"]
+}
+```
+
+`checks` are the commands the clean verifier will run (Sprint 57);
+`acceptanceGlobs` are the paths whose edits invalidate a Job. `ReadAcceptancePolicy`
+reads it from a checkout; a project that declares none gets a built-in default
+(`daedalus docs lint --ci` — daedalus is language-agnostic and cannot know a
+project's build/test command, so those are declared per-project — plus the
+conventional test/fixture globs and the verify config itself).
+
+**Frozen acceptance oracle.** At `task create` the policy is read **as committed
+at `base_sha`** (`git show <base>:.daedalus/verify.json`, immutable to later
+working-tree edits) and a stable hash of the normalized (commands + globs) is
+frozen on the Task row (`acceptance_hash`). Editing the policy in the working tree
+afterward does not change it — the oracle is pinned outside the agent's reach.
+
+**Plane-owned verify flow** (`daedalus task verify <id>`, behind an injectable
+`VerifyRunner`; the real clean-verifier container is Sprint 57, a stub stands in):
+
+1. Re-derive the policy from `base_sha` and confirm it still hashes to the frozen
+   value (a drift → straight to `rejected`).
+2. **Test-integrity gate FIRST.** `DiffTouchesAcceptanceFiles(base..head, globs)`
+   (`git diff --no-renames --name-only`, `**`-aware glob match) — if the Job's diff
+   edits any frozen acceptance file, it goes **straight to `rejected`** with a
+   clear note and **the `VerifyRunner` is never called** (you cannot grade your own
+   exam).
+3. Otherwise `candidate → verifying → VerifyRunner → verified | rejected`. A pass
+   sets the Artifact `verify: pass`; a rejection sets `verify: fail`, reclaims the
+   attempt's worktree, and rests the Task at `rejected`.
+4. **Retry:** `task dispatch` accepts a `rejected` Task (`rejected → queued →
+   working`), creating a fresh Job attempt.
+
 ## V1 scope boundary — what is deliberately NOT here yet
 
-Milestone 13 (Sprints 54–55) delivers the model, store, daemon, human CLI, the
-isolated-worktree headless execution path, and reconciliation. Still ahead:
+Milestone 13 (Sprints 54–55) delivered the model, store, daemon, human CLI, the
+isolated-worktree headless execution path, and reconciliation. Milestone 14
+Sprint 56 adds the **host-testable half of verification** (above). Still ahead:
 
-- **No independent verifier.** The clean-container verification that performs
-  `candidate → verified`, image digest-pinning by `sha256:`, and the
-  test-integrity gate land in **M14**. Until then an Artifact stays `verify:
-  pending` and a Task rests at `candidate`.
+- **The real clean verifier is Sprint 57.** The container that checks out the
+  artifact's `head_sha` into a clean image and actually runs `policy.checks`,
+  image digest-pinning by `sha256:`, the explicit network/credentials/`/opt/tools`
+  policy, and a null-agent floor check are **Sprint 57**. Until then `task verify`
+  uses a stub `VerifyRunner` (the **integrity gate, freeze, and transitions are
+  real**; only the check execution is stubbed).
 - **No governance / integration / Guild Master client.** Budgets + request
   rejection, the merge-queue integration transaction (rebase → re-verify merged →
   compare-and-swap), human approval, retry/replan, an independent reviewer, and

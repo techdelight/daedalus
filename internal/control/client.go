@@ -108,6 +108,20 @@ func (c *Client) DispatchTask(id string) (DispatchResult, error) {
 	return res, json.NewDecoder(resp.Body).Decode(&res)
 }
 
+// VerifyTask implements TaskAPI.
+func (c *Client) VerifyTask(id string) (VerifyResult, error) {
+	resp, err := c.httpClient.Post(c.baseURL+"/tasks/"+url.PathEscape(id)+"/verify", "application/json", nil)
+	if err != nil {
+		return VerifyResult{}, fmt.Errorf("control client: POST /tasks/%s/verify: %w", id, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return VerifyResult{}, decodeError(resp)
+	}
+	var res VerifyResult
+	return res, json.NewDecoder(resp.Body).Decode(&res)
+}
+
 // CancelTask implements TaskAPI.
 func (c *Client) CancelTask(id string) (Task, error) {
 	req, _ := http.NewRequest(http.MethodDelete, c.baseURL+"/tasks/"+url.PathEscape(id), nil)

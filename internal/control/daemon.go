@@ -47,6 +47,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /tasks", s.handleList)
 	mux.HandleFunc("GET /tasks/{id}", s.handleStatus)
 	mux.HandleFunc("POST /tasks/{id}/dispatch", s.handleDispatch)
+	mux.HandleFunc("POST /tasks/{id}/verify", s.handleVerify)
 	mux.HandleFunc("DELETE /tasks/{id}", s.handleCancel)
 	return mux
 }
@@ -106,6 +107,15 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleDispatch(w http.ResponseWriter, r *http.Request) {
 	res, err := s.api.DispatchTask(r.PathValue("id"))
+	if err != nil {
+		writeError(w, statusFor(err), err)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+func (s *Server) handleVerify(w http.ResponseWriter, r *http.Request) {
+	res, err := s.api.VerifyTask(r.PathValue("id"))
 	if err != nil {
 		writeError(w, statusFor(err), err)
 		return
