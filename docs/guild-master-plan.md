@@ -138,134 +138,207 @@ The worker may only drive `working → candidate` ("I think it's done"). **Only 
 control plane** performs `candidate → verified`. That single rule makes
 verification structural rather than conversational.
 
-**How a Job produces its Artifact (the execution model).** "The Artifact is a
-commit" only holds if a commit reliably exists — agents don't always make one. So
-a Job runs the project's agent through the coordinator inside a **Job wrapper**
-that: pins `base_sha`, runs the agent on branch `daedalus/<task>/<job>`, and
-captures `head_sha` as the Artifact — **auto-committing the working tree at job
-end** as a fallback. A Job and a live human session must not touch the same
-project at once: to start, there is **one active job per project and no concurrent
-interactive session** (V3 relaxes this with a worktree per job). The Guild Master
-sees none of this — it created a Task and asked to dispatch it; the control plane
-resolves the project through the trusted registry and constructs all execution.
+**How a Job produces its Artifact (the execution model).** Orchestration is
+**Git-native** — `base_sha`, branches, worktrees, commits, rebase, and merge are
+load-bearing, so a guild-managed project **must be a Git repository** (a stated
+prerequisite, not a generic "artifact" abstraction). A Job runs the project's
+agent through the coordinator inside a **Job wrapper** that pins `base_sha` and
+runs in a **dedicated, isolated Git worktree** checked out clean at `base_sha` on
+branch `daedalus/<task>/<job>` (under the Daedalus state dir, mounted as
+`/workspace`) — **not** the developer's live checkout. Isolation here is an
+*artifact-provenance* property, not a parallelism one: it guarantees the captured
+commit contains **only** the Job's changes, never a developer's unrelated dirty
+edits, an IDE's writes, or a build watcher's output. A **Job ends at process
+exit** (a headless runner invocation is the execution boundary); the wrapper then
+classifies the outcome and, separately, snapshots the tree:
 
-## 6. The load-bearing guarantees
+- `execution_result` ∈ {success, failed, timeout, cancelled} — *how the run ended*.
+- `output_snapshot` — the committed tree (`head_sha`), captured even on
+  failure/timeout as a salvage snapshot.
 
-- **Independent verification.** Verification never runs in the worker's live
-  workspace. The control plane checks out the Artifact's commit into a **clean
-  verifier container** (the project's image, no worker mutable state) and runs the
-  project's verify policy (build + tests + `daedalus docs lint` + acceptance).
-  What's verified is the **artifact**, not the worker's environment — immune to
-  uncommitted files, altered test config, residual caches. **Runner-agnostic:** it
-  checks a git commit, so it works for Claude *or* Copilot; an injected Stop-hook
-  is only an optional early nudge. (The verifier container is the project's own
-  image + a clean checkout, so it carries the project's toolchain; this roughly
-  doubles container use per verification — reuse cached images.)
-- **Two gates, decided.** The primary gate is **integration approval** of a code
-  Artifact (below). Governing *roadmap* transitions (milestone/sprint edits) is a
-  small **optional add-on** that reuses the same approval machinery (M15), not a
-  separate mechanism.
-- **Frozen acceptance policy.** When a Task is created, the control plane captures
-  the verify policy from the task's `base_sha` and hashes it
-  (`acceptance_policy: project-policy@924ab7f`). A worker **cannot weaken the check
-  it must pass** (e.g. rewrite `go test ./...` to `echo success`); a proposed
-  policy change takes effect only for *future* tasks after integration.
+**Only a `success` execution promotes its snapshot to a candidate Artifact.**
+Commit-exists never implies job-succeeded. To start there is **one active Job per
+project and no concurrent interactive session**; V3 relaxes this with multiple
+worktrees. The Guild Master sees none of this — it created a Task and asked to
+dispatch; the control plane resolves the project through the trusted registry and
+constructs all execution.
+
+## 6. The load-bearing guarantees (stated honestly)
+
+The critical evaluation (`../guild-master-plan-critical-evaluation.md`) rightly
+noted the first draft *overstated* several of these. The claims below are
+deliberately narrowed to what the mechanism actually proves — the research behind
+each is in §12.
+
+- **Independent, reproducible verification (not "proof of done").** Verification
+  never runs in the worker's live workspace. The control plane checks out the
+  Artifact's commit into a **clean verifier container** and runs the project's
+  verify policy (build + tests + `daedalus docs lint` + acceptance). This proves
+  exactly one thing: *"this committed artifact, in this pinned environment, causes
+  this procedure to report success"* — an **independently reproducible
+  verification result**, not a proof the task is satisfied. It closes a real,
+  distinct class of cheating (uncommitted/environment-resident state — stack
+  introspection, live monkey-patches, dirty-tree passes). It does **not**, by
+  itself, stop an agent that *committed* weakened tests (see the next bullet).
+  Runner-agnostic: it checks a git commit, so it works for any runner. (The
+  verifier is the project's image + clean checkout, ~2× container use per verify —
+  reuse cached images.)
+- **The acceptance oracle must live outside the agent's write scope.** Freezing
+  and hashing the verify command at `base_sha` (`acceptance_policy@924ab7f`) stops
+  the crudest self-grading — swapping `go test ./...` for `echo success`. It does
+  **not** stop the agent editing the *tests/fixtures/build-config it commits* to
+  make the frozen command pass vacuously — a measured, not hypothetical, failure
+  (frontier agents do this in 30–100% of adversarial runs; §12). So a verification
+  result is evidence of *completion* only when the oracle is beyond the agent's
+  reach. The ladder, cheapest first: (1) reproducible clean-checkout verify →
+  (2) **reject any Job whose diff touches the frozen test/acceptance files**
+  (integrity gate — cheap, belongs in V1) → (3) **control-plane-supplied held-out
+  acceptance tests** the worker never sees → (4) differential/property checks →
+  (5) independent review → (6) human approval. Defense-in-depth; no single rung
+  suffices.
+- **Pinned execution environment (by digest).** The verifier image is pinned by
+  **`sha256:` digest** captured at task creation, not a mutable tag like `:dev` —
+  otherwise a rebuilt image verifies the artifact in a *different* environment than
+  it was authored against. The policy on network / credentials / `/opt/tools` /
+  caches in the verifier is **explicit** (default: network off or allowlisted, no
+  ambient credentials, no inherited per-project tools) so verification is a
+  decision, not an accident.
+- **Project documents are untrusted input, not instructions.** The Guild Master
+  reads project-controlled docs (README/VISION/ROADMAP/…) *and* holds intent-level
+  action tools — the classic **lethal trifecta** (private data + untrusted content
+  + an action vector), a documented, high-success attack class (§12). Its
+  consequential operations are therefore **tiered**: read/status always allowed;
+  create-bounded-task usually allowed; **cancel another Job, raise a budget, and
+  request/perform integration are restricted — proposals a human (or a separate,
+  non-doc-reading authority) confirms.** A poisoned README can *propose*, never
+  *execute*. This — not prompt hardening — is the real defense.
+- **Authoritative state is reconciled, not just stored.** SQLite gives atomicity
+  *within the DB*; it cannot atomically wrap a DB write + `Coordinator.Start()` +
+  `git worktree add` (the **dual-write problem**). So SQLite holds *desired* state
+  as the single source of truth; containers/worktrees are derived, reconstructible
+  state; and a **reconcile-on-boot + periodic loop** (the Kubernetes
+  level-triggered controller pattern, minimal single-host form) drives reality
+  toward desired state and repairs post-crash divergence — backed by
+  **idempotent, deterministically-named** side-effects. This is what makes "crash
+  recovery" a mechanism rather than optimistic language.
 - **The plane can reject the Guild Master.** Budget too high → `REJECTED`. Artifact
-  built from a stale base → `REJECTED, must rebase + re-verify`. The plane
-  enforces policy; it does not merely execute.
-- **Human approval removes self-grading.** For projects that require it,
-  `verified → approval_required` and a human approves/rejects in the Web UI/TUI.
-  The Guild Master can never approve its own work.
+  built from a stale base → `REJECTED, must rebase + re-verify`. The plane enforces
+  policy; it does not merely execute.
+- **Integration is a race-safe transaction, not a merge.** Two artifacts that each
+  pass verification against base A can conflict when combined (a **semantic merge
+  conflict**, no textual conflict). So landing is the **merge-queue pattern**:
+  serialize → rebase onto the current target tip → **re-verify the *merged*
+  result** (not the pre-merge branch) → **compare-and-swap** the target ref (retry
+  if it moved). Human approval, where required, gates before the swap — so the
+  Guild Master can never approve its own work.
 - **Budgets are enforced host-side.** Strongly enforceable: wall-clock,
   concurrency, max-attempts, review-cycles, session lifecycle. Runner-dependent
-  measurement: turn/token/exact cost — the *policy* still lives in the plane.
-- **Steering is a typed op.** `steer_job(job, instruction)` recorded as a
-  `SteeringEvent` (issuer, timestamp, delivery state, cancellable), delivered by
-  the runner/hook layer at the next supported boundary — not an ad-hoc terminal
-  injection.
+  *measurement*: turn/token/exact cost — the *policy* still lives in the plane.
+- **Event history, honestly named.** The control plane keeps a
+  **control-plane-managed event log** — immutable *through the API* (agents can't
+  alter history), not cryptographically tamper-proof unless events are later
+  hash-chained (an optional V2+ property, not oversold as "tamper-proof audit").
 
-## 7. Provenance — what this plan settles
+## 7. Provenance & revision history
 
-This plan adopts the control-plane architecture from
-[`../daedalus-control-plane-report.md`](../daedalus-control-plane-report.md)
-wholesale (authority/initiative split, `control.sock` boundary, Task/Job/Artifact,
-host-side SQLite, independent verification, frozen acceptance policy, human
-approval, typed steering). On top of that architecture it **decides** five points
-the evaluation left implicit, now folded into the body above:
+- **Round 1** adopted the control-plane architecture from
+  [`../daedalus-control-plane-report.md`](../daedalus-control-plane-report.md)
+  wholesale (authority/initiative split, `control.sock` boundary, Task/Job/Artifact,
+  host-side SQLite, independent verification, frozen acceptance policy, human
+  approval).
+- **Round 2** (this revision) responds to a critical evaluation
+  ([`../guild-master-plan-critical-evaluation.md`](../guild-master-plan-critical-evaluation.md)),
+  pressure-tested against the literature (§12). It **narrows the guarantee
+  language** (§6), and moves several things earlier: **isolated worktrees and
+  reconciliation into M13**, **digest-pinning and a test-integrity gate into M14**,
+  the **integration transaction into M15**, a **human-first CLI path before the
+  Guild Master client**, and **prompt-injection defense** as a first-class concern.
+  M17 (typed steering) is **demoted** toward backlog until real use proves it.
 
-- the **execution model** — the Job wrapper and one-job-per-project /
-  no-concurrent-human-session rule (§5);
-- the **verifier is the project's own image + clean checkout**, at ~2× container
-  cost (§6);
-- **two gates**, with integration approval primary and roadmap-transition
-  governance a reused add-on (§6, M15);
-- **V1 is deliberately minimal** — SQLite, one job/project, reuse the coordinator,
-  a simple clean-worktree verifier — enough to prove the architecture before any
-  governance or parallelism (§8);
-- a **natural stop point after V1** (§9).
-
-It supersedes the pre-control-plane targets and milestone arc in
+This plan supersedes the pre-control-plane targets and milestone arc in
 [`guild-master-control.md`](guild-master-control.md) §5–§6, which remain valid only
 as the research "why".
 
 ## 8. The milestone plan (M13–M17 = V1 → V2 → V3)
 
 Each is a ~2-sprint unit, host-side testable (the actual container run is
-host-only, as always). Suggested repo shape:
-`cmd/daedalus-control`, `cmd/guild-control-mcp`,
-`internal/control/{service,task,job,artifact,policy,verify,approval,store}.go`,
-`internal/verifier`, `core/{task,policy,capabilities}.go`. The Guild Master
-receives **only** `control.sock`.
+host-only, as always). Suggested repo shape: `cmd/daedalus-control`,
+`cmd/guild-control-mcp`,
+`internal/control/{service,task,job,artifact,policy,verify,approval,reconcile,store}.go`,
+`internal/verifier`, `core/{task,policy,capabilities}.go`. **The overriding V1 goal
+is not features — it is a boringly reliable path** that survives daemon crashes,
+dirty workspaces, agent crashes, malicious project docs, changed images, stale
+bases, edited tests, duplicate dispatch, partial artifacts, restarts, and timeouts
+without losing track of what happened.
 
-### V1 — Minimal orchestration
-- **M13 · Control Plane Foundation — the Job model.** `daedalus-control` service +
-  Task/Job/Artifact model + SQLite store + early state machine
-  (planned→queued→working→candidate); `guild-control-mcp` over `control.sock`
-  (`create_task`/`dispatch_task`/`get_task`/`cancel_task`); the **Job wrapper**
-  (pin base_sha → dispatch via coordinator → capture commit as Artifact); GM docs
-  become projections. *One active job per project; reuse the coordinator session.*
-- **M14 · Independent Verification & Frozen Acceptance.** The clean-worktree
-  **verifier container** performing `candidate → verified`; the `daedalus verify`
-  contract; **frozen `acceptance_policy@base_sha`**. *Makes "done" structural. The
-  highest-leverage guarantee; runner-agnostic.*
+### V1 — Minimal, reliable orchestration (human-driven first)
+- **M13 · Control Plane Foundation + the deterministic CLI path.**
+  `daedalus-control` daemon + SQLite (durable *desired* state) + Task/Job/Artifact
+  model + `control.sock`; **isolated Git worktree per Job** (Git required) +
+  headless Job (process-exit boundary) + `execution_result` vs `output_snapshot`
+  (only success → candidate); **reconcile-on-boot + periodic loop** with idempotent,
+  deterministically-named side-effects. The **only client is a human CLI** —
+  `daedalus task create|dispatch|status|cancel|verify` — the deterministic
+  reference path that makes the plane useful at N=1 and isolates bugs to one layer
+  before any agent drives it. *One active Job per project; no parallelism yet; no
+  Guild Master client yet.*
+- **M14 · Independent Verification (oracle outside the agent's reach).** The clean
+  verifier container performing `candidate → verified`; **image pinned by digest** +
+  an explicit network/creds/`/opt/tools` policy; **frozen `acceptance_policy@base_sha`**
+  *plus a **test-integrity gate** that rejects any Job whose diff touches the frozen
+  test/acceptance files*; a null-agent floor check. Output is an *independently
+  reproducible verification result*, never "proven correct". *Highest-leverage
+  guarantee; runner-agnostic.*
 
-### V2 — Governance
-- **M15 · Governance — budgets, approval & integration.** Budget enforcement +
-  request rejection; the human **approval → integration** state machine + Web/TUI
-  approve/reject; retry/replan; an independent **reviewer** pass; the append-only
-  **audit** log. Optional add-on: roadmap-transition governance (PM-opt-in). *Now
-  Daedalus is a governed orchestrator.*
+### V2 — Governance & the Guild Master as a (gated) client
+- **M15 · Governance, integration & the Guild Master client.** Budgets + request
+  rejection; **integration as a race-safe transaction** (serialize → rebase →
+  re-verify the merged result → compare-and-swap the ref); the human
+  `verified → approval_required → approved → integrated` state machine + Web/TUI
+  approve/reject; retry/replan; an independent **reviewer** pass; a
+  control-plane-managed **event log**. **Now the Guild Master joins as a client**
+  via `guild-control-mcp` — reusing the exact CLI capabilities, but with
+  **tiered, injection-safe authority** (read/status free; create-bounded-task
+  usually allowed; cancel/raise-budget/request-integration are proposals a human
+  confirms; project docs treated as untrusted). Optional add-on: roadmap-transition
+  governance (PM-opt-in) reusing the approval machinery. *Now a governed
+  orchestrator an agent can safely drive.*
 
 ### V3 — Parallel programme execution
-- **M16 · Parallel Programme Execution.** Multiple concurrent Jobs via isolated
-  **git worktrees/branches** (one-owner-per-attempt); a job scheduler; a
-  **cross-project task graph** + dependency scheduling, composing with
-  `programmes`. *Now a true multi-agent programme-execution platform.*
-- **M17 · Typed Steering & Coordination Polish.** `steer_job` as an audited,
-  cancellable op delivered at a supported boundary; cross-project task-board views
-  over control-plane state; uniform provenance/audit across tasks, jobs, steering,
-  approvals.
+- **M16 · Parallel Programme Execution.** Multiple concurrent Jobs — the worktrees
+  already exist from M13, so this *adds only concurrency and scheduling*: a job
+  scheduler + a **cross-project task graph** with dependency scheduling, composing
+  with `programmes`.
+- **M17 · Typed Steering (demoted — validate before building).** `steer_job` as an
+  audited, cancellable op delivered at a supported boundary. Kept Planned but
+  low-priority: for short Jobs, **cancel + redispatch with corrected instructions**
+  may suffice, so live steering should prove its value in real use before becoming
+  a milestone (candidate to move to BACKLOG).
 
 ## 9. Risks & decisions to evaluate
 
-- **Runner coupling** — the core (Task/Job/Artifact + artifact verification) is
-  **runner-agnostic** (a git commit + clean-checkout verify). Only *steering
-  delivery* and any optional Stop-hook are runner-specific. Decide: are
-  runner-specific niceties acceptable if the authority path is runner-agnostic?
-  (Recommended: yes.)
-- **The self-grading trap** — removed for *integration* by human approval, but if
-  the Guild Master's own agent adjudicates a reviewer pass (M15), keep the
-  reviewer independent and the human gate available. Decide which projects require
-  a human.
-- **Intrusiveness vs. adoption** — governance (M15) and steering (M17) change how a
-  project agent is treated; keep them opt-in per project.
-- **Scope-creep guardrail** — the invariant to hold across all five milestones:
-  **boundary control + verified artifacts, never mid-turn puppeteering**; the
-  Guild Master proposes, the plane adjudicates.
-- **Is there a natural stop point?** V1 (M13–M14) alone already delivers the
-  crown-jewel value — a real, un-fakeable definition of done and a dispatch/verify
-  loop. V2/V3 are worth it only if programme-scale orchestration is actually
-  wanted.
+- **Runner coupling** — the whole authority path (Task/Job/Artifact + clean-checkout
+  verify + reconciliation) is **runner-agnostic** (git + containers). Only *steering
+  delivery* and any optional Stop-hook nudge are runner-specific. Accept
+  runner-specific niceties only where the authority path stays agnostic.
+- **The self-grading trap** — narrowed but never fully closed: the test-integrity
+  gate stops committed-test edits, held-out tests move the oracle out of reach, and
+  human approval gates integration — but tests remain an incomplete oracle (§12), so
+  "verified" is evidence, not proof. Decide which projects require a human gate.
+- **Prompt injection** — the sharpest security concern (§12): keep consequential
+  Guild-Master ops as human-confirmed proposals and never co-locate "reads untrusted
+  docs" with "un-gated action" in one agent.
+- **Scope discipline in M13** — resist overloading the foundation; the CLI path +
+  worktree + reconciliation are the point, *not* breadth. Boring reliability comes
+  from small surface area.
+- **Intrusiveness vs. adoption** — governance and steering change how a project is
+  treated; keep them opt-in per project.
+- **Natural stop point** — **V1 (M13–M14) alone earns the control plane's keep**:
+  a human gets reliable, isolated, reproducibly-verified job execution at N=1, with
+  no agent orchestration at all. V2/V3 are worth it only if programme-scale, agent-
+  driven orchestration is actually wanted. This CLI-first framing also answers "is a
+  control plane justified for a small tool?" — yes, because it's useful before the
+  guild exists.
 
 ## 10. Non-goals
 
@@ -288,3 +361,66 @@ receives **only** `control.sock`.
   orchestrator-worker, A2A/MCP, Devin/OpenHands sessions), with sources.
 - **Tracked in** `ROADMAP.md` (M13–M17, Planned; V1→V2→V3) and `BACKLOG.md`
   (#57–#64).
+
+## 12. Response to the critical evaluation
+
+Point-by-point disposition of
+[`../guild-master-plan-critical-evaluation.md`](../guild-master-plan-critical-evaluation.md),
+after pressure-testing each claim against the literature. Verdict up front: the
+review is strong — of its 13 points, **11 are adopted** (several because the
+evidence is worse than the reviewer stated), and 2 are adopted-with-a-push-back.
+
+| # | Reviewer's point | Disposition |
+|---|------------------|-------------|
+| 1 | Worktrees are provenance, not parallelism → M13 not V3 | **Adopted.** Isolated worktree per Job in M13 (§5). Correct: without it, an auto-commit in a dirty checkout attributes unrelated human edits to the Job. |
+| 2 | "Un-fakeable done" is too strong | **Adopted, harder.** Reframed to "independently reproducible verification result" (§6). Evidence is damning: frontier agents edit tests / patch `conftest.py` / `sys.exit(0)` / hardcode outputs in **30–100%** of adversarial runs (Anthropic, OpenAI, METR, ImpossibleBench, Berkeley RDI). |
+| 3 | Verifier environment not frozen (pin image digest; define /opt/tools, net, creds) | **Adopted.** Digest-pin + explicit env policy in M14 (§6). Standard supply-chain practice (mutable tags are overwritable). |
+| 4 | SQLite ≠ distributed atomicity (dual-write) | **Adopted.** Reconcile-on-boot + periodic loop + idempotency in M13 (§6) — the K8s level-triggered controller pattern in minimal single-host form. |
+| 5 | Define exactly when a Job ends | **Adopted.** Job = headless invocation; **process exit** is the boundary; classify outcome (§5). |
+| 6 | Auto-commit is capture, not success | **Adopted.** `execution_result` vs `output_snapshot`; only success → candidate (§5). |
+| 7 | Git is now a requirement — say so | **Adopted.** Stated Git-native prerequisite; no generic artifact abstraction (§5). |
+| 8 | Prompt injection missing from the threat model | **Adopted — the sharpest catch.** The Guild Master is a textbook **lethal trifecta**; real CVEs exist (Cursor CurXecute, GitHub-MCP; 41–84% attack success). Docs are untrusted; consequential ops are human-confirmed proposals; tiered authority (§6). |
+| 9 | Integration is harder than "merge the commit" | **Adopted.** Integration = merge-queue transaction (rebase → re-verify merged → CAS) in M15 (§6) — the standard fix for semantic/logical merge conflicts. |
+| 10 | "Append-only audit log" over-claims | **Adopted.** Renamed "control-plane-managed event log"; hash-chain optional V2+ (§6). |
+| 11 | Move worktrees + reconciliation earlier | **Adopted** (see #1/#4) — but see push-back below on M13 scope. |
+| 12 | Give the control plane human CLI clients too | **Adopted, and elevated** — the review's best single idea. M13 is now **CLI-first, human-only**; the Guild Master client is deferred to M15. A deterministic reference path both eases debugging *and* answers "is a control plane worth it at N=1?" — yes. |
+| 13 | Repo tracking out of sync (M13–M17 not committed) | **Was true at review time; now resolved** — M13–M17 + #57–#64 were committed (`d435b64`) before this response. A fitting irony for a plan about state/reality divergence. |
+
+**Two push-backs (being cynical about the cynic):**
+
+- **M13 scope vs. the reviewer's own "boring reliability" plea.** The review loads
+  M13 with daemon + SQLite + Task/Job/Artifact + `control.sock` + `guild-control-mcp`
+  + worktree + headless job + reconciliation + capture — then closes by demanding
+  the path be *boringly reliable*. Those pull against each other; boring reliability
+  comes from **small surface area**. Resolution: keep the worktree + reconciliation
+  in M13 (they're load-bearing for provenance/recovery) but **cut the Guild Master
+  MCP client out of M13 entirely** — M13 is human-CLI-only, the agent client lands
+  in M15. This is *the review's own #12 defusing its own #8*: with no agent client
+  in V1, the prompt-injection surface doesn't exist yet, and the foundation stays
+  small.
+
+- **Don't let the (correct) deflation of verification breed defeatism.** The review
+  is right that "passes tests" ≠ "correct" — and the reward-hacking data makes it
+  *more* right. But the same data is the strongest argument *for* the gate, not
+  against it: when agents fake success 30–100% of the time, an
+  *independently-reproducible verification against an oracle the agent can't edit*
+  is a categorical improvement over "the agent said done." The limits set the honest
+  ceiling ("verified", never "proven correct"); they don't diminish the value. And
+  the highest-value defense — a **test-integrity gate + held-out tests** — is cheap
+  enough to sit in V1 (M14), earlier than the review's "later".
+
+**New-evidence sources (round 2).** Reward hacking / test-gaming: Anthropic
+*Natural Emergent Misalignment from Reward Hacking* ([arXiv:2511.18397](https://arxiv.org/abs/2511.18397));
+OpenAI *Monitoring Reasoning Models for Misbehavior* ([arXiv:2503.11926](https://arxiv.org/abs/2503.11926));
+[METR — frontier models are reward hacking](https://metr.org/blog/2025-06-05-recent-reward-hacking/);
+*ImpossibleBench* ([arXiv:2510.20270](https://arxiv.org/abs/2510.20270));
+[Berkeley RDI — how we broke top agent benchmarks](https://rdi.berkeley.edu/blog/trustworthy-benchmarks-cont/);
+*Are "Solved Issues" in SWE-bench Really Solved Correctly?* ([arXiv:2503.15223](https://arxiv.org/abs/2503.15223)).
+Prompt injection: [Willison — the lethal trifecta](https://simonwillison.net/2025/Jun/16/the-lethal-trifecta/);
+Cursor CVE-2025-54135; [CSA — README injection](https://cloudsecurityalliance.org/).
+Reliability: [Kubernetes controllers](https://kubernetes.io/docs/concepts/architecture/controller/);
+[transactional outbox](https://microservices.io/patterns/data/transactional-outbox.html);
+[the dual-write problem](https://www.confluent.io/blog/dual-write-problem/). Merge:
+GitHub merge queue / Zuul / Bors; *RefFilter* semantic-conflict detection
+([arXiv:2510.01960](https://arxiv.org/pdf/2510.01960)). Image pinning:
+[Bazel hermeticity](https://bazel.build/basics/hermeticity); pin-by-digest.

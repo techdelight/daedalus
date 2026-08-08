@@ -92,54 +92,62 @@ An always-present, un-removable project — default name **`guild-master`** (sho
 - **Scope discipline.** No control/dispatch of other agents (impossible by design); the Guild Master advises and plans. Cross-project mounts are resolved at launch (a project added later appears on the next launch) — documented, not hidden.
 
 > **The controlling Guild Master is built as a host-side _control plane_.** After
-> evaluation (see `daedalus-control-plane-report.md`), the arc below adopts a
-> control-plane architecture: the **Guild Master has initiative, the control plane
-> has authority** — it *proposes* privileged actions through a constrained
-> `guild-control-mcp`/`control.sock`; the host-side control plane adjudicates
-> against policy and *executes* via the coordinator. Authoritative state (Tasks,
-> Jobs, Artifacts, verification, approvals, audit) lives host-side in a Daedalus-
-> owned SQLite store — never in an agent workspace. The unit of orchestration is
-> the **Job** (one attempt), not the session. Full design in
-> `docs/guild-master-plan.md`; evidence base in `docs/guild-master-control.md`.
-> Sequenced as the report's **V1 → V2 → V3**.
+> two rounds of evaluation (`daedalus-control-plane-report.md` and
+> `guild-master-plan-critical-evaluation.md`, both pressure-tested against the
+> literature), the arc below adopts a control-plane architecture: the **Guild
+> Master has initiative, the control plane has authority** — it *proposes*
+> actions; the host-side control plane adjudicates against policy and *executes*
+> via the coordinator. Authoritative state (Tasks, Jobs, Artifacts, verification,
+> approvals, events) lives host-side in a Daedalus-owned SQLite store — never in an
+> agent workspace — and is **reconciled** against reality, not merely stored. The
+> unit of orchestration is the **Job** (one attempt in an isolated Git worktree),
+> not the session. Orchestration is **Git-native** (a managed project must be a Git
+> repo). V1 is **human-CLI-first** — the deterministic reference path — with the
+> Guild Master joining as a *gated* client only in V2. Full design (with the graded
+> response to the critique) in `docs/guild-master-plan.md`; evidence in
+> `docs/guild-master-control.md`. Sequenced **V1 → V2 → V3**.
 
-### Milestone 13: Control Plane Foundation — the Job model (V1) (Planned)
+### Milestone 13: Control Plane Foundation + the deterministic CLI path (V1) (Planned)
 
-Stand up the host-side control plane (`daedalus-control`) and its core data model — **Task** (what to accomplish) → **Job** (one attempt) → **Artifact** (a durable commit/branch + status) — with authoritative state in a Daedalus-owned SQLite store. The Guild Master drives it only through a constrained `guild-control-mcp` over `control.sock` (intent-level ops: `create_task`/`dispatch_task`/`get_task`/`cancel_task`); it never receives `coordinator.sock`. A **Job wrapper** pins `base_sha`, runs the agent via the coordinator, and captures the resulting commit as the Artifact. GM workspace docs (`TASKS.md`/`STATUS.md`) become read-only *projections* of control-plane state.
+Stand up the host-side control plane (`daedalus-control`) and its core data model — **Task** (what to accomplish) → **Job** (one attempt) → **Artifact** (a committed result + status) — with authoritative *desired* state in a Daedalus-owned SQLite store. Each Job runs in a **dedicated, isolated Git worktree** checked out clean at `base_sha` (isolation as artifact-provenance, so the captured commit holds only the Job's changes — never a developer's dirty edits); a Job ends at **process exit**, and only a `success` execution promotes its `output_snapshot` to a candidate Artifact (commit-exists ≠ succeeded). The **only client is a human CLI** — `daedalus task create|dispatch|status|cancel|verify` — the deterministic reference path that makes the plane useful at N=1 and isolates bugs before any agent drives it. **Git-native** (a managed project must be a Git repo).
 
-- `internal/control` service + `cmd/daedalus-control` + `cmd/guild-control-mcp`; `control.sock` as the security boundary (constrained, policy-checked ops only)
-- Task/Job/Artifact model + SQLite store + the early state machine (planned → queued → working → candidate); the Job (not the session) is the unit of orchestration
-- Job wrapper: pin `base_sha`, dispatch via the coordinator, capture `head_sha`/branch as the Artifact; one active job per project to start
+- `daedalus-control` daemon + SQLite (durable desired-state) + Task/Job/Artifact model + `control.sock`
+- Isolated Git worktree per Job; headless Job (process-exit boundary); `execution_result` vs `output_snapshot` (only success → candidate)
+- **Reconcile-on-boot + periodic loop** with idempotent, deterministically-named side-effects (the dual-write fix — SQLite holds desired state, containers/worktrees are reconstructible), so state survives daemon/agent crashes
+- Human `daedalus task …` CLI as the sole client; one active Job per project; **no Guild Master client yet**
 
-### Milestone 14: Independent Verification & Frozen Acceptance (V1) (Planned)
+### Milestone 14: Independent Verification (V1) (Planned)
 
-Make "done" structural, not conversational — the highest-leverage step (MAST: ~24% of failures are "declared done ≠ verified done"). The worker may only move a Job `working → candidate` ("I think it's done"); **only the control plane** performs `candidate → verified`, by checking out the Artifact's commit into a **clean verifier container** (the project's image, no worker mutable state) and running the project's `verify` policy (build + tests + `daedalus docs lint` + acceptance checks). The acceptance policy is **frozen at the task's `base_sha`** (captured + hashed) so a worker cannot weaken the check it must pass. Runner-agnostic — it verifies a git artifact, not a Claude session (an injected Stop-hook is an optional secondary nudge, not the authority).
+Make "done" structural, not conversational — the highest-leverage step. The worker may only move a Job `working → candidate` ("I think it's done"); **only the control plane** performs `candidate → verified`, by checking out the Artifact's commit into a **clean verifier container** and running the project's verify policy (build + tests + `daedalus docs lint` + acceptance). Honest scope: this yields an *independently reproducible verification result*, **not** a proof of correctness — frontier agents game tests in 30–100% of adversarial runs, so the acceptance oracle must sit **outside the agent's write scope**.
 
-- `daedalus verify` contract + a clean-worktree verifier container that verifies the committed Artifact independently of the worker's environment
-- Frozen `acceptance_policy@base_sha` (hashed); policy changes affect only future tasks, never the current one
+- `daedalus verify` contract + clean verifier container verifying the committed Artifact independently of the worker's environment; a null-agent floor check
+- **Verifier image pinned by `sha256:` digest** (not a mutable tag) + an explicit network/creds/`/opt/tools` policy
+- **Frozen `acceptance_policy@base_sha`** (hashed) **plus a test-integrity gate that rejects any Job whose diff touches the frozen test/acceptance files**; the ladder toward control-plane-supplied held-out tests
 - The structural `candidate → verified | rejected → retry/replan` transition owned solely by the control plane
 
-### Milestone 15: Governance — budgets, approval & integration (V2) (Planned)
+### Milestone 15: Governance, Integration & the Guild Master client (V2) (Planned)
 
-Turn the control plane into a **governed** orchestrator. It enforces **budgets** (wall-clock / concurrency / max-attempts / review-cycles are strongly enforceable; turn/token/cost are policy-in-plane, measurement runner-dependent) and can **reject** Guild Master requests (budget too high; Artifact produced from a stale base → must rebase + re-verify). It adds **human approval** as a first-class state (`verified → approval_required → approved → integrated`), surfaced as an approve/reject control in the Web UI/TUI — so the Guild Master can never approve its own work when policy requires a human. Plus retry/replan, an independent **reviewer** pass, and an append-only **audit log** of every event.
+Turn the control plane into a **governed** orchestrator that an agent can safely drive. It enforces **budgets** (wall-clock/concurrency/max-attempts/review-cycles strongly enforceable; turn/token/cost policy-in-plane) and can **reject** requests (over-budget; stale base). **Integration is a race-safe transaction** (serialize → rebase onto the current tip → re-verify the *merged* result → compare-and-swap the target ref — the merge-queue fix for semantic conflicts), gated by a human `verified → approval_required → approved → integrated` state machine in the Web UI/TUI. **The Guild Master joins here** via `guild-control-mcp`, reusing the CLI capabilities but with **tiered, injection-safe authority**: it reads untrusted project docs, so consequential ops (cancel a Job, raise a budget, request integration) are **human-confirmed proposals**, never direct execution.
 
-- Budget enforcement + request rejection ("GM proposes, the plane adjudicates and executes")
-- Human integration-approval state machine + Web/TUI approve/reject; independent reviewer pass; audit/event log
-- (Optional add-on) roadmap-transition governance for PM-opt-in projects, reusing the same approval machinery
+- Budget enforcement + request rejection; the integration transaction (rebase → re-verify merged → CAS); human approval state machine + Web/TUI; retry/replan; independent reviewer pass; control-plane-managed event log
+- **Guild Master as a gated client** (`guild-control-mcp` over `control.sock`; never `coordinator.sock`; project docs = untrusted; tiered authority breaks the lethal trifecta)
+- (Optional add-on) roadmap-transition governance for PM-opt-in projects, reusing the approval machinery
 
 ### Milestone 16: Parallel Programme Execution (V3) (Planned)
 
-Scale from one-job-at-a-time to a real programme scheduler: **multiple concurrent Jobs**, each in an **isolated git worktree/branch** (one-owner isolation per attempt, so parallel jobs never collide), with **dependency scheduling** across a **cross-project task graph** (composing with the existing `programmes` feature). This is where Daedalus becomes a genuine multi-agent programme-execution platform.
+Scale from one Job at a time to a real programme scheduler. The **worktrees already exist from M13**, so this *adds only concurrency and scheduling*: multiple concurrent Jobs, a scheduler with concurrency limits, and **dependency scheduling** across a **cross-project task graph** (composing with the existing `programmes` feature). This is where Daedalus becomes a genuine multi-agent programme-execution platform.
 
-- Concurrent Jobs per project via isolated worktrees/branches; a job scheduler with concurrency limits
+- Concurrent Jobs (each already isolated in its own worktree); a job scheduler with concurrency limits
 - Cross-project task graph + dependency scheduling (blocked/ready transitions), integrated with `programmes`
 
-### Milestone 17: Typed Steering & Coordination Polish (V3) (Planned)
+### Milestone 17: Typed Steering (V3, demoted) (Planned)
 
 Represent steering as a typed, audited control-plane operation — `steer_job(job, instruction)`, recorded as a `SteeringEvent` with issuer, timestamp, and delivery state, delivered by the runner/hook layer at the next supported boundary — rather than an ad-hoc terminal injection. Round out the coordination surface (task-board views, provenance, cancellation) so the whole orchestration model is uniform and auditable.
 
+Kept Planned but **low-priority / demotion candidate to BACKLOG**: for short Jobs, **cancel + redispatch with corrected instructions** may suffice, so live steering should prove its value in real use before it earns a milestone.
+
 - Typed `steer_job` with provenance / delivery-state / cancellation, delivered at a supported boundary
-- Coordination polish: cross-project task-board views over control-plane state; uniform provenance + audit across tasks, jobs, steering, and approvals
+- Coordination polish: cross-project task-board views over control-plane state; uniform provenance across tasks, jobs, steering, and approvals
 
 ## Phasing
 
@@ -148,12 +156,12 @@ M1..M12 (Done, except M10) ─► ( no active milestone )
 
 Planned — the "controlling Guild Master" control-plane arc
 (design: docs/guild-master-plan.md; evidence: docs/guild-master-control.md):
-  V1  M13 Control Plane Foundation (Task/Job/Artifact) ─► M14 Independent Verification
-  V2  M15 Governance (budgets · approval · integration · audit)
-  V3  M16 Parallel Execution (worktrees · dependency graph) ─► M17 Typed Steering
+  V1  M13 Control-Plane Foundation + CLI path (worktrees · reconcile) ─► M14 Independent Verification
+  V2  M15 Governance · Integration txn · Guild Master (gated) client
+  V3  M16 Parallel Execution (dependency graph) ─► M17 Typed Steering (demoted)
 Also Planned: M10 Homebrew Distribution.
 ```
 
 ## Current Focus
 
-**No active milestone.** Milestones M1–M9, M11 and M12 are complete (M12 shipped in **v0.47.0** — the embedded, un-removable `guild-master` project with read visibility across every project's docs). Planned next: the **"controlling Guild Master" control-plane arc** (M13–M17), which evolves the Guild Master from a read-only overseer into a controlling entity via a host-side **control plane** — the *Guild Master has initiative, the control plane has authority*. It follows the report's **V1 → V2 → V3**: V1 = the control-plane foundation (Task/Job/Artifact + SQLite) and independent artifact verification (M13–M14); V2 = governance — budgets, human approval, integration, audit (M15); V3 = parallel execution + typed steering (M16–M17). Design in `docs/guild-master-plan.md` (revised after evaluation, `daedalus-control-plane-report.md`); evidence in `docs/guild-master-control.md`. The natural first is **M13 (Control Plane Foundation)** — fully host-testable. Also Planned: M10 (Homebrew). No milestone or sprint is in progress yet — a deliberate between-milestones state, so `daedalus docs lint` noting "no milestone is marked (In Progress)" is expected here, not a defect.
+**No active milestone.** Milestones M1–M9, M11 and M12 are complete (M12 shipped in **v0.47.0** — the embedded, un-removable `guild-master` project with read visibility across every project's docs). Planned next: the **"controlling Guild Master" control-plane arc** (M13–M17), which evolves the Guild Master from a read-only overseer into a controlling entity via a host-side **control plane** — the *Guild Master has initiative, the control plane has authority*. Revised after **two rounds of evaluation** (`daedalus-control-plane-report.md`, then `guild-master-plan-critical-evaluation.md`, both literature-checked): **V1** = a **human-CLI-first** control-plane foundation with isolated Git worktrees + crash reconciliation (M13) and independent, digest-pinned artifact verification with a test-integrity gate (M14); **V2** = governance, a race-safe integration transaction, and the Guild Master joining as a *gated, injection-safe* client (M15); **V3** = parallel execution (M16) and typed steering (M17, demoted). Full design + the graded response to the critique in `docs/guild-master-plan.md`; evidence in `docs/guild-master-control.md`. The natural first is **M13** — fully host-testable, and useful at N=1 before any agent orchestration exists. Also Planned: M10 (Homebrew). No milestone or sprint is in progress yet — a deliberate between-milestones state, so `daedalus docs lint` noting "no milestone is marked (In Progress)" is expected here, not a defect.
