@@ -30,7 +30,7 @@ _daedalus() {
     local cur prev words cword
     _init_completion || return
 
-    local subcommands="list prune remove rename config tui web completion skills runners personas programmes docs init version"
+    local subcommands="list prune remove rename config tui web completion skills runners personas programmes docs init version task"
     local flags="--build --target --resume -p --debug --dind --display --force --port --host --no-color --runner --persona --auth --no-auth --help -h"
 
     # Complete subcommands and flags for the first argument
@@ -71,6 +71,9 @@ _daedalus() {
         version)
             COMPREPLY=($(compgen -W "list use rollback prune --keep" -- "${cur}"))
             ;;
+        task)
+            COMPREPLY=($(compgen -W "create list status cancel --project --objective --acceptance" -- "${cur}"))
+            ;;
         *)
             COMPREPLY=($(compgen -W "${flags}" -- "${cur}"))
             ;;
@@ -103,6 +106,7 @@ _daedalus() {
         'docs:Check project documents against the dashboard-arc format'
         'init:Scaffold project docs and print a getting-started guide'
         'version:Manage side-by-side installed versions'
+        'task:Manage host-side control-plane tasks'
     )
 
     flags=(
@@ -168,6 +172,9 @@ _daedalus() {
                 version)
                     _values 'action' list use rollback prune --keep
                     ;;
+                task)
+                    _values 'action' create list status cancel --project --objective --acceptance
+                    ;;
                 *)
                     _describe -t flags 'flag' flags
                     ;;
@@ -204,6 +211,11 @@ complete -c daedalus -n '__fish_seen_subcommand_from init' -l no-scaffold -d 'Pr
 complete -c daedalus -n '__fish_use_subcommand' -a 'version' -d 'Manage side-by-side installed versions'
 complete -c daedalus -n '__fish_seen_subcommand_from version' -a 'list use rollback prune' -d 'version action'
 complete -c daedalus -n '__fish_seen_subcommand_from version' -l keep -d 'Versions to keep when pruning' -r
+complete -c daedalus -n '__fish_use_subcommand' -a 'task' -d 'Manage host-side control-plane tasks'
+complete -c daedalus -n '__fish_seen_subcommand_from task' -a 'create list status cancel' -d 'task action'
+complete -c daedalus -n '__fish_seen_subcommand_from task' -l project -d 'Project name for task create' -r
+complete -c daedalus -n '__fish_seen_subcommand_from task' -l objective -d 'Objective text for task create' -r
+complete -c daedalus -n '__fish_seen_subcommand_from task' -l acceptance -d 'Acceptance reference for task create' -r
 
 # Global flags
 complete -c daedalus -l build -d 'Force rebuild the Docker image'

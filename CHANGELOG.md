@@ -4,6 +4,30 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- **Control-plane foundation — Task/Job/Artifact model, SQLite store, and a
+  `daedalus task` CLI (Sprint 54, the start of M13).** A new `internal/control`
+  package defines the host-side, authoritative control-plane data model — `Task`
+  (project, objective, acceptance_ref, base_sha, state), `Job` (base_sha, runner,
+  budget, `execution_result` vs `output_snapshot`), and `Artifact` (base_sha,
+  head_sha, branch, verify/review status) — plus the control-plane-owned state
+  machine (`planned → queued → working → candidate → verifying → verified |
+  rejected → approval_required → approved → integrated`; terminal: failed /
+  cancelled / expired / integrated). The load-bearing invariant is structural: a
+  *worker* may only reach `candidate`, and **only the control plane** performs
+  `candidate → verified` — enforced via two transition entry points
+  (`WorkerCanTransition` vs `CanTransition`) rather than convention. State is
+  persisted in a pure-Go SQLite database (`modernc.org/sqlite`, so release builds
+  stay `CGO_ENABLED=0`) at `<data-dir>/control.db` (`Config.ControlDBPath()`),
+  with atomic optimistic transitions (`UPDATE … WHERE id=? AND state=?`) that each
+  append an immutable row to an `events` log in the same SQL transaction. A new
+  human-driven `daedalus task create|list|status|cancel` CLI drives the store
+  in-process: `create` resolves the project through the registry, requires it to
+  be a **Git repo**, captures the current `base_sha` from HEAD, and enforces one
+  active task per project. **Scope boundary: no execution and no agent client yet**
+  — no daemon, control socket, worktree, verifier, or Guild Master MCP; those land
+  in Sprint 55 (M13) and M14/M15. See [`docs/control-plane.md`](docs/control-plane.md).
+
 ## [0.47.0] - 2026-08-07
 
 **Milestone 12: The Guild Master.** An always-present, un-removable `guild-master`

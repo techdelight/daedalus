@@ -119,6 +119,9 @@ func run(args []string) error {
 	case "version":
 		logging.Info("subcommand: version")
 		return manageVersions(cfg)
+	case "task":
+		logging.Info("subcommand: task")
+		return manageTasks(cfg)
 	}
 
 	// --- Normal project flow ---

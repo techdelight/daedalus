@@ -42,6 +42,7 @@ type Config struct {
 	DocsArgs        []string // positional args for "docs" subcommand
 	InitArgs        []string // positional args for "init" subcommand
 	VersionArgs     []string // positional args for "version" subcommand
+	TaskArgs        []string // positional args for "task" subcommand (control plane)
 	TargetOverride  bool     // true when --target was explicitly passed
 	WebAddr         string   // host:port for web UI server
 	WSL2Detected    bool     // true when WSL2 was auto-detected and host defaulted to 0.0.0.0
@@ -124,6 +125,13 @@ func (c *Config) RegistryPath() string {
 // SkillsDir returns the path to the shared skill catalog directory.
 func (c *Config) SkillsDir() string {
 	return filepath.Join(c.DataDir, "skills")
+}
+
+// ControlDBPath returns the path to the host-side control-plane SQLite database
+// (Sprint 54 / M13). It sits under the data root alongside the registry so all
+// Daedalus state stays in one host-visible place, mirroring RegistryPath().
+func (c *Config) ControlDBPath() string {
+	return filepath.Join(c.DataDir, "control.db")
 }
 
 // SharedDir returns the root for caches shared across all projects
