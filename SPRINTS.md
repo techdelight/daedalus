@@ -2,7 +2,11 @@
 
 ## Current Sprint
 
-### Sprint 57: The Clean Verifier Container (closes M14)
+_No active sprint, and no active milestone. Milestone 14 shipped in **v0.49.0** (Sprints 56–57, in the history below) — independent verification: the acceptance contract, frozen policy + test-integrity gate, and the clean verifier container. A between-milestones state; the arc continues with **M15 (Governance, Integration & the Guild Master client)** when opened — see `ROADMAP.md`._
+
+## Sprint History
+
+### Sprint 57: The Clean Verifier Container (v0.49.0)
 
 Goal: replace the stub with the **real clean verifier** — the piece that makes `candidate → verified` mean something. The control plane checks out the Artifact's `head_sha` into a **fresh, digest-pinned** project container (no worker mutable state), runs the frozen policy's `checks`, and reports pass/fail; plus the **`sha256:` image-digest pin**, an explicit **network/creds/`/opt/tools` verifier policy**, and a **null-agent floor** check. Closes Milestone 14. The verifier *logic* is host-testable (checkout + run behind the existing `VerifyRunner` interface, with a fake); the actual container run is host-only, as ever. Design in `docs/guild-master-plan.md` (M14) + §6.
 
@@ -17,7 +21,6 @@ Milestone: 14
 
 Out of scope (Milestone 15, V2): budgets + request rejection, the race-safe integration transaction (rebase → re-verify merged → CAS), human approval + integration, the independent reviewer pass, and the `guild-control-mcp` Guild Master client. Parallel Jobs are M16.
 
-## Sprint History
 
 ### Sprint 56: Acceptance Contract & the Test-Integrity Gate (v0.49.0)
 

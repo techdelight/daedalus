@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.49.0] - 2026-08-08
+
+**Milestone 14: Independent Verification (V1).** "Done" is now decided by the
+control plane checking a committed artifact against an oracle the worker can't
+edit — never by self-report. A project declares its checks + acceptance files in a
+committed `.daedalus/verify.json`; the policy is frozen + hashed at `base_sha`; a
+**test-integrity gate** rejects any Job whose diff touches the frozen test files; a
+**null-agent floor** rejects an empty change; and only the control plane performs
+`candidate → verified`, by checking out the Artifact's commit into a fresh,
+**digest-pinned** verifier container (network off, no credentials, no `/opt/tools`)
+and running the frozen checks. An *independently reproducible verification result* —
+not a proof of correctness. See `docs/control-plane.md`.
+
 ### Added
 - **Independent verification — the real clean verifier, digest pinning, env
   policy, and the null-agent floor (Sprint 57, closing M14).** `daedalus task
