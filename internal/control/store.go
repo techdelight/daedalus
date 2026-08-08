@@ -435,6 +435,29 @@ func (s *Store) ListJobsForTask(taskID string) ([]Job, error) {
 	return out, rows.Err()
 }
 
+// ListActiveJobs returns all non-terminal jobs across every task, ordered by
+// creation (seq). Used by the reconcile loop to compare desired state (these
+// jobs believe they are in flight) against observed reality.
+func (s *Store) ListActiveJobs() ([]Job, error) {
+	rows, err := s.db.Query(
+		jobSelect+` WHERE state NOT IN (?, ?, ?, ?) ORDER BY seq ASC`,
+		string(StateIntegrated), string(StateFailed), string(StateCancelled), string(StateExpired),
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Job
+	for rows.Next() {
+		j, err := scanJob(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, j)
+	}
+	return out, rows.Err()
+}
+
 // SetJobExecutionResult records how a job's run ended plus the committed tree
 // snapshot (head_sha), captured even on failure/timeout as a salvage snapshot
 // (§5). It does not change job state — that is a separate transition.

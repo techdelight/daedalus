@@ -64,9 +64,10 @@ VERSION_FILE="$(cat "$REPO_ROOT/VERSION")"
   go build -o "$STAGING/project-mgmt-mcp-${PLATFORM}"     ./cmd/project-mgmt-mcp
   go build -o "$STAGING/guild-mcp-${PLATFORM}"            ./cmd/guild-mcp
   go build -o "$STAGING/daedalus-coordinator-${PLATFORM}" ./cmd/daedalus-coordinator
+  go build -o "$STAGING/daedalus-control-${PLATFORM}"     ./cmd/daedalus-control
   go build -o "$STAGING/daedalus-runner-${PLATFORM}"      ./cmd/daedalus-runner
 )
-echo "  Built 6 binaries."
+echo "  Built 7 binaries."
 
 # ── 2. Stage the shared runtime files ────────────────────────────────────────
 echo ""
@@ -95,6 +96,7 @@ EXPECTED_ENTRIES="Dockerfile
 claude.json
 config.json
 daedalus
+daedalus-control
 daedalus-coordinator
 daedalus-runner
 docker-compose.yml
@@ -108,7 +110,7 @@ skill-catalog-mcp
 wsl2-network.bat"
 ACTUAL_ENTRIES="$(tar -tzf "$DIST/$ARCHIVE_NAME" | LC_ALL=C sort)"
 if [ "$EXPECTED_ENTRIES" = "$ACTUAL_ENTRIES" ]; then
-    pass "archive contains exactly the expected 15 flat entries"
+    pass "archive contains exactly the expected 16 flat entries"
 else
     fail "archive contents differ from expected"
     echo "    --- expected ---"; echo "$EXPECTED_ENTRIES" | sed 's/^/      /'
@@ -131,6 +133,7 @@ check_exec "skill-catalog-mcp installed"            "$PREFIX/current/skill-catal
 check_exec "project-mgmt-mcp installed"             "$PREFIX/current/project-mgmt-mcp"
 check_exec "guild-mcp installed"                    "$PREFIX/current/guild-mcp"
 check_exec "daedalus-coordinator installed"         "$PREFIX/current/daedalus-coordinator"
+check_exec "daedalus-control installed"             "$PREFIX/current/daedalus-control"
 check_exec "daedalus-runner installed"              "$PREFIX/current/daedalus-runner"
 check_file "claude.json installed"                  "$PREFIX/current/claude.json"
 check_file "docker-compose.yml installed"           "$PREFIX/current/docker-compose.yml"

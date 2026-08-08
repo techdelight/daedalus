@@ -57,45 +57,89 @@ an ORM). State transitions are **atomic and optimistic**: each is an
 `UPDATE … WHERE id=? AND state=?` (a stale or illegal move affects zero rows and
 errors), and every successful transition writes an **append-only** row to an
 `events` table **in the same SQL transaction**. SQLite holds *desired* state
-only; containers/worktrees will be derived, reconcilable state (M13, Sprint 55).
+only; worktrees and coordinator sessions are derived, reconcilable state.
 
-### Human CLI
+### The daemon and the CLI (Sprint 55 / M13 — built)
 
-`daedalus task` drives the store in-process — the deterministic, human-only
-reference path that makes the plane useful at N=1:
+The **`daedalus-control` daemon** ([`cmd/daedalus-control`](../cmd/daedalus-control))
+is the single owner of `control.db`. It serves an HTTP-over-Unix-socket API at
+`<data-dir>/.daedalus/control.sock` (`POST/GET /tasks`, `GET /tasks/{id}`,
+`POST /tasks/{id}/dispatch`, `DELETE /tasks/{id}`). The `daedalus task` CLI is a
+**thin client**: it obtains a client via `control.EnsureRunning`, which
+auto-spawns the daemon detached (ssh-agent style, exactly like
+`daedalus coordinator`) and reuses a running one via a pidfile + live-dial probe.
+Because the daemon is the only writer, there are never two writers on SQLite.
+
+The whole control-plane logic lives in a host-tested `control.Service`; the
+daemon is a thin HTTP translation over it. Both the in-process `Service` and the
+socket `Client` implement one `TaskAPI`, so the CLI is identical whether it runs
+the logic directly (tests) or over the socket (production).
 
 | Command | Effect |
 |---|---|
-| `task create --project <name> --objective <text> [--acceptance <ref>]` | Resolve the project via the registry, require it to be a **Git repo**, capture the current `base_sha` from HEAD, enforce one-active-task-per-project, insert a `planned` Task, print its id. |
+| `task create --project <name> --objective <text> [--acceptance <ref>]` | Daemon resolves the project via the registry, requires a **Git repo**, captures `base_sha` from HEAD, enforces one-active-task-per-project, inserts a `planned` Task. |
 | `task list` | All tasks: id, project, state, objective snippet. |
 | `task status <id>` | A task with its jobs and artifacts. |
-| `task cancel <id>` | Legal transition to `cancelled`. |
+| `task dispatch <id>` | Run one headless Job attempt (see below). |
+| `task cancel <id>` | Cancel the task, cancel its active jobs, reclaim their worktrees. |
 
-Orchestration is **Git-native**: `base_sha`, branches, and commits are
-load-bearing, so a guild-managed project must be a Git repository — this is a
-stated prerequisite, not a generic "artifact" abstraction. `task create` reads
-`<dir>/.git` HEAD directly (no shelling out, no container) and rejects a non-Git
-directory clearly.
+### The execution model (Sprint 55 / M13 — built)
+
+`task dispatch <id>` runs **one headless Job attempt**, Git-native throughout:
+
+1. Drive the Task `planned → queued → working`; create a `Job` (records
+   `base_sha`, runner, budget) in `working`.
+2. **Isolated worktree.** `git worktree add` a clean checkout at the Task's
+   `base_sha` on branch `daedalus/<task>/<job>`, at the deterministic path
+   `<data-dir>/control/worktrees/<job>` — never the developer's checkout.
+   Deterministic naming makes the side-effect idempotent.
+3. **Run the agent headless** through an injectable `AgentRunner`. **Process exit
+   is the Job boundary.** The real adapter (`CoordinatorRunner`) goes through the
+   coordinator/Docker (`daedalus … -p` semantics, worktree mounted as
+   `/workspace`); a Docker-free `StubRunner` drives host tests and the
+   `DAEDALUS_CONTROL_FAKE_RUNNER` smoke.
+4. **Capture** the worktree tree as `output_snapshot` (the wrapper auto-commits,
+   since agents don't reliably commit) — captured **even on failure** as a
+   salvage snapshot. `execution_result` records *how the run ended*.
+5. **Promote only `success`.** A `success` run → Job `candidate` + a candidate
+   `Artifact` on the branch; the Task → `candidate`, worktree kept (a candidate
+   is non-terminal, its commit must survive for the future verifier).
+   `failed`/`timeout`/`cancelled` → terminal Job + Task and the worktree is
+   reclaimed. **Commit-exists never implies job-succeeded.**
+
+### Reconciliation (Sprint 55 / M13 — built)
+
+The daemon reconciles **on boot and on a 30s tick** (the level-triggered
+controller pattern, minimal single-host form — the dual-write fix, §6). For every
+non-terminal Job it compares desired (DB) vs observed reality:
+
+- A `working` Job whose **coordinator session has vanished** (checked via an
+  injectable `SessionObserver`) is captured, **failed**, and its worktree
+  reclaimed. If liveness can't be verified (no observer / an error), the Job is
+  **left alone** — never fail what you can't prove is dead.
+- A live session → the Job is **adopted** as-is.
+- An **orphaned worktree** (no live, non-terminal DB Job) is removed.
+
+Side-effects are idempotent and deterministically named, so a re-run is a no-op.
 
 ## V1 scope boundary — what is deliberately NOT here yet
 
-Sprint 54 is **the model, the store, and the human CLI, only.** There is
-intentionally **no execution and no agent client**:
+Milestone 13 (Sprints 54–55) delivers the model, store, daemon, human CLI, the
+isolated-worktree headless execution path, and reconciliation. Still ahead:
 
-- **No daemon / no `control.sock`.** The CLI opens the DB in-process. The
-  `daedalus-control` daemon and socket API land in **Sprint 55 (M13)**.
-- **No Git worktree, no Job wrapper, no headless run.** No agent is dispatched;
-  no `candidate` is produced by real work. Isolated per-Job worktrees and the
-  process-exit execution boundary land in **Sprint 55 (M13)**.
-- **No reconcile loop.** Reconcile-on-boot + periodic loop (the desired-vs-real
-  repair mechanism) lands in **Sprint 55 (M13)**.
-- **No verifier.** The clean-container verification that performs
-  `candidate → verified`, image digest-pinning, and the test-integrity gate land
-  in **M14**.
-- **No governance / integration / Guild Master client.** Budgets, the merge-queue
-  integration transaction, human approval, and the (tiered, injection-safe)
-  `guild-control-mcp` client land in **M15**.
+- **No independent verifier.** The clean-container verification that performs
+  `candidate → verified`, image digest-pinning by `sha256:`, and the
+  test-integrity gate land in **M14**. Until then an Artifact stays `verify:
+  pending` and a Task rests at `candidate`.
+- **No governance / integration / Guild Master client.** Budgets + request
+  rejection, the merge-queue integration transaction (rebase → re-verify merged →
+  compare-and-swap), human approval, retry/replan, an independent reviewer, and
+  the (tiered, injection-safe) `guild-control-mcp` client land in **M15**.
+- **No parallelism.** One active Job per project; multiple concurrent worktrees
+  are **M16**. `task dispatch` runs the attempt synchronously.
+- **The real `CoordinatorRunner` is host-only.** It needs a Docker daemon and is
+  not exercised in CI; the control-plane logic is proven with the fake runner.
 
-Because there is no agent client in V1, the prompt-injection surface does not
+Because there is still no agent client, the prompt-injection surface does not
 exist yet and the foundation stays small — boring reliability from a small
 surface area.

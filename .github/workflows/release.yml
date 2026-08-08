@@ -65,6 +65,7 @@ jobs:
           go build -ldflags="-s -w" -o project-mgmt-mcp-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/project-mgmt-mcp
           go build -ldflags="-s -w" -o guild-mcp-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/guild-mcp
           go build -ldflags="-s -w" -o daedalus-coordinator-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/daedalus-coordinator
+          go build -ldflags="-s -w" -o daedalus-control-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/daedalus-control
           go build -ldflags="-s -w" -o daedalus-runner-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/daedalus-runner
 
       - name: Upload binary artifacts
@@ -77,6 +78,7 @@ jobs:
             project-mgmt-mcp-${{ matrix.goos }}-${{ matrix.goarch }}
             guild-mcp-${{ matrix.goos }}-${{ matrix.goarch }}
             daedalus-coordinator-${{ matrix.goos }}-${{ matrix.goarch }}
+            daedalus-control-${{ matrix.goos }}-${{ matrix.goarch }}
             daedalus-runner-${{ matrix.goos }}-${{ matrix.goarch }}
 
   publish:

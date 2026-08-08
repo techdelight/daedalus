@@ -16,6 +16,7 @@ REQUIRED_BINARIES=(
     guild-mcp             # in-container MCP server (Guild Master only)
     daedalus-runner       # in-container PID-1; Dockerfile COPYs it in
     daedalus-coordinator  # host-side daemon
+    daedalus-control      # host-side control-plane daemon
 )
 
 # Run the compiler as the invoking user (not root) so the output binaries land
@@ -30,7 +31,8 @@ docker run --rm -v "$PWD":/src -w /src \
          go build -buildvcs=false -o project-mgmt-mcp ./cmd/project-mgmt-mcp && \
          go build -buildvcs=false -o guild-mcp ./cmd/guild-mcp && \
          go build -buildvcs=false -o daedalus-runner ./cmd/daedalus-runner && \
-         go build -buildvcs=false -o daedalus-coordinator ./cmd/daedalus-coordinator"
+         go build -buildvcs=false -o daedalus-coordinator ./cmd/daedalus-coordinator && \
+         go build -buildvcs=false -o daedalus-control ./cmd/daedalus-control"
 
 # ── Verify every expected binary landed ───────────────────────────────────
 # Guards against the class of bug where a new binary is added to one

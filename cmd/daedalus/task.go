@@ -6,54 +6,70 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/techdelight/daedalus/core"
 	"github.com/techdelight/daedalus/internal/color"
 	"github.com/techdelight/daedalus/internal/control"
-	"github.com/techdelight/daedalus/internal/registry"
 )
 
-// manageTasks dispatches `daedalus task <create|list|status|cancel>`, the
-// human-driven control-plane CLI (Sprint 54 / M13, docs/control-plane.md). It
-// drives the SQLite control store in-process — there is no daemon, socket,
-// worktree, or execution in this sprint; those land in Sprint 55.
+// manageTasks dispatches `daedalus task <create|list|status|dispatch|cancel>`.
+//
+// As of Sprint 55 the CLI is a THIN CLIENT of the daedalus-control daemon: it
+// obtains a client via control.EnsureRunning (auto-spawning the daemon, exactly
+// like `daedalus coordinator`), and the daemon is the single owner of
+// control.db. The command handlers take a control.TaskAPI so they are identical
+// whether driven by the live socket client or, in tests, an in-process Service.
 func manageTasks(cfg *core.Config) error {
 	args := cfg.TaskArgs
 	if len(args) == 0 {
 		printTaskUsage()
-		return fmt.Errorf("task: subcommand required (create|list|status|cancel)")
+		return fmt.Errorf("task: subcommand required (create|list|status|dispatch|cancel)")
 	}
-	switch args[0] {
-	case "create":
-		return taskCreate(cfg, args[1:])
-	case "list", "ls":
-		return taskList(cfg, args[1:])
-	case "status", "show":
-		return taskStatus(cfg, args[1:])
-	case "cancel":
-		return taskCancel(cfg, args[1:])
-	case "help", "--help", "-h":
+	if args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
 		printTaskUsage()
 		return nil
+	}
+
+	client, err := controlClient(cfg)
+	if err != nil {
+		return err
+	}
+	return runTaskCommand(client, args)
+}
+
+// runTaskCommand routes a task subcommand against any TaskAPI. Split out so tests
+// drive it with an in-process Service instead of the socket client.
+func runTaskCommand(api control.TaskAPI, args []string) error {
+	switch args[0] {
+	case "create":
+		return taskCreate(api, args[1:])
+	case "list", "ls":
+		return taskList(api, args[1:])
+	case "status", "show":
+		return taskStatus(api, args[1:])
+	case "dispatch", "run":
+		return taskDispatch(api, args[1:])
+	case "cancel":
+		return taskCancel(api, args[1:])
 	default:
-		return fmt.Errorf("task: unknown subcommand %q\n%s daedalus task <create|list|status|cancel>", args[0], color.Cyan("Hint:"))
+		return fmt.Errorf("task: unknown subcommand %q\n%s daedalus task <create|list|status|dispatch|cancel>", args[0], color.Cyan("Hint:"))
 	}
 }
 
-// openControlStore opens the control DB under the data dir, creating the data
-// dir if needed. Callers must Close the returned store.
-func openControlStore(cfg *core.Config) (*control.Store, error) {
+// controlClient returns a live client to the control daemon, spawning it if
+// needed (ssh-agent style). The daemon binary lives next to the daedalus binary.
+func controlClient(cfg *core.Config) (control.TaskAPI, error) {
 	if err := os.MkdirAll(cfg.DataDir, 0o755); err != nil {
 		return nil, fmt.Errorf("creating data dir: %w", err)
 	}
-	return control.Open(cfg.ControlDBPath())
+	return control.EnsureRunning(control.DefaultLayout(cfg.DataDir, cfg.ScriptDir))
 }
 
 // taskCreate implements `task create --project <name> --objective <text>
-// [--acceptance <ref>]`.
-func taskCreate(cfg *core.Config, args []string) error {
-	var project, objective, acceptance string
+// [--acceptance <ref>]`. Project resolution + the Git-native base_sha capture
+// now happen server-side (the daemon resolves through the trusted registry).
+func taskCreate(api control.TaskAPI, args []string) error {
+	var req control.CreateTaskRequest
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--project", "-p":
@@ -61,57 +77,30 @@ func taskCreate(cfg *core.Config, args []string) error {
 				return fmt.Errorf("--project requires a project name")
 			}
 			i++
-			project = args[i]
+			req.Project = args[i]
 		case "--objective", "-o":
 			if i+1 >= len(args) {
 				return fmt.Errorf("--objective requires text")
 			}
 			i++
-			objective = args[i]
+			req.Objective = args[i]
 		case "--acceptance", "-a":
 			if i+1 >= len(args) {
 				return fmt.Errorf("--acceptance requires a reference")
 			}
 			i++
-			acceptance = args[i]
+			req.Acceptance = args[i]
 		default:
 			return fmt.Errorf("task create: unknown flag %q\n%s usage: daedalus task create --project <name> --objective <text> [--acceptance <ref>]", args[i], color.Cyan("Hint:"))
 		}
 	}
-	if project == "" {
+	if req.Project == "" {
 		return fmt.Errorf("task create: --project is required")
 	}
-	if objective == "" {
+	if req.Objective == "" {
 		return fmt.Errorf("task create: --objective is required")
 	}
-
-	// Resolve the project through the trusted registry (never trust a
-	// caller-supplied path) and read its directory.
-	reg := registry.NewRegistry(cfg.RegistryPath())
-	if err := reg.Init(); err != nil {
-		return fmt.Errorf("initializing registry: %w", err)
-	}
-	entry, ok, err := reg.GetProject(project)
-	if err != nil {
-		return fmt.Errorf("reading registry: %w", err)
-	}
-	if !ok {
-		return fmt.Errorf("task create: project %q is not registered\n%s register it first with `daedalus %s <dir>`", project, color.Cyan("Hint:"), project)
-	}
-
-	// Git-native: the project must be a Git repo; capture the base_sha from HEAD.
-	baseSHA, err := control.ReadHeadSHA(entry.Directory)
-	if err != nil {
-		return fmt.Errorf("task create: %w", err)
-	}
-
-	store, err := openControlStore(cfg)
-	if err != nil {
-		return err
-	}
-	defer store.Close()
-
-	t, err := store.CreateTask(project, objective, acceptance, baseSHA, control.StatePlanned)
+	t, err := api.CreateTask(req)
 	if err != nil {
 		return err
 	}
@@ -121,17 +110,11 @@ func taskCreate(cfg *core.Config, args []string) error {
 }
 
 // taskList implements `task list`.
-func taskList(cfg *core.Config, args []string) error {
+func taskList(api control.TaskAPI, args []string) error {
 	if len(args) > 0 {
 		return fmt.Errorf("task list: unexpected argument %q", args[0])
 	}
-	store, err := openControlStore(cfg)
-	if err != nil {
-		return err
-	}
-	defer store.Close()
-
-	tasks, err := store.ListTasks()
+	tasks, err := api.ListTasks()
 	if err != nil {
 		return err
 	}
@@ -148,24 +131,18 @@ func taskList(cfg *core.Config, args []string) error {
 }
 
 // taskStatus implements `task status <id>`: the task plus its jobs and artifacts.
-func taskStatus(cfg *core.Config, args []string) error {
+func taskStatus(api control.TaskAPI, args []string) error {
 	if len(args) < 1 {
 		return fmt.Errorf("usage: daedalus task status <id>")
 	}
-	id := args[0]
-	store, err := openControlStore(cfg)
-	if err != nil {
-		return err
-	}
-	defer store.Close()
-
-	t, err := store.GetTask(id)
+	view, err := api.TaskStatus(args[0])
 	if err != nil {
 		if errors.Is(err, control.ErrNotFound) {
-			return fmt.Errorf("task %q not found", id)
+			return fmt.Errorf("task %q not found", args[0])
 		}
 		return err
 	}
+	t := view.Task
 	fmt.Printf("%s      %s\n", color.Bold("Task:"), t.ID)
 	fmt.Printf("%s   %s\n", color.Bold("Project:"), t.Project)
 	fmt.Printf("%s     %s\n", color.Bold("State:"), t.State)
@@ -176,51 +153,60 @@ func taskStatus(cfg *core.Config, args []string) error {
 	fmt.Printf("%s  %s\n", color.Bold("Base SHA:"), t.BaseSHA)
 	fmt.Printf("%s   %s\n", color.Bold("Created:"), t.CreatedAt)
 
-	jobs, err := store.ListJobsForTask(t.ID)
-	if err != nil {
-		return err
-	}
-	fmt.Printf("\n%s (%d)\n", color.Bold("Jobs:"), len(jobs))
-	for _, j := range jobs {
+	fmt.Printf("\n%s (%d)\n", color.Bold("Jobs:"), len(view.Jobs))
+	for _, jv := range view.Jobs {
+		j := jv.Job
 		result := string(j.ExecutionResult)
 		if result == "" {
 			result = "—"
 		}
 		fmt.Printf("  %s  state=%s  runner=%s  result=%s  snapshot=%s\n",
 			j.ID, j.State, orDash(j.Runner), result, shortSHA(j.OutputSnapshot))
-		arts, err := store.ListArtifactsForJob(j.ID)
-		if err != nil {
-			return err
-		}
-		for _, a := range arts {
+		for _, a := range jv.Artifacts {
 			fmt.Printf("    %s  head=%s  branch=%s  verify=%s  review=%s\n",
 				a.ID, shortSHA(a.HeadSHA), orDash(a.Branch), a.Verify, a.Review)
 		}
 	}
-	if len(jobs) == 0 {
-		fmt.Println("  (none — no execution in this sprint; jobs land in Sprint 55)")
+	if len(view.Jobs) == 0 {
+		fmt.Println("  (none — dispatch one with `daedalus task dispatch " + t.ID + "`)")
+	}
+	return nil
+}
+
+// taskDispatch implements `task dispatch <id>`: run one headless Job attempt.
+func taskDispatch(api control.TaskAPI, args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: daedalus task dispatch <id>")
+	}
+	res, err := api.DispatchTask(args[0])
+	if err != nil {
+		if errors.Is(err, control.ErrNotFound) {
+			return fmt.Errorf("task %q not found", args[0])
+		}
+		return fmt.Errorf("dispatching task %s: %w", args[0], err)
+	}
+	j := res.Job
+	fmt.Printf("%s dispatched task %s → job %s ended %s (state %s, snapshot %s)\n",
+		color.Green("OK:"), args[0], color.Bold(j.ID), string(j.ExecutionResult), j.State, shortSHA(j.OutputSnapshot))
+	if res.Artifact != nil {
+		a := res.Artifact
+		fmt.Printf("     candidate artifact %s on branch %s (head %s, verify %s)\n",
+			color.Bold(a.ID), a.Branch, shortSHA(a.HeadSHA), a.Verify)
 	}
 	return nil
 }
 
 // taskCancel implements `task cancel <id>` via a legal transition to cancelled.
-func taskCancel(cfg *core.Config, args []string) error {
+func taskCancel(api control.TaskAPI, args []string) error {
 	if len(args) < 1 {
 		return fmt.Errorf("usage: daedalus task cancel <id>")
 	}
-	id := args[0]
-	store, err := openControlStore(cfg)
-	if err != nil {
-		return err
-	}
-	defer store.Close()
-
-	t, err := store.TransitionTask(id, control.StateCancelled, false, "cancelled via CLI")
+	t, err := api.CancelTask(args[0])
 	if err != nil {
 		if errors.Is(err, control.ErrNotFound) {
-			return fmt.Errorf("task %q not found", id)
+			return fmt.Errorf("task %q not found", args[0])
 		}
-		return fmt.Errorf("cancelling task %s: %w", id, err)
+		return fmt.Errorf("cancelling task %s: %w", args[0], err)
 	}
 	fmt.Printf("%s task %s cancelled\n", color.Green("OK:"), color.Bold(t.ID))
 	return nil
@@ -257,7 +243,7 @@ func truncate(s string, n int) string {
 }
 
 func printTaskUsage() {
-	fmt.Println(color.Bold("daedalus task") + " — human-driven control-plane tasks (Sprint 54 / M13)")
+	fmt.Println(color.Bold("daedalus task") + " — host-side control-plane tasks (Milestone 13)")
 	fmt.Println()
 	fmt.Printf("%s daedalus task <command>\n", color.Bold("Usage:"))
 	fmt.Println()
@@ -266,8 +252,9 @@ func printTaskUsage() {
 	fmt.Println("                       Create a task for a registered Git project (captures base_sha)")
 	fmt.Println("  list                 List all tasks (id, project, state, objective)")
 	fmt.Println("  status <id>          Show a task with its jobs and artifacts")
+	fmt.Println("  dispatch <id>        Run one headless Job attempt (isolated worktree; success → candidate)")
 	fmt.Println("  cancel <id>          Cancel a task (legal transition to cancelled)")
 	fmt.Println()
-	fmt.Println("State lives host-side in " + filepath.Join("<data-dir>", "control.db") + ". No execution yet —")
-	fmt.Println("no daemon, worktree, or verifier; see docs/control-plane.md for the V1 scope boundary.")
+	fmt.Println("The CLI talks to the daedalus-control daemon over <data-dir>/.daedalus/control.sock,")
+	fmt.Println("auto-starting it if needed. See docs/control-plane.md.")
 }

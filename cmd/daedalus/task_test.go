@@ -11,17 +11,36 @@ import (
 
 	"github.com/techdelight/daedalus/core"
 	"github.com/techdelight/daedalus/internal/control"
-	"github.com/techdelight/daedalus/internal/registry"
 )
 
-// newTaskTestConfig returns a Config rooted at a temp data dir.
-func newTaskTestConfig(t *testing.T) *core.Config {
-	t.Helper()
-	return &core.Config{DataDir: t.TempDir()}
+// mapResolver resolves project names to directories from a map (no registry).
+type mapResolver map[string]string
+
+func (m mapResolver) ProjectDir(name string) (string, error) {
+	dir, ok := m[name]
+	if !ok {
+		return "", errors.New("project not registered: " + name)
+	}
+	return dir, nil
 }
 
-// registerGitProject creates a temp git repo with one commit and registers it.
-func registerGitProject(t *testing.T, cfg *core.Config, name string) string {
+// newTestService builds an in-process control.Service backed by a temp DB and a
+// stub (success) runner — the same TaskAPI the CLI drives via the socket client.
+func newTestService(t *testing.T, resolver control.ProjectResolver) *control.Service {
+	t.Helper()
+	dataDir := t.TempDir()
+	store, err := control.Open(filepath.Join(dataDir, "control.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { store.Close() })
+	wt := control.NewWorktreeManager(dataDir)
+	runner := control.StubRunner{Result: control.ExecSuccess, WriteFile: true}
+	return control.NewService(store, resolver, wt, runner, nil)
+}
+
+// makeGitRepo creates a temp git repo with one commit.
+func makeGitRepo(t *testing.T) string {
 	t.Helper()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
@@ -43,173 +62,108 @@ func registerGitProject(t *testing.T, cfg *core.Config, name string) string {
 	}
 	git("add", ".")
 	git("commit", "-m", "init")
-
-	reg := registry.NewRegistry(cfg.RegistryPath())
-	if err := reg.Init(); err != nil {
-		t.Fatalf("reg init: %v", err)
-	}
-	if err := reg.AddProject(name, dir, "dev"); err != nil {
-		t.Fatalf("AddProject: %v", err)
-	}
 	return dir
 }
 
-func TestTaskCreate_HappyPath(t *testing.T) {
-	cfg := newTaskTestConfig(t)
-	registerGitProject(t, cfg, "app")
+func TestCLI_TaskCreate_HappyPath(t *testing.T) {
+	dir := makeGitRepo(t)
+	svc := newTestService(t, mapResolver{"app": dir})
 
-	cfg.TaskArgs = []string{"create", "--project", "app", "--objective", "fix the bug", "--acceptance", "policy@x"}
-	if err := manageTasks(cfg); err != nil {
-		t.Fatalf("manageTasks create: %v", err)
+	if err := runTaskCommand(svc, []string{"create", "--project", "app", "--objective", "fix the bug", "--acceptance", "policy@x"}); err != nil {
+		t.Fatalf("create: %v", err)
 	}
-
-	// Verify it landed in the store with a captured base_sha.
-	s, err := control.Open(cfg.ControlDBPath())
-	if err != nil {
-		t.Fatalf("open store: %v", err)
-	}
-	defer s.Close()
-	task, err := s.GetTask("T-1")
-	if err != nil {
-		t.Fatalf("GetTask: %v", err)
-	}
-	if task.Project != "app" || task.Objective != "fix the bug" || task.AcceptanceRef != "policy@x" {
-		t.Errorf("task fields wrong: %+v", task)
-	}
-	if len(task.BaseSHA) != 40 {
-		t.Errorf("base sha not captured: %q", task.BaseSHA)
-	}
-	if task.State != control.StatePlanned {
-		t.Errorf("state = %q, want planned", task.State)
+	tasks, _ := svc.ListTasks()
+	if len(tasks) != 1 || tasks[0].Project != "app" || len(tasks[0].BaseSHA) != 40 {
+		t.Fatalf("task not created correctly: %+v", tasks)
 	}
 }
 
-func TestTaskCreate_NonGitRejected(t *testing.T) {
-	cfg := newTaskTestConfig(t)
-	// Register a plain (non-git) directory.
-	dir := t.TempDir()
-	reg := registry.NewRegistry(cfg.RegistryPath())
-	if err := reg.Init(); err != nil {
-		t.Fatalf("reg init: %v", err)
-	}
-	if err := reg.AddProject("plain", dir, "dev"); err != nil {
-		t.Fatalf("AddProject: %v", err)
-	}
-
-	cfg.TaskArgs = []string{"create", "--project", "plain", "--objective", "x"}
-	err := manageTasks(cfg)
-	if err == nil {
-		t.Fatal("create on non-git dir = nil, want error")
-	}
+func TestCLI_TaskCreate_NonGitRejected(t *testing.T) {
+	svc := newTestService(t, mapResolver{"plain": t.TempDir()})
+	err := runTaskCommand(svc, []string{"create", "--project", "plain", "--objective", "x"})
 	var notGit *control.ErrNotGitRepo
 	if !errors.As(err, &notGit) {
-		t.Errorf("err = %v, want *ErrNotGitRepo", err)
+		t.Errorf("create on non-git = %v, want *ErrNotGitRepo", err)
 	}
 }
 
-func TestTaskCreate_SecondActiveRejected(t *testing.T) {
-	cfg := newTaskTestConfig(t)
-	registerGitProject(t, cfg, "app")
-
-	cfg.TaskArgs = []string{"create", "--project", "app", "--objective", "first"}
-	if err := manageTasks(cfg); err != nil {
-		t.Fatalf("first create: %v", err)
+func TestCLI_TaskCreate_SecondActiveRejected(t *testing.T) {
+	dir := makeGitRepo(t)
+	svc := newTestService(t, mapResolver{"app": dir})
+	if err := runTaskCommand(svc, []string{"create", "--project", "app", "--objective", "first"}); err != nil {
+		t.Fatalf("first: %v", err)
 	}
-	cfg.TaskArgs = []string{"create", "--project", "app", "--objective", "second"}
-	err := manageTasks(cfg)
+	err := runTaskCommand(svc, []string{"create", "--project", "app", "--objective", "second"})
 	var active *control.ErrActiveTaskExists
 	if !errors.As(err, &active) {
-		t.Fatalf("second create err = %v, want ErrActiveTaskExists", err)
+		t.Errorf("second create = %v, want ErrActiveTaskExists", err)
 	}
 }
 
-func TestTaskCancel_MovesToCancelled(t *testing.T) {
-	cfg := newTaskTestConfig(t)
-	registerGitProject(t, cfg, "app")
-	cfg.TaskArgs = []string{"create", "--project", "app", "--objective", "x"}
-	if err := manageTasks(cfg); err != nil {
+func TestCLI_TaskListStatusCancel(t *testing.T) {
+	dir := makeGitRepo(t)
+	svc := newTestService(t, mapResolver{"app": dir})
+	if err := runTaskCommand(svc, []string{"create", "--project", "app", "--objective", "x"}); err != nil {
 		t.Fatalf("create: %v", err)
 	}
-
-	cfg.TaskArgs = []string{"cancel", "T-1"}
-	if err := manageTasks(cfg); err != nil {
-		t.Fatalf("cancel: %v", err)
-	}
-
-	s, _ := control.Open(cfg.ControlDBPath())
-	defer s.Close()
-	task, _ := s.GetTask("T-1")
-	if task.State != control.StateCancelled {
-		t.Errorf("state = %q, want cancelled", task.State)
-	}
-	// After cancel the project is free again.
-	cfg.TaskArgs = []string{"create", "--project", "app", "--objective", "again"}
-	if err := manageTasks(cfg); err != nil {
-		t.Errorf("create after cancel: %v", err)
-	}
-}
-
-func TestTaskList_And_Status(t *testing.T) {
-	cfg := newTaskTestConfig(t)
-	registerGitProject(t, cfg, "app")
-	cfg.TaskArgs = []string{"create", "--project", "app", "--objective", "x"}
-	if err := manageTasks(cfg); err != nil {
-		t.Fatalf("create: %v", err)
-	}
-	cfg.TaskArgs = []string{"list"}
-	if err := manageTasks(cfg); err != nil {
+	if err := runTaskCommand(svc, []string{"list"}); err != nil {
 		t.Errorf("list: %v", err)
 	}
-	cfg.TaskArgs = []string{"status", "T-1"}
-	if err := manageTasks(cfg); err != nil {
+	if err := runTaskCommand(svc, []string{"status", "T-1"}); err != nil {
 		t.Errorf("status: %v", err)
 	}
-	cfg.TaskArgs = []string{"status", "T-404"}
-	if err := manageTasks(cfg); err == nil {
-		t.Error("status of missing task = nil, want error")
+	if err := runTaskCommand(svc, []string{"status", "T-404"}); err == nil {
+		t.Error("status missing = nil, want error")
+	}
+	if err := runTaskCommand(svc, []string{"cancel", "T-1"}); err != nil {
+		t.Errorf("cancel: %v", err)
+	}
+	tasks, _ := svc.ListTasks()
+	if tasks[0].State != control.StateCancelled {
+		t.Errorf("state after cancel = %q, want cancelled", tasks[0].State)
 	}
 }
 
-func TestTaskCreate_UnknownProject(t *testing.T) {
-	cfg := newTaskTestConfig(t)
-	reg := registry.NewRegistry(cfg.RegistryPath())
-	if err := reg.Init(); err != nil {
-		t.Fatalf("reg init: %v", err)
+func TestCLI_TaskDispatch(t *testing.T) {
+	dir := makeGitRepo(t)
+	svc := newTestService(t, mapResolver{"app": dir})
+	if err := runTaskCommand(svc, []string{"create", "--project", "app", "--objective", "do it"}); err != nil {
+		t.Fatalf("create: %v", err)
 	}
-	cfg.TaskArgs = []string{"create", "--project", "ghost", "--objective", "x"}
-	if err := manageTasks(cfg); err == nil {
-		t.Error("create with unregistered project = nil, want error")
+	if err := runTaskCommand(svc, []string{"dispatch", "T-1"}); err != nil {
+		t.Fatalf("dispatch: %v", err)
 	}
-}
-
-func TestTaskCreate_MissingFlags(t *testing.T) {
-	cfg := newTaskTestConfig(t)
-	cfg.TaskArgs = []string{"create", "--objective", "x"}
-	if err := manageTasks(cfg); err == nil {
-		t.Error("create without --project = nil, want error")
+	view, _ := svc.TaskStatus("T-1")
+	if view.Task.State != control.StateCandidate {
+		t.Errorf("task state = %q, want candidate", view.Task.State)
 	}
-	cfg.TaskArgs = []string{"create", "--project", "p"}
-	if err := manageTasks(cfg); err == nil {
-		t.Error("create without --objective = nil, want error")
+	if len(view.Jobs) != 1 || view.Jobs[0].Job.State != control.StateCandidate {
+		t.Fatalf("job not candidate: %+v", view.Jobs)
+	}
+	if len(view.Jobs[0].Artifacts) != 1 {
+		t.Errorf("want 1 artifact, got %d", len(view.Jobs[0].Artifacts))
 	}
 }
 
-func TestTaskCreate_UnknownFlag(t *testing.T) {
-	cfg := newTaskTestConfig(t)
-	cfg.TaskArgs = []string{"create", "--project", "p", "--objective", "x", "--nope"}
-	if err := manageTasks(cfg); err == nil {
-		t.Error("create with unknown flag = nil, want error")
-	}
-}
-
-func TestManageTasks_UnknownSubcommand(t *testing.T) {
-	cfg := newTaskTestConfig(t)
-	cfg.TaskArgs = []string{"frobnicate"}
-	if err := manageTasks(cfg); err == nil {
+func TestCLI_TaskUnknownAndMissingFlags(t *testing.T) {
+	svc := newTestService(t, mapResolver{})
+	if err := runTaskCommand(svc, []string{"frobnicate"}); err == nil {
 		t.Error("unknown subcommand = nil, want error")
 	}
-	cfg.TaskArgs = nil
-	if err := manageTasks(cfg); err == nil {
+	if err := runTaskCommand(svc, []string{"create", "--objective", "x"}); err == nil {
+		t.Error("create without --project = nil, want error")
+	}
+	if err := runTaskCommand(svc, []string{"create", "--project", "p"}); err == nil {
+		t.Error("create without --objective = nil, want error")
+	}
+	if err := runTaskCommand(svc, []string{"create", "--project", "p", "--objective", "x", "--nope"}); err == nil {
+		t.Error("create unknown flag = nil, want error")
+	}
+}
+
+func TestManageTasks_NoSubcommand(t *testing.T) {
+	// The empty-args guard fires before controlClient, so no daemon is needed.
+	if err := manageTasks(&core.Config{}); err == nil {
 		t.Error("no subcommand = nil, want error")
 	}
 }

@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- **Control-plane execution — the `daedalus-control` daemon, isolated-worktree
+  headless Jobs, and reconciliation (Sprint 55, completing M13).** A new
+  `cmd/daedalus-control` daemon becomes the single owner of `control.db` and
+  serves an HTTP-over-Unix-socket API at `<data-dir>/.daedalus/control.sock`
+  (`create`/`list`/`status`/`dispatch`/`cancel`); the `daedalus task` CLI was
+  refactored into a **thin client** that auto-spawns and reuses the daemon (ssh-
+  agent style, like `daedalus coordinator`), so there is never a second SQLite
+  writer. A new `daedalus task dispatch <id>` runs **one headless Job attempt**:
+  it drives the Task to `working`, creates a `Job`, and `git worktree add`s a
+  clean checkout at the Task's `base_sha` on branch `daedalus/<task>/<job>` at the
+  deterministic path `<data-dir>/control/worktrees/<job>` (never the developer's
+  checkout), then runs the agent through an injectable `AgentRunner` taking
+  **process exit as the boundary**. The wrapper auto-commits and captures the tree
+  as `output_snapshot` (even on failure, as a salvage snapshot), sets
+  `execution_result`, and **promotes only a `success` run** to a Job `candidate` +
+  candidate `Artifact` (commit-exists never implies job-succeeded); failure/
+  timeout/cancel are terminal and reclaim the worktree. The daemon **reconciles on
+  boot and on a 30s tick** (the level-triggered controller pattern, the dual-write
+  fix): a `working` Job whose coordinator session has vanished is failed and
+  cleaned; a live one is adopted; an orphaned worktree with no live DB Job is
+  removed — all idempotent via deterministic names, and liveness that can't be
+  verified is left untouched. The whole control-plane logic lives in a host-tested
+  `control.Service` (both it and the socket `Client` implement one `TaskAPI`); the
+  coordinator/Docker dependency sits behind interfaces (`AgentRunner`,
+  `SessionObserver`) so everything is tested with fakes — only the real
+  `CoordinatorRunner` needs Docker and is host-only. Pure-Go throughout
+  (`CGO_ENABLED=0`). See [`docs/control-plane.md`](docs/control-plane.md).
 - **Control-plane foundation — Task/Job/Artifact model, SQLite store, and a
   `daedalus task` CLI (Sprint 54, the start of M13).** A new `internal/control`
   package defines the host-side, authoritative control-plane data model — `Task`
@@ -24,9 +51,10 @@ All notable changes to this project will be documented in this file.
   human-driven `daedalus task create|list|status|cancel` CLI drives the store
   in-process: `create` resolves the project through the registry, requires it to
   be a **Git repo**, captures the current `base_sha` from HEAD, and enforces one
-  active task per project. **Scope boundary: no execution and no agent client yet**
-  — no daemon, control socket, worktree, verifier, or Guild Master MCP; those land
-  in Sprint 55 (M13) and M14/M15. See [`docs/control-plane.md`](docs/control-plane.md).
+  active task per project. (At Sprint 54 this drove the store in-process; Sprint
+  55 above moved the CLI behind the `daedalus-control` daemon and added execution.
+  The independent verifier and Guild Master client remain in M14/M15.) See
+  [`docs/control-plane.md`](docs/control-plane.md).
 
 ## [0.47.0] - 2026-08-07
 

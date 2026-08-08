@@ -33,6 +33,7 @@ BINARIES=(
     guild-mcp
     daedalus-runner
     daedalus-coordinator
+    daedalus-control
 )
 
 # ── Argument parsing ─────────────────────────────────────────────────────────
@@ -296,6 +297,13 @@ fi
 if [[ -f "$WORK_DIR/daedalus-coordinator" ]]; then
     cp "$WORK_DIR/daedalus-coordinator" "$VERSION_DIR/daedalus-coordinator"
     chmod 755 "$VERSION_DIR/daedalus-coordinator"
+fi
+# daedalus-control is the host-side control-plane daemon; `daedalus task`
+# auto-spawns it from beside the main binary. Conditional because older
+# tarballs won't ship it.
+if [[ -f "$WORK_DIR/daedalus-control" ]]; then
+    cp "$WORK_DIR/daedalus-control" "$VERSION_DIR/daedalus-control"
+    chmod 755 "$VERSION_DIR/daedalus-control"
 fi
 
 # Copy setup.sh itself so users can run uninstall/upgrade locally.

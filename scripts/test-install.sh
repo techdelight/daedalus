@@ -204,7 +204,7 @@ create_mock_release() {
     staging="$(mktemp -d)"
 
     # Fake per-platform binaries (host platform names).
-    for b in daedalus skill-catalog-mcp project-mgmt-mcp guild-mcp daedalus-coordinator daedalus-runner; do
+    for b in daedalus skill-catalog-mcp project-mgmt-mcp guild-mcp daedalus-coordinator daedalus-control daedalus-runner; do
         printf '#!/bin/sh\necho "%s %s"\n' "$b" "$version" > "$staging/${b}-${PLATFORM}"
         chmod 755 "$staging/${b}-${PLATFORM}"
     done

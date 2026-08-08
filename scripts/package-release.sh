@@ -55,6 +55,7 @@ BINARIES=(
     project-mgmt-mcp
     guild-mcp
     daedalus-coordinator
+    daedalus-control
     daedalus-runner
 )
 

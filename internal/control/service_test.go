@@ -1,0 +1,339 @@
+// Copyright (C) 2026 Techdelight BV
+
+package control
+
+import (
+	"os"
+	"os/exec"
+	"path/filepath"
+	"testing"
+)
+
+// --- test doubles -------------------------------------------------------------
+
+type mapResolver map[string]string
+
+func (m mapResolver) ProjectDir(name string) (string, error) {
+	dir, ok := m[name]
+	if !ok {
+		return "", &ErrNotGitRepo{Dir: name} // any error; content unused
+	}
+	return dir, nil
+}
+
+// fakeSessions reports session liveness from a map; missing key = not live.
+type fakeSessions struct {
+	live map[string]bool
+	err  error
+}
+
+func (f fakeSessions) HasSession(project string) (bool, error) {
+	if f.err != nil {
+		return false, f.err
+	}
+	return f.live[project], nil
+}
+
+// gitRepo makes a temp repo with one commit and returns its dir.
+func gitRepo(t *testing.T) string {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	dir := t.TempDir()
+	git(t, dir, "init")
+	if err := os.WriteFile(filepath.Join(dir, "seed.txt"), []byte("seed"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git(t, dir, "add", ".")
+	git(t, dir, "commit", "-m", "init")
+	return dir
+}
+
+func git(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(),
+		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t",
+		"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+}
+
+// newService wires a Service over a temp DB + worktree root, with the given
+// runner and (optional) sessions.
+func newService(t *testing.T, resolver ProjectResolver, runner AgentRunner, sessions SessionObserver) (*Service, *WorktreeManager, *Store) {
+	t.Helper()
+	dataDir := t.TempDir()
+	store, err := Open(filepath.Join(dataDir, "control.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { store.Close() })
+	wt := NewWorktreeManager(dataDir)
+	return NewService(store, resolver, wt, runner, sessions), wt, store
+}
+
+// --- dispatch: success → candidate -------------------------------------------
+
+func TestDispatch_Success_PromotesToCandidate(t *testing.T) {
+	repo := gitRepo(t)
+	svc, wt, store := newService(t, mapResolver{"app": repo}, StubRunner{Result: ExecSuccess, WriteFile: true}, nil)
+
+	task, err := svc.CreateTask(CreateTaskRequest{Project: "app", Objective: "do work"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	base := task.BaseSHA
+
+	res, err := svc.DispatchTask(task.ID)
+	if err != nil {
+		t.Fatalf("Dispatch: %v", err)
+	}
+
+	// Job reached candidate, execution_result=success.
+	if res.Job.State != StateCandidate {
+		t.Errorf("job state = %q, want candidate", res.Job.State)
+	}
+	if res.Job.ExecutionResult != ExecSuccess {
+		t.Errorf("execution_result = %q, want success", res.Job.ExecutionResult)
+	}
+	// output_snapshot is a NEW head (the stub wrote a file that Capture committed).
+	if res.Job.OutputSnapshot == "" || res.Job.OutputSnapshot == base {
+		t.Errorf("output_snapshot %q should differ from base %q", res.Job.OutputSnapshot, base)
+	}
+	// A candidate Artifact exists on the deterministic branch.
+	if res.Artifact == nil {
+		t.Fatal("expected a candidate artifact, got none")
+	}
+	wantBranch := BranchName(task.ID, res.Job.ID)
+	if res.Artifact.Branch != wantBranch {
+		t.Errorf("artifact branch = %q, want %q", res.Artifact.Branch, wantBranch)
+	}
+	if res.Artifact.HeadSHA != res.Job.OutputSnapshot {
+		t.Errorf("artifact head %q != job snapshot %q", res.Artifact.HeadSHA, res.Job.OutputSnapshot)
+	}
+	// Task promoted to candidate.
+	got, _ := store.GetTask(task.ID)
+	if got.State != StateCandidate {
+		t.Errorf("task state = %q, want candidate", got.State)
+	}
+	// Worktree KEPT on success (candidate is non-terminal) — the branch/commit
+	// must remain available for the future verifier.
+	if !wt.Exists(res.Job.ID) {
+		t.Error("worktree should be kept on success (candidate)")
+	}
+	// The worktree really is isolated at the deterministic path, on the branch.
+	branchOut, _ := runGit(wt.Path(res.Job.ID), "rev-parse", "--abbrev-ref", "HEAD")
+	if got := trim(branchOut); got != wantBranch {
+		t.Errorf("worktree branch = %q, want %q", got, wantBranch)
+	}
+}
+
+// --- dispatch: failure → failed, NOT candidate -------------------------------
+
+func TestDispatch_Failure_NotCandidate(t *testing.T) {
+	repo := gitRepo(t)
+	svc, wt, store := newService(t, mapResolver{"app": repo}, StubRunner{Result: ExecFailed}, nil)
+
+	task, err := svc.CreateTask(CreateTaskRequest{Project: "app", Objective: "will fail"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	res, err := svc.DispatchTask(task.ID)
+	if err != nil {
+		t.Fatalf("Dispatch: %v", err)
+	}
+	if res.Job.State != StateFailed {
+		t.Errorf("job state = %q, want failed", res.Job.State)
+	}
+	if res.Job.ExecutionResult != ExecFailed {
+		t.Errorf("execution_result = %q, want failed", res.Job.ExecutionResult)
+	}
+	if res.Artifact != nil {
+		t.Error("failed job must NOT produce a candidate artifact")
+	}
+	// No artifacts recorded.
+	arts, _ := store.ListArtifactsForJob(res.Job.ID)
+	if len(arts) != 0 {
+		t.Errorf("failed job has %d artifacts, want 0", len(arts))
+	}
+	// Task is failed (terminal), worktree reclaimed.
+	got, _ := store.GetTask(task.ID)
+	if got.State != StateFailed {
+		t.Errorf("task state = %q, want failed", got.State)
+	}
+	if wt.Exists(res.Job.ID) {
+		t.Error("worktree should be removed on terminal (failed)")
+	}
+}
+
+// --- dispatch guards ----------------------------------------------------------
+
+func TestDispatch_NotDispatchableState(t *testing.T) {
+	repo := gitRepo(t)
+	svc, _, _ := newService(t, mapResolver{"app": repo}, StubRunner{}, nil)
+	task, _ := svc.CreateTask(CreateTaskRequest{Project: "app", Objective: "x"})
+	if _, err := svc.DispatchTask(task.ID); err != nil {
+		t.Fatalf("first dispatch: %v", err)
+	}
+	// Now candidate; dispatching again must be rejected.
+	if _, err := svc.DispatchTask(task.ID); err == nil {
+		t.Error("dispatch of a candidate task should be rejected")
+	}
+}
+
+// --- reconcile: working job with no live session → failed + cleaned ----------
+
+func TestReconcile_VanishedSession_FailsAndCleans(t *testing.T) {
+	repo := gitRepo(t)
+	// No live sessions: the observer says "app is not live".
+	sessions := fakeSessions{live: map[string]bool{}}
+	svc, wt, store := newService(t, mapResolver{"app": repo}, StubRunner{}, sessions)
+
+	// Manually stage a "working" job with a real worktree (as if a prior daemon
+	// dispatched it and then crashed mid-run).
+	task, _ := svc.CreateTask(CreateTaskRequest{Project: "app", Objective: "x"})
+	_, _ = store.TransitionTask(task.ID, StateQueued, false, "")
+	_, _ = store.TransitionTask(task.ID, StateWorking, false, "")
+	job, _ := store.CreateJob(task.ID, task.BaseSHA, "claude", 0, StateWorking)
+	if _, err := wt.Add(repo, task.ID, job.ID, task.BaseSHA); err != nil {
+		t.Fatalf("seed worktree: %v", err)
+	}
+
+	rep, err := svc.Reconcile()
+	if err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if len(rep.FailedVanished) != 1 || rep.FailedVanished[0] != job.ID {
+		t.Errorf("FailedVanished = %v, want [%s]", rep.FailedVanished, job.ID)
+	}
+	gotJob, _ := store.GetJob(job.ID)
+	if gotJob.State != StateFailed {
+		t.Errorf("job state = %q, want failed", gotJob.State)
+	}
+	gotTask, _ := store.GetTask(task.ID)
+	if gotTask.State != StateFailed {
+		t.Errorf("task state = %q, want failed", gotTask.State)
+	}
+	if wt.Exists(job.ID) {
+		t.Error("vanished job's worktree should be cleaned")
+	}
+}
+
+// --- reconcile: live session → adopted (left alone) --------------------------
+
+func TestReconcile_LiveSession_Adopted(t *testing.T) {
+	repo := gitRepo(t)
+	sessions := fakeSessions{live: map[string]bool{"app": true}}
+	svc, wt, store := newService(t, mapResolver{"app": repo}, StubRunner{}, sessions)
+
+	task, _ := svc.CreateTask(CreateTaskRequest{Project: "app", Objective: "x"})
+	_, _ = store.TransitionTask(task.ID, StateQueued, false, "")
+	_, _ = store.TransitionTask(task.ID, StateWorking, false, "")
+	job, _ := store.CreateJob(task.ID, task.BaseSHA, "claude", 0, StateWorking)
+	_, _ = wt.Add(repo, task.ID, job.ID, task.BaseSHA)
+
+	rep, err := svc.Reconcile()
+	if err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if len(rep.FailedVanished) != 0 {
+		t.Errorf("live session should not be failed: %v", rep.FailedVanished)
+	}
+	if !wt.Exists(job.ID) {
+		t.Error("adopted job's worktree should be kept")
+	}
+	gotJob, _ := store.GetJob(job.ID)
+	if gotJob.State != StateWorking {
+		t.Errorf("adopted job state = %q, want working", gotJob.State)
+	}
+}
+
+// --- reconcile: unverifiable liveness → skip (safety) ------------------------
+
+func TestReconcile_Unverifiable_Skips(t *testing.T) {
+	repo := gitRepo(t)
+	sessions := fakeSessions{err: os.ErrClosed} // observer can't answer
+	svc, wt, store := newService(t, mapResolver{"app": repo}, StubRunner{}, sessions)
+
+	task, _ := svc.CreateTask(CreateTaskRequest{Project: "app", Objective: "x"})
+	_, _ = store.TransitionTask(task.ID, StateQueued, false, "")
+	_, _ = store.TransitionTask(task.ID, StateWorking, false, "")
+	job, _ := store.CreateJob(task.ID, task.BaseSHA, "claude", 0, StateWorking)
+	_, _ = wt.Add(repo, task.ID, job.ID, task.BaseSHA)
+
+	rep, err := svc.Reconcile()
+	if err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if rep.SkippedUnverified != 1 {
+		t.Errorf("SkippedUnverified = %d, want 1", rep.SkippedUnverified)
+	}
+	if len(rep.FailedVanished) != 0 {
+		t.Error("unverifiable job must not be failed")
+	}
+	if !wt.Exists(job.ID) {
+		t.Error("unverifiable job's worktree must be kept")
+	}
+}
+
+// --- reconcile: orphaned worktree (no DB row) → removed ----------------------
+
+func TestReconcile_OrphanWorktree_Removed(t *testing.T) {
+	repo := gitRepo(t)
+	svc, wt, _ := newService(t, mapResolver{"app": repo}, StubRunner{}, fakeSessions{})
+
+	// A worktree whose job id has no DB row at all (leftover from a crash).
+	base, _ := ReadHeadSHA(repo)
+	if _, err := wt.Add(repo, "T-99", "J-99", base); err != nil {
+		t.Fatalf("seed orphan worktree: %v", err)
+	}
+	if !wt.Exists("J-99") {
+		t.Fatal("precondition: orphan worktree should exist")
+	}
+
+	rep, err := svc.Reconcile()
+	if err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	found := false
+	for _, id := range rep.RemovedOrphans {
+		if id == "J-99" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("RemovedOrphans = %v, want to contain J-99", rep.RemovedOrphans)
+	}
+	if wt.Exists("J-99") {
+		t.Error("orphan worktree should be removed")
+	}
+}
+
+// TestReconcile_Idempotent runs reconcile twice; the second pass is a no-op.
+func TestReconcile_Idempotent(t *testing.T) {
+	repo := gitRepo(t)
+	svc, _, _ := newService(t, mapResolver{"app": repo}, StubRunner{Result: ExecSuccess, WriteFile: true}, fakeSessions{live: map[string]bool{"app": true}})
+	task, _ := svc.CreateTask(CreateTaskRequest{Project: "app", Objective: "x"})
+	if _, err := svc.DispatchTask(task.ID); err != nil { // → candidate, worktree kept
+		t.Fatalf("dispatch: %v", err)
+	}
+	r1, _ := svc.Reconcile()
+	r2, _ := svc.Reconcile()
+	if len(r1.FailedVanished)+len(r1.RemovedOrphans) != 0 {
+		t.Errorf("reconcile over a healthy candidate changed things: %+v", r1)
+	}
+	if len(r2.RemovedOrphans) != 0 || len(r2.FailedVanished) != 0 {
+		t.Errorf("second reconcile not a no-op: %+v", r2)
+	}
+}
+
+func trim(s string) string {
+	for len(s) > 0 && (s[len(s)-1] == '\n' || s[len(s)-1] == '\r' || s[len(s)-1] == ' ') {
+		s = s[:len(s)-1]
+	}
+	return s
+}
