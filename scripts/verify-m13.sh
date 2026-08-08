@@ -36,6 +36,10 @@
 #                                              skip building entirely)
 #   BUILD      host | docker | auto          (default: auto — host Go if ≥1.25,
 #                                              else Docker)
+#   REAL_DATA_DIR  your data dir for the      (default: auto-detected from your
+#              `real` phase (dir with           installed daedalus's config.json)
+#              projects.json where <project>
+#              is registered)
 
 set -uo pipefail
 
@@ -54,16 +58,35 @@ DATA_DIR="${DATA_DIR:-$WORK/data}"
 BIN_DIR="${BIN_DIR:-}"
 mkdir -p "$DATA_DIR"
 
+REAL_PIDFILE=""   # set by the real phase (a daemon spawned in your real data dir)
+kill_pidfile() {
+    [[ -f "$1" ]] || return 0
+    local pid; pid="$(cat "$1" 2>/dev/null || true)"
+    [[ -n "${pid:-}" ]] && kill "$pid" 2>/dev/null || true
+}
 cleanup() {
-    # Kill only the daemon WE spawned (scoped by our pidfile), never yours.
-    local pidfile="$DATA_DIR/.daedalus/control.pid"
-    if [[ -f "$pidfile" ]]; then
-        local pid; pid="$(cat "$pidfile" 2>/dev/null || true)"
-        [[ -n "${pid:-}" ]] && kill "$pid" 2>/dev/null || true
-    fi
+    # Kill only the daemons WE spawned (scoped by pidfile), never a pre-existing one.
+    kill_pidfile "$DATA_DIR/.daedalus/control.pid"
+    [[ -n "$REAL_PIDFILE" ]] && kill_pidfile "$REAL_PIDFILE"
     rm -rf "$WORK"
 }
 trap cleanup EXIT
+
+# Find the data dir your installed `daedalus` uses (where projects are registered).
+# REAL_DATA_DIR overrides. Reads data-dir from the installed config.json.
+detect_real_datadir() {
+    [[ -n "${REAL_DATA_DIR:-}" ]] && { printf '%s' "$REAL_DATA_DIR"; return 0; }
+    local dbin; dbin="$(command -v daedalus 2>/dev/null)" || return 1
+    dbin="$(readlink -f "$dbin" 2>/dev/null || printf '%s' "$dbin")"
+    local d; d="$(dirname "$dbin")"
+    local cfg dd
+    for cfg in "$d/config.json" "$d/current/config.json"; do
+        [[ -f "$cfg" ]] || continue
+        dd="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("data-dir",""))' "$cfg" 2>/dev/null)"
+        [[ -n "$dd" && -f "$dd/projects.json" ]] && { printf '%s' "$dd"; return 0; }
+    done
+    return 1
+}
 
 # Go version required by go.mod (host must match or newer; else we build in Docker).
 GO_MIN_MINOR=25
@@ -214,15 +237,28 @@ phase_real() {
         echo "  usage: verify-m13.sh real <registered-project> [objective]"; FAIL=$((FAIL+1)); return
     fi
     command -v docker >/dev/null 2>&1 || { echo "  Docker not found — skipping the real phase."; return; }
+
+    # The real phase must use YOUR data dir (where <project> is registered), not
+    # the isolated temp one — otherwise the control plane can't see the project.
+    local RD; RD="$(detect_real_datadir)" || {
+        echo "  ✗ couldn't locate your real data dir (where '$project' is registered)."
+        echo "    set it explicitly and re-run, e.g.:"
+        echo "      REAL_DATA_DIR=~/.local/share/daedalus/.cache bash scripts/verify-m13.sh real $project"
+        echo "    (your data dir is the directory that contains projects.json)"
+        FAIL=$((FAIL+1)); return
+    }
+    info "using your real data dir: $RD"
+    # Pre-check the project is actually registered there (clear error before the daemon).
+    if ! python3 -c 'import json,sys;d=json.load(open(sys.argv[1]+"/projects.json"));sys.exit(0 if sys.argv[2] in d.get("projects",{}) else 1)' "$RD" "$project" 2>/dev/null; then
+        echo "  ✗ project '$project' is not in $RD/projects.json — check the name with 'daedalus list'."
+        FAIL=$((FAIL+1)); return
+    fi
     info "dispatching a REAL agent (no fake env) against an isolated worktree of '$project'."
-    info "this needs a built daedalus image + working runner credentials, and BLOCKS until the agent exits."
+    info "needs a built daedalus image + working runner credentials; BLOCKS until the agent exits."
     info "your main checkout is untouched — the job runs on branch daedalus/<task>/<job> in a separate worktree."
+    REAL_PIDFILE="$RD/.daedalus/control.pid"   # so cleanup kills the daemon we start there
 
-    # Use YOUR real data dir here so it sees your registered project + image/creds.
-    local RD="${REAL_DATA_DIR:-}"
-    local run=( "$BIN_DIR/daedalus" )
-    [[ -n "$RD" ]] && run=( env DAEDALUS_DATA_DIR="$RD" "$BIN_DIR/daedalus" )
-
+    local run=( env DAEDALUS_DATA_DIR="$RD" "$BIN_DIR/daedalus" )
     local cout; cout="$("${run[@]}" task create --project "$project" --objective "$objective" 2>&1)"; echo "  $cout"
     local tid; tid="$(echo "$cout" | grep -oE 'T-[0-9]+' | head -1)"
     [[ -z "$tid" ]] && { fail "real: task create failed"; return; }
