@@ -116,7 +116,7 @@ Stand up the host-side control plane (`daedalus-control`) and its core data mode
 - **Reconcile-on-boot + periodic loop** with idempotent, deterministically-named side-effects (the dual-write fix — SQLite holds desired state, containers/worktrees are reconstructible), so state survives daemon/agent crashes
 - Human `daedalus task …` CLI as the sole client; one active Job per project; **no Guild Master client yet**
 
-### Milestone 14: Independent Verification (V1) (Planned)
+### Milestone 14: Independent Verification (V1) (In Progress)
 
 Make "done" structural, not conversational — the highest-leverage step. The worker may only move a Job `working → candidate` ("I think it's done"); **only the control plane** performs `candidate → verified`, by checking out the Artifact's commit into a **clean verifier container** and running the project's verify policy (build + tests + `daedalus docs lint` + acceptance). Honest scope: this yields an *independently reproducible verification result*, **not** a proof of correctness — frontier agents game tests in 30–100% of adversarial runs, so the acceptance oracle must sit **outside the agent's write scope**.
 
@@ -152,7 +152,7 @@ Kept Planned but **low-priority / demotion candidate to BACKLOG**: for short Job
 ## Phasing
 
 ```
-M1..M13 (Done, except M10) ─► ( no active milestone )
+M1..M13 (Done, except M10) ─► M14 (In Progress)
 
 Planned — the "controlling Guild Master" control-plane arc
 (design: docs/guild-master-plan.md; evidence: docs/guild-master-control.md):
@@ -164,4 +164,4 @@ Also Planned: M10 Homebrew Distribution.
 
 ## Current Focus
 
-**No active milestone.** Milestones M1–M9, M11, M12 and **M13** are complete (M13 shipped in **v0.48.0** — the control-plane **V1 foundation**: the Task/Job/Artifact model + a pure-Go SQLite store, the human `daedalus task` CLI, the `daedalus-control` daemon over `control.sock`, isolated-Git-worktree headless Jobs with a success→candidate gate, and crash reconciliation). The wider **"controlling Guild Master" control-plane arc** is M13–M17 (design + the graded response to two evaluation rounds in `docs/guild-master-plan.md`; evidence in `docs/guild-master-control.md`): **V1** = M13 (done) + **M14** independent, digest-pinned artifact verification with a test-integrity gate; **V2** = M15 governance, a race-safe integration transaction, and the Guild Master joining as a *gated, injection-safe* client; **V3** = M16 parallel execution and M17 typed steering (demoted). The natural next is **M14 (Independent Verification)** — the crown-jewel gate that makes `candidate → verified` real. Also Planned: M10 (Homebrew). No milestone or sprint is in progress — a deliberate between-milestones state, so `daedalus docs lint` noting "no milestone is marked (In Progress)" is expected here, not a defect.
+**Milestone 14: Independent Verification (In Progress).** Milestones M1–M9, M11, M12 and M13 are complete (M13 shipped in **v0.48.0** — the control-plane **V1 foundation**: the Task/Job/Artifact model + a pure-Go SQLite store, the human `daedalus task` CLI, the `daedalus-control` daemon over `control.sock`, isolated-Git-worktree headless Jobs with a success→candidate gate, and crash reconciliation). The wider **"controlling Guild Master" control-plane arc** is M13–M17 (design + the graded response to two evaluation rounds in `docs/guild-master-plan.md`; evidence in `docs/guild-master-control.md`): **V1** = M13 (done) + **M14** independent, digest-pinned artifact verification with a test-integrity gate; **V2** = M15 governance, a race-safe integration transaction, and the Guild Master joining as a *gated, injection-safe* client; **V3** = M16 parallel execution and M17 typed steering (demoted). The natural next is **M14 (Independent Verification)** — the crown-jewel gate that makes `candidate → verified` real. Also Planned: M10 (Homebrew). No milestone or sprint is in progress — a deliberate between-milestones state, so `daedalus docs lint` noting "no milestone is marked (In Progress)" is expected here, not a defect.

@@ -2,7 +2,22 @@
 
 ## Current Sprint
 
-_No active sprint, and no active milestone. Milestone 13 shipped in **v0.48.0** (Sprints 54–55, in the history below) — the control-plane foundation (Task/Job/Artifact + SQLite + the `daedalus task` CLI + daemon + isolated-worktree headless Jobs + reconciliation). A between-milestones state; the control-plane arc continues with **M14 (Independent Verification)** when opened — see `ROADMAP.md`._
+### Sprint 56: Acceptance Contract & the Test-Integrity Gate
+
+Goal: the host-testable half of independent verification — everything except the container itself. Define the **`daedalus verify` acceptance contract** (how a project declares its check), **freeze + hash the acceptance policy at `base_sha`** when a Task is created (so a worker can't weaken the check it must pass), add the **test-integrity gate** (reject any Job whose diff touches the frozen test/acceptance files — the cheap, high-value defence against the 30–100% test-gaming rates), and wire the plane-owned `candidate → verifying → verified | rejected` transitions behind an injectable `VerifyRunner` (a stub now; the real clean verifier container is Sprint 57). Pure Go + git-diff logic, **fully host-testable without Docker**. Design in `docs/guild-master-plan.md` (M14, V1) + §6. Milestone 14.
+
+Milestone: 14
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | **`daedalus verify` acceptance contract** — decide + implement how a project declares its verify policy (e.g. a `verify:` list in config / a `.daedalus/verify` script / documented convention) and which paths count as the frozen **acceptance/test files**. A pure reader that returns the policy + the acceptance-file globs from a checkout. Tests. |  |
+| 2 | **Freeze `acceptance_policy@base_sha`** — at Task create, capture the policy from the task's `base_sha` and store a **hash** on the Task; a proposed policy change affects only future tasks. Tests assert the frozen hash is stable and independent of later working-tree edits. |  |
+| 3 | **Test-integrity gate (pure)** — given a Job's `base_sha..head_sha` diff and the frozen acceptance-file globs, **reject** (→ `rejected`) any Job whose diff touches those files; otherwise allow it to proceed to verification. Host-tested against real temp repos (touches test file → rejected; touches only src → allowed). |  |
+| 4 | **Plane-owned verify transitions + CLI** — wire `candidate → verifying → verified | rejected` into the control plane behind an injectable `VerifyRunner` interface (stub returns pass/fail for tests); `daedalus task verify <id>` drives it; `rejected → queued/planned` for retry. **Only the plane** performs `candidate → verified` (already structural). Tests; CHANGELOG. |  |
+
+Out of scope (Sprint 57): the real **clean verifier container** (checkout the Artifact commit into a fresh container from the **digest-pinned** project image + run the policy), the network/creds/`/opt/tools` policy, the null-agent floor, and the M14 close. Governance/integration/approval + the Guild Master client are Milestone 15.
+
+## Sprint History
 
 ## Sprint History
 
