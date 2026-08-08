@@ -2,7 +2,18 @@
 
 ## Current Sprint
 
-_No active sprint, and no active milestone. Milestone 14 shipped in **v0.49.0** (Sprints 56–57, in the history below) — independent verification: the acceptance contract, frozen policy + test-integrity gate, and the clean verifier container. A between-milestones state; the arc continues with **M15 (Governance, Integration & the Guild Master client)** when opened — see `ROADMAP.md`._
+### Sprint 58: Governance Core — Budgets, Rejection, Retry/Replan & the Event Log
+
+Goal: make the control plane *governed* — it can now say **no**. Add a per-Task **budget** enforced host-side on the axes that are genuinely enforceable (wall-clock, max-attempts, review-cycles, concurrency), **typed rejection** with machine-readable reasons (over-budget, stale base), **retry/replan** out of `rejected` with a preserved Job chain, and the **control-plane-managed event log** (`daedalus task events`) — named honestly, immutable through the API rather than cryptographically tamper-proof. Pure Go + git, fully host-testable without Docker. Design in `docs/guild-master-plan.md` (M15, V2) + §6. Out of scope: the integration transaction + human approval (Sprint 59) and `guild-control-mcp` (Sprint 60).
+
+Milestone: 15
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | **Budget model + host-side enforcement** — a per-Task budget (wall-clock seconds, max-attempts, max-review-cycles, concurrency) captured at create and stored authoritatively; the plane enforces the strongly-enforceable axes itself (wall-clock kills a running Job → `execution_result=timeout`; max-attempts blocks a further dispatch). Turn/token/cost remain *policy in the plane*, explicitly documented as runner-dependent measurement, not enforced. Defaults are per-project-overridable. Tests over the enforcement decisions, no Docker. |  |
+| 2 | **Typed request rejection** — the plane can say no, with a machine-readable reason: over-budget (dispatch beyond max-attempts / budget), and **stale base** (a candidate Artifact whose `base_sha` is no longer the project's target tip → rejected, must rebase + re-verify). A `RejectionReason` enum surfaced through the API + CLI exit codes, so a client can distinguish 'refused by policy' from 'failed'. Tests against real temp repos for the stale-base detection. |  |
+| 3 | **Retry / replan from `rejected`** — `daedalus task retry <id>` (rejected → queued, a fresh Job, attempt counter incremented, budget re-checked) and `daedalus task replan <id> --objective` (rejected → planned with a revised objective). Attempt history is preserved — never overwritten — so a Task carries its full Job chain. Enforced against max-attempts. Tests for both paths, including the exhausted-attempts refusal. |  |
+| 4 | **Control-plane-managed event log + `daedalus task events`** — every transition, budget decision, rejection and verification outcome recorded as a typed event with actor (human/plane/worker), immutable *through the API* (no update/delete op exists); a `daedalus task events <id>` view. Named honestly in the docs: control-plane-managed, NOT cryptographically tamper-proof (hash-chaining stays an optional later property). Tests assert the API exposes no mutation path. CHANGELOG. |  |
 
 ## Sprint History
 
