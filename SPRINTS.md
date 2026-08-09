@@ -2,7 +2,19 @@
 
 ## Current Sprint
 
-_No active sprint. Milestone 16 shipped in **v0.51.0** (Sprints 61–62, in the history below) — concurrent Jobs, the scheduler with a leased fair queue, per-Job liveness, and the cross-project dependency graph. The arc continues with **M17 (Typed Steering)** — deliberately demoted in `docs/guild-master-plan.md`, so its scope stays tight._
+### Sprint 63: Typed Steering & the Programme Board — closing the arc
+
+Goal: finish the control-plane arc with the piece the plan itself **demotes**, and keep it honest. Represent steering as a **typed, audited control-plane operation** — `steer_job(job, instruction)` recorded as a `SteeringEvent` with issuer, timestamp and delivery state, delivered at a **supported boundary** — rather than an ad-hoc terminal injection. Then round out the coordination surface with cross-project task-board views over control-plane state, so the whole orchestration model is uniform and auditable. Closes Milestone 17 and the M13–M17 arc. Design in `docs/guild-master-plan.md` (M17, V3) + §9's "runner coupling" caveat: the authority path must stay runner-agnostic, and steering delivery is the one genuinely runner-specific piece — keep that boundary clean.
+
+Milestone: 17
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | **Typed `steer_job` with provenance and delivery state.** A `SteeringEvent` carrying issuer (from the Sprint-60 transport-derived caller class, never a request field), timestamp, target Job, instruction, and an explicit **delivery state** — `pending` / `delivered` / `undeliverable` / `superseded`. Steering is **plane-owned state**, not a message the worker can forge or replay. It never bypasses a gate: a steered Job still reaches `candidate` and is still independently verified, so steering changes *what the worker is told*, never *what counts as done*. Agent callers are **proposal-tier** like every other consequential op. |  |
+| 2 | **Delivery at a supported boundary, and honest failure.** Deliver through the runner/hook layer at the next boundary the runner actually supports — **never mid-turn**, per §3. If the runner cannot accept steering, the event must record `undeliverable` rather than silently succeeding; a steering op that reports success without delivering is worse than one that refuses. Keep the runner-specific delivery behind an injectable seam (as `AgentRunner`/`VerifyRunner` already are) so the authority path stays runner-agnostic and the logic is host-testable. Cancellation of a pending steer; superseding an undelivered steer with a newer one. |  |
+| 3 | **The programme board — cross-project views over control-plane state.** A task-board view spanning projects, built on the existing read API: what is running, queued, blocked (and on what), awaiting approval, and what landed. Surfaced in the CLI plus Web/TUI, reusing the Sprint-59 approvals surface and the Sprint-62 dependency graph rather than duplicating either. Uniform provenance — tasks, jobs, steering, approvals and proposals all read from the same event log, with the agent-facing projection honouring the Sprint-60 opaque queue ids. |  |
+| 4 | **Validate the demotion, document the arc, close M17 and V3.** The plan says steering should *prove its value* before earning a milestone. Record honestly what this sprint actually bought versus cancel-plus-redispatch — if the answer is "little for short Jobs", say so in the docs rather than justifying the work retroactively. Then write the arc's closing summary in `docs/control-plane.md`: what M13–M17 guarantee, what they explicitly do not, and the standing limits (heuristic liveness, wall-clock bookkeeping, tests as an incomplete oracle, class-not-identity callers). CHANGELOG; close Milestone 17. |  |
+
 
 ## Sprint History
 
