@@ -83,7 +83,12 @@ func noApprovalNote(project string) string {
 // accepted too — approving something that did not need approving is harmless and
 // avoids a confusing refusal — and is driven through `approval_required` so the
 // log shows the full path rather than a shortcut.
-func (s *Service) ApproveTask(id, note string) (Task, error) {
+func (s *Service) ApproveTask(id, note string) (Task, error) { return s.approveTask(Human(), id, note) }
+
+// approveTask is ApproveTask with an explicit caller identity. Approval is
+// reserved to human callers by the authority table (authority.go); the caller is
+// threaded here so the EVENT records who actually approved.
+func (s *Service) approveTask(caller Caller, id, note string) (Task, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -91,7 +96,7 @@ func (s *Service) ApproveTask(id, note string) (Task, error) {
 	if err != nil {
 		return Task{}, err
 	}
-	meta := EventMeta{Kind: EventApproval, Actor: s.callerActor()}
+	meta := EventMeta{Kind: EventApproval, Actor: caller.Actor()}
 	detail := "approved"
 	if note != "" {
 		detail += ": " + note
@@ -116,6 +121,11 @@ func (s *Service) ApproveTask(id, note string) (Task, error) {
 // RejectApproval records a human rejection: approval_required → rejected, which
 // feeds the existing retry/replan ladder.
 func (s *Service) RejectApproval(id, note string) (Task, error) {
+	return s.rejectApproval(Human(), id, note)
+}
+
+// rejectApproval is RejectApproval with an explicit caller identity.
+func (s *Service) rejectApproval(caller Caller, id, note string) (Task, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -123,7 +133,7 @@ func (s *Service) RejectApproval(id, note string) (Task, error) {
 	if err != nil {
 		return Task{}, err
 	}
-	meta := EventMeta{Kind: EventApproval, Reason: ReasonApprovalRejected, Actor: s.callerActor()}
+	meta := EventMeta{Kind: EventApproval, Reason: ReasonApprovalRejected, Actor: caller.Actor()}
 	detail := "rejected by a human reviewer"
 	if note != "" {
 		detail += ": " + note

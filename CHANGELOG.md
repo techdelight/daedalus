@@ -5,6 +5,52 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- **The Guild Master joins as a gated client — `guild-control-mcp`, transport-derived
+  caller identity and tiered authority (Sprint 60, closing M15).**
+  - **Caller identity from the transport.** The daemon now listens on two sockets:
+    `control.sock` (human) and `control-agent.sock` (agent). Which socket a
+    request arrived on *is* the caller class — not a request field (a client that
+    can name its own actor can name "human") and not peer credentials (the socket
+    is `srwxr-xr-x` and the agent runs as the same uid, so `SO_PEERCRED` separates
+    users, not caller classes). The agent's container is given exactly one socket,
+    so the class is fixed by the mount namespace before a byte is parsed. Every
+    event now carries a caller class the caller could not forge.
+  - **Tiered authority.** Reads and bounded task creation execute; verification and
+    review execute because they apply the *plane's own* oracle; dispatch, retry,
+    replan, cancel, integrate, approve/reject and target-resync are **recorded as
+    proposals** for a human to confirm. Confirming runs the operation as the
+    confirming human; denying does nothing. An agent **cannot confirm its own
+    proposal** — confirmation is refused for agent callers and is not itself
+    proposable — which makes "the Guild Master cannot approve its own work" true by
+    construction. An unknown operation fails closed to "ask a human", and a table
+    test fails if a mutating operation has no explicit tier.
+  - **`cmd/guild-control-mcp`.** Intent-level tools only (`list_tasks`, `get_task`,
+    `task_events`, `create_task`, `request_verification`, and the proposal ops);
+    **never** `run_shell` / `docker_run` / `mount` / `git_exec` /
+    `start_container`, and never `coordinator.sock`. Env-gated into the
+    guild-master container as `guild-mcp` is, and wired only when the restricted
+    socket is actually mounted — no socket, no tool.
+  - **`daedalus task proposals list|confirm|deny`**, plus the `proposals` view
+    alongside the Sprint-59 approvals surface.
+  - **Opaque queue ids.** `GET /targets` listed every queue with its absolute host
+    path, and the target operations wrote those paths into the **append-only**
+    event log as entity ids — a cross-tenant disclosure that would have become
+    historical and unerasable once an agent could read the log. Queues now carry a
+    stable `sha256(canonical path)` id, used as the event entity id and shown to
+    agents; the path is rendered to human callers only. An agent can still tell
+    that two projects share a queue, and learns nothing about host layout.
+  - **Carried Sprint-59 audit items.** Queue identity now resolves a **linked
+    worktree** to its parent repository (`--git-common-dir`), so a Job's checkout
+    cannot get a merge queue of its own; the shared-queue view is derived from the
+    **registry** rather than from tasks, so a queue shared with a project that has
+    no tasks yet no longer looks unshared; and both mutation survivors
+    (`errors.Is(ErrNotFound)` adoption gating, `EvalSymlinks` aliasing) now have
+    regression tests.
+  - **Distribution chain** for the new binary — `Dockerfile`, `build.sh`,
+    `setup.sh`, `scripts/package-release.sh`, both release workflows,
+    `entrypoint.sh` injection, and **both test sims**. The bundle sim caught a real
+    mistake (the expected-contents list is `LC_ALL=C` sorted, so `guild-control-mcp`
+    precedes `guild-mcp`), which is exactly what it is for.
 - **The plane-owned integration target, the race-safe integration transaction,
   human approval and the independent reviewer (Sprint 59, M15).**
   - **Plane-owned target ref — closes the acceptance-oracle laundering hole

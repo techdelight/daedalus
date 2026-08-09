@@ -61,6 +61,21 @@ case "$RUNNER" in
             ' "$LIVE" 2>/dev/null) && [ -n "$PATCHED" ]; then
                 printf '%s\n' "$PATCHED" > "$LIVE"
             fi
+            # Sprint 60: the CONTROL client, so the Guild Master can act — as a
+            # gated caller. It is wired only when the restricted agent socket is
+            # actually mounted, because that socket IS its authority: the plane
+            # decides caller class by which socket a request arrives on, and this
+            # container is never given the human one. No socket, no tool.
+            if [ -S "${DAEDALUS_CONTROL_AGENT_SOCKET:-/var/run/daedalus/control-agent.sock}" ] && [ -f "$LIVE" ]; then
+                if PATCHED=$(jq --arg sock "${DAEDALUS_CONTROL_AGENT_SOCKET:-/var/run/daedalus/control-agent.sock}" '
+                    .mcpServers["guild-control"] = {
+                        "command": "/usr/local/bin/guild-control-mcp",
+                        "args": ["--socket", $sock]
+                    }
+                ' "$LIVE" 2>/dev/null) && [ -n "$PATCHED" ]; then
+                    printf '%s\n' "$PATCHED" > "$LIVE"
+                fi
+            fi
         fi
         ;;
     copilot)

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -211,9 +212,18 @@ func TestTarget_AdoptionIsOnce(t *testing.T) {
 		t.Errorf("%s = %s, want %s", targetRefName, got, first.SHA)
 	}
 	// And the adoption is on the record.
-	events, _ := store.ListEventsFor("repository", repoKey(t, repo))
+	// The log carries the OPAQUE queue id, never the host path — the log is
+	// append-only, so a path recorded here could never be retracted once an agent
+	// client can read it.
+	events, _ := store.ListEventsFor("queue", QueueIDFor(repoKey(t, repo)))
 	if len(events) == 0 || !strings.Contains(events[0].Note, "trust-on-first-use") {
 		t.Errorf("adoption should be logged as trust-on-first-use, got %+v", events)
+	}
+	all, _ := store.ListEvents()
+	for _, e := range all {
+		if strings.Contains(e.EntityID, "/") {
+			t.Errorf("event %d carries a filesystem path as its entity id (%q) — the log must not accumulate host layout", e.Seq, e.EntityID)
+		}
 	}
 }
 
@@ -472,4 +482,127 @@ func TestCanonicalRepoPath(t *testing.T) {
 	if got, err := CanonicalRepoPath(plain); err != nil || got == "" {
 		t.Errorf("CanonicalRepoPath(non-repo) = (%q, %v), want a resolved path", got, err)
 	}
+}
+
+// --- carried Sprint-59 audit items ---------------------------------------------
+
+// TestCanonicalRepoPath_LinkedWorktreeSharesTheParentQueue: a Job runs in a
+// linked worktree of the project repository. `--show-toplevel` inside one returns
+// the WORKTREE's directory, which would give the Job's checkout its own merge
+// queue, separate from the repository it belongs to. `--git-common-dir` is what
+// makes them one identity.
+func TestCanonicalRepoPath_LinkedWorktreeSharesTheParentQueue(t *testing.T) {
+	repo := gitRepo(t)
+	parent, err := CanonicalRepoPath(repo)
+	if err != nil {
+		t.Fatalf("CanonicalRepoPath: %v", err)
+	}
+	head, _ := ReadHeadSHA(repo)
+
+	wt := filepath.Join(t.TempDir(), "linked")
+	if out, err := runGit(repo, "worktree", "add", "--detach", wt, head); err != nil {
+		t.Fatalf("worktree add: %v\n%s", err, out)
+	}
+	t.Cleanup(func() { _, _ = runGit(repo, "worktree", "remove", "--force", wt) })
+
+	got, err := CanonicalRepoPath(wt)
+	if err != nil {
+		t.Fatalf("CanonicalRepoPath(worktree): %v", err)
+	}
+	if got != parent {
+		t.Errorf("linked worktree resolved to %q, want the parent repository %q — a Job's checkout must not get its own merge queue", got, parent)
+	}
+	if QueueIDFor(got) != QueueIDFor(parent) {
+		t.Error("linked worktree produced a different queue id from its parent")
+	}
+}
+
+// TestCanonicalRepoPath_SymlinkAliasing pins the EvalSymlinks call — one of the
+// two mutation survivors of the Sprint-59 audit. Without it, /tmp and
+// /private/tmp (or any symlinked checkout) are two identities for one repository
+// and therefore two merge queues.
+func TestCanonicalRepoPath_SymlinkAliasing(t *testing.T) {
+	repo := gitRepo(t)
+	direct, err := CanonicalRepoPath(repo)
+	if err != nil {
+		t.Fatalf("CanonicalRepoPath: %v", err)
+	}
+	link := filepath.Join(t.TempDir(), "aliased")
+	if err := os.Symlink(repo, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	viaLink, err := CanonicalRepoPath(link)
+	if err != nil {
+		t.Fatalf("CanonicalRepoPath(symlink): %v", err)
+	}
+	if viaLink != direct {
+		t.Errorf("symlinked path resolved to %q, want %q — aliasing must not split a merge queue", viaLink, direct)
+	}
+}
+
+// TestTargetFor_ReadErrorDoesNotAdopt pins the `errors.Is(err, ErrNotFound)`
+// gate — the other mutation survivor. Any read failure that is NOT "no target
+// yet" must surface, because the fallback path adopts the worker-writable
+// checkout HEAD, and treating an unreadable target as "there isn't one" would
+// re-open the hole the plane-owned target closes.
+func TestTargetFor_ReadErrorDoesNotAdopt(t *testing.T) {
+	repo := gitRepo(t)
+	svc, _, store := newService(t, mapResolver{"app": repo}, StubRunner{}, nil)
+
+	// Break the targets table so GetTarget fails with something that is not
+	// ErrNotFound.
+	if _, err := store.db.Exec(`DROP TABLE integration_targets`); err != nil {
+		t.Fatalf("breaking the targets table: %v", err)
+	}
+	_, err := svc.TargetFor("app")
+	if err == nil {
+		t.Fatal("TargetFor with an unreadable target should error, not adopt HEAD")
+	}
+	if errors.Is(err, ErrNotFound) {
+		t.Errorf("a read failure was reported as not-found: %v", err)
+	}
+	// And nothing was adopted as a side effect.
+	if !strings.Contains(err.Error(), "reading the integration target") {
+		t.Errorf("error should name the failed read, got %v", err)
+	}
+}
+
+// TestProjectTargets_SharedQueueVisibleWithoutTasks: the shared-queue view must
+// come from the REGISTRY, not from the tasks table. Derived from tasks, a queue
+// shared with a project that has no tasks yet looks unshared — exactly when an
+// operator most needs to know two projects will serialize.
+func TestProjectTargets_SharedQueueVisibleWithoutTasks(t *testing.T) {
+	repo := gitRepo(t)
+	resolver := listerResolver{dirs: mapResolver{"app": repo, "app-clone": repo}}
+	svc, _, _ := newService(t, resolver, StubRunner{}, nil)
+
+	// Only ONE project has a task; the other shares the queue silently.
+	if _, err := svc.CreateTask(CreateTaskRequest{Project: "app", Objective: "x"}); err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	views, err := svc.ProjectTargets()
+	if err != nil {
+		t.Fatalf("ProjectTargets: %v", err)
+	}
+	if len(views) != 1 {
+		t.Fatalf("views = %d, want 1", len(views))
+	}
+	if len(views[0].Projects) != 2 {
+		t.Errorf("projects = %v, want both sharers listed even though only one has a task", views[0].Projects)
+	}
+}
+
+// listerResolver is a mapResolver that can also enumerate, standing in for the
+// registry-backed resolver.
+type listerResolver struct{ dirs mapResolver }
+
+func (l listerResolver) ProjectDir(name string) (string, error) { return l.dirs.ProjectDir(name) }
+
+func (l listerResolver) ProjectNames() ([]string, error) {
+	names := make([]string, 0, len(l.dirs))
+	for n := range l.dirs {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	return names, nil
 }

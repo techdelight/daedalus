@@ -31,6 +31,7 @@ BINARIES=(
     skill-catalog-mcp
     project-mgmt-mcp
     guild-mcp
+    guild-control-mcp
     daedalus-runner
     daedalus-coordinator
     daedalus-control
@@ -283,6 +284,14 @@ chmod 755 "$VERSION_DIR/project-mgmt-mcp"
 if [[ -f "$WORK_DIR/guild-mcp" ]]; then
     cp "$WORK_DIR/guild-mcp" "$VERSION_DIR/guild-mcp"
     chmod 755 "$VERSION_DIR/guild-mcp"
+fi
+# guild-control-mcp is the in-container CONTROL client (Guild Master only): the
+# gated MCP surface over the restricted control socket. Same staging requirement
+# as guild-mcp — the Dockerfile COPYs it from the version dir at image-build
+# time. Conditional because older tarballs (pre-Sprint 60) won't ship it.
+if [[ -f "$WORK_DIR/guild-control-mcp" ]]; then
+    cp "$WORK_DIR/guild-control-mcp" "$VERSION_DIR/guild-control-mcp"
+    chmod 755 "$VERSION_DIR/guild-control-mcp"
 fi
 # daedalus-runner is the in-container PID-1 binary the runner path launches; the
 # Dockerfile COPYs it from the build context (= the version dir) at image-build

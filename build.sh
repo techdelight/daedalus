@@ -14,6 +14,7 @@ REQUIRED_BINARIES=(
     skill-catalog-mcp     # in-container MCP server
     project-mgmt-mcp      # in-container MCP server
     guild-mcp             # in-container MCP server (Guild Master only)
+    guild-control-mcp     # in-container control-plane client (Guild Master only)
     daedalus-runner       # in-container PID-1; Dockerfile COPYs it in
     daedalus-coordinator  # host-side daemon
     daedalus-control      # host-side control-plane daemon
@@ -30,6 +31,7 @@ docker run --rm -v "$PWD":/src -w /src \
          go build -buildvcs=false -o skill-catalog-mcp ./cmd/skill-catalog-mcp && \
          go build -buildvcs=false -o project-mgmt-mcp ./cmd/project-mgmt-mcp && \
          go build -buildvcs=false -o guild-mcp ./cmd/guild-mcp && \
+         go build -buildvcs=false -o guild-control-mcp ./cmd/guild-control-mcp && \
          go build -buildvcs=false -o daedalus-runner ./cmd/daedalus-runner && \
          go build -buildvcs=false -o daedalus-coordinator ./cmd/daedalus-coordinator && \
          go build -buildvcs=false -o daedalus-control ./cmd/daedalus-control"

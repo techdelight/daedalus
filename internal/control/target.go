@@ -3,6 +3,8 @@
 package control
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log"
@@ -58,6 +60,31 @@ import (
 // never disturb a developer's working tree.
 const targetRefName = "refs/daedalus/target"
 
+// QueueIDFor returns the stable, opaque identifier for a repository's merge
+// queue: a truncated SHA-256 of its canonical path.
+//
+// WHY AN OPAQUE ID. The canonical path is an absolute HOST filesystem path, and
+// two things were leaking it. `GET /targets` listed every queue with its path —
+// so an agent working on one project would learn the on-disk layout of every
+// other repository, including the Guild Master's own, which is exactly the line
+// M12 drew when it made cross-project access read-only and mount-mediated. Worse,
+// AdoptTarget/AdvanceTarget/SetTarget wrote those paths into the APPEND-ONLY
+// event log as entity ids: once an agent client can read that log, the paths are
+// historical and unerasable, and fixing the projection later would not retract
+// what was already recorded. Hence doing it now, while the log is short.
+//
+// An agent keeps everything it legitimately needs — whether two projects share a
+// queue is visible, because the id is stable and comparable — and learns nothing
+// about host layout. Humans still see the path (targetView renders it for them),
+// because for a person the path is the useful part.
+//
+// 16 hex characters is 64 bits: collision-proof enough for the number of
+// repositories one host can hold, and short enough to read in a log line.
+func QueueIDFor(canonicalPath string) string {
+	sum := sha256.Sum256([]byte(canonicalPath))
+	return "q-" + hex.EncodeToString(sum[:])[:16]
+}
+
 // repoIdentity resolves a project to (its directory, the canonical repository
 // path the plane keys its target by). Two projects on one repository resolve to
 // the same identity and therefore share one merge queue.
@@ -112,7 +139,10 @@ func (s *Service) TargetFor(project string) (Target, error) {
 // It is never automatic. An automatic follow would hand the acceptance oracle
 // back to whoever can write the repository's refs, undoing the whole point of a
 // plane-owned target; a person asking for it by name is the difference.
-func (s *Service) SyncTarget(project string) (Target, error) {
+func (s *Service) SyncTarget(project string) (Target, error) { return s.syncTarget(Human(), project) }
+
+// syncTarget is SyncTarget with an explicit caller identity.
+func (s *Service) syncTarget(caller Caller, project string) (Target, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -133,7 +163,7 @@ func (s *Service) SyncTarget(project string) (Target, error) {
 	} else if !errors.Is(err, ErrNotFound) {
 		return Target{}, fmt.Errorf("reading the integration target for %s: %w", project, err)
 	}
-	t, err := s.store.SetTarget(repoPath, head, s.governanceMeta(), fmt.Sprintf(
+	t, err := s.store.SetTarget(repoPath, head, governanceMetaFor(caller), fmt.Sprintf(
 		"target resynced by hand for %s: %s → %s (adopts the acceptance policy at the new commit)",
 		project, shortSHA(previous), shortSHA(head)))
 	if err != nil {
@@ -150,44 +180,80 @@ func (s *Service) SyncTarget(project string) (Target, error) {
 // two projects on one repository serialize against each other, and that is
 // surprising unless it is shown.
 type TargetView struct {
-	RepoPath  string   `json:"repoPath"`
+	// QueueID is the opaque, stable identity of the queue — always present, safe
+	// to show any caller.
+	QueueID string `json:"queueId"`
+	// RepoPath is the absolute host path. Present for HUMAN callers only; an
+	// agent receives it empty (see QueueIDFor).
+	RepoPath  string   `json:"repoPath,omitempty"`
 	SHA       string   `json:"sha"`
 	UpdatedAt string   `json:"updatedAt"`
 	Projects  []string `json:"projects"`
 }
 
 // ProjectTargets lists every integration target with the projects that share it
-// (the CLI's `task target` view).
-func (s *Service) ProjectTargets() ([]TargetView, error) {
+// (the CLI's `task target` view), for a HUMAN caller.
+func (s *Service) ProjectTargets() ([]TargetView, error) { return s.projectTargets(Human()) }
+
+// projectTargets renders the target list for a caller class. The repository path
+// is included ONLY for a human: see QueueIDFor for why an agent must not receive
+// host filesystem layout.
+func (s *Service) projectTargets(caller Caller) ([]TargetView, error) {
 	targets, err := s.store.ListTargets()
 	if err != nil {
 		return nil, err
 	}
-	// Map each known project onto its repository, so a shared queue is visible
-	// rather than implied. Projects the resolver cannot answer for are skipped:
-	// a stale registry entry must not fail the whole view.
-	byRepo := map[string][]string{}
-	if tasks, err := s.store.ListTasks(); err == nil {
-		seen := map[string]bool{}
-		for _, t := range tasks {
-			if seen[t.Project] {
-				continue
-			}
-			seen[t.Project] = true
-			if _, repoPath, err := s.repoIdentity(t.Project); err == nil {
-				byRepo[repoPath] = append(byRepo[repoPath], t.Project)
-			}
-		}
-	}
+	byRepo := s.projectsByRepo()
 	out := make([]TargetView, 0, len(targets))
 	for _, t := range targets {
 		projects := byRepo[t.RepoPath]
 		sort.Strings(projects)
-		out = append(out, TargetView{
-			RepoPath: t.RepoPath, SHA: t.SHA, UpdatedAt: t.UpdatedAt, Projects: projects,
-		})
+		view := TargetView{
+			QueueID: t.QueueID, SHA: t.SHA, UpdatedAt: t.UpdatedAt, Projects: projects,
+		}
+		if !caller.IsAgent() {
+			view.RepoPath = t.RepoPath
+		}
+		out = append(out, view)
 	}
 	return out, nil
+}
+
+// projectsByRepo maps each REGISTERED project onto the repository whose queue it
+// shares.
+//
+// It enumerates the registry rather than the tasks table. Deriving it from tasks
+// (as this first did) makes a shared queue look unshared until every sharer
+// happens to have a task — which is precisely when an operator most needs to know
+// that two projects will serialize against each other. Projects the resolver
+// cannot answer for are skipped: a stale registry entry must not fail the view.
+func (s *Service) projectsByRepo() map[string][]string {
+	byRepo := map[string][]string{}
+	seen := map[string]bool{}
+	add := func(project string) {
+		if project == "" || seen[project] {
+			return
+		}
+		seen[project] = true
+		if _, repoPath, err := s.repoIdentity(project); err == nil {
+			byRepo[repoPath] = append(byRepo[repoPath], project)
+		}
+	}
+	if lister, ok := s.projects.(ProjectLister); ok {
+		if names, err := lister.ProjectNames(); err == nil {
+			for _, n := range names {
+				add(n)
+			}
+		}
+	}
+	// Tasks are a fallback, not the source: a resolver that cannot enumerate
+	// still yields the projects the plane has actually worked with.
+	if tasks, err := s.store.ListTasks(); err == nil {
+		for _, t := range tasks {
+			add(t.Project)
+		}
+	}
+	return byRepo
 }
 
 // writeTargetProjection best-effort updates the repository's projection ref.

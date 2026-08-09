@@ -87,6 +87,7 @@ the logic directly (tests) or over the socket (production).
 | `task approve\|reject <id> [--note]` | The human approval gate. |
 | `task integrate <id>` | Land it: rebase → re-verify merged → compare-and-swap. |
 | `task approvals` | Everything awaiting a human decision. |
+| `task proposals [list\|confirm\|deny]` | Consequential operations an agent asked for. |
 | `task target [<project> --sync]` | Show or resync the plane-owned integration targets. |
 | `task replan <id> --objective <text>` | Return a rejected task to `planned` with a revised objective. |
 | `task events <id>` | The control-plane-managed event log for a task. |
@@ -601,6 +602,90 @@ now hands the approve button to anyone who can reach the port, and WSL2
 auto-detection binds `0.0.0.0`. The approval gate is only as strong as the
 weakest surface that can operate it.
 
+## The Guild Master as a gated client (Sprint 60 / M15 — built)
+
+The Guild Master can finally **act**. What makes that safe is not that it is
+asked to behave — it is that the consequential operations are not available to
+it.
+
+### Caller identity comes from the transport
+
+The actor on an event is derived from **which socket a request arrived on**, and
+nothing else.
+
+- Not a request field. A client that can name its own actor can name `human`,
+  which is worse than no label at all.
+- Not peer credentials. The control socket is `srwxr-xr-x` and the Guild Master's
+  agent runs as the **same uid** as the operator, so `SO_PEERCRED` separates
+  *users*, not *caller classes* — it would return the same answer for both.
+
+So the daemon listens on two sockets: `control.sock` (human — CLI, Web, TUI) and
+`control-agent.sock` (agent). The agent's container is given exactly one of them.
+**The socket split is the mechanism**, not a supplement to one: the class is
+fixed by the mount namespace before a byte of request is parsed. What this does
+*not* defend against is anything already running as the user, which can open
+either socket — the boundary is the container, not the file mode.
+
+### Tiered authority
+
+| Tier | Operations | Caller: agent |
+|---|---|---|
+| Read | `list_tasks`, `get_task`, `task_events`, pending approvals, queues | executes |
+| Bounded write | `create_task`, `request_verification`, `request_review` | executes |
+| Consequential | dispatch, retry, replan, cancel, integrate, approve/reject, target resync | **recorded as a proposal** |
+| Human-only | confirming or denying a proposal | **refused outright** |
+
+Reads and creation execute because they cannot exceed policy: a created task is
+budget-clamped and graded against an oracle frozen at the plane-owned target, so
+the worst a poisoned document achieves is a task nobody wanted — visible,
+bounded, and cancellable. Verification and review execute because they apply the
+**plane's own oracle**, which the caller cannot influence.
+
+Everything consequential becomes a **proposal**: a row a human confirms or
+denies. Confirming runs the operation *as the confirming human*; denying does
+nothing at all. The refusal returned to the agent is loud and typed
+(`proposal_recorded`) rather than a silent success — an agent that believed it
+had cancelled a Job when it had only asked would reason on from a false premise.
+
+Two properties are worth stating precisely:
+
+- **An agent cannot confirm its own proposal.** Confirmation is refused for agent
+  callers, and it is not itself proposable — making it proposable would rebuild
+  the same hole one step up. This is what makes "the Guild Master cannot approve
+  its own work" true by construction.
+- **There is no raise-a-budget operation to tier.** A budget is resolved at create
+  against a host-side ceiling and a request may only narrow it, so raising one is
+  not an operation that can be attempted, tiered, or refused — it does not exist.
+
+An unknown operation is `TierProposal` for an agent, never allowed: a new
+operation nobody thought to tier fails closed into "ask a human", and a table
+test fails if a mutating operation has no explicit entry.
+
+### `guild-control-mcp`
+
+The MCP server the Guild Master drives, env-gated into its container exactly as
+`guild-mcp` is, and wired only when the restricted socket is actually mounted —
+no socket, no tool. It exposes intent-level operations only: **never**
+`run_shell`, `docker_run`, `mount`, `git_exec` or `start_container`, and never
+`coordinator.sock`. The plane resolves the project through the trusted registry
+and constructs every execution detail itself, so the Guild Master cannot become a
+privileged remote shell: there is no tool through which to ask for one.
+
+### Opaque queue ids
+
+`GET /targets` used to list every queue with its absolute host path, and the
+target operations wrote those paths into the **append-only** event log as entity
+ids — so once an agent could read the log, host layout would be historical and
+unerasable, and an agent on one project would learn the on-disk location of every
+other repository including the Guild Master's. That is the line M12 drew when it
+made cross-project access read-only and mount-mediated.
+
+Each queue now has a stable opaque id, `sha256(canonical path)` truncated to 64
+bits, stored beside the path and used as the event entity id. An agent keeps what
+it legitimately needs — the id is stable and comparable, so it can still tell
+that two projects share a queue — and learns nothing about host layout. Humans
+still see the path, because for a person the path is the useful part.
+
 ## Scope boundary — what is deliberately NOT here yet
 
 Milestones 13–14 deliver the model, store, daemon, human CLI, isolated-worktree
@@ -609,17 +694,17 @@ digest pin, env policy, integrity gate, null-agent floor); Sprint 58 adds the
 governance core (budgets, typed rejection, retry/replan, the event log). Still
 ahead:
 
-- **No Guild Master client, and no authenticated caller identity.** The
-  (tiered, injection-safe) `guild-control-mcp` client is **Sprint 60**, and with
-  it the transport-derived caller identity that the approval gate's honesty
-  caveat depends on — a separate socket per class of caller, since peer
-  credentials alone cannot separate an agent from a human at the same uid. Until
-  then every client of `control.sock` is the human CLI.
 - **No real reviewer.** `ReviewRunner` is a seam with a stub behind it, wired only
   under `DAEDALUS_CONTROL_FAKE_REVIEW`. With no reviewer configured, review is not
   a gate.
 - **Nothing lands by itself.** Integration is always an explicit
   `daedalus task integrate`; the plane never advances a target on its own.
+- **No parallelism.** One active Job per project; concurrent Jobs and the
+  cross-project task graph are **M16**, typed steering **M17**.
+- **The caller class is a class, not an identity.** Two agent clients on the
+  restricted socket are indistinguishable from each other, and anything already
+  running as the operator can open either socket. The boundary is the container's
+  mount namespace, not the socket's file mode.
 - **No parallelism.** One active Job per project; multiple concurrent worktrees
   are **M16**. `task dispatch` runs the attempt synchronously.
 - **The real `CoordinatorRunner` is host-only.** It needs a Docker daemon and is

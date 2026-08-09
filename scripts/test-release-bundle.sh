@@ -63,6 +63,7 @@ VERSION_FILE="$(cat "$REPO_ROOT/VERSION")"
   go build -o "$STAGING/skill-catalog-mcp-${PLATFORM}"    ./cmd/skill-catalog-mcp
   go build -o "$STAGING/project-mgmt-mcp-${PLATFORM}"     ./cmd/project-mgmt-mcp
   go build -o "$STAGING/guild-mcp-${PLATFORM}"            ./cmd/guild-mcp
+  go build -o "$STAGING/guild-control-mcp-${PLATFORM}"    ./cmd/guild-control-mcp
   go build -o "$STAGING/daedalus-coordinator-${PLATFORM}" ./cmd/daedalus-coordinator
   go build -o "$STAGING/daedalus-control-${PLATFORM}"     ./cmd/daedalus-control
   go build -o "$STAGING/daedalus-runner-${PLATFORM}"      ./cmd/daedalus-runner
@@ -101,6 +102,7 @@ daedalus-coordinator
 daedalus-runner
 docker-compose.yml
 entrypoint.sh
+guild-control-mcp
 guild-mcp
 logo.txt
 project-mgmt-mcp
@@ -110,7 +112,7 @@ skill-catalog-mcp
 wsl2-network.bat"
 ACTUAL_ENTRIES="$(tar -tzf "$DIST/$ARCHIVE_NAME" | LC_ALL=C sort)"
 if [ "$EXPECTED_ENTRIES" = "$ACTUAL_ENTRIES" ]; then
-    pass "archive contains exactly the expected 16 flat entries"
+    pass "archive contains exactly the expected 17 flat entries"
 else
     fail "archive contents differ from expected"
     echo "    --- expected ---"; echo "$EXPECTED_ENTRIES" | sed 's/^/      /'
@@ -132,6 +134,7 @@ check_exec "daedalus binary installed"              "$PREFIX/current/daedalus"
 check_exec "skill-catalog-mcp installed"            "$PREFIX/current/skill-catalog-mcp"
 check_exec "project-mgmt-mcp installed"             "$PREFIX/current/project-mgmt-mcp"
 check_exec "guild-mcp installed"                    "$PREFIX/current/guild-mcp"
+check_exec "guild-control-mcp installed"            "$PREFIX/current/guild-control-mcp"
 check_exec "daedalus-coordinator installed"         "$PREFIX/current/daedalus-coordinator"
 check_exec "daedalus-control installed"             "$PREFIX/current/daedalus-control"
 check_exec "daedalus-runner installed"              "$PREFIX/current/daedalus-runner"

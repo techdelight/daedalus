@@ -51,6 +51,12 @@ const (
 	// ReasonOperationInFlight: the same Task already has a dispatch or verify
 	// running in this process.
 	ReasonOperationInFlight RejectionReason = "operation_in_flight"
+	// ReasonProposalRecorded: an agent asked for a consequential operation; it was
+	// recorded as a proposal for a human to confirm, and did NOT execute.
+	ReasonProposalRecorded RejectionReason = "proposal_recorded"
+	// ReasonForbidden: the caller class may not perform this operation at all, and
+	// may not propose it either.
+	ReasonForbidden RejectionReason = "forbidden"
 	// ReasonApprovalRequired: the project's policy requires a human approval that
 	// has not been given.
 	ReasonApprovalRequired RejectionReason = "approval_required"
@@ -93,6 +99,7 @@ var allRejectionReasons = map[RejectionReason]bool{
 	ReasonReviewCyclesExhausted: true, ReasonConcurrencyExceeded: true,
 	ReasonUnsafeRebase: true, ReasonOperationInFlight: true,
 	ReasonApprovalRequired: true, ReasonReviewRequired: true, ReasonIntegrationRaced: true,
+	ReasonProposalRecorded: true, ReasonForbidden: true,
 	ReasonStaleBase: true, ReasonNullAgentFloor: true,
 	ReasonPolicyDrift: true, ReasonIntegrityGate: true, ReasonVerifyFailed: true,
 	ReasonReviewFailed: true, ReasonApprovalRejected: true,
@@ -109,7 +116,8 @@ func AllRejectionReasons() []RejectionReason {
 	return []RejectionReason{
 		ReasonOverBudget, ReasonInvalidBudget, ReasonAttemptsExhausted,
 		ReasonReviewCyclesExhausted, ReasonConcurrencyExceeded, ReasonUnsafeRebase,
-		ReasonOperationInFlight, ReasonApprovalRequired, ReasonReviewRequired,
+		ReasonOperationInFlight, ReasonProposalRecorded, ReasonForbidden,
+		ReasonApprovalRequired, ReasonReviewRequired,
 		ReasonIntegrationRaced, ReasonStaleBase, ReasonNullAgentFloor,
 		ReasonPolicyDrift, ReasonIntegrityGate, ReasonVerifyFailed, ReasonReviewFailed,
 		ReasonApprovalRejected, ReasonMergeConflict, ReasonMergedVerifyFailed,

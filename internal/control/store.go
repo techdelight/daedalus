@@ -75,6 +75,7 @@ const (
 	ActorPlane  = "control-plane"
 	ActorWorker = "worker"
 	ActorHuman  = "human"  // an operation a person explicitly requested
+	ActorAgent  = "agent"  // an operation an agent client requested (Sprint 60)
 	ActorSystem = "system" // creation, etc.
 )
 
@@ -89,6 +90,7 @@ const (
 	EventIntegration  = "integration"  // a target advance / integration transaction step
 	EventApproval     = "approval"     // a human approve or reject
 	EventReview       = "review"       // an independent reviewer pass
+	EventProposal     = "proposal"     // an agent proposed a consequential operation
 )
 
 // EventMeta annotates an event row. Kind defaults to EventTransition, Reason is
@@ -206,7 +208,7 @@ CREATE INDEX IF NOT EXISTS idx_artifacts_job ON artifacts(job_id);
 -- managed event log, not cryptographically tamper-proof).
 CREATE TABLE IF NOT EXISTS events (
     seq         INTEGER PRIMARY KEY AUTOINCREMENT,
-    entity_type TEXT NOT NULL,   -- 'task' | 'job' | 'artifact' | 'project'
+    entity_type TEXT NOT NULL,   -- 'task' | 'job' | 'artifact' | 'project' | 'queue' | 'proposal'
     entity_id   TEXT NOT NULL,
     kind        TEXT NOT NULL DEFAULT '',  -- created|transition|budget|rejection|verification|governance
     reason      TEXT NOT NULL DEFAULT '',  -- RejectionReason, when this event is a rejection
@@ -230,10 +232,30 @@ CREATE INDEX IF NOT EXISTS idx_events_entity ON events(entity_type, entity_id);
 -- queues on the same trunk. See CanonicalRepoPath.
 CREATE TABLE IF NOT EXISTS integration_targets (
     repo_path  TEXT PRIMARY KEY,
+    queue_id   TEXT NOT NULL DEFAULT '',
     sha        TEXT NOT NULL,
     adopted_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+CREATE INDEX IF NOT EXISTS idx_targets_queue ON integration_targets(queue_id);
+
+-- Proposals: consequential operations an AGENT caller asked for and a human must
+-- confirm (§6's tiered authority). The originating caller class is recorded on
+-- the row, because it is what makes "an agent cannot confirm its own proposal"
+-- checkable rather than assumed.
+CREATE TABLE IF NOT EXISTS proposals (
+    seq          INTEGER PRIMARY KEY AUTOINCREMENT,
+    id           TEXT NOT NULL UNIQUE,
+    operation    TEXT NOT NULL,
+    task_id      TEXT NOT NULL DEFAULT '',
+    argument     TEXT NOT NULL DEFAULT '',
+    proposed_by  TEXT NOT NULL,
+    state        TEXT NOT NULL,
+    detail       TEXT NOT NULL DEFAULT '',
+    created_at   TEXT NOT NULL,
+    updated_at   TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_proposals_state ON proposals(state);
 -- The project-keyed table this replaces existed only on an unreleased development
 -- build (it was added and re-keyed within Sprint 59), so there is no shipped data
 -- to migrate.
@@ -267,6 +289,44 @@ DROP TABLE IF EXISTS targets;
 	// being rebased onto the target and re-verified in that form.
 	if err := s.addColumnIfMissing("artifacts", "integrated_sha", "integrated_sha TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
+	}
+	// Sprint 60: the opaque queue id, so the append-only event log stops carrying
+	// absolute host paths as entity ids.
+	if err := s.addColumnIfMissing("integration_targets", "queue_id", "queue_id TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := s.backfillQueueIDs(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// backfillQueueIDs fills the queue id for rows written before the column existed
+// (unreleased Sprint-59 development builds). It is derived from the stored path,
+// so it is idempotent and needs no external input.
+func (s *Store) backfillQueueIDs() error {
+	rows, err := s.db.Query(`SELECT repo_path FROM integration_targets WHERE queue_id = ''`)
+	if err != nil {
+		return fmt.Errorf("finding targets without a queue id: %w", err)
+	}
+	var paths []string
+	for rows.Next() {
+		var p string
+		if err := rows.Scan(&p); err != nil {
+			rows.Close()
+			return err
+		}
+		paths = append(paths, p)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, p := range paths {
+		if _, err := s.db.Exec(`UPDATE integration_targets SET queue_id = ? WHERE repo_path = ?`,
+			QueueIDFor(p), p); err != nil {
+			return fmt.Errorf("backfilling queue id for %s: %w", p, err)
+		}
 	}
 	return nil
 }
@@ -1157,7 +1217,10 @@ func (s *Store) queryEvents(query string, args ...any) ([]Event, error) {
 // Keyed by repository rather than project so that several registry projects
 // pointing at one checkout share a single merge queue (see CanonicalRepoPath).
 type Target struct {
-	RepoPath  string `json:"repoPath"`
+	RepoPath string `json:"repoPath"`
+	// QueueID is the opaque id used as the event-log entity id and shown to agent
+	// callers, so the append-only log never accumulates host paths (QueueIDFor).
+	QueueID   string `json:"queueId"`
 	SHA       string `json:"sha"`
 	AdoptedAt string `json:"adoptedAt"`
 	UpdatedAt string `json:"updatedAt"`
@@ -1167,8 +1230,8 @@ type Target struct {
 func (s *Store) GetTarget(repoPath string) (Target, error) {
 	var t Target
 	err := s.db.QueryRow(
-		`SELECT repo_path, sha, adopted_at, updated_at FROM integration_targets WHERE repo_path = ?`, repoPath,
-	).Scan(&t.RepoPath, &t.SHA, &t.AdoptedAt, &t.UpdatedAt)
+		`SELECT repo_path, queue_id, sha, adopted_at, updated_at FROM integration_targets WHERE repo_path = ?`, repoPath,
+	).Scan(&t.RepoPath, &t.QueueID, &t.SHA, &t.AdoptedAt, &t.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Target{}, fmt.Errorf("%w: no integration target for repository %q", ErrNotFound, repoPath)
 	}
@@ -1199,8 +1262,8 @@ func (s *Store) AdoptTarget(repoPath, sha string) (Target, error) {
 
 	var existing Target
 	err = tx.QueryRow(
-		`SELECT repo_path, sha, adopted_at, updated_at FROM integration_targets WHERE repo_path = ?`, repoPath,
-	).Scan(&existing.RepoPath, &existing.SHA, &existing.AdoptedAt, &existing.UpdatedAt)
+		`SELECT repo_path, queue_id, sha, adopted_at, updated_at FROM integration_targets WHERE repo_path = ?`, repoPath,
+	).Scan(&existing.RepoPath, &existing.QueueID, &existing.SHA, &existing.AdoptedAt, &existing.UpdatedAt)
 	if err == nil {
 		return existing, nil // already adopted; never silently re-adopt
 	}
@@ -1209,13 +1272,16 @@ func (s *Store) AdoptTarget(repoPath, sha string) (Target, error) {
 	}
 
 	now := s.now()
+	queueID := QueueIDFor(repoPath)
 	if _, err := tx.Exec(
-		`INSERT INTO integration_targets (repo_path, sha, adopted_at, updated_at) VALUES (?, ?, ?, ?)`,
-		repoPath, sha, now, now,
+		`INSERT INTO integration_targets (repo_path, queue_id, sha, adopted_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
+		repoPath, queueID, sha, now, now,
 	); err != nil {
 		return Target{}, fmt.Errorf("adopting target for %s: %w", repoPath, err)
 	}
-	if err := s.logEvent(tx, "repository", repoPath, "", "",
+	// The event log carries the OPAQUE id, never the host path: the log is
+	// append-only, so a path written here could never be retracted.
+	if err := s.logEvent(tx, "queue", queueID, "", "",
 		EventMeta{Kind: EventGovernance}, ActorSystem,
 		"integration target adopted at "+sha+" (trust-on-first-use)"); err != nil {
 		return Target{}, err
@@ -1223,7 +1289,7 @@ func (s *Store) AdoptTarget(repoPath, sha string) (Target, error) {
 	if err := tx.Commit(); err != nil {
 		return Target{}, err
 	}
-	return Target{RepoPath: repoPath, SHA: sha, AdoptedAt: now, UpdatedAt: now}, nil
+	return Target{RepoPath: repoPath, QueueID: queueID, SHA: sha, AdoptedAt: now, UpdatedAt: now}, nil
 }
 
 // AdvanceTarget is the compare-and-swap at the end of the integration
@@ -1258,14 +1324,15 @@ func (s *Store) AdvanceTarget(repoPath, from, to, note string) (Target, error) {
 	if n != 1 {
 		return Target{}, fmt.Errorf("%w: target of %s is no longer %s", ErrConflict, repoPath, from)
 	}
-	if err := s.logEvent(tx, "repository", repoPath, "", "",
+	queueID := QueueIDFor(repoPath)
+	if err := s.logEvent(tx, "queue", queueID, "", "",
 		EventMeta{Kind: EventIntegration}, ActorPlane, note); err != nil {
 		return Target{}, err
 	}
 	if err := tx.Commit(); err != nil {
 		return Target{}, err
 	}
-	return Target{RepoPath: repoPath, SHA: to, UpdatedAt: now}, nil
+	return Target{RepoPath: repoPath, QueueID: queueID, SHA: to, UpdatedAt: now}, nil
 }
 
 // SetTarget re-points a project's target unconditionally — the human resync for
@@ -1285,30 +1352,31 @@ func (s *Store) SetTarget(repoPath, sha string, meta EventMeta, note string) (Ta
 	defer tx.Rollback()
 
 	now := s.now()
-	res, err := tx.Exec(`UPDATE integration_targets SET sha = ?, updated_at = ? WHERE repo_path = ?`, sha, now, repoPath)
+	queueID := QueueIDFor(repoPath)
+	res, err := tx.Exec(`UPDATE integration_targets SET sha = ?, queue_id = ?, updated_at = ? WHERE repo_path = ?`, sha, queueID, now, repoPath)
 	if err != nil {
 		return Target{}, fmt.Errorf("setting target for %s: %w", repoPath, err)
 	}
 	if n, _ := res.RowsAffected(); n != 1 {
 		if _, err := tx.Exec(
-			`INSERT INTO integration_targets (repo_path, sha, adopted_at, updated_at) VALUES (?, ?, ?, ?)`,
-			repoPath, sha, now, now,
+			`INSERT INTO integration_targets (repo_path, queue_id, sha, adopted_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
+			repoPath, queueID, sha, now, now,
 		); err != nil {
 			return Target{}, fmt.Errorf("setting target for %s: %w", repoPath, err)
 		}
 	}
-	if err := s.logEvent(tx, "repository", repoPath, "", "", meta, ActorPlane, note); err != nil {
+	if err := s.logEvent(tx, "queue", queueID, "", "", meta, ActorPlane, note); err != nil {
 		return Target{}, err
 	}
 	if err := tx.Commit(); err != nil {
 		return Target{}, err
 	}
-	return Target{RepoPath: repoPath, SHA: sha, AdoptedAt: now, UpdatedAt: now}, nil
+	return Target{RepoPath: repoPath, QueueID: queueID, SHA: sha, AdoptedAt: now, UpdatedAt: now}, nil
 }
 
 // ListTargets returns every repository's target, ordered by path.
 func (s *Store) ListTargets() ([]Target, error) {
-	rows, err := s.db.Query(`SELECT repo_path, sha, adopted_at, updated_at FROM integration_targets ORDER BY repo_path ASC`)
+	rows, err := s.db.Query(`SELECT repo_path, queue_id, sha, adopted_at, updated_at FROM integration_targets ORDER BY repo_path ASC`)
 	if err != nil {
 		return nil, err
 	}
@@ -1316,10 +1384,173 @@ func (s *Store) ListTargets() ([]Target, error) {
 	var out []Target
 	for rows.Next() {
 		var t Target
-		if err := rows.Scan(&t.RepoPath, &t.SHA, &t.AdoptedAt, &t.UpdatedAt); err != nil {
+		if err := rows.Scan(&t.RepoPath, &t.QueueID, &t.SHA, &t.AdoptedAt, &t.UpdatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, t)
 	}
 	return out, rows.Err()
+}
+
+// ---- Proposals -----------------------------------------------------------------
+
+// ProposalState is the lifecycle of a human-confirmed proposal.
+type ProposalState string
+
+const (
+	// ProposalPending is awaiting a human decision.
+	ProposalPending ProposalState = "pending"
+	// ProposalConfirmed was confirmed by a human and the operation ran.
+	ProposalConfirmed ProposalState = "confirmed"
+	// ProposalDenied was declined by a human; the operation never ran.
+	ProposalDenied ProposalState = "denied"
+	// ProposalFailed was confirmed, but the operation itself then failed.
+	ProposalFailed ProposalState = "failed"
+)
+
+// Proposal is a consequential operation an agent asked for and a human must
+// confirm (§6's tiered authority). It is a *record of a request*, never an
+// authorisation: nothing executes because a proposal exists.
+type Proposal struct {
+	ID        string `json:"id"` // e.g. "P-1"
+	Operation string `json:"operation"`
+	TaskID    string `json:"taskId,omitempty"`
+	Argument  string `json:"argument,omitempty"`
+	// ProposedBy is the caller CLASS that made the request, derived from the
+	// transport (caller.go). It is what makes "an agent cannot confirm its own
+	// proposal" a checkable property rather than an assumption.
+	ProposedBy CallerClass   `json:"proposedBy"`
+	State      ProposalState `json:"state"`
+	Detail     string        `json:"detail,omitempty"`
+	CreatedAt  string        `json:"createdAt"`
+	UpdatedAt  string        `json:"updatedAt"`
+}
+
+// CreateProposal records a pending proposal and logs it, atomically.
+func (s *Store) CreateProposal(operation, taskID, argument string, by CallerClass) (Proposal, error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return Proposal{}, err
+	}
+	defer tx.Rollback()
+
+	id, err := nextID(tx, "proposals", "P")
+	if err != nil {
+		return Proposal{}, err
+	}
+	now := s.now()
+	p := Proposal{
+		ID: id, Operation: operation, TaskID: taskID, Argument: argument,
+		ProposedBy: by, State: ProposalPending, CreatedAt: now, UpdatedAt: now,
+	}
+	if _, err := tx.Exec(
+		`INSERT INTO proposals (id, operation, task_id, argument, proposed_by, state, detail, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, '', ?, ?)`,
+		p.ID, p.Operation, p.TaskID, p.Argument, string(p.ProposedBy), string(p.State), p.CreatedAt, p.UpdatedAt,
+	); err != nil {
+		return Proposal{}, fmt.Errorf("inserting proposal: %w", err)
+	}
+	entityID, entityType := p.TaskID, "task"
+	if entityID == "" {
+		entityID, entityType = p.ID, "proposal"
+	}
+	if err := s.logEvent(tx, entityType, entityID, "", "",
+		EventMeta{Kind: EventProposal, Actor: string(by)}, string(by),
+		fmt.Sprintf("proposal %s: %s (awaiting human confirmation)", p.ID, p.Operation)); err != nil {
+		return Proposal{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Proposal{}, err
+	}
+	return p, nil
+}
+
+// GetProposal returns a proposal by id, or ErrNotFound.
+func (s *Store) GetProposal(id string) (Proposal, error) {
+	return scanProposal(s.db.QueryRow(proposalSelect+` WHERE id = ?`, id))
+}
+
+// ResolveProposal moves a pending proposal to a terminal state. The transition is
+// atomic and optimistic: it only affects a row still in `pending`, so a proposal
+// cannot be confirmed twice or confirmed after being denied.
+func (s *Store) ResolveProposal(id string, to ProposalState, meta EventMeta, detail string) (Proposal, error) {
+	if to == ProposalPending {
+		return Proposal{}, fmt.Errorf("control: cannot resolve a proposal back to pending")
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return Proposal{}, err
+	}
+	defer tx.Rollback()
+
+	cur, err := scanProposal(tx.QueryRow(proposalSelect+` WHERE id = ?`, id))
+	if err != nil {
+		return Proposal{}, err
+	}
+	now := s.now()
+	res, err := tx.Exec(
+		`UPDATE proposals SET state = ?, detail = ?, updated_at = ? WHERE id = ? AND state = ?`,
+		string(to), detail, now, id, string(ProposalPending),
+	)
+	if err != nil {
+		return Proposal{}, fmt.Errorf("resolving proposal: %w", err)
+	}
+	if n, err := res.RowsAffected(); err != nil {
+		return Proposal{}, err
+	} else if n != 1 {
+		return Proposal{}, fmt.Errorf("%w: proposal %s is %s, not pending", ErrConflict, id, cur.State)
+	}
+	entityID, entityType := cur.TaskID, "task"
+	if entityID == "" {
+		entityID, entityType = cur.ID, "proposal"
+	}
+	if err := s.logEvent(tx, entityType, entityID, "", "", meta, ActorHuman,
+		fmt.Sprintf("proposal %s (%s) %s: %s", cur.ID, cur.Operation, to, detail)); err != nil {
+		return Proposal{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Proposal{}, err
+	}
+	cur.State, cur.Detail, cur.UpdatedAt = to, detail, now
+	return cur, nil
+}
+
+// ListProposals returns proposals, optionally filtered to one state.
+func (s *Store) ListProposals(state ProposalState) ([]Proposal, error) {
+	query, args := proposalSelect+` ORDER BY seq ASC`, []any{}
+	if state != "" {
+		query = proposalSelect + ` WHERE state = ? ORDER BY seq ASC`
+		args = append(args, string(state))
+	}
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Proposal
+	for rows.Next() {
+		p, err := scanProposal(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+const proposalSelect = `SELECT id, operation, task_id, argument, proposed_by, state, detail, created_at, updated_at FROM proposals`
+
+func scanProposal(sc rowScanner) (Proposal, error) {
+	var p Proposal
+	var by, state string
+	err := sc.Scan(&p.ID, &p.Operation, &p.TaskID, &p.Argument, &by, &state, &p.Detail, &p.CreatedAt, &p.UpdatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Proposal{}, ErrNotFound
+	}
+	if err != nil {
+		return Proposal{}, err
+	}
+	p.ProposedBy = parseCallerClass(by)
+	p.State = ProposalState(state)
+	return p, nil
 }

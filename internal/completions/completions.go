@@ -72,7 +72,7 @@ _daedalus() {
             COMPREPLY=($(compgen -W "list use rollback prune --keep" -- "${cur}"))
             ;;
         task)
-            COMPREPLY=($(compgen -W "create list status dispatch verify review approve reject integrate approvals target retry replan events cancel --project --objective --acceptance --wall-clock --max-attempts --max-review-cycles --concurrency --rebase --note --sync" -- "${cur}"))
+            COMPREPLY=($(compgen -W "create list status dispatch verify review approve reject integrate approvals proposals target retry replan events cancel --project --objective --acceptance --wall-clock --max-attempts --max-review-cycles --concurrency --rebase --note --sync" -- "${cur}"))
             ;;
         *)
             COMPREPLY=($(compgen -W "${flags}" -- "${cur}"))
@@ -173,7 +173,7 @@ _daedalus() {
                     _values 'action' list use rollback prune --keep
                     ;;
                 task)
-                    _values 'action' create list status dispatch verify review approve reject integrate approvals target retry replan events cancel --project --objective --acceptance --wall-clock --max-attempts --max-review-cycles --concurrency --rebase --note --sync
+                    _values 'action' create list status dispatch verify review approve reject integrate approvals proposals target retry replan events cancel --project --objective --acceptance --wall-clock --max-attempts --max-review-cycles --concurrency --rebase --note --sync
                     ;;
                 *)
                     _describe -t flags 'flag' flags
@@ -212,7 +212,7 @@ complete -c daedalus -n '__fish_use_subcommand' -a 'version' -d 'Manage side-by-
 complete -c daedalus -n '__fish_seen_subcommand_from version' -a 'list use rollback prune' -d 'version action'
 complete -c daedalus -n '__fish_seen_subcommand_from version' -l keep -d 'Versions to keep when pruning' -r
 complete -c daedalus -n '__fish_use_subcommand' -a 'task' -d 'Manage host-side control-plane tasks'
-complete -c daedalus -n '__fish_seen_subcommand_from task' -a 'create list status dispatch verify review approve reject integrate approvals target retry replan events cancel' -d 'task action'
+complete -c daedalus -n '__fish_seen_subcommand_from task' -a 'create list status dispatch verify review approve reject integrate approvals proposals target retry replan events cancel' -d 'task action'
 complete -c daedalus -n '__fish_seen_subcommand_from task' -l project -d 'Project name for task create' -r
 complete -c daedalus -n '__fish_seen_subcommand_from task' -l objective -d 'Objective text for task create/replan' -r
 complete -c daedalus -n '__fish_seen_subcommand_from task' -l acceptance -d 'Acceptance reference for task create' -r
@@ -223,6 +223,7 @@ complete -c daedalus -n '__fish_seen_subcommand_from task' -l concurrency -d 'Ma
 complete -c daedalus -n '__fish_seen_subcommand_from task' -l rebase -d 'Re-pin a retry to the integration target (stale base)'
 complete -c daedalus -n '__fish_seen_subcommand_from task' -l note -d 'Note recorded with an approve/reject decision' -r
 complete -c daedalus -n '__fish_seen_subcommand_from task' -l sync -d 'Resync a project integration target to its checkout HEAD'
+complete -c daedalus -n '__fish_seen_subcommand_from task' -l all -d 'Include resolved proposals in the list' 
 
 # Global flags
 complete -c daedalus -l build -d 'Force rebuild the Docker image'

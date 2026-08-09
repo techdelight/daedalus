@@ -29,7 +29,7 @@ func manageTasks(cfg *core.Config) error {
 	args := cfg.TaskArgs
 	if len(args) == 0 {
 		printTaskUsage()
-		return fmt.Errorf("task: subcommand required (create|list|status|dispatch|verify|review|approve|reject|integrate|approvals|target|retry|replan|events|cancel)")
+		return fmt.Errorf("task: subcommand required (create|list|status|dispatch|verify|review|approve|reject|integrate|approvals|proposals|target|retry|replan|events|cancel)")
 	}
 	if args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
 		printTaskUsage()
@@ -75,10 +75,12 @@ func runTaskCommand(api control.TaskAPI, args []string) error {
 		return taskApprovals(api, args[1:])
 	case "target":
 		return taskTarget(api, args[1:])
+	case "proposals":
+		return taskProposals(api, args[1:])
 	case "cancel":
 		return taskCancel(api, args[1:])
 	default:
-		return fmt.Errorf("task: unknown subcommand %q\n%s daedalus task <create|list|status|dispatch|verify|review|approve|reject|integrate|approvals|target|retry|replan|events|cancel>", args[0], color.Cyan("Hint:"))
+		return fmt.Errorf("task: unknown subcommand %q\n%s daedalus task <create|list|status|dispatch|verify|review|approve|reject|integrate|approvals|proposals|target|retry|replan|events|cancel>", args[0], color.Cyan("Hint:"))
 	}
 }
 
@@ -628,6 +630,78 @@ func taskTarget(api control.TaskAPI, args []string) error {
 	return nil
 }
 
+// taskProposals implements `task proposals [list|confirm <id>|deny <id>]` — the
+// human end of the tiered-authority flow. An agent that asks for a consequential
+// operation gets a proposal; this is where a person decides.
+func taskProposals(api control.TaskAPI, args []string) error {
+	action := "list"
+	if len(args) > 0 {
+		action = args[0]
+	}
+	switch action {
+	case "list":
+		state := control.ProposalPending
+		if len(args) > 1 {
+			if args[1] == "--all" {
+				state = ""
+			} else {
+				return fmt.Errorf("task proposals list: unknown flag %q\n%s usage: daedalus task proposals list [--all]", args[1], color.Cyan("Hint:"))
+			}
+		}
+		proposals, err := api.ListProposals(state)
+		if err != nil {
+			return err
+		}
+		if len(proposals) == 0 {
+			fmt.Println("No proposals awaiting a decision.")
+			return nil
+		}
+		fmt.Printf("%-5s  %-22s  %-8s  %-10s  %s\n",
+			color.Bold("ID"), color.Bold("OPERATION"), color.Bold("TASK"),
+			color.Bold("BY"), color.Bold("STATE"))
+		fmt.Printf("%-5s  %-22s  %-8s  %-10s  %s\n", "-----", "----------------------", "--------", "----------", "-----")
+		for _, p := range proposals {
+			fmt.Printf("%-5s  %-22s  %-8s  %-10s  %s\n",
+				p.ID, truncate(p.Operation, 22), orDash(p.TaskID), p.ProposedBy, p.State)
+			if p.Argument != "" {
+				fmt.Printf("       %s\n", truncate(p.Argument, 90))
+			}
+		}
+		fmt.Println()
+		fmt.Println("Confirm with `daedalus task proposals confirm <id>`, deny with `... deny <id>`.")
+		fmt.Println("Confirming EXECUTES the operation as you; denying does nothing at all.")
+		return nil
+
+	case "confirm", "deny":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: daedalus task proposals %s <id> [--note <text>]", action)
+		}
+		id, note, err := idAndNote("proposals "+action, args[1:])
+		if err != nil {
+			return err
+		}
+		p, err := api.ResolveProposal(id, action == "confirm", note)
+		if err != nil {
+			if errors.Is(err, control.ErrNotFound) {
+				return fmt.Errorf("proposal %q not found", id)
+			}
+			return err
+		}
+		if action == "deny" {
+			fmt.Printf("%s proposal %s denied — %s was NOT performed\n",
+				color.Yellow("Denied:"), color.Bold(p.ID), p.Operation)
+			return nil
+		}
+		fmt.Printf("%s proposal %s confirmed — %s performed as you\n",
+			color.Green("OK:"), color.Bold(p.ID), p.Operation)
+		return nil
+
+	default:
+		return fmt.Errorf("task proposals: unknown action %q\n%s usage: daedalus task proposals [list [--all] | confirm <id> | deny <id>]",
+			action, color.Cyan("Hint:"))
+	}
+}
+
 // taskCancel implements `task cancel <id>` via a legal transition to cancelled.
 func taskCancel(api control.TaskAPI, args []string) error {
 	if len(args) < 1 {
@@ -702,6 +776,9 @@ func printTaskUsage() {
 	fmt.Println("  integrate <id>       Land it: rebase onto the target, re-verify the MERGED result,")
 	fmt.Println("                       then compare-and-swap the plane-owned target ref")
 	fmt.Println("  approvals            List everything awaiting a human decision")
+	fmt.Println("  proposals [list [--all] | confirm <id> | deny <id>]")
+	fmt.Println("                       Consequential operations an AGENT asked for; confirming")
+	fmt.Println("                       executes them as you, denying does nothing")
 	fmt.Println("  target [<project> --sync]")
 	fmt.Println("                       Show the plane-owned integration targets, or resync one by hand")
 	fmt.Println("  cancel <id>          Cancel a task (legal transition to cancelled)")

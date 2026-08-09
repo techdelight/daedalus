@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -20,6 +21,18 @@ import (
 // wraps the registry; tests inject a map.
 type ProjectResolver interface {
 	ProjectDir(name string) (string, error)
+}
+
+// ProjectLister is an optional extension to ProjectResolver: a resolver that can
+// enumerate the projects it knows about. The registry-backed resolver implements
+// it; a test map may not, so callers must type-assert and degrade.
+//
+// It exists so the shared-queue view is derived from the REGISTRY rather than
+// from the tasks table — a queue shared by a project that has no tasks yet would
+// otherwise look unshared, which is exactly when an operator most needs to know
+// two projects will serialize against each other.
+type ProjectLister interface {
+	ProjectNames() ([]string, error)
 }
 
 // SessionObserver reports whether the coordinator currently has a live session
@@ -123,6 +136,8 @@ type TaskAPI interface {
 	PendingApprovals() ([]Task, error)
 	ProjectTargets() ([]TargetView, error)
 	SyncTarget(project string) (Target, error)
+	ListProposals(state ProposalState) ([]Proposal, error)
+	ResolveProposal(id string, confirm bool, note string) (Proposal, error)
 	// TaskEvents is READ-ONLY and is the only event-facing operation on this
 	// interface — there is deliberately no append/amend/delete counterpart, which
 	// is what "immutable through the API" means in practice (§6).
@@ -228,25 +243,15 @@ func (s *Service) Store() *Store { return s.store }
 // unchanged. Nil disables digest pinning.
 func (s *Service) SetImageDigester(d ImageDigester) { s.digester = d }
 
-// callerActor returns the actor label for the request currently being served.
+// governanceMetaFor is the event annotation for an explicitly-requested
+// governance act (retry / replan / rebase), attributed to its caller.
 //
-// The label is decided HERE, at the service boundary, not deep in the store —
-// the store's job is to record who acted, never to invent it. Today every client
-// of control.sock is the human `daedalus task` CLI, so this is ActorHuman.
-//
-// Sprint 60 (`guild-control-mcp`) puts an agent on the same socket, and at that
-// point this must become a per-request value derived from the TRANSPORT — peer
-// credentials, or a separate socket per class of caller — and never from
-// anything in the request body. A client that could name its own actor could
-// claim to be human, which is worse than not labelling at all. That threading
-// touches every TaskAPI signature, so it is deliberately left to Sprint 60; this
-// method is the single place it has to land.
-func (s *Service) callerActor() string { return ActorHuman }
-
-// governanceMeta is the event annotation for an explicitly-requested governance
-// act (retry / replan / rebase).
-func (s *Service) governanceMeta() EventMeta {
-	return EventMeta{Kind: EventGovernance, Actor: s.callerActor()}
+// The actor is decided at the SERVICE boundary from the caller identity the
+// daemon derived from the transport (caller.go) — never from anything in the
+// request body, and never invented by the store. This is the seam Sprint 58
+// promised and Sprint 60 filled: it is now a real per-request value.
+func governanceMetaFor(c Caller) EventMeta {
+	return EventMeta{Kind: EventGovernance, Actor: c.Actor()}
 }
 
 // SetPolicySource installs the per-project governance policy source — budget
@@ -288,7 +293,10 @@ func (s *Service) refuse(entityType, entityID string, kind string, reason Reject
 // CreateTask resolves the project through the trusted registry, enforces the
 // Git-native prerequisite (captures base_sha from HEAD), and inserts a planned
 // Task — rejecting a second active task per project (store invariant).
-func (s *Service) CreateTask(req CreateTaskRequest) (Task, error) {
+func (s *Service) CreateTask(req CreateTaskRequest) (Task, error) { return s.createTask(Human(), req) }
+
+// createTask is CreateTask with an explicit caller identity.
+func (s *Service) createTask(caller Caller, req CreateTaskRequest) (Task, error) {
 	if req.Project == "" {
 		return Task{}, fmt.Errorf("control: project is required")
 	}
@@ -414,7 +422,10 @@ func (s *Service) TaskStatus(id string) (StatusView, error) {
 // CancelTask cancels a task and any non-terminal jobs, reclaiming their
 // worktrees. The task transition is the authority; job/worktree cleanup is
 // best-effort follow-through.
-func (s *Service) CancelTask(id string) (Task, error) {
+func (s *Service) CancelTask(id string) (Task, error) { return s.cancelTask(Human(), id) }
+
+// cancelTask is CancelTask with an explicit caller identity.
+func (s *Service) cancelTask(caller Caller, id string) (Task, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -436,7 +447,7 @@ func (s *Service) CancelTask(id string) (Task, error) {
 		}
 	}
 	return s.store.TransitionTaskWith(id, StateCancelled, false,
-		EventMeta{Actor: s.callerActor()}, "cancelled")
+		EventMeta{Actor: caller.Actor()}, "cancelled")
 }
 
 // DispatchTask runs one headless Job attempt for a task: create the Job, add its
@@ -960,10 +971,15 @@ func (s *Service) doReject(task Task, job Job, art *Artifact, repoDir string, re
 // That is deliberately opt-in: re-freezing the oracle at a newer commit adopts
 // whatever verify policy that commit carries, so a human asks for it by name.
 func (s *Service) RetryTask(id string, req RetryRequest) (RetryResult, error) {
+	return s.retryTask(Human(), id, req)
+}
+
+// retryTask is RetryTask with an explicit caller identity.
+func (s *Service) retryTask(caller Caller, id string, req RetryRequest) (RetryResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	res, prep, err := s.prepareRetry(id, req)
+	res, prep, err := s.prepareRetry(caller, id, req)
 	if err != nil {
 		return RetryResult{}, err
 	}
@@ -980,7 +996,7 @@ func (s *Service) RetryTask(id string, req RetryRequest) (RetryResult, error) {
 
 // prepareRetry is the locked half of RetryTask: guards, budget, the optional
 // rebase, the governance event, and the dispatch preparation. s.mu MUST be held.
-func (s *Service) prepareRetry(id string, req RetryRequest) (RetryResult, dispatchPrep, error) {
+func (s *Service) prepareRetry(caller Caller, id string, req RetryRequest) (RetryResult, dispatchPrep, error) {
 	task, err := s.store.GetTask(id)
 	if err != nil {
 		return RetryResult{}, dispatchPrep{}, err
@@ -1026,7 +1042,7 @@ func (s *Service) prepareRetry(id string, req RetryRequest) (RetryResult, dispat
 			}
 			note := fmt.Sprintf("rebase: %s → %s (acceptance policy re-frozen at the new base)",
 				shortSHA(task.BaseSHA), shortSHA(tip))
-			updated, err := s.store.RebaseTask(id, tip, policy.Hash(), s.governanceMeta(), note)
+			updated, err := s.store.RebaseTask(id, tip, policy.Hash(), governanceMetaFor(caller), note)
 			if err != nil {
 				return RetryResult{}, dispatchPrep{}, err
 			}
@@ -1037,7 +1053,7 @@ func (s *Service) prepareRetry(id string, req RetryRequest) (RetryResult, dispat
 	res.BaseSHA = task.BaseSHA
 
 	if err := s.store.LogDecision("task", id,
-		s.governanceMeta(),
+		governanceMetaFor(caller),
 		fmt.Sprintf("retry: attempt %d of %d", res.Attempt, task.Budget.MaxAttempts)); err != nil {
 		log.Printf("control: logging retry of %s: %v", id, err)
 	}
@@ -1086,6 +1102,11 @@ func (s *Service) refuseSelfAuthoredRebase(task Task, repoDir, tip string) error
 // preserved intact, and the new objective is recorded in the event log next to
 // the one it replaced.
 func (s *Service) ReplanTask(id string, req ReplanRequest) (Task, error) {
+	return s.replanTask(Human(), id, req)
+}
+
+// replanTask is ReplanTask with an explicit caller identity.
+func (s *Service) replanTask(caller Caller, id string, req ReplanRequest) (Task, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -1104,7 +1125,7 @@ func (s *Service) ReplanTask(id string, req ReplanRequest) (Task, error) {
 	if err := s.checkDispatchBudget(task); err != nil {
 		return Task{}, err
 	}
-	return s.store.ReplanTask(id, req.Objective, s.governanceMeta(),
+	return s.store.ReplanTask(id, req.Objective, governanceMetaFor(caller),
 		fmt.Sprintf("replan: objective %q → %q", task.Objective, req.Objective))
 }
 
@@ -1357,6 +1378,20 @@ func (s *Service) sessionLive(project string) (live, verifiable bool) {
 
 // RegistryResolver resolves project directories through the on-disk registry.
 type RegistryResolver struct{ Reg *registry.Registry }
+
+// ProjectNames implements ProjectLister.
+func (r RegistryResolver) ProjectNames() ([]string, error) {
+	entries, err := r.Reg.GetProjectEntries()
+	if err != nil {
+		return nil, fmt.Errorf("listing registry projects: %w", err)
+	}
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		names = append(names, e.Name)
+	}
+	sort.Strings(names)
+	return names, nil
+}
 
 // ProjectDir implements ProjectResolver.
 func (r RegistryResolver) ProjectDir(name string) (string, error) {

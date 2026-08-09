@@ -42,9 +42,10 @@ import (
 )
 
 type daemonConfig struct {
-	socket  string
-	dataDir string
-	pidFile string
+	socket      string
+	agentSocket string
+	dataDir     string
+	pidFile     string
 }
 
 // reconcileEvery is the periodic reconcile cadence.
@@ -73,6 +74,9 @@ func main() {
 	}
 	if cfg.socket == "" {
 		cfg.socket = control.DefaultSocketPath(cfg.dataDir)
+	}
+	if cfg.agentSocket == "" {
+		cfg.agentSocket = control.AgentSocketPath(cfg.dataDir)
 	}
 	if err := os.MkdirAll(filepath.Dir(cfg.socket), 0o755); err != nil {
 		fatalf("create socket directory: %v", err)
@@ -160,13 +164,33 @@ func main() {
 			rep.CheckedActive, rep.FailedVanished, rep.RemovedOrphans, rep.SkippedUnverified)
 	}
 
-	server := control.NewServer(svc)
+	// TWO LISTENERS, one per caller class. Which socket a connection arrives on
+	// IS the caller identity (control.Caller): the human CLI/Web/TUI use
+	// control.sock, and an agent client (guild-control-mcp) is given only
+	// control-agent.sock inside its container. Peer credentials cannot make this
+	// distinction — same uid — so the split is the mechanism.
+	server := control.NewServerForCaller(svc, control.Human())
 	_ = os.Remove(cfg.socket)
 	l, err := net.Listen("unix", cfg.socket)
 	if err != nil {
 		fatalf("listen on %s: %v", cfg.socket, err)
 	}
 	httpSrv := &http.Server{Handler: server.Handler(), ReadTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}
+
+	agentServer := control.NewServerForCaller(svc, control.Agent())
+	_ = os.Remove(cfg.agentSocket)
+	agentListener, err := net.Listen("unix", cfg.agentSocket)
+	if err != nil {
+		fatalf("listen on %s: %v", cfg.agentSocket, err)
+	}
+	// The agent socket is mode 0660: the mount namespace is the real boundary
+	// (only the Guild Master's container gets this file), but there is no reason
+	// to leave it world-writable on the host either.
+	if err := os.Chmod(cfg.agentSocket, 0o660); err != nil {
+		log.Printf("chmod agent socket: %v (continuing)", err)
+	}
+	agentSrv := &http.Server{Handler: agentServer.Handler(), ReadTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}
+	defer os.Remove(cfg.agentSocket)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -189,11 +213,12 @@ func main() {
 		}
 	}()
 
-	errCh := make(chan error, 1)
+	errCh := make(chan error, 2)
 	go func() {
-		log.Printf("listening on %s (data-dir=%s)", cfg.socket, cfg.dataDir)
+		log.Printf("listening on %s (human) and %s (agent) (data-dir=%s)", cfg.socket, cfg.agentSocket, cfg.dataDir)
 		errCh <- httpSrv.Serve(l)
 	}()
+	go func() { errCh <- agentSrv.Serve(agentListener) }()
 
 	select {
 	case <-ctx.Done():
@@ -209,7 +234,11 @@ func main() {
 	if err := httpSrv.Shutdown(shutdownCtx); err != nil {
 		log.Printf("shutdown: %v", err)
 	}
+	if err := agentSrv.Shutdown(shutdownCtx); err != nil {
+		log.Printf("agent shutdown: %v", err)
+	}
 	_ = os.Remove(cfg.socket)
+	_ = os.Remove(cfg.agentSocket)
 	log.Printf("stopped")
 }
 
@@ -293,7 +322,8 @@ func (c coordinatorSessions) HasSession(project string) (bool, error) {
 
 func parseFlags() daemonConfig {
 	var cfg daemonConfig
-	flag.StringVar(&cfg.socket, "socket", "", "Unix socket path (default: <DataDir>/.daedalus/control.sock)")
+	flag.StringVar(&cfg.socket, "socket", "", "human Unix socket path (default: <DataDir>/.daedalus/control.sock)")
+	flag.StringVar(&cfg.agentSocket, "agent-socket", "", "restricted agent Unix socket path (default: <DataDir>/.daedalus/control-agent.sock)")
 	flag.StringVar(&cfg.dataDir, "data-dir", "", "Base data directory (default: from config.json, then <ScriptDir>/.cache)")
 	flag.StringVar(&cfg.pidFile, "pid-file", "", "Write PID to this file on startup, remove on exit")
 	flag.Parse()

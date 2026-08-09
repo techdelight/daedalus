@@ -132,6 +132,26 @@ func refSearchDirs(gitDir string) []string {
 // git cannot answer, the resolved absolute path is used — worse as an identity,
 // but never worse than the project name it replaces.
 func CanonicalRepoPath(dir string) (string, error) {
+	// A LINKED WORKTREE must resolve to its PARENT repository, not to itself:
+	// `--show-toplevel` inside one returns the worktree's own directory, which
+	// would give a Job's checkout a separate merge queue from the repository it
+	// belongs to. `--git-common-dir` points at the parent's .git regardless of
+	// which worktree we are standing in, so its parent directory is the shared
+	// identity. (In a normal checkout the common dir IS ./.git, so this path and
+	// --show-toplevel agree.)
+	if out, err := runGit(dir, "rev-parse", "--git-common-dir"); err == nil {
+		if common := strings.TrimSpace(out); common != "" {
+			if !filepath.IsAbs(common) {
+				common = filepath.Join(dir, common)
+			}
+			// <root>/.git → <root>. A bare repository has no worktree above it, so
+			// the common dir itself is the identity.
+			if filepath.Base(common) == ".git" {
+				return resolvePath(filepath.Dir(common)), nil
+			}
+			return resolvePath(common), nil
+		}
+	}
 	if out, err := runGit(dir, "rev-parse", "--show-toplevel"); err == nil {
 		if top := strings.TrimSpace(out); top != "" {
 			return resolvePath(top), nil

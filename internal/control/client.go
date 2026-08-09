@@ -230,6 +230,29 @@ func (c *Client) getJSON(path string, out any) error {
 	return json.NewDecoder(resp.Body).Decode(out)
 }
 
+// ListProposals implements TaskAPI.
+func (c *Client) ListProposals(state ProposalState) ([]Proposal, error) {
+	path := "/proposals"
+	if state != "" {
+		path += "?state=" + url.QueryEscape(string(state))
+	}
+	var out []Proposal
+	if err := c.getJSON(path, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ResolveProposal implements TaskAPI.
+func (c *Client) ResolveProposal(id string, confirm bool, note string) (Proposal, error) {
+	action := "deny"
+	if confirm {
+		action = "confirm"
+	}
+	var p Proposal
+	return p, c.postJSON("/proposals/"+url.PathEscape(id)+"/"+action, approvalRequest{Note: note}, &p)
+}
+
 // CancelTask implements TaskAPI.
 func (c *Client) CancelTask(id string) (Task, error) {
 	req, _ := http.NewRequest(http.MethodDelete, c.baseURL+"/tasks/"+url.PathEscape(id), nil)

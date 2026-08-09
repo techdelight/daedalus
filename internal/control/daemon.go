@@ -31,7 +31,11 @@ package control
 //	POST   /tasks/{id}/integrate                          → 200 IntegrationResult
 //	                                                       → 422 approval/review/merge refusal
 //	GET    /approvals                                     → 200 []Task awaiting a human
-//	GET    /targets                                       → 200 []Target
+//	GET    /targets                                       → 200 []TargetView
+//	GET    /proposals[?state=pending]                     → 200 []Proposal
+//	POST   /proposals/{id}/confirm  body: {note}          → 200 Proposal (and the
+//	                                                          operation executes)
+//	POST   /proposals/{id}/deny     body: {note}          → 200 Proposal
 //	POST   /targets/{project}/sync                        → 200 Target (human resync)
 //	DELETE /tasks/{id}                                    → 200 Task (cancelled)
 //	                                                       → 404 unknown id
@@ -54,12 +58,23 @@ import (
 )
 
 // Server exposes a TaskAPI (a *Service) over HTTP. It holds no state of its own.
+//
+// The daemon builds ONE Server PER LISTENER, each wrapping the same Service
+// through a different caller scope. That is what makes the caller identity
+// unforgeable: the class is decided by which socket accepted the connection, not
+// by anything in the request (see caller.go).
 type Server struct {
 	api TaskAPI
 }
 
-// NewServer wraps a TaskAPI (normally a *Service).
+// NewServer wraps a TaskAPI (normally a *Service) for the HUMAN socket.
 func NewServer(api TaskAPI) *Server { return &Server{api: api} }
+
+// NewServerForCaller wraps a Service for one caller class. The returned Server
+// serves the same routes; what differs is the authority behind them.
+func NewServerForCaller(svc *Service, caller Caller) *Server {
+	return &Server{api: svc.WithCaller(caller)}
+}
 
 // Handler wires the task routes (Go 1.22+ method+path patterns).
 func (s *Server) Handler() http.Handler {
@@ -81,6 +96,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /tasks/{id}/integrate", s.handleIntegrate)
 	mux.HandleFunc("GET /approvals", s.handlePendingApprovals)
 	mux.HandleFunc("GET /targets", s.handleTargets)
+	mux.HandleFunc("GET /proposals", s.handleListProposals)
+	mux.HandleFunc("POST /proposals/{id}/confirm", s.handleConfirmProposal)
+	mux.HandleFunc("POST /proposals/{id}/deny", s.handleDenyProposal)
 	mux.HandleFunc("POST /targets/{project}/sync", s.handleSyncTarget)
 	mux.HandleFunc("DELETE /tasks/{id}", s.handleCancel)
 	return mux
@@ -292,6 +310,40 @@ func (s *Server) handleSyncTarget(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, t)
 }
 
+func (s *Server) handleListProposals(w http.ResponseWriter, r *http.Request) {
+	proposals, err := s.api.ListProposals(ProposalState(r.URL.Query().Get("state")))
+	if err != nil {
+		writeError(w, statusFor(err), err)
+		return
+	}
+	if proposals == nil {
+		proposals = []Proposal{}
+	}
+	writeJSON(w, http.StatusOK, proposals)
+}
+
+func (s *Server) handleConfirmProposal(w http.ResponseWriter, r *http.Request) {
+	s.resolveProposal(w, r, true)
+}
+
+func (s *Server) handleDenyProposal(w http.ResponseWriter, r *http.Request) {
+	s.resolveProposal(w, r, false)
+}
+
+func (s *Server) resolveProposal(w http.ResponseWriter, r *http.Request, confirm bool) {
+	var req approvalRequest
+	if err := decodeOptionalJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	p, err := s.api.ResolveProposal(r.PathValue("id"), confirm, req.Note)
+	if err != nil {
+		writeError(w, statusFor(err), err)
+		return
+	}
+	writeJSON(w, http.StatusOK, p)
+}
+
 func (s *Server) handleCancel(w http.ResponseWriter, r *http.Request) {
 	t, err := s.api.CancelTask(r.PathValue("id"))
 	if err != nil {
@@ -351,8 +403,21 @@ func writeError(w http.ResponseWriter, status int, err error) {
 	_ = json.NewEncoder(w).Encode(body)
 }
 
-// DefaultSocketPath returns the daemon socket path under a data dir, mirroring
-// the coordinator's convention.
+// DefaultSocketPath returns the HUMAN daemon socket path under a data dir,
+// mirroring the coordinator's convention.
 func DefaultSocketPath(dataDir string) string {
 	return filepath.Join(dataDir, ".daedalus", "control.sock")
+}
+
+// AgentSocketPath returns the RESTRICTED socket path — the one an agent client
+// (guild-control-mcp) connects through.
+//
+// It is a separate file, not a flag or a header, because the file is what gets
+// mounted into a container: the Guild Master's container receives this socket and
+// never the human one, so the caller class is decided by the mount namespace
+// before any request is written. Peer credentials could not do this job — the
+// socket is srwxr-xr-x and the agent runs as the same uid as the human — so the
+// split IS the mechanism rather than a convenience on top of one.
+func AgentSocketPath(dataDir string) string {
+	return filepath.Join(dataDir, ".daedalus", "control-agent.sock")
 }
