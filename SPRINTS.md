@@ -2,7 +2,25 @@
 
 ## Current Sprint
 
-### Sprint 59: The Integration Transaction, the Plane-Owned Target Ref & Human Approval
+### Sprint 60: The Guild Master Joins — `guild-control-mcp`, Tiered Authority & the M15 Close
+
+Goal: let the Guild Master finally **act** — as a *gated* client. Give the control plane a **transport-derived caller identity** (a separate socket per caller class, since peer credentials cannot separate agent from human at the same uid), then `cmd/guild-control-mcp` exposing **intent-level operations only**, under **tiered authority**: read/status free, create-bounded-task allowed, and cancel / raise-budget / request-integration reduced to **human-confirmed proposals**. This is the §6 lethal-trifecta defence made structural — the Guild Master reads untrusted project docs, so a poisoned README may *propose*, never *execute*. Closes Milestone 15. Design in `docs/guild-master-plan.md` §4, §6 and M15 in §8.
+
+Milestone: 15
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | **Transport-derived caller identity — a socket per caller class.** The actor must come from the transport, never the request body (an `Actor` field would let an agent *claim* to be human, which is worse than no label). Add a second, restricted listener alongside `control.sock` — agent callers connect there and are labelled structurally; `Service.callerActor()` becomes the single seam it was built to be. Note the socket is currently `srwxr-xr-x`, so peer credentials alone cannot separate agent from human at the same uid — **the socket split is the mechanism**, not a supplement to it. Every event thereafter carries a real, unforgeable caller class. |  |
+| 2 | **Opaque queue id + the cross-tenant disclosure fix.** `GET /targets` currently lists **every** queue with its absolute host `repo_path`, and `AdoptTarget`/`AdvanceTarget`/`SetTarget` write those paths into the append-only event log as `entity_id` — so once an agent can read, the paths are historical and unerasable. Add a stable opaque queue id (`sha256(canonicalPath)`, truncated), store it beside `repo_path`, use it as the event-log entity id, and render the path only to human callers. An agent keeps what it legitimately needs (whether two projects share a queue); it learns nothing about host layout. Do this now, while the log is short. |  |
+| 3 | **`cmd/guild-control-mcp` — intent-level tools only.** A new MCP server over the restricted socket exposing `create_task`, `get_task`, `list_tasks`, `task_events`, `request_verification`, and the proposal ops below. **Never** `run_shell` / `docker_run` / `mount` / `git_exec` / `start_container`, and **never** `coordinator.sock` — the plane resolves the project through the trusted registry and constructs all execution itself. Env-gated into the `guild-master` container only, exactly as `guild-mcp` is (`DAEDALUS_GUILD_MASTER=1`), so no ordinary project ever receives it. |  |
+| 4 | **Tiered authority + the human-confirmed proposal flow.** Read/status: allowed. Create-bounded-task: allowed within policy. **Cancel a Job, raise a budget, request integration, approve: refused as direct execution and recorded as a `proposal`** for a human to confirm or deny (`daedalus task proposals list|confirm|deny`, plus the Web/TUI surface from Sprint 59). A proposal carries its originating caller class, so an agent can never confirm its own proposal — and approval stays human-only, which is what makes "the Guild Master cannot approve its own work" true by construction rather than by convention. Tests must include an agent attempting every restricted op directly and being refused. |  |
+| 5 | **Carried audit items, distribution chain & the M15 close.** Fix the four items carried from the Sprint 59 audit: linked-worktree queue identity (`--git-common-dir` → parent root), `TargetView.Projects` derived from the **registry** rather than from tasks (today an unshared-looking queue may in fact be shared), and regression tests for the two mutation survivors (`errors.Is(ErrNotFound)` adoption gating; `EvalSymlinks` aliasing). **Then the distribution chain for the new binary — this has bitten twice (M12 `guild-mcp`, M13 `daedalus-control`): `Dockerfile`, `build.sh`, `setup.sh`, `scripts/package-release.sh`, `.github/workflows/release.yml` + `dev-release.yml`, `entrypoint.sh` injection, AND both test sims (`scripts/test-release-bundle.sh`, `scripts/test-install.sh`).** Docs, CHANGELOG, close Milestone 15. |  |
+
+Out of scope: parallel Jobs and the cross-project task graph (Milestone 16); typed steering (Milestone 17).
+
+## Sprint History
+
+### Sprint 59: The Integration Transaction, the Plane-Owned Target Ref & Human Approval (v0.50.0)
 
 Goal: make landing work **safe and race-free**, and close the acceptance-oracle laundering hole structurally rather than by patching an ancestry check. Introduce a **plane-owned target ref** the agent cannot write (the real fix for the Sprint-58 audit's F3/F4), the **merge-queue integration transaction** (serialize → rebase → re-verify the *merged* result → compare-and-swap), and the human **`verified → approval_required → approved → integrated`** gate with a CLI and Web/TUI surface, plus the independent **reviewer** pass. Git + pure Go; the verifier stays behind the existing `VerifyRunner` seam, so all of it is host-testable without Docker. Design in `docs/guild-master-plan.md` (M15, V2) + §6 ("Integration is a race-safe transaction"). Out of scope: `guild-control-mcp` and transport-derived caller identity (Sprint 60).
 
@@ -18,8 +36,6 @@ Milestone: 15
 
 Out of scope (Sprint 60): `cmd/guild-control-mcp`, tiered/injection-safe authority and the human-confirmed proposal flow, transport-derived caller identity (a separate socket per caller class — peer credentials alone cannot separate agent from human at the same uid), and the M15 close.
 
-
-## Sprint History
 
 ### Sprint 58: Governance Core — Budgets, Rejection, Retry/Replan & the Event Log (v0.50.0)
 
