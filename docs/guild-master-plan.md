@@ -306,9 +306,12 @@ without losing track of what happened.
 
 ### V3 — Parallel programme execution
 - **M16 · Parallel Programme Execution.** Multiple concurrent Jobs — the worktrees
-  already exist from M13, so this *adds only concurrency and scheduling*: a job
-  scheduler + a **cross-project task graph** with dependency scheduling, composing
-  with `programmes`.
+  already exist from M13, so this *adds concurrency, scheduling and a dependency
+  graph — no new execution machinery*: a job scheduler + a **cross-project task
+  graph** with dependency scheduling, composing with `programmes`. (The runner,
+  worktree, verifier and container paths are genuinely untouched; the **state
+  machine is not** — M16 added the `blocked` state, three plane-only edges, and a
+  plane-owned dependency table.)
 - **M17 · Typed Steering (demoted — validate before building).** `steer_job` as an
   audited, cancellable op delivered at a supported boundary. Kept Planned but
   low-priority: for short Jobs, **cancel + redispatch with corrected instructions**

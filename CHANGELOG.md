@@ -49,6 +49,30 @@ All notable changes to this project will be documented in this file.
     the graph shown in `task status`.
 
 ### Fixed
+- **A documented justification that was not true.** The docs explained leaving
+  dependents of a *failed* Task blocked-and-unsatisfiable on the grounds that "a
+  human may retry the work and keep the dependents". They cannot: `failed` is
+  terminal with no outgoing edge, and there is no operation to remove a dependency
+  edge, so a dependent blocked on failed work cannot be rescued in place. Nothing
+  is silently stranded — the state, the status and the CLI all say so — but the
+  reasoning was wrong, and the CLI was offering advice that could not work. The
+  docs, the code comment and the CLI hint now say plainly that a failed dependency
+  is **permanent** and its dependents must be cancelled and recreated. (Removing a
+  dependency edge is tracked as backlog, deliberately not part of this milestone.)
+- **An overclaim in the M16 description.** "Adds *only* concurrency and
+  scheduling" is true of the execution path — no runner, worktree, verifier or
+  container code changed — but a reader would take it to mean the state machine was
+  untouched, and it was not: M16 added the `blocked` state, three plane-only edges
+  and a plane-owned dependency table. Now "adds concurrency, scheduling and a
+  dependency graph — no new execution machinery", with the narrower claim spelled
+  out where it could otherwise be over-read.
+- **The per-Job observer type assertion checked the wrong thing in the wrong
+  order.** `s.sessions.(JobSessionObserver); ok && s.sessions != nil` puts a
+  redundant nil check after the assertion (a nil interface already fails it) while
+  missing the hazard that is real: a **non-nil interface holding a nil pointer**
+  whose method set satisfies the interface, which asserts successfully and then
+  panics on the first dereference. Extracted into a guard that sees through the
+  interface, with a test that panics on the naive form.
 - **`core/milestone_test.go` restated the document instead of testing it.** It
   pinned each milestone's status by hand, carried no information ROADMAP.md did not
   already carry, and broke on **two consecutive milestone openings** in one working

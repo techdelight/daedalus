@@ -835,7 +835,11 @@ func renderDependencyStatus(status control.DependencyStatus) {
 	case len(status.Unsatisfiable) > 0:
 		fmt.Printf("%s waiting on %s, which can never complete (failed or cancelled)\n",
 			color.Red("Stuck:"), strings.Join(status.Unsatisfiable, " "))
-		fmt.Println("     retry that work as a new task, or cancel this one")
+		// Deliberately does NOT suggest retrying the upstream: `failed` is terminal
+		// and a dependency edge cannot be removed, so a retry would not rescue this
+		// task. Cancel-and-recreate is the only route out, and saying anything
+		// else would be advice that cannot work.
+		fmt.Println("     this cannot be rescued in place — cancel this task and recreate it")
 		if len(status.Unmet) > 0 {
 			fmt.Printf("     also waiting on %s\n", strings.Join(status.Unmet, " "))
 		}

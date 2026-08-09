@@ -631,6 +631,12 @@ lifting it was mostly an audit: find what assumed it, then decide each case.
   `unlockedDuring`), so two dispatches genuinely overlap the moment two Tasks
   exist. No execution machinery was added.
 
+That last point holds for the whole of M16 — the runner, worktree, verifier and
+container paths are untouched. The **state machine is not**: the dependency graph
+below adds the `blocked` state, three plane-only edges and a plane-owned table.
+"No new execution machinery" is a narrower claim than "nothing structural
+changed", and only the narrower one is true.
+
 **The trap, named because it is easy to get wrong:** `withClaim` is keyed by
 **Task**, and concurrency is per **project**. While only one Task per project
 could be active those were the same sentence; they are not any more. N Tasks on
@@ -826,8 +832,24 @@ Failure and cancellation are treated differently, deliberately:
 | Upstream ends as | Dependents | Why |
 |---|---|---|
 | `integrated` | woken, become `planned` | the prerequisite landed |
-| `failed` | stay `blocked`, marked *unsatisfiable* | failure is an **outcome**; a human may retry the work as a new Task and keep the dependents |
+| `failed` | stay `blocked`, marked *unsatisfiable* | the dependency is **permanent** — see below |
 | `cancelled` | **cancelled too**, transitively | cancellation is a **decision** that the work will not happen, so leaving dependents waiting forever is the stranding |
+
+**A failed dependency is permanent, and its dependents must be cancelled and
+recreated.** This is worth stating flatly, because the obvious assumption is
+wrong: `failed` is a terminal state with no outgoing edge, and there is no
+operation to remove a dependency edge, so a dependent blocked on failed work
+cannot be rescued in place. Marking it *unsatisfiable* rather than cancelling it
+is therefore a smaller distinction than it looks — it keeps the dependent visible,
+with the reason legible in `task depends`, and leaves the decision to a person
+instead of cascading automatically. The manual route reaches the same end as the
+cancelled path.
+
+Nothing is silently stranded: the state says `blocked`, the status says
+*unsatisfiable*, and the CLI names the upstream and says to cancel or retry as a
+new Task. But an operator should know that "retry the failed work and keep the
+dependents" is not available. (Removing a dependency edge is tracked as backlog;
+it is deliberately not part of this milestone.)
 
 ### Waking, and why reconcile does it too
 

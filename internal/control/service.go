@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -1659,7 +1660,7 @@ func (s *Service) recoverJoblessTask(task Task) bool {
 // it answers a question about a different key (see SessionObserver), so a "yes"
 // from it says nothing about this Job.
 func (s *Service) jobLive(job Job, task Task) (live, verifiable, viaHeuristic bool) {
-	if observer, ok := s.sessions.(JobSessionObserver); ok && s.sessions != nil {
+	if observer, ok := jobObserver(s.sessions); ok {
 		if alive, err := observer.HasSessionForJob(job.ID); err == nil {
 			return alive, true, false
 		}
@@ -1670,6 +1671,37 @@ func (s *Service) jobLive(job Job, task Task) (live, verifiable, viaHeuristic bo
 		return !dead, true, true
 	}
 	return false, false, false
+}
+
+// jobObserver extracts a per-Job liveness observer from a SessionObserver, if it
+// provides one and is actually usable.
+//
+// The naive form — `s.sessions.(JobSessionObserver)` with a trailing
+// `s.sessions != nil` — checks the wrong thing in the wrong order. A type
+// assertion on a nil interface already yields ok=false, so the nil check is
+// redundant there; and it does not guard the hazard that IS real: a NON-nil
+// interface holding a nil pointer whose method set satisfies the interface. That
+// asserts successfully, and then panics the moment the method dereferences its
+// receiver.
+//
+// Reflection is the only way to see through the interface to the pointer inside,
+// and this runs once per Job per reconcile pass, so the cost is irrelevant next
+// to being correct. Anything not usable falls through to the heuristic, which is
+// the same answer as having no observer at all.
+func jobObserver(sessions SessionObserver) (JobSessionObserver, bool) {
+	if sessions == nil {
+		return nil, false
+	}
+	observer, ok := sessions.(JobSessionObserver)
+	if !ok || observer == nil {
+		return nil, false
+	}
+	// A typed nil (e.g. (*coordinatorSessions)(nil)) is non-nil as an interface
+	// but unusable as a receiver.
+	if v := reflect.ValueOf(observer); v.Kind() == reflect.Ptr && v.IsNil() {
+		return nil, false
+	}
+	return observer, true
 }
 
 // heuristicallyDead is a HEURISTIC — it guesses, and the guess can be wrong.

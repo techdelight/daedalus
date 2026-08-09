@@ -312,11 +312,14 @@ func (s *Service) wakeDependents(taskID string) {
 // the stranding this is meant to avoid — so the decision propagates, transitively,
 // with the reason recorded on each.
 //
-// Note the deliberate asymmetry with FAILURE. A failed dependency also cannot be
-// satisfied, but failure is an outcome rather than a decision: a human may well
-// want to look at the dependents, retry the failed work as a new Task, and keep
-// them. So a failed dependency leaves them `blocked` and visible, while a
-// cancelled one takes them with it.
+// Note the deliberate asymmetry with FAILURE — and note how small it is. A failed
+// dependency also cannot be satisfied, and it is PERMANENT: `failed` is terminal
+// with no outgoing edge, and there is no operation to remove a dependency edge, so
+// a dependent blocked on failed work cannot be rescued in place either. Leaving it
+// `blocked` rather than cancelling it keeps it visible with a legible reason and
+// leaves the decision to a person, instead of cascading automatically on an
+// outcome nobody chose. The operator's route out is the same one: cancel and
+// recreate.
 func (s *Service) cancelDependentsOf(taskID string) []string {
 	var cancelled []string
 	queue := []string{taskID}

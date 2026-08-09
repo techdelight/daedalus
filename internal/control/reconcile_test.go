@@ -319,3 +319,69 @@ func TestReconcile_JoblessRecoveryIsIdempotentAndNarrow(t *testing.T) {
 		t.Errorf("second pass was not a no-op: %+v", rep2)
 	}
 }
+
+// TestJobObserver_HandlesUnusableObservers pins the type-assertion guard. The
+// naive form (`assert; ok && sessions != nil`) checks the wrong thing in the
+// wrong order: a nil interface already fails the assertion, and the real hazard —
+// a NON-nil interface holding a nil pointer whose method set satisfies the
+// interface — asserts successfully and then panics on the first dereference.
+func TestJobObserver_HandlesUnusableObservers(t *testing.T) {
+	tests := []struct {
+		name     string
+		sessions SessionObserver
+		wantOK   bool
+	}{
+		{"nil interface", nil, false},
+		{"observer without per-Job support", projectOnlySessions{}, false},
+		{"a usable per-Job observer", fakeSessions{}, true},
+		{"a usable per-Job observer behind a pointer", &pointerSessions{}, true},
+		// The one that matters: non-nil interface, nil pointer inside.
+		{"typed nil pointer", (*pointerSessions)(nil), false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			observer, ok := jobObserver(tc.sessions)
+			if ok != tc.wantOK {
+				t.Fatalf("jobObserver ok = %v, want %v", ok, tc.wantOK)
+			}
+			if ok {
+				// It must be callable, not merely non-nil.
+				if _, err := observer.HasSessionForJob("J-1"); err != nil {
+					t.Errorf("HasSessionForJob: %v", err)
+				}
+			}
+		})
+	}
+}
+
+// TestJobLive_TypedNilObserverFallsBackWithoutPanicking is the same hazard end to
+// end: an unusable observer must degrade to the heuristic, not crash reconcile.
+func TestJobLive_TypedNilObserverFallsBackWithoutPanicking(t *testing.T) {
+	repo := gitRepo(t)
+	svc, wt, store := newService(t, mapResolver{"app": repo}, StubRunner{}, (*pointerSessions)(nil))
+
+	_, job := stageWorkingJob(t, svc, store, wt, repo, "app", 0)
+	// The worktree is gone, so the heuristic — which must be reached — condemns it.
+	if err := wt.Remove(repo, job.ID); err != nil {
+		t.Fatalf("removing the worktree: %v", err)
+	}
+
+	rep, err := svc.Reconcile()
+	if err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if len(rep.FailedVanished) != 1 || rep.FailedVanished[0] != job.ID {
+		t.Fatalf("FailedVanished = %v, want [%s] — the heuristic should have been reached", rep.FailedVanished, job.ID)
+	}
+	if len(rep.HeuristicallyFailed) != 1 {
+		t.Errorf("HeuristicallyFailed = %v, want the fallback to be reported as a guess", rep.HeuristicallyFailed)
+	}
+}
+
+// pointerSessions is a per-Job observer with POINTER receivers, so a typed nil
+// satisfies the interface and panics if actually called.
+type pointerSessions struct{ live map[string]bool }
+
+func (p *pointerSessions) HasSession(project string) (bool, error) { return p.live[project], nil }
+
+func (p *pointerSessions) HasSessionForJob(jobID string) (bool, error) { return p.live[jobID], nil }
