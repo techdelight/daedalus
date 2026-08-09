@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 )
 
 // req is a compact admission request for the table tests.
@@ -248,5 +249,199 @@ func TestScheduler_DefaultLimitsPreserveOldBehaviour(t *testing.T) {
 	}
 	if l.Global <= 0 {
 		t.Errorf("default Global = %d, want a real bound", l.Global)
+	}
+}
+
+// --- ticket liveness (audit F2) --------------------------------------------------
+
+// TestScheduler_AbandonedTicketDoesNotBlockForever is the regression for the
+// audit's blocking finding. Fairness without liveness is a deadlock: a Task
+// refused for capacity kept its place while sitting in `planned`, and nothing
+// woke it — dispatch is synchronous, so the queue only advanced if a human
+// re-issued dispatch for that exact Task. One abandoned attempt bricked a
+// project's parallelism.
+//
+// The invariant restored: free capacity must eventually become usable WITHOUT
+// human intervention.
+func TestScheduler_AbandonedTicketDoesNotBlockForever(t *testing.T) {
+	s := NewScheduler(SchedulerLimits{Global: 4, PerProject: 1})
+	s.SetTicketLiveness(time.Minute, 2, nil)
+
+	// B asks while A is running, is refused, and then walks away.
+	if reasonOf(t, s.admit(req("B", "app", 1, 1, 0))) != ReasonConcurrencyExceeded {
+		t.Fatal("B should have been refused")
+	}
+	// A finishes: capacity is free, but B still holds the queue head.
+	if got := reasonOf(t, s.admit(req("C", "app", 0, 0, 0))); got != ReasonQueuedBehind {
+		t.Fatalf("C = %q, want %q while B's ticket is live", got, ReasonQueuedBehind)
+	}
+	// C keeps asking. Each attempt spends one of B's passovers; B never re-asks.
+	var admitted bool
+	for i := 0; i < 5; i++ {
+		if err := s.admit(req("C", "app", 0, 0, 0)); err == nil {
+			admitted = true
+			break
+		}
+	}
+	if !admitted {
+		t.Fatal("C was never admitted — an abandoned ticket blocked free capacity indefinitely")
+	}
+	if waiting := s.Waiting(); len(waiting) != 0 {
+		t.Errorf("Waiting() = %v, want empty (B lapsed, C admitted)", waiting)
+	}
+}
+
+// TestScheduler_AbandonedGlobalTicketDoesNotStallEveryProject is the worse
+// variant: a `scheduler_saturated` ticket is filed against the shared global
+// limit, so an abandoned one stalls the ENTIRE plane, across projects.
+func TestScheduler_AbandonedGlobalTicketDoesNotStallEveryProject(t *testing.T) {
+	s := NewScheduler(SchedulerLimits{Global: 1, PerProject: 4})
+	s.SetTicketLiveness(time.Minute, 2, nil)
+
+	// A-1 is refused on the GLOBAL limit and abandoned.
+	if got := reasonOf(t, s.admit(req("A-1", "alpha", 0, 1, 0))); got != ReasonSchedulerSaturated {
+		t.Fatalf("A-1 = %q, want %q", got, ReasonSchedulerSaturated)
+	}
+	// The global slot frees. A Task on a DIFFERENT project must not be stalled
+	// forever by a waiter that stopped asking.
+	var admitted bool
+	for i := 0; i < 6; i++ {
+		if err := s.admit(req("B-1", "beta", 0, 0, 0)); err == nil {
+			admitted = true
+			break
+		}
+	}
+	if !admitted {
+		t.Fatal("B-1 was never admitted — an abandoned GLOBAL ticket stalled another project indefinitely")
+	}
+}
+
+// TestScheduler_TicketTTLExpires covers the quiet-queue case: nobody is pushing,
+// so there are no passovers to spend, and only the wall clock heals it.
+func TestScheduler_TicketTTLExpires(t *testing.T) {
+	now := time.Now()
+	s := NewScheduler(SchedulerLimits{Global: 4, PerProject: 1})
+	s.SetTicketLiveness(30*time.Second, 100, func() time.Time { return now })
+
+	if reasonOf(t, s.admit(req("B", "app", 1, 1, 0))) != ReasonConcurrencyExceeded {
+		t.Fatal("B should have been refused")
+	}
+	if waiting := s.Waiting(); len(waiting) != 1 {
+		t.Fatalf("Waiting() = %v, want [B]", waiting)
+	}
+	// Still inside the lease: B keeps its place even with capacity free.
+	now = now.Add(20 * time.Second)
+	if got := reasonOf(t, s.admit(req("C", "app", 0, 0, 0))); got != ReasonQueuedBehind {
+		t.Errorf("C inside B's lease = %q, want %q", got, ReasonQueuedBehind)
+	}
+	// Past the lease: B has lapsed and C takes the capacity.
+	now = now.Add(30 * time.Second)
+	if err := s.admit(req("C", "app", 0, 0, 0)); err != nil {
+		t.Errorf("C after B's lease expired = %v, want admitted", err)
+	}
+}
+
+// TestScheduler_ReAskingRenewsWithoutLosingPlace: a waiter that keeps asking
+// keeps its place. Renewal must not send it to the back of the queue, or a busy
+// project would starve the very Task the fairness rule exists to protect.
+func TestScheduler_ReAskingRenewsWithoutLosingPlace(t *testing.T) {
+	now := time.Now()
+	s := NewScheduler(SchedulerLimits{Global: 4, PerProject: 1})
+	s.SetTicketLiveness(30*time.Second, 2, func() time.Time { return now })
+
+	// B asks first, then C.
+	if reasonOf(t, s.admit(req("B", "app", 1, 1, 0))) != ReasonConcurrencyExceeded {
+		t.Fatal("B should have been refused")
+	}
+	if reasonOf(t, s.admit(req("C", "app", 1, 1, 0))) != ReasonConcurrencyExceeded {
+		t.Fatal("C should have been refused")
+	}
+	// B keeps asking across a span longer than the TTL, renewing each time.
+	for i := 0; i < 4; i++ {
+		now = now.Add(20 * time.Second)
+		if reasonOf(t, s.admit(req("B", "app", 1, 1, 0))) != ReasonConcurrencyExceeded {
+			t.Fatalf("B renewal %d should still be refused for capacity", i)
+		}
+	}
+	// B is still ahead of C.
+	if waiting := s.Waiting(); len(waiting) == 0 || waiting[0] != "B" {
+		t.Fatalf("Waiting() = %v, want B still at the head", waiting)
+	}
+	// Capacity frees: B takes it, not C.
+	if got := reasonOf(t, s.admit(req("C", "app", 0, 0, 0))); got != ReasonQueuedBehind {
+		t.Errorf("C = %q, want to yield to the renewing B", got)
+	}
+	if err := s.admit(req("B", "app", 0, 0, 0)); err != nil {
+		t.Errorf("B taking the capacity it queued for: %v", err)
+	}
+}
+
+// TestScheduler_PassoversResetOnRenewal: a Task that is still asking must not be
+// aged out by its own competitors.
+func TestScheduler_PassoversResetOnRenewal(t *testing.T) {
+	s := NewScheduler(SchedulerLimits{Global: 4, PerProject: 1})
+	s.SetTicketLiveness(time.Minute, 2, nil)
+
+	if reasonOf(t, s.admit(req("B", "app", 1, 1, 0))) != ReasonConcurrencyExceeded {
+		t.Fatal("B should have been refused")
+	}
+	for i := 0; i < 6; i++ {
+		// C pushes (spending B's passovers), but B re-asks each round.
+		_ = s.admit(req("C", "app", 0, 0, 0))
+		if reasonOf(t, s.admit(req("B", "app", 1, 1, 0))) != ReasonConcurrencyExceeded {
+			t.Fatalf("round %d: B should still be refused for capacity", i)
+		}
+	}
+	if waiting := s.Waiting(); len(waiting) == 0 || waiting[0] != "B" {
+		t.Errorf("Waiting() = %v, want B still queued — a live waiter must not be aged out", waiting)
+	}
+}
+
+// --- the concurrency axis refuses an over-ask (audit F3) -------------------------
+
+// TestCreateTask_ConcurrencyOverAskIsRefused: since the budget's concurrency
+// default became unset (= unbounded), the generic ceiling check could no longer
+// refuse a concurrency ask — a request for 1000 was stored and echoed back by
+// `task status` as though it were the limit. Every other axis refuses an over-ask
+// out loud; this one must too, rather than storing a fiction.
+func TestCreateTask_ConcurrencyOverAskIsRefused(t *testing.T) {
+	repo := gitRepo(t)
+	svc, _, store := newService(t, mapResolver{"app": repo}, StubRunner{}, nil)
+	svc.SetSchedulerLimits(SchedulerLimits{Global: 8, PerProject: 2})
+
+	_, err := svc.CreateTask(CreateTaskRequest{
+		Project: "app", Objective: "greedy", Budget: &Budget{Concurrency: 1000},
+	})
+	var rej *RejectionError
+	if !errors.As(err, &rej) {
+		t.Fatalf("over-ask on concurrency = %v, want a typed refusal", err)
+	}
+	if rej.Reason != ReasonOverBudget {
+		t.Errorf("reason = %q, want %q", rej.Reason, ReasonOverBudget)
+	}
+	if !strings.Contains(rej.Message, "concurrency") {
+		t.Errorf("the refusal should name the axis: %q", rej.Message)
+	}
+	// Nothing was stored, so `task status` cannot report a limit that isn't one.
+	if tasks, _ := store.ListTasks(); len(tasks) != 0 {
+		t.Errorf("an over-ask created %d task(s), want none", len(tasks))
+	}
+
+	// Asking for exactly the limit, or less, is fine and is what gets stored.
+	task, err := svc.CreateTask(CreateTaskRequest{
+		Project: "app", Objective: "modest", Budget: &Budget{Concurrency: 1},
+	})
+	if err != nil {
+		t.Fatalf("a narrowing ask should be allowed: %v", err)
+	}
+	if task.Budget.Concurrency != 1 {
+		t.Errorf("stored concurrency = %d, want the requested 1", task.Budget.Concurrency)
+	}
+	// And with no per-project limit configured, there is nothing to exceed.
+	svc.SetSchedulerLimits(SchedulerLimits{Global: 8, PerProject: 0})
+	if _, err := svc.CreateTask(CreateTaskRequest{
+		Project: "app", Objective: "unbounded project", Budget: &Budget{Concurrency: 50},
+	}); err != nil {
+		t.Errorf("with no per-project limit, any ask is within bounds: %v", err)
 	}
 }

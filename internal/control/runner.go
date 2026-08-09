@@ -47,7 +47,9 @@ type AgentRunner interface {
 // StubRunner is a Docker-free AgentRunner for tests and the fake-runner smoke.
 // It optionally writes a marker file into the worktree (so the wrapper's
 // auto-commit produces a real new HEAD, exercising output_snapshot capture) and
-// returns a fixed result. It is deliberately exported so the daemon can select
+// returns a fixed result. The marker name defaults to a JOB-SCOPED one so
+// concurrent Jobs do not collide by accident; set MarkerName to force a shared
+// path (a deliberate merge conflict) or a name that trips the integrity gate. It is deliberately exported so the daemon can select
 // it via DAEDALUS_CONTROL_FAKE_RUNNER for an end-to-end, no-Docker smoke.
 type StubRunner struct {
 	Result     ExecutionResult // defaults to ExecSuccess when zero-value ""
@@ -61,7 +63,12 @@ func (r StubRunner) Run(_ context.Context, spec JobSpec) RunOutcome {
 	if r.WriteFile {
 		name := r.MarkerName
 		if name == "" {
-			name = "AGENT_RAN.txt"
+			// JOB-SCOPED by default. A fixed filename made every concurrent Job write
+			// the same path, so any two artifacts landing on one queue collided — the
+			// integration CONFLICT path was reached by accident, and the clean-rebase
+			// path was the one going unexercised. Distinct markers make each Job's
+			// diff genuinely independent, so a test has to opt IN to a conflict.
+			name = spec.JobID + "-AGENT_RAN.txt"
 		}
 		// Best-effort: a write failure just means no new commit, still a valid
 		// outcome (snapshot == base_sha).

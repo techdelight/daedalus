@@ -47,6 +47,11 @@ All notable changes to this project will be documented in this file.
     standing, making a Task **queued for capacity** visibly distinct from one that
     is working. New `GET /status` and `GET /api/plane-status`, with the same summary
     in the TUI.
+  - **Bounded containers, not disk:** the scheduler limits running Jobs, but
+    `candidate`/`verifying`/`rejected` Jobs each keep a worktree, so N Tasks per
+    project means N simultaneous candidate worktrees where there was at most one.
+    Bounded by unfinished work rather than leaking, but it now scales with Tasks in
+    flight.
   - **Honest limitation:** session liveness is observed per *project*, not per
     *Job*, so reconcile cannot tell which of a project's Jobs a live session belongs
     to. It errs conservatively — a crashed Job among healthy siblings is adopted
@@ -54,6 +59,29 @@ All notable changes to this project will be documented in this file.
     Per-Job liveness is the fix.
 
 ### Fixed
+- **An abandoned queue ticket blocked every younger Task indefinitely** (found by
+  the Sprint 61 audit). Fairness was implemented without liveness: a Task refused
+  for capacity kept its place while sitting in `planned`, and nothing woke it —
+  dispatch is synchronous, so the queue only advanced if a human re-issued
+  dispatch for that exact Task. One abandoned attempt bricked a project's
+  parallelism, and an abandoned **global** waiter stalled every project at once,
+  reachable by ordinary use: dispatch, get refused, walk away. A ticket is now a
+  **lease**: it is renewed when its owner re-asks, spends a *passover* each time it
+  blocks someone else, and lapses after a TTL. The busy case heals in a few
+  attempts by the Tasks being blocked; the quiet case heals on the clock. Re-asking
+  renews without losing place, so a live waiter cannot be aged out by its
+  competitors.
+- **The `concurrency` budget axis silently accepted an over-ask.** With its
+  default now unset (= unbounded), the generic ceiling check could never refuse
+  one, so a request for `concurrency: 1000` was stored and echoed back by `task
+  status` as though it were the limit, while the real bound was the operator's
+  per-project setting. It is now refused against `concurrency.perProject`, out
+  loud, like every other axis.
+- **The stub runner's marker file is job-scoped.** A fixed filename made every
+  concurrent Job write the same path, so any two artifacts landing on one queue
+  collided — the integration *conflict* path was being reached by accident and the
+  *clean-rebase* path was not being reached at all. Both are now exercised
+  deliberately, with a test each.
 - **`core` milestone test broke when M16 was opened**, the same way it did for M15:
   it hard-asserted M16–M17 were both `Planned`. It now asserts M16 `In Progress`
   and M17 `Planned`.

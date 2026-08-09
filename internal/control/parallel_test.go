@@ -522,3 +522,165 @@ func TestParallel_WorktreeCreateRemoveDoNotRace(t *testing.T) {
 		t.Errorf("git sees %d worktrees, want 1 (the main checkout):\n%s", n, out)
 	}
 }
+
+// TestParallel_AbandonedDispatchDoesNotBrickTheProject is the audit's F2 repro,
+// end to end through the Service rather than the scheduler alone: dispatch, get
+// refused for capacity, walk away — and the project must not lose its
+// parallelism.
+func TestParallel_AbandonedDispatchDoesNotBrickTheProject(t *testing.T) {
+	repo := gitRepo(t)
+	svc, store, runner := parallelPlane(t, map[string]string{"app": repo}, 1, 8)
+	svc.Scheduler().SetTicketLiveness(time.Minute, 2, nil)
+
+	a, _ := svc.CreateTask(CreateTaskRequest{Project: "app", Objective: "a"})
+	abandoned, _ := svc.CreateTask(CreateTaskRequest{Project: "app", Objective: "abandoned"})
+	later, _ := svc.CreateTask(CreateTaskRequest{Project: "app", Objective: "later"})
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		if _, err := svc.DispatchTask(a.ID); err != nil {
+			t.Errorf("dispatch a: %v", err)
+		}
+	}()
+	waitFor(t, "the first job to start", func() bool { return runner.liveCount() == 1 })
+
+	// The abandoned Task asks once and is refused for capacity.
+	if _, err := svc.DispatchTask(abandoned.ID); err == nil {
+		t.Fatal("the second dispatch should have been refused for capacity")
+	}
+	// The first job finishes; capacity is free.
+	close(runner.release)
+	<-done
+	if running, _ := store.CountRunningJobsForProject("app"); running != 0 {
+		t.Fatalf("project still shows %d running", running)
+	}
+
+	// A third Task keeps asking. It must get in without anyone touching the
+	// abandoned one.
+	var admitted bool
+	for i := 0; i < 6; i++ {
+		if _, err := svc.DispatchTask(later.ID); err == nil {
+			admitted = true
+			break
+		}
+	}
+	if !admitted {
+		t.Fatal("free capacity never became usable — an abandoned dispatch bricked the project")
+	}
+	// And the abandoned Task is untouched: nothing was cancelled on its behalf.
+	got, _ := store.GetTask(abandoned.ID)
+	if got.State != StatePlanned {
+		t.Errorf("the abandoned task = %s, want planned (it should simply have lost its place)", got.State)
+	}
+}
+
+// TestParallel_TwoIndependentChangesBothLand exercises the CLEAN-REBASE path
+// deliberately. Before the stub's marker became job-scoped, every concurrent Job
+// wrote the same filename, so two artifacts landing on one queue always
+// collided — the conflict path was reached by accident and this one was not
+// reached at all.
+func TestParallel_TwoIndependentChangesBothLand(t *testing.T) {
+	repo := gitRepo(t)
+	// A plain (ungated) runner: this test dispatches synchronously, so a runner
+	// that waits for a release channel would deadlock. Its marker is job-scoped by
+	// default, which is what makes the two changes independent.
+	svc, _, store := newService(t, mapResolver{"app": repo},
+		StubRunner{Result: ExecSuccess, WriteFile: true}, nil, StubVerifyRunner{Pass: true})
+	svc.SetSchedulerLimits(SchedulerLimits{Global: 8, PerProject: 2})
+
+	var ids []string
+	for i := 0; i < 2; i++ {
+		task, err := svc.CreateTask(CreateTaskRequest{Project: "app", Objective: "independent work"})
+		if err != nil {
+			t.Fatalf("CreateTask: %v", err)
+		}
+		ids = append(ids, task.ID)
+	}
+	start, _ := svc.TargetFor("app")
+
+	// Dispatch and verify both against the same target.
+	for _, id := range ids {
+		if _, err := svc.DispatchTask(id); err != nil {
+			t.Fatalf("dispatch %s: %v", id, err)
+		}
+		if _, err := svc.VerifyTask(id); err != nil {
+			t.Fatalf("verify %s: %v", id, err)
+		}
+		got, _ := store.GetTask(id)
+		if got.BaseSHA != start.SHA {
+			t.Fatalf("task %s base %s != start target %s", id, got.BaseSHA, start.SHA)
+		}
+	}
+
+	// Both land: the second REBASES onto the first rather than conflicting.
+	for _, id := range ids {
+		if _, err := svc.IntegrateTask(id); err != nil {
+			t.Fatalf("integrate %s: %v — independent changes must both land", id, err)
+		}
+	}
+	final, _ := svc.TargetFor("app")
+	if final.SHA == start.SHA {
+		t.Fatal("the target never moved")
+	}
+	// Every Job's own marker is present in the landed trunk: nothing was lost.
+	for _, id := range ids {
+		jobs, _ := store.ListJobsForTask(id)
+		marker := jobs[0].ID + "-AGENT_RAN.txt"
+		if !fileExistsAt(repo, final.SHA, marker) {
+			t.Errorf("task %s: %s missing from the landed trunk %s", id, marker, shortSHA(final.SHA))
+		}
+	}
+	// Linear history: base + one commit per landing.
+	out, err := runGit(repo, "rev-list", "--count", final.SHA)
+	if err != nil {
+		t.Fatalf("rev-list: %v", err)
+	}
+	if got := trim(out); got != "3" {
+		t.Errorf("history length = %s, want 3 (init + two rebased landings)", got)
+	}
+}
+
+// TestParallel_CollidingChangesConflictDeliberately is the other half: with a
+// SHARED marker name the two artifacts really do collide, and the transaction
+// refuses cleanly with the target untouched. Opting in to the conflict is the
+// point — it used to happen whether a test wanted it or not.
+func TestParallel_CollidingChangesConflictDeliberately(t *testing.T) {
+	repo := gitRepo(t)
+	// Both Jobs write the SAME file: a genuine add/add conflict.
+	runner := StubRunner{Result: ExecSuccess, WriteFile: true, MarkerName: "shared.txt"}
+	svc, _, store := newService(t, mapResolver{"app": repo}, runner, nil, StubVerifyRunner{Pass: true})
+	svc.SetSchedulerLimits(SchedulerLimits{Global: 8, PerProject: 2})
+
+	var ids []string
+	for i := 0; i < 2; i++ {
+		task, _ := svc.CreateTask(CreateTaskRequest{Project: "app", Objective: "colliding work"})
+		ids = append(ids, task.ID)
+		if _, err := svc.DispatchTask(task.ID); err != nil {
+			t.Fatalf("dispatch: %v", err)
+		}
+		if _, err := svc.VerifyTask(task.ID); err != nil {
+			t.Fatalf("verify: %v", err)
+		}
+	}
+
+	if _, err := svc.IntegrateTask(ids[0]); err != nil {
+		t.Fatalf("the first landing should succeed: %v", err)
+	}
+	afterFirst, _ := svc.TargetFor("app")
+
+	_, err := svc.IntegrateTask(ids[1])
+	var rej *RejectionError
+	if !errors.As(err, &rej) || rej.Reason != ReasonMergeConflict {
+		t.Fatalf("the colliding landing = %v, want a merge_conflict refusal", err)
+	}
+	// The target is untouched and the Task is back on the retry ladder.
+	final, _ := svc.TargetFor("app")
+	if final.SHA != afterFirst.SHA {
+		t.Errorf("target moved on a conflict: %s → %s", afterFirst.SHA, final.SHA)
+	}
+	got, _ := store.GetTask(ids[1])
+	if got.State != StateRejected {
+		t.Errorf("the conflicted task = %s, want rejected", got.State)
+	}
+}

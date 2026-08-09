@@ -689,6 +689,43 @@ its ticket, so work that will never run cannot block the queue head forever.
 Every admission decision — allowed or refused — is a typed `schedule` event.
 A scheduler that quietly declines is indistinguishable from one that is broken.
 
+### Fairness needs liveness
+
+A ticket is a **lease**, not a permanent reservation. Fairness without liveness is
+a deadlock: a Task refused for capacity keeps its place while sitting in
+`planned`, and nothing wakes it — dispatch is synchronous, so the queue would only
+advance if a human re-issued dispatch for that exact Task. One abandoned dispatch
+attempt would brick a project's parallelism, and an abandoned **global** waiter
+would stall every project at once.
+
+So a ticket is renewed each time its owner re-asks, and expires otherwise:
+
+- **passovers** — every time a ticket blocks somebody else, it spends one. A
+  ticket that has been passed over more than a few times without its owner
+  re-asking is dropped. This heals a *busy* queue in a few attempts, made by the
+  very Tasks being blocked.
+- **TTL** — a ticket not renewed within a couple of minutes lapses regardless.
+  This heals a *quiet* queue, where there are no passovers to spend.
+
+Re-asking renews a ticket **without losing its place**, so a Task that keeps
+asking cannot be aged out by its own competitors. The invariant: *free capacity
+must eventually become usable without human intervention.*
+
+### What bounds what — containers, not disk
+
+The scheduler bounds **running containers**. It does not bound **disk**, and
+lifting the one-Job-per-project invariant made that worth saying out loud.
+
+`candidate`, `verifying` and `rejected` Jobs hold no container, which is why they
+are correctly excluded from the running count — but each still holds its
+**worktree**, because the commit has to survive for verification, review and
+integration. With N Tasks per project there can now be N simultaneous candidate
+worktrees, where before there was at most one. Worktrees are reclaimed when a Job
+reaches a terminal state or is rejected, and `Reconcile` removes orphans, so this
+is accumulation bounded by *unfinished work*, not a leak — but an operator running
+wide parallelism on a large repository should expect the disk cost to scale with
+the number of Tasks in flight, not with the concurrency limit.
+
 ### What stayed correct, and what needed care
 
 - **Reconcile** skips Jobs this process is running (the in-flight set), so a pass

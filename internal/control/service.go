@@ -398,6 +398,20 @@ func (s *Service) resolveBudget(req CreateTaskRequest) (Budget, error) {
 		return Budget{}, s.refuse("project", req.Project, EventBudget, ReasonInvalidBudget, fmt.Sprintf(
 			"budget %s is negative; 0 means unbounded and negative is not a budget", axis))
 	}
+	// The concurrency axis needs its ceiling from the SCHEDULER, not the budget.
+	// Since Sprint 61 the budget's own concurrency default is unset (= unbounded),
+	// so exceededBy could never refuse a concurrency ask: a request for 1000 would
+	// be stored and echoed back by `task status` as though it were the limit,
+	// while the real bound was the operator's per-project setting. Every other
+	// axis refuses an over-ask out loud (Sprint 58's doctrine); this one now does
+	// too, rather than accepting a number that means nothing.
+	if asked := req.Budget.Concurrency; asked > 0 {
+		if perProject := s.sched.Limits().PerProject; perProject > 0 && asked > perProject {
+			return Budget{}, s.refuse("project", req.Project, EventBudget, ReasonOverBudget, fmt.Sprintf(
+				"requested concurrency %d exceeds the project limit of %d; raise concurrency.perProject in the host-side policy, not in the request",
+				asked, perProject))
+		}
+	}
 	if axis, over := ceiling.exceededBy(*req.Budget); over {
 		// Recorded against the PROJECT, not a task: the refusal happened before any
 		// task existed, and an event with an empty entity id would be unqueryable.
