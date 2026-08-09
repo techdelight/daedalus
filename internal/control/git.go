@@ -157,6 +157,19 @@ func IsAncestor(repoDir, ancestor, descendant string) (bool, error) {
 // the agent's write scope"). Detecting the condition costs one `merge-base` per
 // attempt and does not depend on *how* the tip came to be moved.
 //
+// KNOWN LIMITS — this is ancestry, not authorship, and it is not a complete
+// defence (see docs/control-plane.md, "What the rebase guard does NOT cover"):
+//   - a content-preserving rewrite (cherry-pick, commit-tree, format-patch|am)
+//     reproduces the same weakened policy under a NEW sha with no ancestry link,
+//     and is structurally indistinguishable from an honest commit;
+//   - CreateTask freezes whatever ReadHeadSHA returns with NO ancestry check at
+//     all, so an attacker that can move the target ref need not use --rebase — it
+//     can simply wait for the next Task on that project.
+//
+// The real fix is a plane-owned target ref the agent cannot write, which arrives
+// with the integration transaction (Sprint 59). Do not extend this check into a
+// larger one and mistake that for closing the hole.
+//
 // The direction matters and is easy to get backwards: the question is whether a
 // job commit is CONTAINED IN the tip's history — IsAncestor(jobCommit, tip) —
 // not the reverse. Asking it the other way round would flag the perfectly

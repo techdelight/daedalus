@@ -317,6 +317,41 @@ Two consequences, both implemented rather than assumed away:
   onto a commit the worker authored is exactly what §6 forbids, and a failure to
   *check* is treated as unsafe rather than fine.
 
+#### What the rebase guard does NOT cover (read this before trusting it)
+
+The guard is an **ancestry** check, and ancestry is not authorship. Stated plainly
+so nobody reads it as complete:
+
+- **It catches** the naive attack and its obvious variants: pointing the target
+  branch straight at a Job's commit, or at a merge/descendant that contains one.
+  Those are what a worker with shell access and a shared ref store reaches for
+  first, and they are now refused.
+- **It does not catch a content-preserving rewrite.** `git cherry-pick`,
+  `git commit-tree`, or `format-patch | am` reproduce the same weakened
+  `.daedalus/verify.json` under a **new SHA with no ancestry link** to any Job
+  commit. The guard sees an unrelated commit and allows the rebase. No ancestry
+  test can close this — the rewritten commit is, structurally, indistinguishable
+  from an honest developer commit that happens to contain the same bytes.
+- **`task create` is not guarded at all.** The guard is bolted onto
+  `retry --rebase`, but a Task freezes whatever `ReadHeadSHA` returns at create
+  time, with **no ancestry check whatsoever**. An attacker that can move the
+  target ref therefore does not need `--rebase` at all: it moves the ref and waits
+  for the next Task on that project to freeze its oracle. This is the sharper hole
+  of the two, and the guard does nothing about it.
+
+**The real fix is not a better ancestry check** — it is a **plane-owned target ref
+the agent cannot write**, so "the tip" stops being something a worker can
+influence at all. That is exactly what the integration transaction introduces
+(serialize → rebase → re-verify the merged result → compare-and-swap a ref the
+plane owns), and it is a tracked Sprint 59 item. Until it lands, treat the frozen
+acceptance oracle as trustworthy only to the extent that **write access to the
+project repository's refs** is trustworthy.
+
+The mitigations that *do* hold today are the ones that do not depend on ancestry:
+the integrity gate (a Job's own diff may not touch acceptance files), the
+null-agent floor, and the fact that `--rebase` is opt-in and human-driven rather
+than something the plane does on its own.
+
 Exit codes: `0` success, `1` failure, **`3` refused by policy**. That distinction
 is the whole point — a governed plane that only ever said "error" would be
 indistinguishable from a broken one.

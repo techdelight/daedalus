@@ -35,6 +35,14 @@ var ErrIllegalTransition = errors.New("control: illegal state transition")
 // ErrNotFound is returned when a task/job/artifact id does not exist.
 var ErrNotFound = errors.New("control: not found")
 
+// ErrWrongState is returned when an operation's *state precondition* is not met
+// — retrying a task that was never rejected, verifying one that is not a
+// candidate, and so on. It is a state conflict like ErrConflict and
+// ErrIllegalTransition (the daemon maps all three to HTTP 409), but it is raised
+// by a service-level guard before any transition is attempted, rather than by the
+// store's optimistic UPDATE.
+var ErrWrongState = errors.New("control: operation not allowed in the task's current state")
+
 // ErrActiveTaskExists is returned by CreateTask when the project already has a
 // non-terminal task (the "one active Task/Job per project" invariant, §5).
 type ErrActiveTaskExists struct {

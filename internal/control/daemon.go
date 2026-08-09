@@ -216,7 +216,11 @@ func statusFor(err error) int {
 	// and 500 (something broke) precisely so a client can tell them apart.
 	case errors.As(err, &rejected):
 		return http.StatusUnprocessableEntity
-	case errors.As(err, &activeErr), errors.Is(err, ErrConflict), errors.Is(err, ErrIllegalTransition):
+	// 409 Conflict: the request is fine, the entity's current state is not — a
+	// second active task, a stale/illegal transition, or an unmet state
+	// precondition (retrying a task that was never rejected, …).
+	case errors.As(err, &activeErr), errors.Is(err, ErrConflict),
+		errors.Is(err, ErrIllegalTransition), errors.Is(err, ErrWrongState):
 		return http.StatusConflict
 	case errors.As(err, &notGit):
 		return http.StatusBadRequest

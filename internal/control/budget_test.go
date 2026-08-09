@@ -188,8 +188,13 @@ func TestFileBudgetPolicy_FailsClosed(t *testing.T) {
 
 // TestBudget_NegativeIsNeverUnbounded is the regression for the audit's critical
 // finding: 0 means unbounded and every enforcement site guards `> 0`, so a
-// negative that reached a Task row would disable that axis entirely. It must be
-// impossible to get one in through any door.
+// negative that reached a Task row would disable that axis entirely.
+//
+// The subtests below cover every door a value can arrive through — a create
+// request, the host-side policy file, an injected BudgetSource (the ceiling
+// itself, where a negative would make exceededBy permit everything), and a row
+// already in the database. Each is closed independently rather than relying on
+// any one of them being the only entry point.
 func TestBudget_NegativeIsNeverUnbounded(t *testing.T) {
 	t.Run("invalidAxis names every negative axis", func(t *testing.T) {
 		for i, b := range []Budget{
@@ -239,6 +244,32 @@ func TestBudget_NegativeIsNeverUnbounded(t *testing.T) {
 		}
 		if tasks, _ := store.ListTasks(); len(tasks) != 0 {
 			t.Errorf("a negative budget must not create a task, got %d", len(tasks))
+		}
+	})
+
+	t.Run("a negative CEILING cannot turn the check into a rubber stamp", func(t *testing.T) {
+		repo := gitRepo(t)
+		svc, _, _ := newService(t, mapResolver{"app": repo}, StubRunner{}, nil)
+		// BudgetSource is exported and injectable, so a ceiling can arrive without
+		// passing LoadBudgetPolicy. A negative ceiling axis would make exceededBy's
+		// `permitted > 0` guard permit anything at all.
+		svc.SetBudgetSource(StaticBudget(Budget{
+			WallClockSeconds: -1, MaxAttempts: -1, MaxReviewCycles: -1, Concurrency: -1,
+		}))
+		ceiling := svc.budgetCeiling("app")
+		if axis, bad := ceiling.invalidAxis(); bad {
+			t.Fatalf("a negative survived into the ceiling on %s: %+v", axis, ceiling)
+		}
+		if ceiling != DefaultBudget() {
+			t.Errorf("sanitized ceiling = %+v, want DefaultBudget", ceiling)
+		}
+		// And an over-budget request against that ceiling is still refused.
+		_, err := svc.CreateTask(CreateTaskRequest{
+			Project: "app", Objective: "x", Budget: &Budget{MaxAttempts: 9999},
+		})
+		var rej *RejectionError
+		if !errors.As(err, &rej) || rej.Reason != ReasonOverBudget {
+			t.Errorf("create against a negative ceiling = %v, want an over_budget refusal", err)
 		}
 	})
 

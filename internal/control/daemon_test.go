@@ -287,3 +287,51 @@ func TestDaemon_NegativeBudgetRefusedOverTheWire(t *testing.T) {
 		t.Fatalf("client CreateTask(negative) = %v, want an invalid_budget rejection", err)
 	}
 }
+
+// TestDaemon_WrongStateIsConflictNot500 pins the documented wire contract: a
+// request refused because the entity is in the wrong state is a 409 conflict, not
+// a 500. A 500 says "the plane broke"; these are ordinary, expected answers.
+func TestDaemon_WrongStateIsConflictNot500(t *testing.T) {
+	repo := gitRepo(t)
+	svc, _, _ := newService(t, mapResolver{"app": repo},
+		StubRunner{Result: ExecSuccess, WriteFile: true}, nil, StubVerifyRunner{Pass: true})
+	handler := NewServer(svc).Handler()
+
+	task, err := svc.CreateTask(CreateTaskRequest{Project: "app", Objective: "x"}) // planned
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	base := "/tasks/" + task.ID
+
+	// On a `planned` task: retry, replan and verify all fail their state
+	// precondition.
+	planned := []struct {
+		name, method, path, body string
+	}{
+		{"retry a task that was never rejected", http.MethodPost, base + "/retry", `{}`},
+		{"replan a task that was never rejected", http.MethodPost, base + "/replan", `{"objective":"new"}`},
+		{"verify a task that is not a candidate", http.MethodPost, base + "/verify", ``},
+	}
+	for _, tc := range planned {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body)))
+			if rec.Code != http.StatusConflict {
+				t.Errorf("%s %s = %d, want 409\n%s", tc.method, tc.path, rec.Code, rec.Body.String())
+			}
+		})
+	}
+
+	// And on a `verified` task, dispatch is not allowed either.
+	if _, err := svc.DispatchTask(task.ID); err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+	if _, err := svc.VerifyTask(task.ID); err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, base+"/dispatch", nil))
+	if rec.Code != http.StatusConflict {
+		t.Errorf("dispatch of a verified task = %d, want 409\n%s", rec.Code, rec.Body.String())
+	}
+}

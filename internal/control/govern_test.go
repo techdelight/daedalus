@@ -596,6 +596,16 @@ func TestDispatch_SecondOperationOnOneTaskIsRefused(t *testing.T) {
 		if err == nil {
 			t.Fatal("a second concurrent dispatch should be refused")
 		}
+		// It is refused by the STATE guard (the task is already `working`), which
+		// sits in front of the in-flight guard and shadows it for same-shaped
+		// operations. That is the right order — the state answer is the more
+		// informative one — so the in-flight set is defence in depth here, and its
+		// own refusal behaviour is pinned directly in TestBeginOp_RefusesAndReleases.
+		// What matters at this level is that the answer comes back at all instead of
+		// blocking behind an hour-long lock.
+		if !errors.Is(err, ErrWrongState) {
+			t.Errorf("refusal = %v, want a state-precondition error", err)
+		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("the second dispatch blocked instead of being refused")
 	}
@@ -786,18 +796,185 @@ func TestVerify_PanickingVerifier_LeavesNoStrandedTask(t *testing.T) {
 	if cycles, _ := store.CountReviewCycles(task.ID); cycles != 0 {
 		t.Errorf("review cycles = %d, want 0 — the verification never completed", cycles)
 	}
-	// And the mutex is still usable: a further operation neither deadlocks nor
-	// panics on an unlocked mutex.
+	// The in-flight claim must have been released too. Probe with VerifyTask
+	// specifically: it is the operation that takes a claim, and `candidate`'s only
+	// forward move. (Probing with CancelTask would prove nothing — cancel never
+	// calls beginOp, so it succeeds even on a task bricked by a leaked claim.)
+	if op, leaked := svc.inflightFor(task.ID); leaked {
+		t.Errorf("the verifier panic leaked an in-flight claim %+v — the task is permanently un-verifiable", op)
+	}
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		if _, err := svc.CancelTask(task.ID); err != nil {
-			t.Errorf("CancelTask after a verifier panic: %v", err)
+		// A second verify panics again (same verifier); what matters is that it
+		// RUNS rather than being refused with operation_in_flight.
+		defer func() { _ = recover() }()
+		if _, err := svc.VerifyTask(task.ID); err != nil {
+			if reason, refused := Rejected(err); refused && reason == ReasonOperationInFlight {
+				t.Errorf("verify after a panic was refused as %q — the claim leaked", reason)
+			}
 		}
 	}()
 	select {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("the service lock was left inconsistent by the verifier panic")
+	}
+}
+
+// TestPrepareDispatch_PanicDoesNotDeadlockThePlane: the locked phase of a
+// dispatch shells out to git, reads files and touches the DB. A panic in there
+// must not leave s.mu held — net/http recovers the handler panic, so a deadlocked
+// plane would stay "up" and silently stop answering, the worst failure mode.
+func TestPrepareDispatch_PanicDoesNotDeadlockThePlane(t *testing.T) {
+	repo := gitRepo(t)
+	resolver := &panicResolver{dirs: mapResolver{"app": repo}}
+	svc, _, _ := newService(t, resolver, StubRunner{Result: ExecSuccess, WriteFile: true}, nil)
+
+	task, err := svc.CreateTask(CreateTaskRequest{Project: "app", Objective: "x"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	resolver.panicNow = true
+	func() {
+		defer func() {
+			if recover() == nil {
+				t.Error("expected the resolver panic to propagate")
+			}
+		}()
+		_, _ = svc.DispatchTask(task.ID)
+	}()
+	resolver.panicNow = false
+
+	// The plane must still answer. Probe with operations that take s.mu.
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		if _, err := svc.ListTasks(); err != nil {
+			t.Errorf("ListTasks after a panic: %v", err)
+		}
+		if _, err := svc.CancelTask(task.ID); err != nil {
+			t.Errorf("CancelTask after a panic: %v", err)
+		}
+		if _, err := svc.Reconcile(); err != nil {
+			t.Errorf("Reconcile after a panic: %v", err)
+		}
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the control plane deadlocked: s.mu was still held after a panic in the locked dispatch phase")
+	}
+	// And the claim did not leak either.
+	if op, leaked := svc.inflightFor(task.ID); leaked {
+		t.Errorf("panic in the locked phase leaked an in-flight claim: %+v", op)
+	}
+}
+
+// panicResolver is a ProjectResolver that panics on demand, standing in for any
+// of the DB / git / filesystem work inside the locked dispatch phase blowing up.
+type panicResolver struct {
+	dirs     mapResolver
+	panicNow bool
+}
+
+func (p *panicResolver) ProjectDir(name string) (string, error) {
+	if p.panicNow {
+		panic("resolver exploded")
+	}
+	return p.dirs.ProjectDir(name)
+}
+
+// --- the in-flight guard itself ----------------------------------------------
+
+// TestBeginOp_RefusesAndReleases pins the in-flight set directly. It is the whole
+// mechanism that replaced the over-held mutex, so its refusal behaviour needs
+// covering on its own, not only through the reconcile-skip path.
+func TestBeginOp_RefusesAndReleases(t *testing.T) {
+	repo := gitRepo(t)
+	svc, _, _ := newService(t, mapResolver{"app": repo}, StubRunner{}, nil)
+
+	first := inflightOp{kind: "dispatch", jobID: "J-1", project: "app"}
+	svc.mu.Lock()
+	if err := svc.beginOp("T-1", first); err != nil {
+		svc.mu.Unlock()
+		t.Fatalf("first claim: %v", err)
+	}
+	// A second claim on the SAME task is refused, with a typed reason naming the
+	// operation already running.
+	err := svc.beginOp("T-1", inflightOp{kind: "verify", project: "app"})
+	svc.mu.Unlock()
+
+	var rej *RejectionError
+	if !errors.As(err, &rej) {
+		t.Fatalf("second claim err = %v, want *RejectionError", err)
+	}
+	if rej.Reason != ReasonOperationInFlight {
+		t.Errorf("reason = %q, want %q", rej.Reason, ReasonOperationInFlight)
+	}
+	if !strings.Contains(rej.Message, "dispatch") || !strings.Contains(rej.Message, "J-1") {
+		t.Errorf("message %q should name the operation already in flight", rej.Message)
+	}
+	// A DIFFERENT task is unaffected — the claim is per task, not global.
+	svc.mu.Lock()
+	if err := svc.beginOp("T-2", inflightOp{kind: "dispatch", project: "app"}); err != nil {
+		svc.mu.Unlock()
+		t.Fatalf("claim on a different task: %v", err)
+	}
+	// jobIsInflight only matches the claimed job.
+	if !svc.jobIsInflight("T-1", "J-1") {
+		t.Error("jobIsInflight(T-1, J-1) = false, want true")
+	}
+	if svc.jobIsInflight("T-1", "J-9") {
+		t.Error("jobIsInflight matched a job that is not the claimed one")
+	}
+	svc.mu.Unlock()
+
+	// endOp releases, and the task can be claimed again.
+	svc.endOp("T-1")
+	svc.mu.Lock()
+	defer svc.mu.Unlock()
+	if err := svc.beginOp("T-1", inflightOp{kind: "verify", project: "app"}); err != nil {
+		t.Errorf("re-claim after endOp: %v", err)
+	}
+}
+
+// TestRefuseSelfAuthoredRebase_FailsClosedOnCheckError: when the ancestry check
+// cannot be *performed* (a pruned or garbage-collected job commit), the plane must
+// refuse the rebase rather than assume it is safe. Re-freezing the acceptance
+// oracle is the consequential act, so "don't know" has to mean "no".
+func TestRefuseSelfAuthoredRebase_FailsClosedOnCheckError(t *testing.T) {
+	repo := gitRepo(t)
+	svc, store, task := rejectedTask(t, repo, Budget{MaxAttempts: 5, MaxReviewCycles: 5, Concurrency: 1})
+	frozen := task.AcceptanceHash
+
+	// Point the job at a commit that does not exist, so `git merge-base
+	// --is-ancestor` fails outright rather than answering yes or no.
+	jobs, _ := store.ListJobsForTask(task.ID)
+	if len(jobs) == 0 {
+		t.Fatal("precondition: expected a job")
+	}
+	if _, err := store.SetJobExecutionResult(jobs[0].ID, ExecSuccess,
+		"0123456789abcdef0123456789abcdef01234567"); err != nil {
+		t.Fatalf("planting a bogus job commit: %v", err)
+	}
+	// Move the project tip so a rebase is actually attempted.
+	commitFile(t, repo, "moved.txt", "the tip moved")
+
+	_, err := svc.RetryTask(task.ID, RetryRequest{Rebase: true})
+	var rej *RejectionError
+	if !errors.As(err, &rej) {
+		t.Fatalf("rebase with an uncheckable ancestry = %v, want *RejectionError", err)
+	}
+	if rej.Reason != ReasonUnsafeRebase {
+		t.Errorf("reason = %q, want %q", rej.Reason, ReasonUnsafeRebase)
+	}
+	if !strings.Contains(rej.Message, "cannot confirm") {
+		t.Errorf("message %q should say the check could not be performed", rej.Message)
+	}
+	// Nothing was re-frozen.
+	got, _ := store.GetTask(task.ID)
+	if got.AcceptanceHash != frozen {
+		t.Errorf("acceptance hash changed despite the refusal: %s → %s", frozen, got.AcceptanceHash)
 	}
 }

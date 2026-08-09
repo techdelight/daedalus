@@ -93,6 +93,32 @@ All notable changes to this project will be documented in this file.
   - **`ReadHeadSHA` could not resolve a branch in a linked worktree (minor).**
     `refs/heads/*` lives in the git **common** dir, not `.git/worktrees/<id>`, so a
     healthy worktree checkout was misreported as an unborn branch.
+- **Leaked locks and leaked claims on the panic paths** (a second audit pass; the
+  same class as the fixes above, one layer down). Releasing a resource with a bare
+  statement rather than a `defer` means a panic unwinds straight past it:
+  `VerifyTask` leaked its in-flight claim (wedging the Task as permanently
+  un-verifiable — `candidate`'s only forward move is verify), `prepareDispatch`
+  leaked its claim through the same mistake, and the locked phases of
+  `DispatchTask`/`RetryTask` used bare `Unlock()` calls that would **deadlock the
+  entire control plane** — with `net/http` recovering the handler panic so the
+  daemon stayed up and silently stopped answering. All four now release by
+  `defer`. `Service.budgetCeiling` also now sanitizes its `BudgetSource`, since
+  `BudgetSource` is exported and a negative *ceiling* would make the over-budget
+  check permit everything.
+- **State-precondition failures returned HTTP 500 instead of 409.** Retrying a
+  task that was never rejected (and the equivalent verify/replan/dispatch guards)
+  reported a server error rather than the documented state conflict. New
+  `ErrWrongState` sentinel, mapped to 409 alongside `ErrConflict` and
+  `ErrIllegalTransition`.
+- **Documented the rebase guard's real limits** (`docs/control-plane.md`,
+  `git.go`). The `unsafe_rebase` ancestry check catches naive ref moves and
+  merge/descendant commits, but **not** content-preserving rewrites
+  (`cherry-pick` / `commit-tree` / `format-patch|am` reproduce the same weakened
+  policy under a new SHA with no ancestry link), and **`task create` is unguarded
+  entirely** — an attacker that can move the target ref can simply wait for the
+  next Task. No ancestry test can close either; the real fix is a plane-owned
+  target ref the agent cannot write, which arrives with the Sprint 59 integration
+  transaction. Written down rather than papered over.
 - **Registry leak: one dead `daedalus-job-*` entry per Job.** The real
   `CoordinatorRunner` registers a throwaway project to launch the agent headless
   and never removed it, so the registry accumulated an entry per Job pointing at a

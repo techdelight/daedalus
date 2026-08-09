@@ -176,6 +176,12 @@ func NewService(store *Store, projects ProjectResolver, worktrees *WorktreeManag
 // rather than blocks: a caller that has to wait an hour for a lock is
 // indistinguishable from a hung daemon, so the plane says no immediately and
 // says why.
+//
+// In practice the state guards usually fire first (a task with a dispatch in
+// flight is already `working`, so a second dispatch is refused on state before it
+// gets here). This claim is what reconcile reads to tell live work from crashed
+// work, and it is the backstop if a state guard is ever loosened — it is not the
+// primary refusal path, and it does not pretend to be.
 func (s *Service) beginOp(taskID string, op inflightOp) error {
 	if existing, busy := s.inflight[taskID]; busy {
 		return &RejectionError{
@@ -254,11 +260,17 @@ func (s *Service) SetBudgetSource(b BudgetSource) { s.budgets = b }
 
 // budgetCeiling resolves the ceiling for a project: the configured source, or
 // the built-in default when none is installed.
+// The result is sanitized: BudgetSource is an exported, injectable interface, so
+// the ceiling can arrive from a caller that never went through LoadBudgetPolicy
+// (StaticBudget, or any third implementation). A negative ceiling would make
+// exceededBy's `permitted > 0` guard permit *everything*, turning the ceiling
+// into a rubber stamp — so the untrusted-input rule applies to the ceiling too,
+// not just the request.
 func (s *Service) budgetCeiling(project string) Budget {
 	if s.budgets == nil {
 		return DefaultBudget()
 	}
-	return s.budgets.BudgetFor(project).withDefaults(DefaultBudget())
+	return s.budgets.BudgetFor(project).withDefaults(DefaultBudget()).sanitized(DefaultBudget())
 }
 
 // refuse records a policy refusal in the event log and returns the typed error.
@@ -425,9 +437,17 @@ func (s *Service) CancelTask(id string) (Task, error) {
 // promotes to a candidate Artifact; failure/timeout/cancel are terminal and
 // reclaim the worktree.
 func (s *Service) DispatchTask(id string) (DispatchResult, error) {
-	s.mu.Lock()
-	prep, err := s.prepareDispatch(id)
-	s.mu.Unlock()
+	// The locked phase is a closure with `defer s.mu.Unlock()`, not a bare
+	// lock/unlock pair: prepareDispatch touches the DB, shells out to git, and
+	// reads files, and a panic in any of that would unwind past an inline unlock
+	// and leave the control plane deadlocked forever. net/http recovers the
+	// handler panic, so the daemon would stay up and simply stop answering — the
+	// worst failure mode there is.
+	prep, err := func() (dispatchPrep, error) {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		return s.prepareDispatch(id)
+	}()
 	if err != nil {
 		return DispatchResult{}, err
 	}
@@ -458,49 +478,51 @@ func (s *Service) prepareDispatch(id string) (dispatchPrep, error) {
 	// Dispatchable from planned/queued (first attempt) or rejected (retry after a
 	// failed verify — rejected → queued is the retry path from §6's ladder).
 	if task.State != StatePlanned && task.State != StateQueued && task.State != StateRejected {
-		return dispatchPrep{}, fmt.Errorf("control: task %s is %s, not dispatchable (want planned/queued/rejected)", id, task.State)
+		return dispatchPrep{}, fmt.Errorf("%w: task %s is %s, not dispatchable (want planned/queued/rejected)", ErrWrongState, id, task.State)
 	}
 	// Claim the task before anything else moves: with the lock released across the
 	// run, the task state alone is no longer enough to keep two dispatches apart.
 	if err := s.beginOp(id, inflightOp{kind: "dispatch", project: task.Project}); err != nil {
 		return dispatchPrep{}, err
 	}
-	// From here on every failure path must release the claim.
-	release := func() { delete(s.inflight, id) }
+	// Release the claim by DEFER, disarmed only once the caller takes ownership of
+	// it (runDispatch releases it then). A manual release on each failure path
+	// would be one `return` — or one panic in the git/DB/filesystem work below —
+	// away from leaking a claim, and a leaked claim wedges the task permanently.
+	claimed := true
+	defer func() {
+		if claimed {
+			delete(s.inflight, id)
+		}
+	}()
 
 	// Budget gate, BEFORE any state change or side-effect: an over-budget dispatch
 	// must leave the task exactly as it found it.
 	if err := s.checkDispatchBudget(task); err != nil {
-		release()
 		return dispatchPrep{}, err
 	}
 	repoDir, err := s.projects.ProjectDir(task.Project)
 	if err != nil {
-		release()
 		return dispatchPrep{}, err
 	}
 
 	// Drive the task into working: planned/rejected → queued → working.
 	if task.State == StatePlanned {
 		if _, err := s.store.TransitionTask(id, StateQueued, false, "dispatch"); err != nil {
-			release()
 			return dispatchPrep{}, err
 		}
 	} else if task.State == StateRejected {
 		if _, err := s.store.TransitionTask(id, StateQueued, false, "retry after rejection"); err != nil {
-			release()
 			return dispatchPrep{}, err
 		}
 	}
 	if _, err := s.store.TransitionTask(id, StateWorking, false, "dispatch: worktree + run"); err != nil {
-		release()
 		return dispatchPrep{}, err
 	}
 
 	// Create the Job (records base_sha, runner, the wall-clock budget) in working.
 	job, err := s.store.CreateJob(id, task.BaseSHA, "claude", task.Budget.WallClockSeconds, StateWorking)
 	if err != nil {
-		release()
 		return dispatchPrep{}, err
 	}
 	s.setOpJob(id, job.ID)
@@ -510,9 +532,10 @@ func (s *Service) prepareDispatch(id string) (dispatchPrep, error) {
 	if err != nil {
 		// Could not even prepare the workspace: fail the job + task, no worktree.
 		s.failJobAndTask(id, job.ID, ExecFailed, "", "worktree add failed: "+err.Error())
-		release()
 		return dispatchPrep{}, err
 	}
+	// Success: the caller now owns the claim and runDispatch will release it.
+	claimed = false
 	return dispatchPrep{task: task, job: job, repoDir: repoDir, worktree: wtPath}, nil
 }
 
@@ -680,14 +703,14 @@ func (s *Service) VerifyTask(id string) (VerifyResult, error) {
 		return VerifyResult{}, err
 	}
 	if task.State != StateCandidate {
-		return VerifyResult{}, fmt.Errorf("control: task %s is %s, not verifiable (want candidate)", id, task.State)
+		return VerifyResult{}, fmt.Errorf("%w: task %s is %s, not verifiable (want candidate)", ErrWrongState, id, task.State)
 	}
 	job, ok, err := s.candidateJob(id)
 	if err != nil {
 		return VerifyResult{}, err
 	}
 	if !ok {
-		return VerifyResult{}, fmt.Errorf("control: task %s has no candidate job to verify", id)
+		return VerifyResult{}, fmt.Errorf("%w: task %s has no candidate job to verify", ErrWrongState, id)
 	}
 	repoDir, err := s.projects.ProjectDir(task.Project)
 	if err != nil {
@@ -796,6 +819,15 @@ func (s *Service) VerifyTask(id string) (VerifyResult, error) {
 	if err := s.beginOp(id, inflightOp{kind: "verify", jobID: job.ID, project: task.Project}); err != nil {
 		return VerifyResult{}, err
 	}
+	// Released by DEFER, never by a bare statement further down: a panic in the
+	// verifier unwinds straight past any inline delete, and a leaked claim is a
+	// permanent wedge — `candidate`'s only forward move is verify, which would then
+	// be refused with operation_in_flight for the rest of the daemon's life. Same
+	// discipline as runDispatch's `defer s.endOp`. Deferred functions run LIFO, so
+	// this releases the claim while s.mu is still held (the closure around
+	// verifier.Verify re-acquires it even on a panic) and before the stranded-
+	// recovery defer above needs it.
+	defer delete(s.inflight, id)
 
 	// Refresh job/task snapshots for the return value + reject path.
 	job, _ = s.store.GetJob(job.ID)
@@ -828,7 +860,6 @@ func (s *Service) VerifyTask(id string) (VerifyResult, error) {
 		defer s.mu.Lock()
 		return s.verifier.Verify(context.Background(), spec)
 	}()
-	delete(s.inflight, id)
 
 	// The task may have been cancelled while the verifier ran; a terminal task is
 	// not ours to move, and it is not stranded either.
@@ -931,9 +962,13 @@ func (s *Service) doReject(task Task, job Job, art *Artifact, repoDir string, re
 // That is deliberately opt-in: re-freezing the oracle at a newer commit adopts
 // whatever verify policy that commit carries, so a human asks for it by name.
 func (s *Service) RetryTask(id string, req RetryRequest) (RetryResult, error) {
-	s.mu.Lock()
-	res, prep, err := s.prepareRetry(id, req)
-	s.mu.Unlock()
+	// Closure + defer, for the same reason as DispatchTask: a panic in the locked
+	// phase must not deadlock the plane.
+	res, prep, err := func() (RetryResult, dispatchPrep, error) {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		return s.prepareRetry(id, req)
+	}()
 	if err != nil {
 		return RetryResult{}, err
 	}
@@ -956,7 +991,7 @@ func (s *Service) prepareRetry(id string, req RetryRequest) (RetryResult, dispat
 		return RetryResult{}, dispatchPrep{}, err
 	}
 	if task.State != StateRejected {
-		return RetryResult{}, dispatchPrep{}, fmt.Errorf("control: task %s is %s, not retryable (want rejected)", id, task.State)
+		return RetryResult{}, dispatchPrep{}, fmt.Errorf("%w: task %s is %s, not retryable (want rejected)", ErrWrongState, id, task.State)
 	}
 	// Re-check the budget up front so an exhausted Task is refused before the
 	// rebase touches anything.
@@ -1067,7 +1102,7 @@ func (s *Service) ReplanTask(id string, req ReplanRequest) (Task, error) {
 		return Task{}, err
 	}
 	if task.State != StateRejected {
-		return Task{}, fmt.Errorf("control: task %s is %s, not replannable (want rejected)", id, task.State)
+		return Task{}, fmt.Errorf("%w: task %s is %s, not replannable (want rejected)", ErrWrongState, id, task.State)
 	}
 	// A replan that could never be dispatched is worth refusing now rather than
 	// leaving a `planned` task that only fails at the next dispatch.
@@ -1291,4 +1326,14 @@ func (r RegistryResolver) ProjectDir(name string) (string, error) {
 		return "", fmt.Errorf("project %q is not registered", name)
 	}
 	return entry.Directory, nil
+}
+
+// inflightFor reports the in-flight operation claimed for a task, if any. Used by
+// tests to assert that a claim was released — a leaked claim is invisible from
+// the outside until it wedges the task.
+func (s *Service) inflightFor(taskID string) (inflightOp, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	op, ok := s.inflight[taskID]
+	return op, ok
 }
