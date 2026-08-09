@@ -236,6 +236,19 @@ func (c *Client) PlaneStatus() (PlaneStatus, error) {
 	return st, c.getJSON("/status", &st)
 }
 
+// AddDependency implements TaskAPI.
+func (c *Client) AddDependency(taskID, dependsOn string) (DependencyEdge, error) {
+	var edge DependencyEdge
+	return edge, c.postJSON("/tasks/"+url.PathEscape(taskID)+"/dependencies",
+		dependencyRequest{DependsOn: dependsOn}, &edge)
+}
+
+// TaskDependencies implements TaskAPI.
+func (c *Client) TaskDependencies(taskID string) (DependencyView, error) {
+	var view DependencyView
+	return view, c.getJSON("/tasks/"+url.PathEscape(taskID)+"/dependencies", &view)
+}
+
 // ListProposals implements TaskAPI.
 func (c *Client) ListProposals(state ProposalState) ([]Proposal, error) {
 	path := "/proposals"

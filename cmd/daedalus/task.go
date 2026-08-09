@@ -30,7 +30,7 @@ func manageTasks(cfg *core.Config) error {
 	args := cfg.TaskArgs
 	if len(args) == 0 {
 		printTaskUsage()
-		return fmt.Errorf("task: subcommand required (create|list|status|dispatch|verify|review|approve|reject|integrate|approvals|proposals|target|retry|replan|events|cancel)")
+		return fmt.Errorf("task: subcommand required (create|list|status|dispatch|verify|review|approve|reject|integrate|approvals|proposals|depends|target|retry|replan|events|cancel)")
 	}
 	if args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
 		printTaskUsage()
@@ -78,10 +78,12 @@ func runTaskCommand(api control.TaskAPI, args []string) error {
 		return taskTarget(api, args[1:])
 	case "proposals":
 		return taskProposals(api, args[1:])
+	case "depends", "dependencies":
+		return taskDepends(api, args[1:])
 	case "cancel":
 		return taskCancel(api, args[1:])
 	default:
-		return fmt.Errorf("task: unknown subcommand %q\n%s daedalus task <create|list|status|dispatch|verify|review|approve|reject|integrate|approvals|proposals|target|retry|replan|events|cancel>", args[0], color.Cyan("Hint:"))
+		return fmt.Errorf("task: unknown subcommand %q\n%s daedalus task <create|list|status|dispatch|verify|review|approve|reject|integrate|approvals|proposals|depends|target|retry|replan|events|cancel>", args[0], color.Cyan("Hint:"))
 	}
 }
 
@@ -265,6 +267,16 @@ func taskStatus(api control.TaskAPI, args []string) error {
 	fmt.Printf("%s  %s\n", color.Bold("Base SHA:"), t.BaseSHA)
 	fmt.Printf("%s    %s\n", color.Bold("Budget:"), t.Budget)
 	fmt.Printf("%s   %s\n", color.Bold("Created:"), t.CreatedAt)
+
+	if deps := view.Dependencies; len(deps.DependsOn) > 0 || len(deps.Dependents) > 0 {
+		if len(deps.DependsOn) > 0 {
+			fmt.Printf("%s %s\n", color.Bold("Depends on:"), strings.Join(deps.DependsOn, " "))
+		}
+		if len(deps.Dependents) > 0 {
+			fmt.Printf("%s %s\n", color.Bold("Blocks:"), strings.Join(deps.Dependents, " "))
+		}
+		renderDependencyStatus(deps.Status)
+	}
 
 	sc := view.Scheduling
 	switch {
@@ -758,6 +770,80 @@ func taskProposals(api control.TaskAPI, args []string) error {
 	}
 }
 
+// taskDepends implements `task depends <id> [--on <other-id>]`: declare or show a
+// cross-project dependency.
+//
+// A cycle is refused HERE, at declaration — not discovered later at dispatch,
+// where it would be a wedged graph somebody has to unpick.
+func taskDepends(api control.TaskAPI, args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: daedalus task depends <id> [--on <other-id>]")
+	}
+	id := args[0]
+	var on string
+	for i := 1; i < len(args); i++ {
+		switch args[i] {
+		case "--on":
+			if i+1 >= len(args) {
+				return fmt.Errorf("--on requires a task id")
+			}
+			i++
+			on = args[i]
+		default:
+			return fmt.Errorf("task depends: unknown flag %q\n%s usage: daedalus task depends <id> [--on <other-id>]", args[i], color.Cyan("Hint:"))
+		}
+	}
+	if on != "" {
+		edge, err := api.AddDependency(id, on)
+		if err != nil {
+			if errors.Is(err, control.ErrNotFound) {
+				return fmt.Errorf("task %q or %q not found", id, on)
+			}
+			return err
+		}
+		fmt.Printf("%s task %s now depends on %s\n", color.Green("OK:"), color.Bold(edge.TaskID), color.Bold(edge.DependsOn))
+		fmt.Println("     it will not be dispatched until that task has landed")
+		return nil
+	}
+
+	view, err := api.TaskDependencies(id)
+	if err != nil {
+		if errors.Is(err, control.ErrNotFound) {
+			return fmt.Errorf("task %q not found", id)
+		}
+		return err
+	}
+	if len(view.DependsOn) == 0 && len(view.Dependents) == 0 {
+		fmt.Printf("Task %s has no dependencies and nothing depends on it.\n", id)
+		return nil
+	}
+	if len(view.DependsOn) > 0 {
+		fmt.Printf("%s %s\n", color.Bold("Depends on:"), strings.Join(view.DependsOn, " "))
+	}
+	if len(view.Dependents) > 0 {
+		fmt.Printf("%s %s\n", color.Bold("Blocks:    "), strings.Join(view.Dependents, " "))
+	}
+	renderDependencyStatus(view.Status)
+	return nil
+}
+
+// renderDependencyStatus prints why a Task is or is not runnable.
+func renderDependencyStatus(status control.DependencyStatus) {
+	switch {
+	case status.Ready():
+		fmt.Printf("%s every dependency has landed\n", color.Green("Ready:"))
+	case len(status.Unsatisfiable) > 0:
+		fmt.Printf("%s waiting on %s, which can never complete (failed or cancelled)\n",
+			color.Red("Stuck:"), strings.Join(status.Unsatisfiable, " "))
+		fmt.Println("     retry that work as a new task, or cancel this one")
+		if len(status.Unmet) > 0 {
+			fmt.Printf("     also waiting on %s\n", strings.Join(status.Unmet, " "))
+		}
+	default:
+		fmt.Printf("%s waiting on %s\n", color.Yellow("Blocked:"), strings.Join(status.Unmet, " "))
+	}
+}
+
 // taskCancel implements `task cancel <id>` via a legal transition to cancelled.
 func taskCancel(api control.TaskAPI, args []string) error {
 	if len(args) < 1 {
@@ -832,6 +918,9 @@ func printTaskUsage() {
 	fmt.Println("  integrate <id>       Land it: rebase onto the target, re-verify the MERGED result,")
 	fmt.Println("                       then compare-and-swap the plane-owned target ref")
 	fmt.Println("  approvals            List everything awaiting a human decision")
+	fmt.Println("  depends <id> [--on <other-id>]")
+	fmt.Println("                       Show or declare a cross-project dependency; a blocked task")
+	fmt.Println("                       is never dispatched until its dependencies have landed")
 	fmt.Println("  proposals [list [--all] | confirm <id> | deny <id>]")
 	fmt.Println("                       Consequential operations an AGENT asked for; confirming")
 	fmt.Println("                       executes them as you, denying does nothing")

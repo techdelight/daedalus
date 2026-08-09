@@ -243,6 +243,9 @@ func (s *Service) integrateOnce(id string, attempt int) (IntegrationResult, bool
 	if s.worktrees != nil {
 		_ = s.worktrees.Remove(repoDir, job.ID)
 	}
+	// This Task has landed, so anything waiting on it may now be runnable. The
+	// fast path; Reconcile re-evaluates regardless, so a missed wake self-heals.
+	s.wakeDependents(id)
 
 	return IntegrationResult{
 		Task: tk, Artifact: art, MergedSHA: merged,

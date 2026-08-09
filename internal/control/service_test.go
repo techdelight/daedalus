@@ -21,10 +21,14 @@ func (m mapResolver) ProjectDir(name string) (string, error) {
 	return dir, nil
 }
 
-// fakeSessions reports session liveness from a map; missing key = not live.
+// fakeSessions reports session liveness. It implements BOTH observer interfaces,
+// matching production: the coordinator keys a control-plane Job's session by
+// JobProjectName(jobID), so per-Job liveness is the real question and the
+// project-level one is only a legacy signal.
 type fakeSessions struct {
-	live map[string]bool
-	err  error
+	live     map[string]bool // by project (legacy)
+	liveJobs map[string]bool // by job id — what reconcile actually asks
+	err      error
 }
 
 func (f fakeSessions) HasSession(project string) (bool, error) {
@@ -32,6 +36,13 @@ func (f fakeSessions) HasSession(project string) (bool, error) {
 		return false, f.err
 	}
 	return f.live[project], nil
+}
+
+func (f fakeSessions) HasSessionForJob(jobID string) (bool, error) {
+	if f.err != nil {
+		return false, f.err
+	}
+	return f.liveJobs[jobID], nil
 }
 
 // gitRepo makes a temp repo with one commit and returns its dir.
@@ -232,7 +243,9 @@ func TestReconcile_VanishedSession_FailsAndCleans(t *testing.T) {
 
 func TestReconcile_LiveSession_Adopted(t *testing.T) {
 	repo := gitRepo(t)
-	sessions := fakeSessions{live: map[string]bool{"app": true}}
+	// Liveness is asked per JOB, so the fake is keyed by job id — the same key the
+	// coordinator uses in production (JobProjectName).
+	sessions := fakeSessions{liveJobs: map[string]bool{"J-1": true}}
 	svc, wt, store := newService(t, mapResolver{"app": repo}, StubRunner{}, sessions)
 
 	task, _ := svc.CreateTask(CreateTaskRequest{Project: "app", Objective: "x"})
@@ -240,6 +253,9 @@ func TestReconcile_LiveSession_Adopted(t *testing.T) {
 	_, _ = store.TransitionTask(task.ID, StateWorking, false, "")
 	job, _ := store.CreateJob(task.ID, task.BaseSHA, "claude", 0, StateWorking)
 	_, _ = wt.Add(repo, task.ID, job.ID, task.BaseSHA)
+	if job.ID != "J-1" {
+		t.Fatalf("precondition: expected job J-1, got %s", job.ID)
+	}
 
 	rep, err := svc.Reconcile()
 	if err != nil {

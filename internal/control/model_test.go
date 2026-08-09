@@ -11,9 +11,15 @@ func TestCanTransition_Exhaustive(t *testing.T) {
 	// The complete set of legal plane transitions, spelled out independently of
 	// the implementation map so the test is a real cross-check.
 	legal := map[State][]State{
-		StatePlanned:       {StateQueued, StateCancelled, StateExpired, StateFailed},
-		StateQueued:        {StateWorking, StateCancelled, StateExpired, StateFailed},
-		StateWorking:       {StateCandidate, StateInputRequired, StateCancelled, StateExpired, StateFailed},
+		// planned ↔ blocked is the dependency graph (Sprint 62). Both edges are
+		// plane-only: a worker cannot declare itself unblocked.
+		StatePlanned: {StateBlocked, StateQueued, StateCancelled, StateExpired, StateFailed},
+		StateBlocked: {StatePlanned, StateCancelled, StateExpired, StateFailed},
+		StateQueued:  {StateWorking, StateCancelled, StateExpired, StateFailed},
+		// working → rejected: reconcile recovering a Task whose dispatch died before
+		// a Job ever existed. A downgrade, plane-only, so it weakens nothing — and
+		// it is deliberately absent from the workerReachable table below.
+		StateWorking:       {StateCandidate, StateInputRequired, StateRejected, StateCancelled, StateExpired, StateFailed},
 		StateInputRequired: {StateWorking, StateCancelled, StateExpired, StateFailed},
 		StateCandidate:     {StateVerifying, StateRejected, StateCancelled, StateExpired, StateFailed},
 		// verifying → candidate is the interrupted-verification recovery edge

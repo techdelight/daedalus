@@ -121,6 +121,9 @@ func (s *Service) executeProposal(caller Caller, p Proposal) error {
 	case OpIntegrate:
 		_, err := s.IntegrateTask(p.TaskID)
 		return err
+	case OpAddDependency:
+		_, err := s.AddDependency(p.TaskID, p.Argument)
+		return err
 	case OpSyncTarget:
 		_, err := s.syncTarget(caller, p.Argument)
 		return err

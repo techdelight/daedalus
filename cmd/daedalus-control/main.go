@@ -322,7 +322,22 @@ func (d dockerImageDigester) Digest(project string) (string, error) {
 type coordinatorSessions struct{ client *coordinator.Client }
 
 func (c coordinatorSessions) HasSession(project string) (bool, error) {
-	_, err := c.client.Get(project)
+	return c.sessionExists(project)
+}
+
+// HasSessionForJob implements control.JobSessionObserver — the question reconcile
+// actually needs answered once several Jobs can share a project.
+//
+// No coordinator change was needed. CoordinatorRunner launches each Job as
+// `daedalus <JobProjectName(jobID)> …`, and the coordinator keys sessions by that
+// name, so the per-Job session has existed under exactly this key since M13; the
+// control plane was simply asking about the project instead.
+func (c coordinatorSessions) HasSessionForJob(jobID string) (bool, error) {
+	return c.sessionExists(control.JobProjectName(jobID))
+}
+
+func (c coordinatorSessions) sessionExists(name string) (bool, error) {
+	_, err := c.client.Get(name)
 	if err == nil {
 		return true, nil
 	}

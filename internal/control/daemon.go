@@ -30,6 +30,9 @@ package control
 //	POST   /tasks/{id}/integrate                          → 200 IntegrationResult
 //	                                                       → 422 approval/review/merge refusal
 //	GET    /approvals                                     → 200 []Task awaiting a human
+//	POST   /tasks/{id}/dependencies body: {dependsOn}     → 200 DependencyEdge
+//	                                                       → 409 cycle / invalid
+//	GET    /tasks/{id}/dependencies                       → 200 DependencyView
 //	GET    /status                                        → 200 PlaneStatus
 //	GET    /targets                                       → 200 []TargetView
 //	GET    /proposals[?state=pending]                     → 200 []Proposal
@@ -95,6 +98,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /tasks/{id}/reject", s.handleRejectApproval)
 	mux.HandleFunc("POST /tasks/{id}/integrate", s.handleIntegrate)
 	mux.HandleFunc("GET /approvals", s.handlePendingApprovals)
+	mux.HandleFunc("POST /tasks/{id}/dependencies", s.handleAddDependency)
+	mux.HandleFunc("GET /tasks/{id}/dependencies", s.handleTaskDependencies)
 	mux.HandleFunc("GET /status", s.handlePlaneStatus)
 	mux.HandleFunc("GET /targets", s.handleTargets)
 	mux.HandleFunc("GET /proposals", s.handleListProposals)
@@ -290,6 +295,34 @@ func (s *Server) handlePendingApprovals(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, tasks)
 }
 
+// dependencyRequest declares one graph edge.
+type dependencyRequest struct {
+	DependsOn string `json:"dependsOn"`
+}
+
+func (s *Server) handleAddDependency(w http.ResponseWriter, r *http.Request) {
+	var req dependencyRequest
+	if err := decodeOptionalJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	edge, err := s.api.AddDependency(r.PathValue("id"), req.DependsOn)
+	if err != nil {
+		writeError(w, statusFor(err), err)
+		return
+	}
+	writeJSON(w, http.StatusOK, edge)
+}
+
+func (s *Server) handleTaskDependencies(w http.ResponseWriter, r *http.Request) {
+	view, err := s.api.TaskDependencies(r.PathValue("id"))
+	if err != nil {
+		writeError(w, statusFor(err), err)
+		return
+	}
+	writeJSON(w, http.StatusOK, view)
+}
+
 func (s *Server) handlePlaneStatus(w http.ResponseWriter, r *http.Request) {
 	st, err := s.api.PlaneStatus()
 	if err != nil {
@@ -368,6 +401,7 @@ func (s *Server) handleCancel(w http.ResponseWriter, r *http.Request) {
 func statusFor(err error) int {
 	var notGit *ErrNotGitRepo
 	var rejected *RejectionError
+	var cycle *ErrDependencyCycle
 	switch {
 	case errors.Is(err, ErrNotFound):
 		return http.StatusNotFound
@@ -379,6 +413,10 @@ func statusFor(err error) int {
 	// 409 Conflict: the request is fine, the entity's current state is not — a
 	// second active task, a stale/illegal transition, or an unmet state
 	// precondition (retrying a task that was never rejected, …).
+	// A dependency cycle or a malformed edge is a validation error the caller can
+	// fix, not a server fault.
+	case errors.As(err, &cycle), errors.Is(err, ErrDependencyInvalid):
+		return http.StatusConflict
 	case errors.Is(err, ErrConflict),
 		errors.Is(err, ErrIllegalTransition), errors.Is(err, ErrWrongState):
 		return http.StatusConflict

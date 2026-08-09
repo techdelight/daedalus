@@ -79,6 +79,7 @@ const (
 	EventReview       = "review"       // an independent reviewer pass
 	EventProposal     = "proposal"     // an agent proposed a consequential operation
 	EventSchedule     = "schedule"     // a scheduler admission decision
+	EventGraph        = "graph"        // a dependency edge or blocked/ready move
 )
 
 // EventMeta annotates an event row. Kind defaults to EventTransition, Reason is
@@ -244,6 +245,20 @@ CREATE TABLE IF NOT EXISTS proposals (
     updated_at   TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_proposals_state ON proposals(state);
+
+-- The cross-project task graph: Task→Task dependencies, spanning projects.
+--
+-- PLANE-OWNED STATE, like everything else that decides whether work is valid.
+-- The edge is never read from a file in a project checkout: an agent that could
+-- declare its own dependencies could declare them satisfied, and M15's entire
+-- acceptance-oracle argument would be re-opened through a side door.
+CREATE TABLE IF NOT EXISTS task_dependencies (
+    task_id    TEXT NOT NULL,
+    depends_on TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (task_id, depends_on)
+);
+CREATE INDEX IF NOT EXISTS idx_deps_dependson ON task_dependencies(depends_on);
 -- The project-keyed table this replaces existed only on an unreleased development
 -- build (it was added and re-keyed within Sprint 59), so there is no shipped data
 -- to migrate.

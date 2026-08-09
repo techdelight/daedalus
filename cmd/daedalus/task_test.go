@@ -507,3 +507,65 @@ func TestCLI_TaskReview(t *testing.T) {
 		t.Errorf("artifact review = %q, want pass", got)
 	}
 }
+
+// --- dependency graph (Sprint 62) ------------------------------------------------
+
+func TestCLI_TaskDepends(t *testing.T) {
+	dirA, dirB := makeGitRepo(t), makeGitRepo(t)
+	svc := newTestService(t, mapResolver{"alpha": dirA, "beta": dirB})
+
+	if err := runTaskCommand(svc, []string{"create", "--project", "alpha", "--objective", "upstream"}); err != nil {
+		t.Fatalf("create alpha: %v", err)
+	}
+	if err := runTaskCommand(svc, []string{"create", "--project", "beta", "--objective", "downstream"}); err != nil {
+		t.Fatalf("create beta: %v", err)
+	}
+	// Declare the edge.
+	if err := runTaskCommand(svc, []string{"depends", "T-2", "--on", "T-1"}); err != nil {
+		t.Fatalf("depends: %v", err)
+	}
+	view, err := svc.TaskDependencies("T-2")
+	if err != nil {
+		t.Fatalf("TaskDependencies: %v", err)
+	}
+	if len(view.DependsOn) != 1 || view.DependsOn[0] != "T-1" {
+		t.Errorf("DependsOn = %v, want [T-1]", view.DependsOn)
+	}
+	// It is blocked, so dispatch is refused.
+	if err := runTaskCommand(svc, []string{"dispatch", "T-2"}); err == nil {
+		t.Error("a blocked task should not be dispatchable")
+	}
+	// Both views render.
+	if err := runTaskCommand(svc, []string{"depends", "T-2"}); err != nil {
+		t.Errorf("depends (show): %v", err)
+	}
+	if err := runTaskCommand(svc, []string{"status", "T-2"}); err != nil {
+		t.Errorf("status: %v", err)
+	}
+}
+
+func TestCLI_TaskDependsGuards(t *testing.T) {
+	dir := makeGitRepo(t)
+	svc := newTestService(t, mapResolver{"app": dir})
+	if err := runTaskCommand(svc, []string{"create", "--project", "app", "--objective", "x"}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{"no id", []string{"depends"}},
+		{"unknown flag", []string{"depends", "T-1", "--nope"}},
+		{"--on without a value", []string{"depends", "T-1", "--on"}},
+		{"self dependency", []string{"depends", "T-1", "--on", "T-1"}},
+		{"unknown dependency", []string{"depends", "T-1", "--on", "T-404"}},
+		{"unknown task", []string{"depends", "T-404"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := runTaskCommand(svc, tc.args); err == nil {
+				t.Errorf("%v = nil, want an error", tc.args)
+			}
+		})
+	}
+}

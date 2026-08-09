@@ -46,6 +46,12 @@ const (
 	// ReasonSchedulerSaturated: the control plane is at its GLOBAL job limit —
 	// nothing is wrong with this task, the host is simply full.
 	ReasonSchedulerSaturated RejectionReason = "scheduler_saturated"
+	// ReasonDependenciesUnmet: the Task is waiting on another Task in the graph.
+	// Not a fault — the work is well-formed and simply not yet runnable.
+	ReasonDependenciesUnmet RejectionReason = "dependencies_unmet"
+	// ReasonJoblessTask: a Task was left non-terminal with no Job at all — the
+	// dispatch died between the state transition and the Job insert.
+	ReasonJoblessTask RejectionReason = "jobless_task"
 	// ReasonQueuedBehind: capacity exists, but an older Task is waiting for it.
 	// This is the anti-starvation rule doing its job, not a fault.
 	ReasonQueuedBehind RejectionReason = "queued_behind"
@@ -103,8 +109,9 @@ const (
 var allRejectionReasons = map[RejectionReason]bool{
 	ReasonOverBudget: true, ReasonInvalidBudget: true, ReasonAttemptsExhausted: true,
 	ReasonReviewCyclesExhausted: true, ReasonConcurrencyExceeded: true,
-	ReasonSchedulerSaturated: true, ReasonQueuedBehind: true,
-	ReasonUnsafeRebase: true, ReasonOperationInFlight: true,
+	ReasonSchedulerSaturated: true, ReasonQueuedBehind: true, ReasonJoblessTask: true,
+	ReasonDependenciesUnmet: true,
+	ReasonUnsafeRebase:      true, ReasonOperationInFlight: true,
 	ReasonApprovalRequired: true, ReasonReviewRequired: true, ReasonIntegrationRaced: true,
 	ReasonProposalRecorded: true, ReasonForbidden: true,
 	ReasonStaleBase: true, ReasonNullAgentFloor: true,
@@ -123,7 +130,7 @@ func AllRejectionReasons() []RejectionReason {
 	return []RejectionReason{
 		ReasonOverBudget, ReasonInvalidBudget, ReasonAttemptsExhausted,
 		ReasonReviewCyclesExhausted, ReasonConcurrencyExceeded, ReasonSchedulerSaturated,
-		ReasonQueuedBehind, ReasonUnsafeRebase,
+		ReasonQueuedBehind, ReasonJoblessTask, ReasonDependenciesUnmet, ReasonUnsafeRebase,
 		ReasonOperationInFlight, ReasonProposalRecorded, ReasonForbidden,
 		ReasonApprovalRequired, ReasonReviewRequired,
 		ReasonIntegrationRaced, ReasonStaleBase, ReasonNullAgentFloor,

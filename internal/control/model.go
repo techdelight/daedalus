@@ -30,6 +30,11 @@ type State string
 const (
 	// Pre-execution.
 	StatePlanned State = "planned"
+	// StateBlocked is a Task waiting on another Task (Sprint 62's dependency
+	// graph). It is NOT a failure: the work is well-formed and simply not yet
+	// runnable. The scheduler never admits it, and satisfying the last dependency
+	// returns it to `planned`.
+	StateBlocked State = "blocked"
 	StateQueued  State = "queued"
 
 	// Execution.
@@ -56,7 +61,7 @@ const (
 // AllStates lists every valid state (useful for validation and tests).
 func AllStates() []State {
 	return []State{
-		StatePlanned, StateQueued, StateWorking, StateInputRequired,
+		StatePlanned, StateBlocked, StateQueued, StateWorking, StateInputRequired,
 		StateCandidate, StateVerifying, StateVerified, StateRejected,
 		StateApprovalRequired, StateApproved, StateIntegrated,
 		StateFailed, StateCancelled, StateExpired,
@@ -97,13 +102,29 @@ func IsRunningState(s State) bool { return runningStates[s] }
 // path.
 var legalTransitions = map[State]map[State]bool{
 	StatePlanned: {
-		StateQueued: true, StateCancelled: true, StateExpired: true, StateFailed: true,
+		// planned → blocked: a dependency was declared and is not yet satisfied.
+		StateBlocked: true,
+		StateQueued:  true, StateCancelled: true, StateExpired: true, StateFailed: true,
+	},
+	StateBlocked: {
+		// blocked → planned: the last dependency completed. Both edges are
+		// plane-only — a worker cannot declare itself unblocked, which is the same
+		// rule that keeps it out of `verified`.
+		StatePlanned:   true,
+		StateCancelled: true, StateExpired: true, StateFailed: true,
 	},
 	StateQueued: {
 		StateWorking: true, StateCancelled: true, StateExpired: true, StateFailed: true,
 	},
 	StateWorking: {
 		StateCandidate: true, StateInputRequired: true,
+		// A `working` Task with NO Job at all is a crash between the transition and
+		// the Job insert (Sprint 62). Reconcile returns it here rather than to a
+		// terminal state, because nothing was ever attempted: the objective is
+		// still good and `rejected` is the state the retry/replan ladder already
+		// understands. A downgrade, plane-only, and it brings nothing closer to
+		// `verified`.
+		StateRejected:  true,
 		StateCancelled: true, StateExpired: true, StateFailed: true,
 	},
 	StateInputRequired: {

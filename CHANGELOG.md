@@ -5,6 +5,65 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- **Per-Job liveness, the cross-project task graph, and the M16 close (Sprint 62).**
+  - **Reconciliation repaired — liveness was asking the wrong question.**
+    `HasSession` takes a *project*, but a control-plane Job runs under
+    `daedalus-job-<jobID>`, which is what the coordinator keys its session by. The
+    plane asked about `app` while the Job's session was `daedalus-job-J-7`, so the
+    answer was only accidentally related to the Job being judged — false while a
+    Job ran happily, true for every Job of a project somebody had a session open
+    on. Survivable at one Job per project; a **capacity denial-of-service** once
+    several share one, since a ghost Job stays `working`, is counted by the
+    scheduler, denied against, and holds its worktree until the project can never
+    dispatch again. `JobSessionObserver.HasSessionForJob` fixes it and **needed no
+    coordinator change** — the per-Job key has existed since M13.
+  - **A labelled heuristic** for deployments without per-Job liveness: a `working`
+    Job whose worktree is gone, or which is far past its own wall-clock budget, is
+    reaped. It is documented in code, docs and its own event as a **guess** — it
+    cannot distinguish a crashed Job from a slow one whose budget was set too low,
+    and the margin changes how often it is wrong rather than whether it can be. A
+    per-Job observer always wins where available.
+  - **Reconcile now sweeps Tasks as well as Jobs.** A Task wedged `working` with
+    **no Job at all** (a crash between the transition and the Job insert) was
+    invisible to a Job-only census — not dispatchable, retryable or replannable,
+    with only cancel to escape. It is returned to `rejected`, the state the
+    retry/replan ladder already understands.
+  - **The cross-project task graph.** Task→Task dependencies spanning projects,
+    with a new plane-only `blocked` state (`planned ⇄ blocked`, absent from
+    `workerReachable`). A dependency is satisfied only when the upstream Task
+    reaches `integrated` — verified is not enough, since the work exists but has
+    not landed. **Cycles are refused at creation**, naming the path, rather than
+    discovered at dispatch where they would be a wedged graph. The edge is
+    plane-owned state in `control.db`, never read from a project checkout, and
+    declaring one is a **proposal** for an agent caller: "what must happen before
+    this is graded" is as load-bearing as "what grades it".
+  - **Unsatisfiable dependencies are handled by kind.** A `failed` upstream leaves
+    dependents `blocked` and marked unsatisfiable — failure is an outcome, and a
+    human may retry the work as a new Task and keep them. A `cancelled` upstream
+    **cancels its dependents transitively** — cancellation is a decision that the
+    work will not happen, so leaving them waiting forever is the stranding.
+  - **The wake path has the same liveness discipline as the queue lease.** A
+    landing wakes its dependents directly, and every reconcile pass re-evaluates
+    every blocked Task, because a wake that only happens on an event is missed when
+    the process dies mid-event. `daedalus task depends <id> [--on <other>]`, with
+    the graph shown in `task status`.
+
+### Fixed
+- **`core/milestone_test.go` restated the document instead of testing it.** It
+  pinned each milestone's status by hand, carried no information ROADMAP.md did not
+  already carry, and broke on **two consecutive milestone openings** in one working
+  session. It now asserts structural invariants that hold for any valid roadmap —
+  the parser sees every milestone the document declares (derived from the document,
+  so adding M18 needs no edit), numbering is contiguous from 1, nothing is
+  nameless, and at most one milestone is In Progress.
+- **The milestone parser did not recognise an explicit `(Planned)` marker**, found
+  by the new structural assertion: the tooling writes it, the regex did not match
+  it, so it fell through into the *title* and M10 and M17 rendered as "Homebrew
+  Distribution (Planned)" everywhere a title is shown. The parser now recognises
+  and strips it, and a new check catches a heading carrying **two** status markers
+  — the silent document corruption recorded in BACKLOG #65.
+
+### Added
 - **Concurrent Jobs and the scheduler (Sprint 61, opening M16).** The **one active
   Job per project** invariant that had held since M13 is lifted, and the M15 merge
   queue becomes load-bearing instead of insurance.

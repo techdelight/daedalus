@@ -36,11 +36,36 @@ type ProjectLister interface {
 }
 
 // SessionObserver reports whether the coordinator currently has a live session
-// for a project. Reconcile uses it to detect a Job whose run has vanished. It is
-// the coordinator dependency behind an interface (host-tested with a fake); the
-// real impl wraps a coordinator client.
+// for a project. It is the coordinator dependency behind an interface
+// (host-tested with a fake); the real impl wraps a coordinator client.
+//
+// PROJECT-LEVEL LIVENESS IS THE WRONG QUESTION, and Sprint 62 established that it
+// always was. A control-plane Job does not run under its project's name: the
+// runner launches `daedalus daedalus-job-<jobID> …`, and the coordinator keys
+// sessions by that name, so a Job's session is `daedalus-job-J-7` while this asks
+// about `app`. The answer was therefore only accidentally related to the Job being
+// judged — false while a Job ran happily (unless a human happened to have an
+// interactive session open on the same project), true for every Job of a project
+// somebody was working in. Which way it erred depended on unrelated human
+// activity, which is no basis for deciding whether to destroy work.
+//
+// It survives only as a fallback signal; JobSessionObserver is the real question.
 type SessionObserver interface {
 	HasSession(project string) (bool, error)
+}
+
+// JobSessionObserver reports liveness for ONE Job — the question reconcile
+// actually needs answered once several Jobs can share a project.
+//
+// The key already existed: CoordinatorRunner registers and launches each Job
+// under JobProjectName(jobID), so the coordinator already tracks the session under
+// exactly that name. No coordinator change was needed; the control plane was
+// simply asking about the wrong string.
+//
+// Optional: an observer that does not implement it falls back to the heuristic in
+// reconcile.go, which is honestly labelled as one.
+type JobSessionObserver interface {
+	HasSessionForJob(jobID string) (bool, error)
 }
 
 // CreateTaskRequest is the input to Service.CreateTask (and the daemon's POST
@@ -94,6 +119,9 @@ type JobView struct {
 type StatusView struct {
 	Task Task      `json:"task"`
 	Jobs []JobView `json:"jobs"`
+	// Dependencies is the Task's position in the cross-project graph: what it is
+	// waiting on, and what is waiting on it.
+	Dependencies DependencyView `json:"dependencies"`
 	// Scheduling describes what the plane is doing with this Task right now: it is
 	// what makes a Task that is QUEUED FOR CAPACITY visibly different from one that
 	// is running, which are otherwise both just "not finished".
@@ -158,6 +186,8 @@ type TaskAPI interface {
 	PendingApprovals() ([]Task, error)
 	ProjectTargets() ([]TargetView, error)
 	PlaneStatus() (PlaneStatus, error)
+	AddDependency(taskID, dependsOn string) (DependencyEdge, error)
+	TaskDependencies(taskID string) (DependencyView, error)
 	SyncTarget(project string) (Target, error)
 	ListProposals(state ProposalState) ([]Proposal, error)
 	ResolveProposal(id string, confirm bool, note string) (Proposal, error)
@@ -182,6 +212,9 @@ type Service struct {
 	budgets   PolicySource    // may be nil (then DefaultBudget(), no approval)
 	reviewer  ReviewRunner    // may be nil (then review is not a gate)
 	sched     *Scheduler      // admission control; never nil after NewService
+	// now is the clock the reconcile heuristic measures against. Injected so a
+	// test can make "long past its budget" deterministic rather than slow.
+	now func() time.Time
 
 	// mu serialises the DB bookkeeping of Dispatch, Verify, Cancel and Reconcile
 	// (V1 has a single SQLite writer conn). It is deliberately NOT held across the
@@ -217,6 +250,7 @@ func NewService(store *Store, projects ProjectResolver, worktrees *WorktreeManag
 		runner: runner, verifier: verifier, sessions: sessions,
 		inflight: map[string]inflightOp{},
 		sched:    NewScheduler(DefaultSchedulerLimits()),
+		now:      func() time.Time { return time.Now().UTC() },
 	}
 }
 
@@ -277,6 +311,13 @@ func (s *Service) SetImageDigester(d ImageDigester) { s.digester = d }
 // promised and Sprint 60 filled: it is now a real per-request value.
 func governanceMetaFor(c Caller) EventMeta {
 	return EventMeta{Kind: EventGovernance, Actor: c.Actor()}
+}
+
+// SetClock injects the clock the reconcile heuristic uses (tests).
+func (s *Service) SetClock(now func() time.Time) {
+	if now != nil {
+		s.now = now
+	}
 }
 
 // Scheduler exposes the admission scheduler (daemon wiring, status views, tests).
@@ -454,6 +495,9 @@ func (s *Service) TaskStatus(id string) (StatusView, error) {
 		return StatusView{}, err
 	}
 	view := StatusView{Task: t, Scheduling: s.schedulingFor(t)}
+	if deps, err := s.TaskDependencies(id); err == nil {
+		view.Dependencies = deps
+	}
 	for _, j := range jobs {
 		arts, err := s.store.ListArtifactsForJob(j.ID)
 		if err != nil {
@@ -552,8 +596,18 @@ func (s *Service) cancelTask(caller Caller, id string) (Task, error) {
 	// Drop any place in the scheduler's queue: a cancelled Task must not keep
 	// blocking younger ones by holding the oldest ticket forever.
 	s.sched.Forget(id)
-	return s.store.TransitionTaskWith(id, StateCancelled, false,
+	cancelled, err := s.store.TransitionTaskWith(id, StateCancelled, false,
 		EventMeta{Actor: caller.Actor()}, "cancelled")
+	if err != nil {
+		return Task{}, err
+	}
+	// Cancellation is a decision that this work will not happen, so its dependents
+	// can never become runnable. Leaving them blocked forever is the stranding this
+	// avoids; the decision propagates transitively instead.
+	if propagated := s.cancelDependentsOf(id); len(propagated) > 0 {
+		log.Printf("control: cancelling %s also cancelled its dependents %v", id, propagated)
+	}
+	return cancelled, nil
 }
 
 // DispatchTask runs one headless Job attempt for a task: create the Job, add its
@@ -615,8 +669,19 @@ func (s *Service) prepareDispatch(id string) (dispatchPrep, error) {
 	}
 	// Dispatchable from planned/queued (first attempt) or rejected (retry after a
 	// failed verify — rejected → queued is the retry path from §6's ladder).
+	// `blocked` is deliberately absent: a Task waiting on the graph is not
+	// runnable, and the scheduler never admits one.
 	if task.State != StatePlanned && task.State != StateQueued && task.State != StateRejected {
 		return dispatchPrep{}, fmt.Errorf("%w: task %s is %s, not dispatchable (want planned/queued/rejected)", ErrWrongState, id, task.State)
+	}
+	// Re-check the graph before admitting: a dependency may have been declared, or
+	// have become unsatisfiable, since this Task was last evaluated.
+	if status, err := s.store.DependencyStatusFor(id); err == nil && !status.Ready() {
+		if _, blockErr := s.refreshBlockedState(id); blockErr != nil {
+			log.Printf("control: blocking %s: %v", id, blockErr)
+		}
+		return dispatchPrep{}, s.refuse("task", id, EventGraph, ReasonDependenciesUnmet, fmt.Sprintf(
+			"task %s is waiting on %v (unsatisfiable: %v)", id, status.Unmet, status.Unsatisfiable))
 	}
 	// Budget gate, BEFORE any state change or side-effect: an over-budget dispatch
 	// must leave the task exactly as it found it.
@@ -1348,13 +1413,16 @@ func note(o RunOutcome, base string) string {
 // ReconcileReport summarises what a reconcile pass changed. Returned for tests
 // and daemon logging.
 type ReconcileReport struct {
-	FailedVanished    []string // job ids failed because their run was gone
-	RemovedOrphans    []string // worktree job ids removed (no live non-terminal job)
-	RecoveredVerifies []string // job ids returned to candidate from a stranded `verifying`
-	SettledOrphanJobs []string // job ids driven terminal because their Task already was
-	CheckedActive     int      // non-terminal jobs examined
-	SkippedUnverified int      // jobs left alone because liveness couldn't be verified
-	SkippedInflight   int      // jobs left alone because this process is running them
+	FailedVanished         []string // job ids failed because their run was gone
+	RemovedOrphans         []string // worktree job ids removed (no live non-terminal job)
+	RecoveredVerifies      []string // job ids returned to candidate from a stranded `verifying`
+	SettledOrphanJobs      []string // job ids driven terminal because their Task already was
+	RecoveredJoblessTasks  []string // task ids returned to a dispatchable state with no Job
+	DependencyStateChanged []string // task ids moved between blocked and planned
+	HeuristicallyFailed    []string // job ids failed by the liveness HEURISTIC, not an observer
+	CheckedActive          int      // non-terminal jobs examined
+	SkippedUnverified      int      // jobs left alone because liveness couldn't be verified
+	SkippedInflight        int      // jobs left alone because this process is running them
 }
 
 // Reconcile drives observed reality toward desired (DB) state (§6, the dual-write
@@ -1421,10 +1489,12 @@ func (s *Service) Reconcile() (ReconcileReport, error) {
 		if err != nil {
 			return rep, err
 		}
-		live, verifiable := s.sessionLive(task.Project)
+		live, verifiable, viaHeuristic := s.jobLive(j, task)
 		if !verifiable {
+			// Nothing could establish liveness — not the per-Job observer, not the
+			// heuristic. Leave it alone: never fail what you cannot prove is dead.
 			rep.SkippedUnverified++
-			liveWorktreeJobs[j.ID] = true // don't reclaim what we can't judge
+			liveWorktreeJobs[j.ID] = true
 			continue
 		}
 		if live {
@@ -1438,8 +1508,53 @@ func (s *Service) Reconcile() (ReconcileReport, error) {
 				_, _ = s.store.SetJobExecutionResult(j.ID, ExecFailed, head)
 			}
 		}
-		s.terminate(j.TaskID, j.ID, repoDir, StateFailed, "reconcile: no live session")
+		note := "reconcile: the job's session is gone"
+		if viaHeuristic {
+			// Reported separately AND named in the event, because a guessed reaping
+			// must be legible as a guess: an operator investigating a failed Job
+			// deserves to know the plane inferred its death rather than observed it.
+			note = "reconcile: HEURISTIC judged this job dead (worktree gone, or far past its wall-clock budget) — liveness could not be observed directly"
+			rep.HeuristicallyFailed = append(rep.HeuristicallyFailed, j.ID)
+		}
+		s.terminate(j.TaskID, j.ID, repoDir, StateFailed, note)
 		rep.FailedVanished = append(rep.FailedVanished, j.ID)
+	}
+
+	// F4: a Task can be non-terminal with NO Job at all — a crash between the
+	// `working` transition and CreateJob leaves one wedged, and iterating
+	// ListActiveJobs cannot see it because there is no Job to iterate. It is not
+	// dispatchable, retryable or replannable, so only cancel escapes; before
+	// parallelism that window was hit rarely, and lifting the invariant made it N
+	// times as likely. Reconciling both entities is the fix: a pass over active
+	// TASKS, not just active Jobs.
+	tasks, err := s.store.ListTasks()
+	if err != nil {
+		return rep, err
+	}
+	for _, task := range tasks {
+		if !IsActive(task.State) {
+			continue
+		}
+		if _, busy := s.inflight[task.ID]; busy {
+			continue // this process is working on it
+		}
+		if s.recoverJoblessTask(task) {
+			rep.RecoveredJoblessTasks = append(rep.RecoveredJoblessTasks, task.ID)
+		}
+		// THE WAKE PATH'S LIVENESS BACKSTOP. A dependency completing wakes its
+		// dependents directly, which is the fast path — but a wake that only ever
+		// happens on an event is a wake that is missed when the process dies
+		// mid-event, and a Task blocked on a dependency that has already landed
+		// would then wait forever. Sprint 61 established the invariant (free
+		// capacity must become usable without human intervention) for the queue
+		// lease; the same discipline applies here, so every pass re-evaluates.
+		if task.State == StateBlocked || task.State == StatePlanned {
+			if changed, err := s.refreshBlockedState(task.ID); err != nil {
+				log.Printf("control: re-evaluating dependencies of %s: %v", task.ID, err)
+			} else if changed {
+				rep.DependencyStateChanged = append(rep.DependencyStateChanged, task.ID)
+			}
+		}
 	}
 
 	// Orphan worktrees: a checkout dir whose job is unknown or terminal.
@@ -1498,6 +1613,123 @@ func (s *Service) settleJobWithTask(job Job, task Task) bool {
 	}
 	return true
 }
+
+// recoverJoblessTask returns a Task that is `working` (or `queued`) with no Job
+// at all to a dispatchable state. s.mu must be held; returns whether it acted.
+//
+// The Task is moved to `rejected` rather than straight to `planned`: `rejected`
+// is the state the retry/replan ladder already understands, so the operator gets
+// the same recovery vocabulary as every other failure, and the event says why.
+func (s *Service) recoverJoblessTask(task Task) bool {
+	if task.State != StateWorking && task.State != StateQueued {
+		return false
+	}
+	jobs, err := s.store.ListJobsForTask(task.ID)
+	if err != nil || len(jobs) > 0 {
+		return false
+	}
+	note := "reconcile: task is " + string(task.State) + " with no job — the dispatch died before one existed"
+	meta := EventMeta{Kind: EventGovernance, Reason: ReasonJoblessTask}
+	if task.State == StateQueued {
+		// queued → working → rejected: `queued` has no direct edge to `rejected`.
+		if _, err := s.store.TransitionTaskWith(task.ID, StateWorking, false, meta, note); err != nil {
+			log.Printf("control: recovering jobless task %s: %v", task.ID, err)
+			return false
+		}
+	}
+	if _, err := s.store.TransitionTaskWith(task.ID, StateRejected, false, meta, note); err != nil {
+		log.Printf("control: recovering jobless task %s: %v", task.ID, err)
+		return false
+	}
+	s.sched.Forget(task.ID)
+	return true
+}
+
+// jobLive decides whether ONE Job is still running, and how confident that is.
+//
+// Three sources, in descending order of trustworthiness:
+//
+//  1. A per-Job session observer — the real answer, and available in production
+//     because the coordinator already keys each Job's session by
+//     JobProjectName(jobID).
+//  2. THE HEURISTIC (see heuristicallyDead). Used only when (1) is unavailable.
+//  3. Nothing: unverifiable, and the Job is left alone.
+//
+// The project-level observer is deliberately NOT consulted as a liveness source:
+// it answers a question about a different key (see SessionObserver), so a "yes"
+// from it says nothing about this Job.
+func (s *Service) jobLive(job Job, task Task) (live, verifiable, viaHeuristic bool) {
+	if observer, ok := s.sessions.(JobSessionObserver); ok && s.sessions != nil {
+		if alive, err := observer.HasSessionForJob(job.ID); err == nil {
+			return alive, true, false
+		}
+		// An observer that errors is an unreachable coordinator, not a dead Job.
+		return false, false, false
+	}
+	if dead, sure := s.heuristicallyDead(job); sure {
+		return !dead, true, true
+	}
+	return false, false, false
+}
+
+// heuristicallyDead is a HEURISTIC — it guesses, and the guess can be wrong.
+//
+// It exists because per-Job liveness is not always available, and because the
+// alternative is worse: a crashed Job stays `working`, keeps consuming a
+// scheduler slot and holding its worktree, and accumulates until the project can
+// never dispatch again. A wrong guess costs one Job that has to be retried; no
+// guess at all costs the project.
+//
+// WHAT IT CANNOT DO, stated plainly so nobody reads it as authoritative: it
+// cannot tell a crashed Job from a slow one whose wall-clock budget was set too
+// low. Both look like "still working long after it should have finished". The
+// margin below is generosity, not correctness — it reduces how often the
+// heuristic is wrong, and cannot make it right. Per-Job liveness is the real
+// answer; this is the fallback when that is unavailable.
+//
+// Two signals, and only confident ones are reported:
+//
+//   - The worktree is GONE. A `working` Job whose isolated checkout no longer
+//     exists cannot be producing anything; this one is close to certain.
+//   - The Job has been `working` far longer than its own wall-clock budget
+//     allowed. This is the guess.
+//
+// Returns (dead, confident). A Job with no wall-clock budget and an intact
+// worktree yields no opinion at all.
+func (s *Service) heuristicallyDead(job Job) (dead, confident bool) {
+	if job.State != StateWorking {
+		return false, false
+	}
+	if s.worktrees != nil && !s.worktrees.Exists(job.ID) {
+		return true, true
+	}
+	if job.Budget <= 0 {
+		return false, false // nothing to measure it against
+	}
+	updated, err := time.Parse(timeFormat, job.UpdatedAt)
+	if err != nil {
+		return false, false
+	}
+	// The margin is deliberately generous: overrunning the budget is the plane's
+	// own timeout path, so a Job still here well past it has almost certainly lost
+	// the process that was supposed to enforce it (a daemon restart).
+	deadline := updated.Add(time.Duration(job.Budget)*time.Second*heuristicBudgetMargin + heuristicGrace)
+	if s.now().After(deadline) {
+		return true, true
+	}
+	return false, false
+}
+
+// Heuristic tuning. These reduce how often the guess is wrong; they cannot make
+// it right.
+const (
+	// heuristicBudgetMargin multiplies a Job's wall-clock budget before it is
+	// considered overdue.
+	heuristicBudgetMargin = 2
+	// heuristicGrace is added on top, so a tiny budget does not make the heuristic
+	// trigger-happy.
+	heuristicGrace = 5 * time.Minute
+)
 
 // sessionLive returns (live, verifiable). verifiable is false when there is no
 // observer or it errors — the caller then leaves the job untouched.

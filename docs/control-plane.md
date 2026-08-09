@@ -742,6 +742,112 @@ the number of Tasks in flight, not with the concurrency limit.
   rather than destroying a live one, which is the right way round, but it is a
   real imprecision and per-Job liveness is the fix.
 
+## Reconciliation, repaired (Sprint 62 / M16 — built)
+
+Lifting the one-Job-per-project invariant turned two benign defects into serious
+ones. Both are repaired in a single reconcile pass that now covers **both
+entities** — active Jobs *and* active Tasks.
+
+**Liveness was asking the wrong question, and always had been.** `HasSession`
+takes a *project*, but a control-plane Job does not run under its project's name:
+the runner launches `daedalus daedalus-job-<jobID> …`, and the coordinator keys
+sessions by that name. So the plane asked about `app` while the Job's session was
+`daedalus-job-J-7`, and the answer was only accidentally related to the Job being
+judged — false while a Job ran happily, true for every Job of a project somebody
+had an interactive session open on. Which way it erred depended on unrelated human
+activity.
+
+While one Job per project was the rule this was survivable, because the Job *was*
+the project's work. With several Jobs sharing a project it became a **capacity
+denial-of-service**: a crashed Job stays `working`, so the scheduler counts it,
+denies against it, and it holds its worktree — accumulating until the project can
+never dispatch again without a human cancelling each ghost by hand.
+
+The fix needed no coordinator change. `JobSessionObserver.HasSessionForJob(jobID)`
+asks about `JobProjectName(jobID)` — the key the coordinator has been using since
+M13.
+
+**The heuristic, and it is labelled a heuristic.** Where per-Job liveness is
+unavailable, reconcile falls back to guessing, from two signals:
+
+- the Job's **worktree is gone** — near-certain: a `working` Job without its
+  isolated checkout cannot be producing anything;
+- the Job has been `working` **far past its own wall-clock budget** (×2 plus five
+  minutes) — the actual guess.
+
+**It cannot distinguish a crashed Job from a slow one whose budget was set too
+low.** Both look like "still working long after it should have finished", and the
+margin is generosity rather than correctness — it changes how often the guess is
+wrong, not whether it can be. It is used because the alternative is worse: a wrong
+guess costs one Job that has to be retried, and no guess at all costs the project.
+A heuristically-reaped Job says so in its event and in the reconcile report, so an
+operator investigating one can tell an inference from an observation. Where a
+per-Job observer is available it always wins, so a slow-but-alive Job is never
+reaped by the guess.
+
+**A Task can also be wedged with no Job at all.** A crash between the `working`
+transition and the Job insert leaves one invisible to a Job-only census: not
+dispatchable, retryable or replannable, with only cancel to escape. Reconcile now
+sweeps active **Tasks** too and returns such a Task to `rejected` — the state the
+retry/replan ladder already understands, so the operator gets the same recovery
+vocabulary as for every other failure.
+
+## The cross-project task graph (Sprint 62 / M16 — built)
+
+A Task may depend on other Tasks, in any project. A Task with unmet dependencies
+is **`blocked`**, and the scheduler never admits it.
+
+```text
+planned ⇄ blocked        (plane-only, both directions)
+```
+
+**A dependency is satisfied only when the upstream Task reaches `integrated`** —
+the point at which its work is actually in the trunk. Verified or approved is not
+enough: the work exists but has not landed, and a dependent running against it
+would be building on something that may still be rejected.
+
+**Cycles are refused at creation, never detected at dispatch.** A cycle found at
+dispatch time is a wedged graph somebody has to unpick; refused at declaration it
+is a validation error, caught by whoever wrote it while they still remember why.
+`daedalus task depends <id> --on <other>` walks the existing edges first and
+refuses anything that would close a loop, naming the path.
+
+**The edge is plane-owned state**, held in `control.db` and never read from a file
+in a project checkout. An agent that could declare its own dependencies could
+declare them satisfied — and "what must happen before this is graded" is exactly
+as load-bearing as "what grades it", so a repo-side dependency file would re-open
+M15's whole acceptance-oracle argument through a side door. Declaring an edge is
+correspondingly a **proposal** for an agent caller, not a direct action.
+
+### When a dependency can never be satisfied
+
+Failure and cancellation are treated differently, deliberately:
+
+| Upstream ends as | Dependents | Why |
+|---|---|---|
+| `integrated` | woken, become `planned` | the prerequisite landed |
+| `failed` | stay `blocked`, marked *unsatisfiable* | failure is an **outcome**; a human may retry the work as a new Task and keep the dependents |
+| `cancelled` | **cancelled too**, transitively | cancellation is a **decision** that the work will not happen, so leaving dependents waiting forever is the stranding |
+
+### Waking, and why reconcile does it too
+
+A dependency landing wakes its dependents directly — the fast path. But **a wake
+that only ever happens on an event is a wake that is missed when the process dies
+mid-event**, and a Task blocked on a dependency that has already landed would then
+wait forever. Sprint 61 established the invariant for the scheduler's queue lease:
+*free capacity must become usable without human intervention.* The same discipline
+applies here, so every reconcile pass re-evaluates every blocked Task. The event
+path makes it fast; reconcile makes it eventually true regardless.
+
+### Reading a fair queue
+
+One observation worth recording, because it looks like a bug and is not. When
+several Tasks are queued behind a limit, a single pass of retries admits **one**
+of them — the oldest — and refuses the rest with `queued_behind`. Sampled once,
+that reads as a stall. It is the fairness rule working: successive passes drain
+the queue in order. Anyone "fixing" the apparent stall by removing the yield would
+be reintroducing starvation.
+
 ## The Guild Master as a gated client (Sprint 60 / M15 — built)
 
 The Guild Master can finally **act**. What makes that safe is not that it is
@@ -842,9 +948,12 @@ ahead:
   a gate.
 - **Nothing lands by itself.** Integration is always an explicit
   `daedalus task integrate`; the plane never advances a target on its own.
-- **No dependency scheduling.** Jobs run concurrently (Sprint 61), but there is
-  no cross-project task graph and no blocked/ready ordering between Tasks — that
-  is **Sprint 62**. Typed steering is **M17**.
+- **Typed steering is M17.** `steer_job` as an audited, cancellable operation
+  delivered at a supported boundary remains unbuilt, and deliberately so: for
+  short Jobs, cancel-and-redispatch may well suffice.
+- **Dependency scheduling is not a scheduler.** The graph decides *whether* a Task
+  may run; it does not order or prioritise ready Tasks beyond the queue's
+  first-asked-first-served fairness. There is no critical-path or priority notion.
 - **The caller class is a class, not an identity.** Two agent clients on the
   restricted socket are indistinguishable from each other, and anything already
   running as the operator can open either socket. The boundary is the container's

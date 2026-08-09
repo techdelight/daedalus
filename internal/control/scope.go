@@ -66,6 +66,22 @@ func (c *callerScope) PendingApprovals() ([]Task, error)        { return c.svc.P
 // could not already list.
 func (c *callerScope) PlaneStatus() (PlaneStatus, error) { return c.svc.PlaneStatus() }
 
+// TaskDependencies is a read: the graph is plane-owned, and an agent that can see
+// what a Task waits on can plan around it without being able to change it.
+func (c *callerScope) TaskDependencies(taskID string) (DependencyView, error) {
+	return c.svc.TaskDependencies(taskID)
+}
+
+// AddDependency declares a graph edge. It is TIERED: the edge decides what must
+// happen before a Task is graded, which is as load-bearing as what grades it, so
+// an agent may propose it and a human confirms.
+func (c *callerScope) AddDependency(taskID, dependsOn string) (DependencyEdge, error) {
+	if !c.allowed(OpAddDependency) {
+		return DependencyEdge{}, c.propose(OpAddDependency, taskID, dependsOn)
+	}
+	return c.svc.AddDependency(taskID, dependsOn)
+}
+
 // ProjectTargets renders the queue list for this caller: an agent receives the
 // opaque queue id and never the host path (QueueIDFor).
 func (c *callerScope) ProjectTargets() ([]TargetView, error) {

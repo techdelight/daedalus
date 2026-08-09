@@ -5,6 +5,8 @@ package core
 import (
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"testing"
 )
 
@@ -179,26 +181,59 @@ func TestParseMilestonesEmptyInput(t *testing.T) {
 // The parser is meant to fit the ROADMAP.md this repo already ships, unchanged
 // — the whole premise of the structured-docs plan is that the convention is
 // already there. If this fails, either the parser or the document drifted.
+// TestParseMilestonesAgainstRealRoadmap asserts that the parser agrees with the
+// repository's own ROADMAP.md — and asserts STRUCTURE, not content.
+//
+// It used to pin each milestone's status by hand ("Milestone 15 must be Done").
+// That is restating the document rather than testing it: the assertions carried
+// no information the document did not already carry, and they had to be edited
+// every time a milestone opened or closed. They broke on two consecutive
+// milestone openings in one working session, which is the shape of a test that
+// costs more than it catches.
+//
+// What is worth asserting is what must be true of ANY valid roadmap, whatever
+// its contents: that the parser sees every milestone the document declares, that
+// numbering is contiguous from 1, that nothing is nameless, and that the arc has
+// at most one milestone in progress. Those hold across every future close without
+// anybody editing this file.
 func TestParseMilestonesAgainstRealRoadmap(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", "ROADMAP.md"))
 	if err != nil {
 		t.Fatalf("reading repo ROADMAP.md: %v", err)
 	}
+	doc := string(data)
+	got := ParseMilestones(doc)
 
-	got := ParseMilestones(string(data))
-	if len(got) != 17 {
-		t.Fatalf("parsed %d milestones from the repo ROADMAP.md, want 17: %+v", len(got), got)
+	// The parser must see exactly the milestones the document declares — derived
+	// from the document rather than from a number written here, so adding M18
+	// needs no edit.
+	declared := regexp.MustCompile(`(?m)^### Milestone \d+:`).FindAllString(doc, -1)
+	if len(declared) == 0 {
+		t.Fatal("no milestone headings found in ROADMAP.md — the format changed under the parser")
+	}
+	if len(got) != len(declared) {
+		t.Fatalf("parsed %d milestones, but the document declares %d", len(got), len(declared))
 	}
 
 	for i, m := range got {
 		if m.Number != i+1 {
-			t.Errorf("milestone at index %d has Number %d, want %d", i, m.Number, i+1)
+			t.Errorf("milestone at index %d has Number %d, want %d (numbering must be contiguous from 1)", i, m.Number, i+1)
 		}
 		if m.Title == "" {
 			t.Errorf("milestone %d has an empty title", m.Number)
 		}
 		if m.Description == "" {
 			t.Errorf("milestone %d has an empty description", m.Number)
+		}
+		// A title ending in a status-shaped parenthetical means the heading carries
+		// TWO markers — `### Milestone 15: … (Planned) (In Progress)` — which the
+		// parser is lenient enough to accept (it takes the last), so it is silent
+		// document corruption rather than a hard failure. BACKLOG #65 records it
+		// happening for real. Legitimate parentheticals like "(V3, demoted)" are
+		// untouched, because only a KNOWN status word counts.
+		if marker, doubled := trailingStatusMarker(m.Title); doubled {
+			t.Errorf("milestone %d title %q ends with a second status marker (%s) — the heading carries two",
+				m.Number, m.Title, marker)
 		}
 	}
 
@@ -207,60 +242,24 @@ func TestParseMilestonesAgainstRealRoadmap(t *testing.T) {
 	// a choice of places to put it. Zero is a valid between-milestones state (one
 	// milestone shipped, the next not yet chosen) — and then there is no current
 	// sprint to place either.
-	var inProgress int
+	var inProgress []int
 	for _, m := range got {
 		if m.Status == StatusInProgress {
-			inProgress++
+			inProgress = append(inProgress, m.Number)
 		}
 	}
-	if inProgress > 1 {
-		t.Errorf("repo ROADMAP.md has %d in-progress milestones, want at most 1", inProgress)
+	if len(inProgress) > 1 {
+		t.Errorf("ROADMAP.md has %d in-progress milestones %v, want at most 1", len(inProgress), inProgress)
 	}
+}
 
-	if got[3].Status != StatusDone {
-		t.Errorf("Milestone 4 Status = %q, want %q", got[3].Status, StatusDone)
+// trailingStatusMarker reports whether a parsed title ends with a parenthetical
+// that is itself a status word — the signature of a heading with two markers.
+func trailingStatusMarker(title string) (string, bool) {
+	for _, status := range []Status{StatusPlanned, StatusInProgress, StatusPaused, StatusDone} {
+		if strings.HasSuffix(title, "("+string(status)+")") {
+			return string(status), true
+		}
 	}
-	if got[4].Status != StatusDone {
-		t.Errorf("Milestone 5 Status = %q, want %q", got[4].Status, StatusDone)
-	}
-	if got[5].Status != StatusDone {
-		t.Errorf("Milestone 6 Status = %q, want %q", got[5].Status, StatusDone)
-	}
-	if got[6].Status != StatusDone {
-		t.Errorf("Milestone 7 Status = %q, want %q", got[6].Status, StatusDone)
-	}
-	if got[7].Status != StatusDone {
-		t.Errorf("Milestone 8 Status = %q, want %q", got[7].Status, StatusDone)
-	}
-	if got[8].Status != StatusDone {
-		t.Errorf("Milestone 9 Status = %q, want %q", got[8].Status, StatusDone)
-	}
-	if got[9].Status != StatusPlanned {
-		t.Errorf("Milestone 10 Status = %q, want %q (parked)", got[9].Status, StatusPlanned)
-	}
-	if got[11].Status != StatusDone {
-		t.Errorf("Milestone 12 Status = %q, want %q", got[11].Status, StatusDone)
-	}
-	if got[10].Status != StatusDone {
-		t.Errorf("Milestone 11 Status = %q, want %q", got[10].Status, StatusDone)
-	}
-	// M13 is Done (control-plane V1 foundation); M14–M17 remain Planned.
-	if got[12].Status != StatusDone {
-		t.Errorf("Milestone 13 Status = %q, want %q", got[12].Status, StatusDone)
-	}
-	if got[13].Status != StatusDone {
-		t.Errorf("Milestone 14 Status = %q, want %q", got[13].Status, StatusDone)
-	}
-	// M15 (governance, integration & the gated Guild Master client) is Done — V2
-	// complete. M16 (parallel programme execution) is the open milestone; M17
-	// remains Planned.
-	if got[14].Status != StatusDone {
-		t.Errorf("Milestone 15 Status = %q, want %q", got[14].Status, StatusDone)
-	}
-	if got[15].Status != StatusInProgress {
-		t.Errorf("Milestone 16 Status = %q, want %q", got[15].Status, StatusInProgress)
-	}
-	if got[16].Status != StatusPlanned {
-		t.Errorf("Milestone 17 Status = %q, want %q (planned arc)", got[16].Status, StatusPlanned)
-	}
+	return "", false
 }

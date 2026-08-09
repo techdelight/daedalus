@@ -43,23 +43,24 @@ const (
 // Operation names. These are the strings that appear in a proposal row and in
 // the event log, so they are part of the record and must stay stable.
 const (
-	OpCreateTask  = "create_task"
-	OpDispatch    = "dispatch_task"
-	OpVerify      = "request_verification"
-	OpReview      = "request_review"
-	OpRetry       = "retry_task"
-	OpReplan      = "replan_task"
-	OpCancel      = "cancel_task"
-	OpApprove     = "approve_task"
-	OpRejectAppr  = "reject_task"
-	OpIntegrate   = "request_integration"
-	OpSyncTarget  = "sync_target"
-	OpListTasks   = "list_tasks"
-	OpTaskStatus  = "get_task"
-	OpTaskEvents  = "task_events"
-	OpApprovals   = "list_pending_approvals"
-	OpTargets     = "list_targets"
-	OpProposalAct = "confirm_or_deny_proposal"
+	OpCreateTask    = "create_task"
+	OpDispatch      = "dispatch_task"
+	OpVerify        = "request_verification"
+	OpReview        = "request_review"
+	OpRetry         = "retry_task"
+	OpReplan        = "replan_task"
+	OpCancel        = "cancel_task"
+	OpApprove       = "approve_task"
+	OpRejectAppr    = "reject_task"
+	OpIntegrate     = "request_integration"
+	OpSyncTarget    = "sync_target"
+	OpListTasks     = "list_tasks"
+	OpTaskStatus    = "get_task"
+	OpTaskEvents    = "task_events"
+	OpApprovals     = "list_pending_approvals"
+	OpTargets       = "list_targets"
+	OpProposalAct   = "confirm_or_deny_proposal"
+	OpAddDependency = "add_dependency"
 )
 
 // agentAuthority is the authority table for CallerAgent. Anything absent is
@@ -100,6 +101,10 @@ var agentAuthority = map[string]Tier{
 	OpApprove:    TierProposal,
 	OpRejectAppr: TierProposal,
 	OpSyncTarget: TierProposal,
+	// A dependency edge decides what must happen before a Task is graded, which is
+	// as load-bearing as what grades it. An agent that could declare its own
+	// dependencies could declare them satisfied.
+	OpAddDependency: TierProposal,
 
 	// Confirming a proposal is the human act the whole tier exists to reserve.
 	// The refusal that actually enforces it lives in callerScope.ResolveProposal
@@ -116,6 +121,7 @@ var agentAuthority = map[string]Tier{
 var mutatingOps = []string{
 	OpCreateTask, OpDispatch, OpVerify, OpReview, OpRetry, OpReplan,
 	OpCancel, OpApprove, OpRejectAppr, OpIntegrate, OpSyncTarget, OpProposalAct,
+	OpAddDependency,
 }
 
 // TierFor returns the authority a caller class has over an operation.

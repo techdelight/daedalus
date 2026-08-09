@@ -45,13 +45,16 @@ type Milestone struct {
 // trailing parenthetical: "Milestone 2: Rework (Phase 2)" would parse as title
 // "Rework" with status "Phase 2". Pinning makes an unrecognised parenthetical
 // stay part of the title, which is what it is.
-var milestoneHeaderRe = regexp.MustCompile(`^###\s+Milestone\s+(\d+):\s+(.+?)(?:\s+\((Done|In Progress|Paused)\))?\s*$`)
+var milestoneHeaderRe = regexp.MustCompile(`^###\s+Milestone\s+(\d+):\s+(.+?)(?:\s+\((Done|In Progress|Paused|Planned)\))?\s*$`)
 
 // ParseMilestones parses a ROADMAP.md into its milestones, in document order.
 //
 // Every "### Milestone N:" heading is taken, wherever it sits, mirroring how
 // ParseSprints takes every sprint heading regardless of section. A heading
-// with no status parenthetical is StatusPlanned.
+// with no status parenthetical is StatusPlanned, and an explicit "(Planned)" is
+// recognised and stripped rather than left in the title — the tooling writes it,
+// so a parser that did not know it would render "Homebrew Distribution (Planned)"
+// as the milestone's name everywhere the title is shown.
 //
 // Pure and total: unparseable input yields no milestones rather than an error,
 // because a half-written ROADMAP.md is a normal state for a project and must
