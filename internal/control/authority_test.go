@@ -5,6 +5,7 @@ package control
 import (
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -152,24 +153,88 @@ func TestAgent_ProposalDeniedDoesNothing(t *testing.T) {
 	}
 }
 
-// TestProposal_ConfirmIsSingleUse: a confirmed proposal cannot be confirmed
-// again, so an operation cannot be executed twice through one authorisation.
+// TestProposal_ConfirmIsSingleUse: one authorisation permits exactly one
+// execution.
+//
+// The operation must be one that SUCCEEDS, and whose double-execution leaves a
+// visible trace. An earlier version of this test confirmed a `retry` on a
+// verified task: the first confirm failed because the op was inapplicable, so
+// the second returned an error for that reason too — and the test passed with
+// BOTH enforcement layers removed. It asserted nothing.
+//
+// `dispatch` on a planned task succeeds and creates a Job, so executing twice
+// through one authorisation would leave two Jobs. That is the observable the
+// assertion needs.
 func TestProposal_ConfirmIsSingleUse(t *testing.T) {
-	human, agent, _, store, task := agentPlane(t)
-	if _, err := agent.RetryTask(task.ID, RetryRequest{}); err == nil {
-		t.Fatal("precondition: retry should have been refused")
+	repo := gitRepo(t)
+	svc, _, store := newService(t, mapResolver{"app": repo},
+		StubRunner{Result: ExecSuccess, WriteFile: true, MarkerName: "a.txt"}, nil, StubVerifyRunner{Pass: true})
+	human, agent := svc.WithCaller(Human()), svc.WithCaller(Agent())
+
+	task, err := svc.CreateTask(CreateTaskRequest{Project: "app", Objective: "x"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	// The agent asks for a dispatch; it becomes a proposal.
+	if _, err := agent.DispatchTask(task.ID); err == nil {
+		t.Fatal("precondition: dispatch should have been refused for an agent")
 	}
 	proposals, _ := store.ListProposals(ProposalPending)
-	id := proposals[0].ID
-
-	// The first confirm runs the op (which fails here — a verified task is not
-	// retryable — and that failure is recorded rather than hidden).
-	if _, err := human.ResolveProposal(id, true, ""); err == nil {
-		t.Log("retry of a verified task succeeded unexpectedly; the single-use check below is what matters")
+	if len(proposals) != 1 {
+		t.Fatalf("proposals = %d, want 1", len(proposals))
 	}
-	// The second confirm finds it no longer pending.
-	if _, err := human.ResolveProposal(id, true, ""); err == nil {
-		t.Error("a proposal was confirmed twice — one authorisation must permit one execution")
+	id := proposals[0].ID
+	if jobs, _ := store.ListJobsForTask(task.ID); len(jobs) != 0 {
+		t.Fatalf("precondition: a proposal must not have executed anything, got %d jobs", len(jobs))
+	}
+
+	// First confirm: the operation RUNS and succeeds.
+	if _, err := human.ResolveProposal(id, true, "go ahead"); err != nil {
+		t.Fatalf("first confirm: %v", err)
+	}
+	jobs, _ := store.ListJobsForTask(task.ID)
+	if len(jobs) != 1 {
+		t.Fatalf("after one confirm: %d jobs, want 1", len(jobs))
+	}
+	firstJobID := jobs[0].ID
+
+	// Second confirm: refused BECAUSE THE PROPOSAL IS SPENT.
+	//
+	// Asserting only `err != nil` here would prove nothing — with the guards
+	// removed, the second confirm still errors, because the state machine happens
+	// to refuse a second dispatch of an already-dispatched task. That incidental
+	// error is what made the first version of this test vacuous. So the load-
+	// bearing assertions are the error's IDENTITY and the proposal's final STATE:
+	// both change if either enforcement layer is removed.
+	_, err = human.ResolveProposal(id, true, "again")
+	if err == nil {
+		t.Fatal("a proposal was confirmed twice — one authorisation must permit one execution")
+	}
+	if !errors.Is(err, ErrWrongState) {
+		t.Errorf("second confirm err = %v, want a state conflict (the proposal is spent), not an incidental failure", err)
+	}
+	if !strings.Contains(err.Error(), "already") {
+		t.Errorf("second confirm should say the proposal is already resolved, got %v", err)
+	}
+	// The record still says confirmed: a spent proposal is not re-resolvable, and
+	// in particular the second attempt must not overwrite it with failed/denied.
+	final, _ := store.GetProposal(id)
+	if final.State != ProposalConfirmed {
+		t.Errorf("proposal state = %q, want confirmed — a spent proposal must not be re-resolved", final.State)
+	}
+	// Denying an already-confirmed proposal is refused for the same reason.
+	if _, err := human.ResolveProposal(id, false, "changed my mind"); !errors.Is(err, ErrWrongState) {
+		t.Errorf("denying a confirmed proposal = %v, want a state conflict", err)
+	}
+	if final, _ := store.GetProposal(id); final.State != ProposalConfirmed {
+		t.Errorf("proposal state = %q after an attempted deny, want confirmed", final.State)
+	}
+	// Belt, not the mechanism: the job chain is unchanged. (The state machine
+	// would also refuse a second dispatch, so this alone cannot detect a broken
+	// guard — it is here to catch an operation that IS applicable twice.)
+	jobs, _ = store.ListJobsForTask(task.ID)
+	if len(jobs) != 1 || jobs[0].ID != firstJobID {
+		t.Errorf("job chain changed after the refused confirm: %d jobs (first was %s)", len(jobs), firstJobID)
 	}
 }
 
@@ -292,5 +357,157 @@ func TestCallerClass_UnknownIsNotHuman(t *testing.T) {
 	// And the actor label follows the class, never the other way round.
 	if Agent().Actor() != ActorAgent || Human().Actor() != ActorHuman {
 		t.Error("actor labels must derive from the caller class")
+	}
+}
+
+// TestTierFor_FailsClosedOnAnUnknownClass is the regression for the audit's F1.
+// TierFor was written `if class != CallerAgent { return TierAllowed }`, which
+// reads identically to the correct rule and is catastrophically different: it
+// hands FULL HUMAN AUTHORITY to a zero-valued Caller, silently. `Caller` is
+// exported with an exported field, so a zero value is one refactor, embedder or
+// new listener away at any time.
+//
+// The rule is the same one parseCallerClass already states: human is the
+// privileged answer, so it must be proven, never assumed.
+func TestTierFor_FailsClosedOnAnUnknownClass(t *testing.T) {
+	// Every class that is not explicitly human must be tiered as an agent.
+	notHuman := []CallerClass{
+		"",                     // the zero value
+		"AGENT",                // wrong case
+		"hooman",               // typo
+		"Human",                // wrong case for the privileged value itself
+		CallerAgent,            // the real thing
+		CallerClass("unknown"), // anything at all
+	}
+	for _, class := range notHuman {
+		t.Run(string("class="+class), func(t *testing.T) {
+			for _, op := range []string{OpIntegrate, OpApprove, OpCancel, OpSyncTarget, OpDispatch} {
+				if got := TierFor(class, op); got != TierProposal {
+					t.Errorf("TierFor(%q, %s) = %v, want TierProposal — only an explicitly human class may execute", class, op, got)
+				}
+			}
+			// Reads stay free for any class; refusing those would make the Guild
+			// Master useless without making anything safer.
+			if got := TierFor(class, OpListTasks); got != TierAllowed {
+				t.Errorf("TierFor(%q, list_tasks) = %v, want TierAllowed", class, got)
+			}
+		})
+	}
+	// And the one privileged value still works.
+	if got := TierFor(CallerHuman, OpIntegrate); got != TierAllowed {
+		t.Errorf("TierFor(human, integrate) = %v, want TierAllowed", got)
+	}
+}
+
+// TestCaller_ZeroValueIsConsistentlyUntrusted: an earlier version answered three
+// questions about `Caller{}` independently and gave three different answers
+// (not-an-agent, actor "system", string "human"). That inconsistency is the shape
+// of a privilege bug — every derived answer must agree, and agree on untrusted.
+func TestCaller_ZeroValueIsConsistentlyUntrusted(t *testing.T) {
+	var zero Caller
+	if !zero.IsAgent() {
+		t.Error("Caller{}.IsAgent() = false — a zero value must be treated as untrusted")
+	}
+	if got := zero.Actor(); got != ActorAgent {
+		t.Errorf("Caller{}.Actor() = %q, want %q", got, ActorAgent)
+	}
+	if got := zero.String(); got != string(CallerAgent) {
+		t.Errorf("Caller{}.String() = %q, want %q — a refusal message must not claim a privilege the caller lacks", got, CallerAgent)
+	}
+	// The explicitly-human value is consistent the other way.
+	h := Human()
+	if h.IsAgent() || h.Actor() != ActorHuman || h.String() != string(CallerHuman) {
+		t.Errorf("Human() is inconsistent: isAgent=%v actor=%q string=%q", h.IsAgent(), h.Actor(), h.String())
+	}
+}
+
+// TestScope_ZeroValueCallerIsRefused proves it end-to-end rather than only at the
+// table: a Service scoped to a zero-valued Caller must not be able to integrate.
+func TestScope_ZeroValueCallerIsRefused(t *testing.T) {
+	_, _, svc, store, task := agentPlane(t)
+	zero := svc.WithCaller(Caller{})
+
+	_, err := zero.IntegrateTask(task.ID)
+	var rej *RejectionError
+	if !errors.As(err, &rej) || rej.Reason != ReasonProposalRecorded {
+		t.Fatalf("zero-valued caller integrate = %v, want a proposal refusal", err)
+	}
+	if _, err := zero.ResolveProposal("P-1", true, ""); !errors.As(err, &rej) || rej.Reason != ReasonForbidden {
+		t.Errorf("zero-valued caller confirming = %v, want a forbidden refusal", err)
+	}
+	after, _ := store.GetTask(task.ID)
+	if after.State == StateIntegrated {
+		t.Error("a zero-valued caller landed a change")
+	}
+	// The proposal it did create is attributed to `agent`, not to an empty class.
+	proposals, _ := store.ListProposals(ProposalPending)
+	if len(proposals) != 1 || proposals[0].ProposedBy != CallerAgent {
+		t.Errorf("proposal attribution = %+v, want proposedBy=agent", proposals)
+	}
+}
+
+// TestProposal_ConcurrentConfirmsExecuteOnce pins the store's optimistic
+// pending-only UPDATE, which a serial test cannot distinguish from the service
+// guard in front of it: remove the CAS and the sequential single-use test still
+// passes, because the guard catches it first. Only concurrency separates them.
+//
+// N humans hit confirm at the same moment — a real scenario with a CLI and a Web
+// UI open — and exactly one authorisation may be spent.
+func TestProposal_ConcurrentConfirmsExecuteOnce(t *testing.T) {
+	repo := gitRepo(t)
+	svc, _, store := newService(t, mapResolver{"app": repo},
+		StubRunner{Result: ExecSuccess, WriteFile: true, MarkerName: "a.txt"}, nil, StubVerifyRunner{Pass: true})
+	human, agent := svc.WithCaller(Human()), svc.WithCaller(Agent())
+
+	task, err := svc.CreateTask(CreateTaskRequest{Project: "app", Objective: "x"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	if _, err := agent.DispatchTask(task.ID); err == nil {
+		t.Fatal("precondition: dispatch should have been refused for an agent")
+	}
+	proposals, _ := store.ListProposals(ProposalPending)
+	id := proposals[0].ID
+
+	const racers = 8
+	var (
+		wg     sync.WaitGroup
+		mu     sync.Mutex
+		wins   int
+		losses int
+	)
+	start := make(chan struct{})
+	for i := 0; i < racers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			_, err := human.ResolveProposal(id, true, "confirm")
+			mu.Lock()
+			defer mu.Unlock()
+			if err == nil {
+				wins++
+			} else {
+				losses++
+			}
+		}()
+	}
+	close(start)
+	wg.Wait()
+
+	if wins != 1 {
+		t.Errorf("%d concurrent confirms succeeded, want exactly 1 — one authorisation, one execution", wins)
+	}
+	if losses != racers-1 {
+		t.Errorf("losses = %d, want %d", losses, racers-1)
+	}
+	// And the operation ran exactly once.
+	jobs, _ := store.ListJobsForTask(task.ID)
+	if len(jobs) != 1 {
+		t.Errorf("jobs = %d, want 1 — the operation executed more than once", len(jobs))
+	}
+	final, _ := store.GetProposal(id)
+	if final.State != ProposalConfirmed {
+		t.Errorf("proposal state = %q, want confirmed", final.State)
 	}
 }

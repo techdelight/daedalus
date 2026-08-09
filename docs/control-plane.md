@@ -514,6 +514,14 @@ through the retry/replan ladder:
 | The **merged** result fails verification | `merged_verify_failed` | Task → `rejected`, target untouched |
 | The target kept moving | `integration_raced` | Task stays `approved`, nothing landed, try again |
 
+**What the queue is doing today.** With one active Task per project, two
+integrations cannot be in flight for a single repository right now, so the
+compare-and-swap has no concurrent writer to lose to in normal operation. It is
+**insurance for M16's parallel Jobs**, not load-bearing yet — correct, and proven
+to serialize 16 ways under a real race, but currently protecting against a case
+the rest of the system does not yet produce. Worth saying, so a reader does not
+assume it is carrying weight it is not.
+
 **Re-integration is idempotent.** The compare-and-swap commits before the Task is
 marked `integrated`, and those are two different stores — git and the target row,
 then the task row. If the second write fails, the target has advanced while the
@@ -535,15 +543,17 @@ verified → approval_required → approved → integrated
 `workerReachable`, so no worker-driven request can approve, integrate, or walk any
 part of the gate. That much is structural and exhaustively tested.
 
-**What this does not yet prove.** The state machine stops a *worker* approving. It
-does not by itself stop an agent **client** of `control.sock` approving, because
-the actor recorded on an approval is a label of the request's origin, not an
-authenticated identity. "The Guild Master cannot approve its own work" is
-therefore enforced by the **socket boundary Sprint 60 introduces** — a separate
-socket per class of caller, since peer credentials alone cannot separate an agent
-from a human running under the same uid — and not by this state machine alone.
-Until then every client of `control.sock` is the human CLI, and that is the whole
-of the guarantee.
+**What the state machine alone does not prove.** It stops a *worker* approving. It
+does not by itself stop an agent **client** approving, because the actor on an
+approval is a label of the request's origin rather than a cryptographic identity.
+That gap is closed by the **socket boundary** (shipped in Sprint 60): the daemon
+listens on a human socket and a restricted agent socket, the agent's container is
+given only the latter, and approval is refused for the agent caller class. Peer
+credentials could not have done this — the socket is `srwxr-xr-x` and the agent
+runs as the same uid — so the split is the mechanism, not a supplement to one.
+What remains true: the caller class is a *class*, not an identity, so two agent
+clients are indistinguishable from each other, and anything already running as the
+operator can open either socket.
 
 **Approval fails closed.** "Fail closed" means something different on each
 governance axis, which is why they are not one function. For a **budget** it means
@@ -650,9 +660,12 @@ had cancelled a Job when it had only asked would reason on from a false premise.
 Two properties are worth stating precisely:
 
 - **An agent cannot confirm its own proposal.** Confirmation is refused for agent
-  callers, and it is not itself proposable — making it proposable would rebuild
-  the same hole one step up. This is what makes "the Guild Master cannot approve
-  its own work" true by construction.
+  callers at **two independent layers, both tested** — in the caller scope and
+  again in the service beneath it — and it carries a proposal-tier entry so a
+  future generic dispatch could not route around them. That is defence in depth,
+  not type-level impossibility: it is enforced by checks, and the tests are what
+  hold the checks in place. It is what makes "the Guild Master cannot approve its
+  own work" true in practice.
 - **There is no raise-a-budget operation to tier.** A budget is resolved at create
   against a host-side ceiling and a request may only narrow it, so raising one is
   not an operation that can be attempted, tiered, or refused — it does not exist.

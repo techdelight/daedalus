@@ -76,12 +76,18 @@ func (s *Service) resolveProposal(caller Caller, id string, confirm bool, note s
 	// needs to answer "why did this happen".
 	if err := s.executeProposal(caller, resolved); err != nil {
 		failDetail := "confirmed, but the operation failed: " + err.Error()
-		if _, ferr := s.store.ResolveProposal(id, ProposalFailed, meta, failDetail); ferr != nil {
+		if _, ferr := s.store.MarkProposalFailed(id, meta, failDetail); ferr != nil {
 			// The row is already `confirmed` and cannot move again; the failure is
 			// on the event log regardless, which is what matters for the record.
 			return resolved, fmt.Errorf("%s (and the proposal could not be marked failed: %v)", failDetail, ferr)
 		}
-		return resolved, fmt.Errorf("proposal %s confirmed but failed: %w", id, err)
+		// Wrapped in ErrWrongState so the daemon answers 409, not 500. This is a
+		// CORRECTLY HANDLED case — the proposal is recorded `failed`, nothing was
+		// mutated — and an operator confirming from the Web UI should not be shown
+		// a server fault for it. A policy refusal nested inside still wins the
+		// mapping (statusFor checks RejectionError first) and surfaces as 422,
+		// which is also right.
+		return resolved, fmt.Errorf("%w: proposal %s confirmed but the operation failed: %v", ErrWrongState, id, err)
 	}
 	return resolved, nil
 }

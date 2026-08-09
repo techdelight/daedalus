@@ -143,6 +143,50 @@ All notable changes to this project will be documented in this file.
   See `docs/control-plane.md`.
 
 ### Fixed
+- **Authority hardening after the final M15 audit.**
+  - **`TierFor` failed OPEN on any unrecognised caller class (blocking).** It was
+    written `if class != CallerAgent { return TierAllowed }`, which reads
+    identically to the correct rule and is catastrophically different: a
+    zero-valued `Caller` — and `Caller` is exported with an exported field — got
+    **full human authority**, silently, with no error and no log line. This was
+    the exact inverse of `parseCallerClass`'s own stated principle two files away.
+    Inverted to grant direct execution only to an explicitly human class, and the
+    zero value's three inconsistent answers (`IsAgent()=false`, `Actor()="system"`,
+    `String()="human"`) now all derive from one `effectiveClass()` and all say
+    *agent*.
+  - **`ProposalFailed` was unreachable**, found while fixing the 500 below: the
+    fail-marking reused the pending-only compare-and-swap, so a confirmed-then-
+    failed proposal stayed `confirmed` forever. New `MarkProposalFailed` moves
+    `confirmed → failed` and nothing else, so the human's decision still stands
+    and only the outcome is appended.
+  - **A confirmed-but-inapplicable proposal returned HTTP 500.** It is a correctly
+    handled case — recorded `failed`, nothing mutated — so it now maps to 409.
+  - **`TestProposal_ConfirmIsSingleUse` passed for the wrong reason.** It confirmed
+    a `retry` on a verified task, so the first confirm failed anyway and the second
+    errored for an unrelated reason; both enforcement layers could be deleted with
+    the package still green. Rewritten around an operation that *succeeds*, with
+    the error identity and the proposal's final state as the load-bearing
+    assertions, plus a new concurrent-confirm test that pins the store's
+    pending-only CAS specifically — a serial test cannot distinguish it from the
+    service guard in front of it. Verified by mutation: removing the service guard
+    fails the serial test, removing the CAS fails the concurrent one, removing both
+    fails both.
+  - **Dead code removed:** `proposalOnly` was never reached (the real refusal is
+    two layers up, both tested), so it no longer reads as load-bearing.
+  - **Doc overstatements cut:** an agent cannot confirm its own proposal "at two
+    independent layers, both tested" rather than "by construction"; the socket
+    boundary is described as shipped rather than as something a future sprint
+    introduces; and the integration section now says plainly that with one active
+    Task per project the merge queue is **insurance for M16's parallel Jobs**, not
+    yet load-bearing.
+- **Pre-existing: `dev-release.yml` never built `daedalus-control`.** `release.yml`
+  has built it since v0.48.0; the dev workflow built 7 binaries, not 8 — so every
+  dev release since then shipped a bundle whose `daedalus task` CLI would try to
+  spawn a daemon that was not there. The M13 chain fix covered `build.sh`,
+  `setup.sh`, `package-release.sh`, `release.yml` and both sims, but not
+  `dev-release.yml`, and the sims cannot catch it because they exercise the local
+  packaging path. Added to both the build and upload lists; the two workflows now
+  diff clean against each other.
 - **Integration hardening after an adversarial audit of the Sprint 59 core.**
   - **The approval gate failed OPEN when the governance file was unreadable
     (blocking).** With a corrupt or half-written `budgets.json` and no

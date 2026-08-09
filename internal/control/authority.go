@@ -18,7 +18,11 @@ package control
 //	            and a human confirms or denies it.
 //
 // A poisoned README can therefore cause a proposal to appear in a human's queue.
-// It cannot cancel a Job, land a change, or approve anything.
+// It cannot cancel a Job, land a change, or approve anything — which holds only
+// because TierFor grants direct execution to an EXPLICITLY human class and
+// treats everything else, including a zero-valued Caller, as an agent. Written
+// the other way round ("not an agent → allowed") the sentence would be false for
+// any caller nobody remembered to classify.
 //
 // Note what is absent by construction rather than by rule: there is no
 // raise-a-budget operation at all. A budget is resolved at task create against a
@@ -98,9 +102,12 @@ var agentAuthority = map[string]Tier{
 	OpSyncTarget: TierProposal,
 
 	// Confirming a proposal is the human act the whole tier exists to reserve.
-	// It is NOT TierProposal — that would let an agent propose the confirmation
-	// of its own proposal, which is the same hole one level up. It is refused
-	// outright.
+	// The refusal that actually enforces it lives in callerScope.ResolveProposal
+	// and again in Service.resolveProposal — two independent layers, both tested —
+	// because an agent must never reach the proposal machinery for this operation
+	// at all. The entry here is the belt to those braces: if a future caller ever
+	// routes this through the generic dispatch, the table answers TierProposal
+	// rather than TierAllowed.
 	OpProposalAct: TierProposal,
 }
 
@@ -113,23 +120,29 @@ var mutatingOps = []string{
 
 // TierFor returns the authority a caller class has over an operation.
 //
-// An unknown operation is TierProposal for an agent, never TierAllowed: a new
-// operation that nobody thought to tier must fail closed into "ask a human".
+// TWO fail-closed rules, and the direction of both matters:
+//
+//  1. Only an EXPLICITLY human class gets full authority. Anything else — the
+//     zero value, an unrecognised string, a class a future listener forgot to
+//     set — is treated as an agent. The inverse test (`class != CallerAgent →
+//     allowed`) reads identically and is catastrophically different: it hands
+//     full human authority to `Caller{}`, silently, with no error and no log
+//     line. `Caller` is exported with an exported field, so a zero value is one
+//     refactor away at any time.
+//
+//  2. An unknown OPERATION is TierProposal for a non-human caller, never
+//     TierAllowed: an operation nobody thought to tier must fail closed into
+//     "ask a human".
+//
+// This matches parseCallerClass, which resolves an unreadable class to agent for
+// exactly the same reason: human is the privileged answer, so it must be the one
+// that has to be proven rather than the one that is assumed.
 func TierFor(class CallerClass, op string) Tier {
-	if class != CallerAgent {
-		return TierAllowed
-	}
-	tier, known := agentAuthority[op]
-	if !known {
+	if class != CallerHuman {
+		if tier, known := agentAuthority[op]; known {
+			return tier
+		}
 		return TierProposal
 	}
-	return tier
+	return TierAllowed
 }
-
-// proposalOnly reports whether confirming this operation is reserved to humans
-// entirely — i.e. an agent may not even propose it.
-//
-// Confirming or denying a proposal is the one such operation: making it
-// proposable would let an agent queue "confirm my other proposal" and reproduce
-// the hole one level up.
-func proposalOnly(op string) bool { return op == OpProposalAct }

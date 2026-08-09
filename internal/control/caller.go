@@ -54,28 +54,38 @@ func Human() Caller { return Caller{Class: CallerHuman} }
 // Agent returns the agent caller identity.
 func Agent() Caller { return Caller{Class: CallerAgent} }
 
-// IsAgent reports whether this caller is an agent client.
-func (c Caller) IsAgent() bool { return c.Class == CallerAgent }
+// effectiveClass is the class this caller is actually TREATED as, and it is the
+// single source every other method derives from.
+//
+// Only an explicitly-human class counts as human. The zero value, and anything
+// unrecognised, is an agent — the same rule as parseCallerClass and TierFor,
+// because human is the privileged answer and must be proven rather than assumed.
+// Deriving IsAgent/Actor/String from one place is deliberate: an earlier version
+// answered these three questions independently and gave three different answers
+// for `Caller{}` (not-an-agent, actor "system", string "human"), which is the
+// shape of inconsistency that hides a privilege bug.
+func (c Caller) effectiveClass() CallerClass {
+	if c.Class == CallerHuman {
+		return CallerHuman
+	}
+	return CallerAgent
+}
+
+// IsAgent reports whether this caller is treated as an agent client — true for
+// anything that is not explicitly human.
+func (c Caller) IsAgent() bool { return c.effectiveClass() != CallerHuman }
 
 // Actor is the event-log label for this caller. It is derived, never supplied.
 func (c Caller) Actor() string {
-	switch c.Class {
-	case CallerAgent:
-		return ActorAgent
-	case CallerHuman:
+	if c.effectiveClass() == CallerHuman {
 		return ActorHuman
-	default:
-		return ActorSystem
 	}
+	return ActorAgent
 }
 
-// String renders the class for messages.
-func (c Caller) String() string {
-	if c.Class == "" {
-		return string(CallerHuman)
-	}
-	return string(c.Class)
-}
+// String renders the class this caller is treated as, so a refusal message never
+// claims a privilege the caller does not have.
+func (c Caller) String() string { return string(c.effectiveClass()) }
 
 // validCallerClass reports whether c is a known class. Used where a class is
 // read back from storage.

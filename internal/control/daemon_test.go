@@ -448,3 +448,48 @@ func TestDaemon_RejectApprovalAndSyncTarget(t *testing.T) {
 		t.Errorf("synced target = %s, want %s", synced.SHA, moved)
 	}
 }
+
+// TestDaemon_ConfirmedButInapplicableProposalIsConflictNot500: confirming a
+// proposal whose operation is no longer applicable is a correctly-handled case —
+// the proposal is recorded `failed` and nothing is mutated — so an operator
+// confirming from the Web UI must not be shown a server fault for it.
+func TestDaemon_ConfirmedButInapplicableProposalIsConflictNot500(t *testing.T) {
+	repo := gitRepo(t)
+	svc, _, store := newService(t, mapResolver{"app": repo},
+		StubRunner{Result: ExecSuccess, WriteFile: true, MarkerName: "a.txt"}, nil, StubVerifyRunner{Pass: true})
+	agent := svc.WithCaller(Agent())
+
+	task, err := svc.CreateTask(CreateTaskRequest{Project: "app", Objective: "x"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	// The agent asks to retry a task that was never rejected: a valid ASK, an
+	// inapplicable operation.
+	if _, err := agent.RetryTask(task.ID, RetryRequest{}); err == nil {
+		t.Fatal("precondition: retry should have been refused for an agent")
+	}
+	proposals, _ := store.ListProposals(ProposalPending)
+	if len(proposals) != 1 {
+		t.Fatalf("proposals = %d, want 1", len(proposals))
+	}
+
+	handler := NewServerForCaller(svc, Human()).Handler()
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/proposals/"+proposals[0].ID+"/confirm", nil))
+
+	if rec.Code == http.StatusInternalServerError {
+		t.Errorf("confirming an inapplicable proposal = 500; a handled outcome must not read as a server fault\n%s", rec.Body.String())
+	}
+	if rec.Code != http.StatusConflict {
+		t.Errorf("status = %d, want 409 (state conflict)\n%s", rec.Code, rec.Body.String())
+	}
+	// The record is accurate: confirmed-then-failed, and the task untouched.
+	final, _ := store.GetProposal(proposals[0].ID)
+	if final.State != ProposalFailed {
+		t.Errorf("proposal state = %q, want failed", final.State)
+	}
+	after, _ := store.GetTask(task.ID)
+	if after.State != StatePlanned {
+		t.Errorf("task state = %q, want planned — nothing should have been mutated", after.State)
+	}
+}

@@ -1515,6 +1515,50 @@ func (s *Store) ResolveProposal(id string, to ProposalState, meta EventMeta, det
 	return cur, nil
 }
 
+// MarkProposalFailed records that a CONFIRMED proposal's operation then failed.
+//
+// It exists because ResolveProposal only moves a row out of `pending` — that
+// pending-only CAS is what makes confirmation single-use — so it can never
+// record this outcome, and `failed` would be an unreachable state. This moves
+// `confirmed → failed` and nothing else, so it cannot be used to re-decide a
+// proposal: the human's decision stands, only the outcome is appended.
+func (s *Store) MarkProposalFailed(id string, meta EventMeta, detail string) (Proposal, error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return Proposal{}, err
+	}
+	defer tx.Rollback()
+
+	cur, err := scanProposal(tx.QueryRow(proposalSelect+` WHERE id = ?`, id))
+	if err != nil {
+		return Proposal{}, err
+	}
+	now := s.now()
+	res, err := tx.Exec(
+		`UPDATE proposals SET state = ?, detail = ?, updated_at = ? WHERE id = ? AND state = ?`,
+		string(ProposalFailed), detail, now, id, string(ProposalConfirmed),
+	)
+	if err != nil {
+		return Proposal{}, fmt.Errorf("marking proposal failed: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		return Proposal{}, fmt.Errorf("%w: proposal %s is %s, not confirmed", ErrConflict, id, cur.State)
+	}
+	entityID, entityType := cur.TaskID, "task"
+	if entityID == "" {
+		entityID, entityType = cur.ID, "proposal"
+	}
+	if err := s.logEvent(tx, entityType, entityID, "", "", meta, ActorHuman,
+		fmt.Sprintf("proposal %s (%s) failed after confirmation: %s", cur.ID, cur.Operation, detail)); err != nil {
+		return Proposal{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Proposal{}, err
+	}
+	cur.State, cur.Detail, cur.UpdatedAt = ProposalFailed, detail, now
+	return cur, nil
+}
+
 // ListProposals returns proposals, optionally filtered to one state.
 func (s *Store) ListProposals(state ProposalState) ([]Proposal, error) {
 	query, args := proposalSelect+` ORDER BY seq ASC`, []any{}

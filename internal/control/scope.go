@@ -31,14 +31,11 @@ func (s *Service) WithCaller(c Caller) TaskAPI { return &callerScope{svc: s, cal
 // believed it had cancelled a Job when it had only asked would go on to reason
 // from a false premise, which is a worse failure than being told no.
 func (c *callerScope) propose(op, taskID, argument string) error {
-	if proposalOnly(op) {
-		return &RejectionError{
-			Reason:  ReasonForbidden,
-			Message: fmt.Sprintf("%s is reserved to human callers and cannot be proposed", op),
-			Entity:  taskID,
-		}
-	}
-	p, err := c.svc.store.CreateProposal(op, taskID, argument, c.caller.Class)
+	// The caller class recorded on the row is the EFFECTIVE class, not the raw
+	// field: a zero-valued or unrecognised Caller is an agent, and the proposal
+	// must say so rather than recording an empty string that later reads as
+	// something else.
+	p, err := c.svc.store.CreateProposal(op, taskID, argument, CallerClass(c.caller.String()))
 	if err != nil {
 		return err
 	}
