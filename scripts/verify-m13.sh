@@ -203,7 +203,7 @@ phase_fake() {
     [[ -d "$DATA_DIR/control/worktrees/J-1" ]] && pass "candidate worktree survives restart" || fail "worktree lost on restart"
 
     # 4. failure path → failed, no artifact, worktree cleaned
-    dae task cancel T-1 >/dev/null 2>&1    # free the project (one active task)
+    dae task cancel T-1 >/dev/null 2>&1    # tidy up; not required since M16
     DAEDALUS_CONTROL_FAKE_RUNNER=fail dae task create --project demo --objective 'flaky' >/dev/null 2>&1
     out="$(DAEDALUS_CONTROL_FAKE_RUNNER=fail dae task dispatch T-2 2>&1)"
     echo "$out" | grep -q "state failed" && pass "dispatch(fail) → failed" || { fail "dispatch fail"; echo "$out"; }
@@ -213,9 +213,28 @@ phase_fake() {
     # 5. guardrails
     dae task cancel T-2 >/dev/null 2>&1
     dae task create --project demo --objective a >/dev/null 2>&1
-    dae task create --project demo --objective b >/dev/null 2>&1 && fail "second active task allowed" || pass "one-active-task-per-project enforced"
+    # Sprint 61 (M16) LIFTED the one-active-Task-per-project invariant this line used
+    # to assert. Several Tasks may now be live on one project, bounded by the
+    # SCHEDULER's per-project limit rather than by a refusal at create time — so the
+    # old assertion has been reporting a false failure since v0.51.0. Genuine
+    # concurrency (N Jobs in flight, cancellation targeting one, the integration CAS
+    # serializing real competitors) is proven under -race in
+    # internal/control/parallel_test.go, which is a far better oracle than a shell
+    # script can be. What is worth checking end to end is the thing that changed:
+    # the plane no longer refuses the second Task.
+    dae task create --project demo --objective b >/dev/null 2>&1 \
+        && pass "several tasks per project allowed (M16 lifted one-active-per-project)" \
+        || fail "second task on a project refused — the M13 invariant is back"
     mkdir -p "$WORK/notgit"; register notgit "$WORK/notgit"
     dae task create --project notgit --objective x >/dev/null 2>&1 && fail "non-git dir accepted" || pass "non-Git project rejected"
+
+    # 5b. the M17 programme board renders over the real socket
+    local board; board="$(dae task board 2>&1)"
+    if grep -q "Programme board" <<<"$board" && grep -q "T-1" <<<"$board"; then
+        pass "programme board renders across projects"
+    else
+        fail "programme board"; echo "$board"
+    fi
 
     # 6. store shape + event log
     local tables; tables="$(db "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('tasks','jobs','artifacts','events') ORDER BY name;" | tr '\n' ' ')"

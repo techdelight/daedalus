@@ -478,8 +478,11 @@ func statusFor(err error) int {
 	// 409 Conflict: the request is fine, the entity's current state is not — a
 	// second active task, a stale/illegal transition, or an unmet state
 	// precondition (retrying a task that was never rejected, …).
-	// A dependency cycle or a malformed edge is a validation error the caller can
-	// fix, not a server fault.
+	// A dependency cycle or a malformed edge belongs here rather than in the 400
+	// group below: the request is well-formed, and whether it is acceptable depends
+	// on the state of the GRAPH, not on how it was written. The same edge is legal
+	// before an intervening one is added and illegal after, which is a conflict with
+	// existing state — exactly what 409 means — not malformed input.
 	case errors.As(err, &cycle), errors.Is(err, ErrDependencyInvalid):
 		return http.StatusConflict
 	case errors.Is(err, ErrConflict),

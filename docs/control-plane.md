@@ -1034,13 +1034,34 @@ failure mode the whole design exists to prevent.
 The plan demoted M17 and said live steering should prove its value in real use
 before earning a milestone. Having built it, the assessment is:
 
-**For the runner Daedalus actually ships, steering delivers nothing.**
-`CoordinatorRunner` launches `daedalus <name> <dir> -p <objective>` — a single-shot
-headless invocation whose only boundary is process exit, with stdin closed and no
-injection channel. It therefore does not implement `SteeringDeliverer`, and every
-steer against it is recorded `undeliverable`. That is not a gap to be filled later
-by a small patch; it is a property of taking process exit as the Job boundary,
-which is the same decision that makes the rest of the plane runner-agnostic.
+**For the runner Daedalus actually ships, steering delivers nothing.** Three facts,
+in increasing order of how much weight they carry:
+
+1. `daedalus-control` is spawned detached — `Setsid: true` and `cmd.Stdin = nil`
+   (`internal/control/bootstrap.go`) — so the daemon that owns steering has no
+   stdin of its own to write down.
+2. The agent is invoked as `claude --print -p <objective>`: a **one-shot print
+   invocation** that takes its prompt from the flag and exits. It does not read
+   stdin as a steering channel, so a pipe reaching the process would not be a
+   boundary even if one were arranged.
+3. Decisively: **`SteeringDeliverer` has no implementation anywhere** — the only
+   references outside tests are the interface declaration and the resolver that
+   type-asserts against it. `CoordinatorRunner` does not implement it, so every
+   steer against the shipped runner records `undeliverable`.
+
+An earlier draft of this section argued the point from "the container is launched
+with stdin closed". That was **wrong**, and the correction is worth keeping rather
+than quietly deleting: `RealExecutor.Run` sets `cmd.Stdin = os.Stdin`
+(`internal/executor/executor.go`), and the container is launched via
+`docker compose run --rm` without `-T`, so a stdin pipe does exist structurally all
+the way to the agent process. The conclusion survives on (2) and (3); the original
+reasoning did not. It was checked by grepping for a line, finding it, and never
+asking *which process that line launches* — verifying the fact and not the
+inference, which is exactly the failure this review process exists to catch.
+
+This is not a gap a small patch would fill. A steering boundary has to be something
+the runner genuinely supports, and adding one means changing how a Job is invoked —
+the same decision that keeps the rest of the plane runner-agnostic.
 
 **Against cancel-plus-redispatch, the ledger is honest but thin.** For a short Job,
 `daedalus task cancel` followed by `replan --objective` achieves the actual goal —
@@ -1059,10 +1080,16 @@ does so *reliably* rather than *maybe*. What M17 adds over that is:
 That is a real but modest return, and it does not retrospectively justify a
 milestone. **The plan's demotion was right.** The correct reading is that M17
 should have stayed in the backlog until a runner with a steering boundary existed,
-at which point the delivery adapter would have been the only new work. Building the
-typed shell first was not wasted — it is small, it is honest about doing nothing,
-and it cost one sprint — but anyone reading this arc for guidance should take the
-demotion, not the completion, as the lesson.
+at which point the delivery adapter would have been the only new work.
+
+And there is a fourth item on that ledger, which is really the largest one: **the
+honest verdict is itself the deliverable.** The sprint's most valuable output is
+not `steer_job` — it is the demonstration, with working code and a runner that
+cannot accept it, that the plan's demotion was correct. A judgement made in advance
+and then *tested* is worth more than the feature would have been, and it is the
+kind of result a project only gets by being willing to write down that it built
+something marginal. Anyone reading this arc for guidance should take the demotion,
+not the completion, as the lesson.
 
 ## The programme board (Sprint 63 / M17 — built)
 
@@ -1101,9 +1128,15 @@ missed.
   approval, integration — is control-plane-only, enforced by two transition tables
   rather than by convention.
 - **The acceptance oracle is outside the agent's reach.** The verify policy is
-  hashed and frozen at task creation, at a **plane-owned target ref** that only a
-  completed integration transaction advances. Rewriting the repository's branches,
-  including by cherry-pick, cannot change how a Task is graded.
+  hashed and frozen at task creation, at a **plane-owned integration target** that
+  only a completed integration transaction advances. Rewriting the repository's
+  branches, including by cherry-pick, cannot change how a Task is graded.
+  The reason is stronger than "the ancestry check catches it", and this is the M15
+  insight worth stating on its own: **the target is not a git ref at all.** It is a
+  row in `control.db`. A Job's worktree shares the repository's refs, so *any* ref
+  living there is writable by the worker — which means there is no ref an agent
+  could rewrite that the oracle is ever read from. The ancestry guard survives as
+  defence-in-depth; the absence of a writable ref is the mechanism.
 - **Verification is independent.** A clean checkout of the artifact's `head_sha`,
   in a digest-pinned container, with no worker state, no ambient credentials and no
   inherited tools; plus a test-integrity gate that rejects any diff touching the
@@ -1114,9 +1147,27 @@ missed.
   untouched.
 - **The plane can say no, in a way a machine can act on.** Typed rejection reasons,
   HTTP 422, CLI exit 3 — a policy refusal is distinguishable from a failure.
-- **Capacity cannot be starved or leaked.** Global, per-project and per-Task limits
-  with fair admission (oldest waiter first) and queue tickets that expire, so freed
-  capacity always becomes usable without a human.
+- **Capacity is not starved or leaked *where per-Job liveness is available*.**
+  Global, per-project and per-Task limits with fair admission (oldest waiter first)
+  and queue tickets that expire. The qualifier is load-bearing: without a
+  `JobSessionObserver` the plane falls back to a heuristic that may answer "I don't
+  know" and leave a Job alone — which is a slot still held. That is the right
+  trade (see the limits below), but it means the no-leak property is conditional,
+  not absolute.
+- **A refusal is never silent.** Every "no" the plane says — over-budget,
+  scheduler-saturated, queued-behind, dependencies-unmet, forbidden,
+  proposal-recorded, not-steerable, unsafe-rebase — carries a typed machine-readable
+  reason *and* appends an event row, and reaches a client as HTTP 422 / CLI exit 3.
+  Five audits across this arc looked for a request that was dropped without a
+  reason and found none. That is a stronger claim than "the plane can say no": a
+  plane that only ever said "error" would be indistinguishable from a broken one,
+  and one that sometimes said nothing at all would be worse than either.
+- **Recovery is unattended.** Every wedge this arc has found is repaired by
+  `Reconcile` without a human: a Task stranded in `verifying` by an interrupted
+  verifier, a `working` Task with no Job at all, a crashed Job holding a scheduler
+  slot and a worktree, an abandoned queue ticket blocking every waiter behind it,
+  and a dependency wake lost to a process death. Sprint 58 alone shipped three
+  separate permanent wedges whose only escape was `cancel`; none of them survives.
 - **Dependencies are plane-owned and acyclic.** Cross-project Task→Task edges live
   in `control.db`, never in an agent-writable file; cycles are refused at
   declaration; a dependency counts as satisfied only at `integrated`.

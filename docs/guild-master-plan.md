@@ -316,9 +316,12 @@ without losing track of what happened.
   an audited, cancellable op delivered at a supported boundary, plus the
   cross-project programme board. Built in Sprint 63, and the honest verdict is
   recorded rather than smoothed over: the shipped `CoordinatorRunner` has **no
-  steering boundary** — a single-shot headless invocation whose only boundary is
-  process exit — so every instruction against it is recorded `undeliverable`, and
-  **cancel + redispatch remains the working remedy for short Jobs**. What M17
+  steering boundary** — `SteeringDeliverer` has no implementation anywhere, and
+  `claude --print -p` is a one-shot invocation that takes its prompt from the flag
+  and exits — so every instruction against it is recorded `undeliverable`, and
+  **cancel + redispatch remains the working remedy for short Jobs**. The most
+  valuable output of the sprint is therefore the verdict itself: a demotion made in
+  advance and then *tested*, which is worth more than the feature would have been. What M17
   genuinely bought is an audited record of the instruction and its fate, a refusal
   an operator can read, and a seam ready for a runner that does have a boundary.
   That is a modest return; the demotion should have held until such a runner

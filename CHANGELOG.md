@@ -50,21 +50,54 @@ All notable changes to this project will be documented in this file.
     guarantee, what they explicitly do not, and the standing limits collected in
     one place — heuristic liveness, wall-clock as bookkeeping rather than a process
     kill, tests as an incomplete oracle, and callers as a class rather than an
-    identity.
+    identity. Three properties the arc earned but had never claimed are now stated:
+    **no refusal is silent** (every "no" carries a typed reason *and* an event row;
+    five audits found no silent drop), **recovery is unattended** (every wedge found
+    across the arc is repaired by reconcile without a human — Sprint 58 alone
+    shipped three permanent ones, none of which survives), and the acceptance oracle
+    survives commit rewriting for a **stronger reason than ancestry checking**: the
+    plane's integration target is not a git ref at all, so there is no ref an agent
+    could rewrite that the oracle is ever read from.
+  - **One guarantee gained its missing qualifier.** "Capacity cannot be starved or
+    leaked" is true *where per-Job liveness is available*; without a
+    `JobSessionObserver` the heuristic may answer "I don't know" and leave a Job
+    alone, which is a held slot. The limits section already said so twenty lines
+    below — the two could not both be unconditionally true.
 
 ### Changed
 - **The plan's demotion of M17 is recorded as correct, not justified away.** The
-  shipped `CoordinatorRunner` launches a single-shot headless invocation whose only
-  boundary is process exit, so it has no steering boundary and every instruction
-  against it is recorded `undeliverable`. **Cancel + redispatch remains the working
-  remedy for short Jobs.** What M17 genuinely bought is an audited record of each
-  instruction and its fate, a refusal an operator can read instead of a silent
-  no-op, and a seam ready for a runner that does have a boundary — a real but
-  modest return that does not retrospectively earn a milestone. Written down in
-  `ROADMAP.md`, `docs/guild-master-plan.md` and `docs/control-plane.md` rather than
-  smoothed over.
+  shipped `CoordinatorRunner` has no steering boundary — `SteeringDeliverer` has no
+  implementation anywhere, and `claude --print -p` is a one-shot invocation that
+  takes its prompt from the flag and exits — so every instruction against it is
+  recorded `undeliverable`. **Cancel + redispatch remains the working remedy for
+  short Jobs.** What M17 genuinely bought is an audited record of each instruction
+  and its fate, a refusal an operator can read instead of a silent no-op, a seam
+  ready for a runner that does have a boundary, and — largest of the four — **the
+  verdict itself**: a judgement made in advance and then tested, which is worth more
+  than the feature would have been. Written down in `ROADMAP.md`,
+  `docs/guild-master-plan.md` and `docs/control-plane.md` rather than smoothed over.
 
 ### Fixed
+- **`scripts/verify-m13.sh` had been reporting a false failure since v0.51.0.** Its
+  guardrail section still asserted the one-active-Task-per-project invariant that
+  **Sprint 61 deliberately removed**, so the host-side self-check reported 16
+  passed / 1 failed on a healthy tree — and this is the script the arc summary names
+  as the way the host-only container paths get exercised. A self-check that cries
+  wolf gets ignored. The assertion now checks the thing that actually changed (the
+  plane no longer refuses the second Task; genuine concurrency is proven under
+  `-race` in `parallel_test.go`, a far better oracle than a shell script), and a
+  programme-board smoke was added. Now 18 passed / 0 failed.
+- **A wrong justification in the M17 assessment, corrected in place rather than
+  deleted.** The first draft argued the shipped runner has no steering boundary
+  because "the container is launched with stdin closed", citing `cmd.Stdin = nil` in
+  `internal/coordinator/bootstrap.go`. That line launches the **coordinator daemon**,
+  not the agent container: `RealExecutor.Run` sets `cmd.Stdin = os.Stdin` and
+  `docker compose run --rm` attaches stdin without `-T`, so a pipe does exist
+  structurally. The conclusion survives on better evidence — `claude --print -p` is
+  one-shot and does not read stdin as a channel, and decisively `SteeringDeliverer`
+  has no implementation at all. The error was verifying a *fact* and not the
+  *inference* drawn from it, and the correction is kept in the document as the
+  worked example.
 - `docs/control-plane.md` claimed the prompt-injection surface did not exist
   because there was no agent client. That stopped being true in Sprint 60, when
   `guild-control-mcp` shipped. The surface exists and is answered by tiered
