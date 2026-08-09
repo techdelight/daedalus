@@ -349,3 +349,153 @@ func TestExitCodeFor(t *testing.T) {
 		})
 	}
 }
+
+// --- integration + approval (Sprint 59) ----------------------------------------
+
+// newApprovalService builds a Service that requires approval and has a passing
+// reviewer, so the whole gate is exercised through the CLI.
+func newApprovalService(t *testing.T, resolver control.ProjectResolver, approval bool) *control.Service {
+	t.Helper()
+	dataDir := t.TempDir()
+	store, err := control.Open(filepath.Join(dataDir, "control.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { store.Close() })
+	svc := control.NewService(store, resolver, control.NewWorktreeManager(dataDir),
+		control.StubRunner{Result: control.ExecSuccess, WriteFile: true, MarkerName: "a.txt"},
+		control.StubVerifyRunner{Pass: true}, nil)
+	svc.SetPolicySource(control.StaticPolicy{Budget: control.DefaultBudget(), Approval: approval})
+	return svc
+}
+
+func TestCLI_TaskIntegrate_FullGate(t *testing.T) {
+	dir := makeGitRepo(t)
+	svc := newApprovalService(t, mapResolver{"app": dir}, true)
+
+	for _, args := range [][]string{
+		{"create", "--project", "app", "--objective", "land it"},
+		{"dispatch", "T-1"},
+		{"verify", "T-1"},
+	} {
+		if err := runTaskCommand(svc, args); err != nil {
+			t.Fatalf("%v: %v", args, err)
+		}
+	}
+	// The approvals view lists it.
+	if err := runTaskCommand(svc, []string{"approvals"}); err != nil {
+		t.Fatalf("approvals: %v", err)
+	}
+	// Integrating before approval is refused with exit code 3.
+	err := runTaskCommand(svc, []string{"integrate", "T-1"})
+	reason, refused := control.Rejected(err)
+	if !refused || reason != control.ReasonApprovalRequired {
+		t.Fatalf("integrate before approval = %v, want an approval_required refusal", err)
+	}
+	if code := exitCodeFor(err); code != exitRefused {
+		t.Errorf("exit code = %d, want %d", code, exitRefused)
+	}
+	// Approve, then land.
+	if err := runTaskCommand(svc, []string{"approve", "T-1", "--note", "ship it"}); err != nil {
+		t.Fatalf("approve: %v", err)
+	}
+	if err := runTaskCommand(svc, []string{"integrate", "T-1"}); err != nil {
+		t.Fatalf("integrate: %v", err)
+	}
+	view, _ := svc.TaskStatus("T-1")
+	if view.Task.State != control.StateIntegrated {
+		t.Errorf("state = %q, want integrated", view.Task.State)
+	}
+}
+
+func TestCLI_TaskReject(t *testing.T) {
+	dir := makeGitRepo(t)
+	svc := newApprovalService(t, mapResolver{"app": dir}, true)
+	for _, args := range [][]string{
+		{"create", "--project", "app", "--objective", "x"},
+		{"dispatch", "T-1"},
+		{"verify", "T-1"},
+	} {
+		if err := runTaskCommand(svc, args); err != nil {
+			t.Fatalf("%v: %v", args, err)
+		}
+	}
+	if err := runTaskCommand(svc, []string{"reject", "T-1", "--note", "wrong approach"}); err != nil {
+		t.Fatalf("reject: %v", err)
+	}
+	view, _ := svc.TaskStatus("T-1")
+	if view.Task.State != control.StateRejected {
+		t.Errorf("state = %q, want rejected", view.Task.State)
+	}
+}
+
+func TestCLI_TaskTarget(t *testing.T) {
+	dir := makeGitRepo(t)
+	svc := newApprovalService(t, mapResolver{"app": dir}, false)
+	if err := runTaskCommand(svc, []string{"create", "--project", "app", "--objective", "x"}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if err := runTaskCommand(svc, []string{"target"}); err != nil {
+		t.Fatalf("target: %v", err)
+	}
+	if err := runTaskCommand(svc, []string{"target", "app", "--sync"}); err != nil {
+		t.Fatalf("target --sync: %v", err)
+	}
+	// `target <project>` without --sync is a usage error, not a silent no-op.
+	if err := runTaskCommand(svc, []string{"target", "app"}); err == nil {
+		t.Error("target without --sync should be a usage error")
+	}
+}
+
+func TestCLI_IntegrationGuards(t *testing.T) {
+	dir := makeGitRepo(t)
+	svc := newApprovalService(t, mapResolver{"app": dir}, false)
+	if err := runTaskCommand(svc, []string{"create", "--project", "app", "--objective", "x"}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{"integrate without an id", []string{"integrate"}},
+		{"integrate a planned task", []string{"integrate", "T-1"}},
+		{"approve without an id", []string{"approve"}},
+		{"approve with an unknown flag", []string{"approve", "T-1", "--nope"}},
+		{"approve a planned task", []string{"approve", "T-1"}},
+		{"reject without an id", []string{"reject"}},
+		{"review without an id", []string{"review"}},
+		{"review with no reviewer configured", []string{"review", "T-1"}},
+		{"approvals with an argument", []string{"approvals", "extra"}},
+		{"target with an unknown flag", []string{"target", "app", "--nope"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := runTaskCommand(svc, tc.args); err == nil {
+				t.Errorf("%v = nil, want an error", tc.args)
+			}
+		})
+	}
+}
+
+func TestCLI_TaskReview(t *testing.T) {
+	dir := makeGitRepo(t)
+	svc := newApprovalService(t, mapResolver{"app": dir}, false)
+	svc.SetReviewRunner(control.StubReviewRunner{Pass: true})
+	for _, args := range [][]string{
+		{"create", "--project", "app", "--objective", "x"},
+		{"dispatch", "T-1"},
+		{"verify", "T-1"},
+		{"review", "T-1"},
+	} {
+		if err := runTaskCommand(svc, args); err != nil {
+			t.Fatalf("%v: %v", args, err)
+		}
+	}
+	view, _ := svc.TaskStatus("T-1")
+	if len(view.Jobs) == 0 || len(view.Jobs[0].Artifacts) == 0 {
+		t.Fatal("expected an artifact")
+	}
+	if got := view.Jobs[0].Artifacts[0].Review; got != control.ReviewPass {
+		t.Errorf("artifact review = %q, want pass", got)
+	}
+}

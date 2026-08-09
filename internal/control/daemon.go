@@ -25,6 +25,14 @@ package control
 //	POST   /tasks/{id}/replan     body: ReplanRequest     → 200 Task
 //	GET    /tasks/{id}/events                             → 200 []Event  (read-only;
 //	                                                          no write verb exists)
+//	POST   /tasks/{id}/review                             → 200 ReviewResult
+//	POST   /tasks/{id}/approve    body: {note}            → 200 Task (approved)
+//	POST   /tasks/{id}/reject     body: {note}            → 200 Task (rejected)
+//	POST   /tasks/{id}/integrate                          → 200 IntegrationResult
+//	                                                       → 422 approval/review/merge refusal
+//	GET    /approvals                                     → 200 []Task awaiting a human
+//	GET    /targets                                       → 200 []Target
+//	POST   /targets/{project}/sync                        → 200 Target (human resync)
 //	DELETE /tasks/{id}                                    → 200 Task (cancelled)
 //	                                                       → 404 unknown id
 //
@@ -67,6 +75,13 @@ func (s *Server) Handler() http.Handler {
 	// no mutation operation (§6). Any other verb on this path falls through to the
 	// mux's 405.
 	mux.HandleFunc("GET /tasks/{id}/events", s.handleEvents)
+	mux.HandleFunc("POST /tasks/{id}/review", s.handleReview)
+	mux.HandleFunc("POST /tasks/{id}/approve", s.handleApprove)
+	mux.HandleFunc("POST /tasks/{id}/reject", s.handleRejectApproval)
+	mux.HandleFunc("POST /tasks/{id}/integrate", s.handleIntegrate)
+	mux.HandleFunc("GET /approvals", s.handlePendingApprovals)
+	mux.HandleFunc("GET /targets", s.handleTargets)
+	mux.HandleFunc("POST /targets/{project}/sync", s.handleSyncTarget)
 	mux.HandleFunc("DELETE /tasks/{id}", s.handleCancel)
 	return mux
 }
@@ -191,6 +206,90 @@ func decodeOptionalJSON(r *http.Request, v any) error {
 		return nil
 	}
 	return fmt.Errorf("invalid request body: %w", err)
+}
+
+func (s *Server) handleReview(w http.ResponseWriter, r *http.Request) {
+	res, err := s.api.ReviewTask(r.PathValue("id"))
+	if err != nil {
+		writeError(w, statusFor(err), err)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+// approvalRequest carries the human's note on an approve/reject decision.
+type approvalRequest struct {
+	Note string `json:"note,omitempty"`
+}
+
+func (s *Server) handleApprove(w http.ResponseWriter, r *http.Request) {
+	var req approvalRequest
+	if err := decodeOptionalJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	t, err := s.api.ApproveTask(r.PathValue("id"), req.Note)
+	if err != nil {
+		writeError(w, statusFor(err), err)
+		return
+	}
+	writeJSON(w, http.StatusOK, t)
+}
+
+func (s *Server) handleRejectApproval(w http.ResponseWriter, r *http.Request) {
+	var req approvalRequest
+	if err := decodeOptionalJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	t, err := s.api.RejectApproval(r.PathValue("id"), req.Note)
+	if err != nil {
+		writeError(w, statusFor(err), err)
+		return
+	}
+	writeJSON(w, http.StatusOK, t)
+}
+
+func (s *Server) handleIntegrate(w http.ResponseWriter, r *http.Request) {
+	res, err := s.api.IntegrateTask(r.PathValue("id"))
+	if err != nil {
+		writeError(w, statusFor(err), err)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+func (s *Server) handlePendingApprovals(w http.ResponseWriter, r *http.Request) {
+	tasks, err := s.api.PendingApprovals()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	if tasks == nil {
+		tasks = []Task{}
+	}
+	writeJSON(w, http.StatusOK, tasks)
+}
+
+func (s *Server) handleTargets(w http.ResponseWriter, r *http.Request) {
+	targets, err := s.api.ProjectTargets()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	if targets == nil {
+		targets = []Target{}
+	}
+	writeJSON(w, http.StatusOK, targets)
+}
+
+func (s *Server) handleSyncTarget(w http.ResponseWriter, r *http.Request) {
+	t, err := s.api.SyncTarget(r.PathValue("project"))
+	if err != nil {
+		writeError(w, statusFor(err), err)
+		return
+	}
+	writeJSON(w, http.StatusOK, t)
 }
 
 func (s *Server) handleCancel(w http.ResponseWriter, r *http.Request) {

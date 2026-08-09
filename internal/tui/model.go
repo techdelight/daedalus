@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/techdelight/daedalus/core"
+	"github.com/techdelight/daedalus/internal/control"
 	"github.com/techdelight/daedalus/internal/registry"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -61,6 +62,15 @@ type tuiModel struct {
 	creatingDir    bool     // sub-mode: typing new dir name
 	createNewDir   string   // new directory name input
 	filterActive   bool     // show only running projects
+
+	// Control plane: the pending-approvals view (Sprint 59). `control` is nil
+	// when the daedalus-control daemon is not running — the TUI never spawns it.
+	control            control.TaskAPI
+	approving          bool // whether the approvals view is open
+	approvals          []approvalRow
+	approvalCursor     int
+	approvalsAvailable bool
+	approvalsReason    string
 }
 
 func (m tuiModel) filteredProjects() []projectRow {
@@ -125,7 +135,27 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.termHeight = msg.Height
 		return m, nil
 
+	case approvalsLoadedMsg:
+		m.approvals = msg.rows
+		m.approvalsAvailable = msg.available
+		m.approvalsReason = msg.reason
+		if m.approvalCursor >= len(m.approvals) {
+			m.approvalCursor = max(len(m.approvals)-1, 0)
+		}
+		return m, nil
+
+	case approvalDecidedMsg:
+		if msg.err != nil {
+			m.statusMsg = "Approval failed: " + msg.err.Error()
+		} else {
+			m.statusMsg = msg.msg
+		}
+		return m, loadApprovals(m.control)
+
 	case tea.KeyMsg:
+		if m.approving {
+			return m.updateApprovals(msg)
+		}
 		if m.confirming {
 			return m.updateConfirm(msg)
 		}
@@ -202,6 +232,14 @@ func (m tuiModel) updateBrowse(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.createName = ""
 		m.statusMsg = ""
 		return m, nil
+
+	case "A":
+		// Capital A so it cannot be confused with [a]ttach, which is the muscle
+		// memory this screen shares.
+		m.approving = true
+		m.approvalCursor = 0
+		m.statusMsg = ""
+		return m, loadApprovals(m.control)
 
 	case "f":
 		m.filterActive = !m.filterActive

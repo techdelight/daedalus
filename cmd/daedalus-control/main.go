@@ -128,7 +128,7 @@ func main() {
 	// edit applies to the next task without a daemon restart; a missing or
 	// malformed file degrades to the built-in defaults.
 	budgetPath := control.DefaultBudgetPolicyPath(cfg.dataDir)
-	svc.SetBudgetSource(control.NewFileBudgetPolicy(budgetPath))
+	svc.SetPolicySource(control.NewFileBudgetPolicy(budgetPath))
 	log.Printf("budget policy: %s (enforced: %v; policy-only, not enforced: %v)",
 		budgetPath, control.EnforcedAxes(), control.PolicyOnlyAxes())
 
@@ -139,6 +139,17 @@ func main() {
 	// Docker-free.
 	if os.Getenv("DAEDALUS_CONTROL_FAKE_VERIFY") == "" {
 		svc.SetImageDigester(dockerImageDigester{exec: &executor.RealExecutor{}, reg: reg, imagePrefix: defaultImagePrefix})
+	}
+
+	// Independent reviewer (M15, Sprint 59): a seam, exactly as VerifyRunner was
+	// in Sprint 56. There is no real reviewer yet, so one is wired ONLY when
+	// DAEDALUS_CONTROL_FAKE_REVIEW is set — with no reviewer configured, review is
+	// simply not a gate, which keeps governance opt-in rather than blocking every
+	// landing on a component that does not exist.
+	if v := os.Getenv("DAEDALUS_CONTROL_FAKE_REVIEW"); v != "" {
+		pass := v != "fail"
+		log.Printf("WARNING using stub reviewer (DAEDALUS_CONTROL_FAKE_REVIEW=%s) — no real review happens", v)
+		svc.SetReviewRunner(control.StubReviewRunner{Pass: pass})
 	}
 
 	// Reconcile on boot.

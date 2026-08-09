@@ -1,0 +1,352 @@
+// Copyright (C) 2026 Techdelight BV
+
+package control
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log"
+	"os"
+	"path/filepath"
+	"strings"
+)
+
+// The integration transaction (docs/guild-master-plan.md §6, "Integration is a
+// race-safe transaction, not a merge").
+//
+// Two artifacts that each pass verification against base A can conflict when
+// combined, with no textual conflict at all — a *semantic* merge conflict. So
+// landing is the merge-queue pattern, and every word of it is load-bearing:
+//
+//	serialize → rebase onto the current target → RE-VERIFY THE MERGED RESULT →
+//	compare-and-swap the target ref (retry if it moved)
+//
+// The step people drop is the third one. Verifying the pre-merge branch proves
+// something about a tree that will never exist; only the merged result is what
+// actually lands. Re-verification runs through the same VerifyRunner seam as the
+// candidate verification, so the real clean verifier is used in production and a
+// fake drives the host tests.
+//
+// The transaction is all-or-nothing with respect to the target: every failure
+// path leaves the target ref exactly where it was, and leaves the Task in a state
+// from which retry/replan can make progress.
+
+// integrateAttempts bounds the CAS retry loop. Each attempt is a full rebase +
+// re-verify against a fresh target, so a bound is needed: an unbounded loop under
+// a busy project would spin forever, and an operator would rather be told the
+// queue is too hot than watch a request never return.
+const integrateAttempts = 3
+
+// IntegrationResult reports the outcome of an integration transaction.
+type IntegrationResult struct {
+	Task     Task      `json:"task"`
+	Artifact *Artifact `json:"artifact,omitempty"`
+	// MergedSHA is the commit that was actually verified and landed — the rebased
+	// result, NOT the artifact's original head.
+	MergedSHA string `json:"mergedSha"`
+	// PreviousTarget/NewTarget bracket the compare-and-swap.
+	PreviousTarget string `json:"previousTarget"`
+	NewTarget      string `json:"newTarget"`
+	// Attempts is how many rebase+re-verify rounds it took (>1 means the target
+	// moved under us and the transaction correctly recomputed).
+	Attempts int    `json:"attempts"`
+	Detail   string `json:"detail"`
+}
+
+// IntegrateTask runs the integration transaction for an approved Task.
+//
+// Serialization is per project: the whole transaction runs under the service
+// lock except the (potentially long) re-verification, which releases it exactly
+// as VerifyTask does, with an in-flight claim so reconcile does not mistake live
+// work for a crash.
+func (s *Service) IntegrateTask(id string) (IntegrationResult, error) {
+	if s.verifier == nil {
+		// Checked before anything moves: an integration that cannot re-verify must
+		// not start, because "landed without the merged result being checked" is the
+		// exact failure this transaction exists to prevent.
+		return IntegrationResult{}, fmt.Errorf("control: no verifier configured — the merged result could not be re-verified")
+	}
+
+	var last error
+	for attempt := 1; attempt <= integrateAttempts; attempt++ {
+		res, retry, err := s.integrateOnce(id, attempt)
+		if err != nil {
+			return IntegrationResult{}, err
+		}
+		if !retry {
+			return res, nil
+		}
+		last = fmt.Errorf("target moved during attempt %d", attempt)
+		log.Printf("control: integrate %s: %v — recomputing against the new target", id, last)
+	}
+	// Out of attempts: the target kept moving. Nothing was landed and nothing was
+	// lost — the Task is still approved and the caller can simply ask again.
+	return IntegrationResult{}, s.refuse("task", id, EventIntegration, ReasonIntegrationRaced, fmt.Sprintf(
+		"integration of %s lost the compare-and-swap %d times (the target kept moving); nothing was landed — try again",
+		id, integrateAttempts))
+}
+
+// integrateOnce performs one rebase → re-verify → compare-and-swap round.
+// It returns (result, retry, err): retry=true means the CAS lost and the caller
+// should recompute against the new target.
+func (s *Service) integrateOnce(id string, attempt int) (IntegrationResult, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	task, err := s.store.GetTask(id)
+	if err != nil {
+		return IntegrationResult{}, false, err
+	}
+	// Walk the approval gate. For a project that requires human approval this
+	// refuses (and parks the Task in `approval_required` where an operator can see
+	// it); for one that does not, it walks the same edges automatically and records
+	// in the log that policy — not an oversight — is why no human was asked.
+	task, err = s.ensureApproved(task)
+	if err != nil {
+		return IntegrationResult{}, false, err
+	}
+	job, ok, err := s.jobInState(id, StateVerified)
+	if err != nil {
+		return IntegrationResult{}, false, err
+	}
+	if !ok {
+		return IntegrationResult{}, false, fmt.Errorf("%w: task %s has no verified job to integrate", ErrWrongState, id)
+	}
+	art := s.firstArtifact(job.ID)
+	if art == nil {
+		return IntegrationResult{}, false, fmt.Errorf("%w: task %s has no artifact to integrate", ErrWrongState, id)
+	}
+	// An independent review, when one is configured, gates integration (§6's
+	// ladder rung 5). Checked here rather than at approval so the review verdict
+	// is fresh with respect to the artifact actually being landed.
+	if err := s.requireReviewPassed(task, art); err != nil {
+		return IntegrationResult{}, false, err
+	}
+	repoDir, err := s.projects.ProjectDir(task.Project)
+	if err != nil {
+		return IntegrationResult{}, false, err
+	}
+	target, err := s.TargetFor(task.Project)
+	if err != nil {
+		return IntegrationResult{}, false, err
+	}
+
+	// --- 1. REBASE the artifact onto the current target -----------------------
+	//
+	// Replaying base..head onto the target (rather than merging) keeps the landed
+	// history linear and, more importantly, produces the exact tree that will
+	// exist after landing — which is the thing step 2 must check.
+	merged, err := RebaseOnto(repoDir, target.SHA, art.BaseSHA, art.HeadSHA, integrationWorktree(s.worktrees, job.ID))
+	if err != nil {
+		var conflict *ErrRebaseConflict
+		if errors.As(err, &conflict) {
+			note := fmt.Sprintf("integration: %s does not rebase cleanly onto target %s: %s",
+				shortSHA(art.HeadSHA), shortSHA(target.SHA), conflict.Detail)
+			s.rejectFromIntegration(task, job, art, repoDir, ReasonMergeConflict, note)
+			return IntegrationResult{}, false, &RejectionError{
+				Reason: ReasonMergeConflict, Message: note, Entity: id}
+		}
+		return IntegrationResult{}, false, err
+	}
+
+	// --- 2. RE-VERIFY THE MERGED RESULT ---------------------------------------
+	//
+	// Not the pre-merge branch. This is the whole point: the artifact already
+	// passed verification against its own base, and that says nothing about the
+	// combination. A change that verifies alone and fails merged is a semantic
+	// conflict, and this is the only step that can see one.
+	policy, err := ReadAcceptancePolicyAt(repoDir, task.BaseSHA)
+	if err != nil {
+		return IntegrationResult{}, false, err
+	}
+	spec := VerifySpec{
+		TaskID: id, JobID: job.ID, Project: task.Project, RepoDir: repoDir,
+		BaseSHA: target.SHA, HeadSHA: merged,
+		Branch: BranchName(id, job.ID), Policy: policy, ImageDigest: task.ImageDigest,
+	}
+	var outcome VerifyOutcome
+	if err := s.withClaim(id, inflightOp{kind: "integrate", jobID: job.ID, project: task.Project}, func() error {
+		s.unlockedDuring(func() { outcome = s.verifier.Verify(context.Background(), spec) })
+		return nil
+	}); err != nil {
+		return IntegrationResult{}, false, err
+	}
+
+	if !outcome.Passed {
+		note := fmt.Sprintf("integration: the MERGED result %s failed verification against target %s: %s",
+			shortSHA(merged), shortSHA(target.SHA), outcome.Detail)
+		s.rejectFromIntegration(task, job, art, repoDir, ReasonMergedVerifyFailed, note)
+		return IntegrationResult{}, false, &RejectionError{
+			Reason: ReasonMergedVerifyFailed, Message: note, Entity: id}
+	}
+
+	// --- 3. COMPARE-AND-SWAP the target ---------------------------------------
+	//
+	// If another integration landed while we were rebasing and re-verifying, this
+	// merged commit was computed against a trunk that no longer exists. The CAS
+	// fails, nothing is written, and the caller recomputes — the merge-queue's
+	// entire safety property in one UPDATE ... WHERE sha = <what we started from>.
+	newTarget, err := s.store.AdvanceTarget(task.Project, target.SHA, merged, fmt.Sprintf(
+		"integrated %s (job %s, artifact %s): target %s → %s",
+		id, job.ID, art.ID, shortSHA(target.SHA), shortSHA(merged)))
+	if err != nil {
+		if errors.Is(err, ErrConflict) {
+			return IntegrationResult{}, true, nil // lost the race: recompute
+		}
+		return IntegrationResult{}, false, err
+	}
+	s.writeTargetProjection(repoDir, newTarget.SHA)
+
+	// --- 4. Record the landing -------------------------------------------------
+	meta := EventMeta{Kind: EventIntegration}
+	// The Job follows its Task through the integration gate. It cannot jump
+	// straight from `verified` to `integrated`: Jobs and Tasks share one
+	// transition table, so a verified → integrated shortcut would also hand a TASK
+	// a way around the approval gate, and the table cannot tell the two apart.
+	// Walking the same edges costs two extra events and keeps the state machine
+	// exactly as strict as it is documented to be.
+	s.driveJob(job.ID, []State{StateApprovalRequired, StateApproved, StateIntegrated}, meta,
+		fmt.Sprintf("integrated as %s (following task %s)", shortSHA(merged), id))
+	tk, err := s.store.TransitionTaskWith(id, StateIntegrated, false, meta, fmt.Sprintf(
+		"integrated: target %s → %s", shortSHA(target.SHA), shortSHA(merged)))
+	if err != nil {
+		return IntegrationResult{}, false, err
+	}
+	if a, err := s.store.SetArtifactIntegrated(art.ID, merged); err == nil {
+		art = &a
+	}
+	// The Task is terminal now, so its worktree is reclaimable.
+	if s.worktrees != nil {
+		_ = s.worktrees.Remove(repoDir, job.ID)
+	}
+
+	return IntegrationResult{
+		Task: tk, Artifact: art, MergedSHA: merged,
+		PreviousTarget: target.SHA, NewTarget: newTarget.SHA, Attempts: attempt,
+		Detail: outcome.Detail,
+	}, false, nil
+}
+
+// rejectFromIntegration routes a failed integration to `rejected` so the Sprint-58
+// retry/replan ladder can pick it up. The target is untouched by construction —
+// nothing below step 3 writes it.
+func (s *Service) rejectFromIntegration(task Task, job Job, art *Artifact, repoDir string, reason RejectionReason, note string) {
+	meta := EventMeta{Kind: EventRejection, Reason: reason}
+	// Same reasoning as the success path: `verified → rejected` is not an edge, so
+	// the Job reaches `rejected` the way its Task does, through the gate.
+	s.driveJob(job.ID, []State{StateApprovalRequired, StateRejected}, meta, note)
+	if _, err := s.store.TransitionTaskWith(task.ID, StateRejected, false, meta, note); err != nil {
+		log.Printf("control: integrate reject task %s: %v", task.ID, err)
+	}
+	if art != nil {
+		_, _ = s.store.SetArtifactVerify(art.ID, VerifyFail)
+	}
+	if s.worktrees != nil {
+		_ = s.worktrees.Remove(repoDir, job.ID)
+	}
+}
+
+// driveJob walks a Job through a sequence of states, skipping any it is already
+// past and logging (never failing) if one is refused: a Job's bookkeeping lagging
+// behind its Task is a reconcilable inconsistency, not a reason to claim a
+// landing failed after the target has already moved.
+func (s *Service) driveJob(jobID string, path []State, meta EventMeta, note string) {
+	for _, to := range path {
+		cur, err := s.store.GetJob(jobID)
+		if err != nil {
+			log.Printf("control: driving job %s: %v", jobID, err)
+			return
+		}
+		if cur.State == to {
+			continue
+		}
+		if !CanTransition(cur.State, to) {
+			log.Printf("control: driving job %s: %s → %s is not a legal move", jobID, cur.State, to)
+			return
+		}
+		if _, err := s.store.TransitionJobWith(jobID, to, false, meta, note); err != nil {
+			log.Printf("control: driving job %s → %s: %v", jobID, to, err)
+			return
+		}
+	}
+}
+
+// integrationWorktree returns a scratch path for the rebase checkout, distinct
+// from the Job's own worktree so the transaction never mutates the artifact it is
+// integrating.
+func integrationWorktree(m *WorktreeManager, jobID string) string {
+	if m == nil {
+		return filepath.Join(os.TempDir(), "daedalus-integrate-"+jobID)
+	}
+	return filepath.Join(m.Root(), "integrate-"+jobID)
+}
+
+// ErrRebaseConflict reports that an artifact could not be replayed onto the
+// target — a textual conflict, distinct from a clean rebase whose *result* then
+// fails verification.
+type ErrRebaseConflict struct {
+	Onto   string
+	Head   string
+	Detail string
+}
+
+func (e *ErrRebaseConflict) Error() string {
+	return fmt.Sprintf("rebase of %s onto %s conflicts: %s", shortSHA(e.Head), shortSHA(e.Onto), e.Detail)
+}
+
+// RebaseOnto replays the commits base..head onto `onto` in a scratch worktree and
+// returns the resulting commit. It never touches the caller's checkout, the
+// Job's worktree, or any branch: the scratch worktree is detached and removed
+// afterwards, so a failed integration leaves the repository exactly as it was
+// apart from unreferenced objects.
+//
+// base==head (an artifact with no commits of its own) is refused rather than
+// silently landing nothing.
+func RebaseOnto(repoDir, onto, base, head, scratchDir string) (string, error) {
+	if onto == "" || base == "" || head == "" {
+		return "", fmt.Errorf("control: rebase needs onto/base/head (%q/%q/%q)", onto, base, head)
+	}
+	if base == head {
+		return "", fmt.Errorf("control: nothing to integrate — the artifact is identical to its base")
+	}
+	// Already on top of the target: no replay needed, and cherry-pick would make
+	// an empty commit out of it.
+	if onto == base {
+		return head, nil
+	}
+	_ = os.RemoveAll(scratchDir) // deterministic name: a crashed prior attempt must not block this one
+	if err := os.MkdirAll(filepath.Dir(scratchDir), 0o755); err != nil {
+		return "", fmt.Errorf("control: creating rebase scratch dir: %w", err)
+	}
+	if out, err := runGit(repoDir, "worktree", "add", "--detach", scratchDir, onto); err != nil {
+		return "", fmt.Errorf("control: preparing rebase worktree at %s: %w\n%s", shortSHA(onto), err, out)
+	}
+	defer func() {
+		_, _ = runGit(repoDir, "worktree", "remove", "--force", scratchDir)
+		_ = os.RemoveAll(scratchDir)
+		_, _ = runGit(repoDir, "worktree", "prune")
+	}()
+
+	// Replay base..head. --allow-empty keeps a commit whose changes are already
+	// upstream from aborting the whole replay.
+	if out, err := runGit(scratchDir, "cherry-pick", "--allow-empty", base+".."+head); err != nil {
+		abort, _ := runGit(scratchDir, "cherry-pick", "--abort")
+		_ = abort
+		return "", &ErrRebaseConflict{Onto: onto, Head: head, Detail: firstLines(out, 12)}
+	}
+	merged, err := runGit(scratchDir, "rev-parse", "HEAD")
+	if err != nil {
+		return "", fmt.Errorf("control: reading rebased head: %w\n%s", err, merged)
+	}
+	return strings.TrimSpace(merged), nil
+}
+
+// firstLines trims git's output to something a rejection note can carry.
+func firstLines(s string, n int) string {
+	lines := strings.Split(strings.TrimSpace(s), "\n")
+	if len(lines) > n {
+		lines = append(lines[:n], "…")
+	}
+	return strings.Join(lines, "\n")
+}

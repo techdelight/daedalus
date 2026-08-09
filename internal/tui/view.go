@@ -14,6 +14,12 @@ func (m tuiModel) View() string {
 
 	fp := m.filteredProjects()
 
+	// The approvals view takes over the whole screen: it is a different job from
+	// managing projects, and mixing the two invites approving the wrong thing.
+	if m.approving {
+		return "\n" + m.viewApprovals() + "\n"
+	}
+
 	b.WriteString("\n")
 	title := "Daedalus [" + core.ReadVersion() + "]"
 	if m.filterActive {
@@ -47,6 +53,8 @@ func (m tuiModel) View() string {
 	}
 
 	switch {
+	case m.approving:
+		b.WriteString(m.viewApprovals())
 	case m.creating:
 		b.WriteString(m.viewCreate())
 	case m.confirming && m.cursor >= 0 && m.cursor < len(fp):
@@ -54,7 +62,7 @@ func (m tuiModel) View() string {
 	case m.renaming && m.cursor >= 0 && m.cursor < len(fp):
 		b.WriteString(m.viewRename(fp))
 	default:
-		b.WriteString(helpStyle.Render("  [n]ew  [s]tart  [a]ttach  [x] kill  [del] remove  [f]ilter  [r]efresh  [F2] rename  [q]uit"))
+		b.WriteString(helpStyle.Render("  [n]ew  [s]tart  [a]ttach  [x] kill  [del] remove  [f]ilter  [r]efresh  [A]pprovals  [F2] rename  [q]uit"))
 	}
 	b.WriteString("\n")
 

@@ -1,0 +1,506 @@
+// Copyright (C) 2026 Techdelight BV
+
+package control
+
+import (
+	"context"
+	"errors"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"testing"
+)
+
+// --- test doubles --------------------------------------------------------------
+
+// conflictVerifier models a SEMANTIC conflict: each change is fine alone, and the
+// combination is not. It fails only when the commit under test contains BOTH
+// files — which is exactly the situation that cannot be detected by verifying the
+// pre-merge branch, and is the reason the transaction re-verifies the merged
+// result instead.
+type conflictVerifier struct {
+	mu    sync.Mutex
+	calls []VerifySpec
+}
+
+func (v *conflictVerifier) Verify(_ context.Context, spec VerifySpec) VerifyOutcome {
+	v.mu.Lock()
+	v.calls = append(v.calls, spec)
+	v.mu.Unlock()
+
+	hasA := fileExistsAt(spec.RepoDir, spec.HeadSHA, "a.txt")
+	hasB := fileExistsAt(spec.RepoDir, spec.HeadSHA, "b.txt")
+	if hasA && hasB {
+		return VerifyOutcome{Passed: false,
+			Detail: "semantic conflict: a.txt and b.txt cannot both be present"}
+	}
+	return VerifyOutcome{Passed: true, Detail: "ok"}
+}
+
+func (v *conflictVerifier) specs() []VerifySpec {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	return append([]VerifySpec(nil), v.calls...)
+}
+
+// fileExistsAt reports whether a path is present in a commit's tree.
+func fileExistsAt(repoDir, sha, path string) bool {
+	_, err := runGit(repoDir, "cat-file", "-e", sha+":"+path)
+	return err == nil
+}
+
+// racingVerifier advances the project's target while it is "verifying", which is
+// precisely the window the compare-and-swap exists to protect: another
+// integration landing between our rebase and our swap.
+type racingVerifier struct {
+	store   *Store
+	project string
+	repo    string
+	t       *testing.T
+
+	mu     sync.Mutex
+	raced  bool
+	landed string
+}
+
+func (v *racingVerifier) Verify(_ context.Context, spec VerifySpec) VerifyOutcome {
+	v.mu.Lock()
+	first := !v.raced
+	v.raced = true
+	v.mu.Unlock()
+	if first {
+		// Land an unrelated commit on the target, exactly as a concurrent
+		// integration would have.
+		landed := commitFileOn(v.t, v.repo, spec.BaseSHA, "other-work.txt", "another task landed")
+		if _, err := v.store.AdvanceTarget(v.project, spec.BaseSHA, landed, "test: a concurrent integration landed"); err != nil {
+			v.t.Errorf("racing verifier could not advance the target: %v", err)
+		}
+		v.mu.Lock()
+		v.landed = landed
+		v.mu.Unlock()
+	}
+	return VerifyOutcome{Passed: true, Detail: "ok"}
+}
+
+// commitFileOn creates a commit adding one file on top of `parent`, without
+// disturbing the checkout's branch, and returns its sha.
+func commitFileOn(t *testing.T, repoDir, parent, name, content string) string {
+	t.Helper()
+	scratch := t.TempDir()
+	if out, err := runGit(repoDir, "worktree", "add", "--detach", scratch, parent); err != nil {
+		t.Fatalf("worktree add: %v\n%s", err, out)
+	}
+	defer func() {
+		_, _ = runGit(repoDir, "worktree", "remove", "--force", scratch)
+		_, _ = runGit(repoDir, "worktree", "prune")
+	}()
+	writeFileForTest(t, scratch, name, content)
+	if out, err := runGit(scratch, "add", "-A"); err != nil {
+		t.Fatalf("git add: %v\n%s", err, out)
+	}
+	if out, err := runGit(scratch, "-c", "user.email=t@t", "-c", "user.name=t",
+		"commit", "-m", "add "+name); err != nil {
+		t.Fatalf("git commit: %v\n%s", err, out)
+	}
+	sha, err := runGit(scratch, "rev-parse", "HEAD")
+	if err != nil {
+		t.Fatalf("rev-parse: %v", err)
+	}
+	return trim(sha)
+}
+
+// verifiedTask drives a task to `verified` with a Job that writes `marker`.
+func verifiedTask(t *testing.T, repo string, verifier VerifyRunner, marker string) (*Service, *Store, Task) {
+	t.Helper()
+	svc, _, store := newService(t, mapResolver{"app": repo},
+		StubRunner{Result: ExecSuccess, WriteFile: true, MarkerName: marker}, nil, verifier)
+	task, err := svc.CreateTask(CreateTaskRequest{Project: "app", Objective: "do " + marker})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	if _, err := svc.DispatchTask(task.ID); err != nil {
+		t.Fatalf("Dispatch: %v", err)
+	}
+	res, err := svc.VerifyTask(task.ID)
+	if err != nil {
+		t.Fatalf("Verify: %v", err)
+	}
+	if !res.Verified {
+		t.Fatalf("precondition: the artifact should verify alone, got %q (%s)", res.Reason, res.Detail)
+	}
+	got, _ := store.GetTask(task.ID)
+	return svc, store, got
+}
+
+// --- the happy path ------------------------------------------------------------
+
+func TestIntegrate_AdvancesTheTarget(t *testing.T) {
+	repo := gitRepo(t)
+	rv := &conflictVerifier{}
+	svc, store, task := verifiedTask(t, repo, rv, "a.txt")
+
+	before, _ := svc.TargetFor("app")
+	res, err := svc.IntegrateTask(task.ID)
+	if err != nil {
+		t.Fatalf("IntegrateTask: %v", err)
+	}
+	if res.Attempts != 1 {
+		t.Errorf("attempts = %d, want 1", res.Attempts)
+	}
+	if res.PreviousTarget != before.SHA {
+		t.Errorf("previous target = %s, want %s", res.PreviousTarget, before.SHA)
+	}
+	if res.NewTarget == before.SHA || res.NewTarget != res.MergedSHA {
+		t.Errorf("target should have advanced to the merged commit: new=%s merged=%s prev=%s",
+			res.NewTarget, res.MergedSHA, before.SHA)
+	}
+	// The task and its job are terminal, the artifact records what landed.
+	if res.Task.State != StateIntegrated {
+		t.Errorf("task state = %q, want integrated", res.Task.State)
+	}
+	if res.Artifact == nil || res.Artifact.IntegratedSHA != res.MergedSHA {
+		t.Errorf("artifact should record the landed commit, got %+v", res.Artifact)
+	}
+	job, _ := s2job(t, store, task.ID)
+	if job.State != StateIntegrated {
+		t.Errorf("job state = %q, want integrated", job.State)
+	}
+	// A rejected/landed Job must end terminal too, not linger as "active" forever.
+	if !IsTerminal(job.State) {
+		t.Errorf("job state %q is not terminal after integration", job.State)
+	}
+	// The plane's target row moved, and the projection ref followed.
+	after, _ := svc.TargetFor("app")
+	if after.SHA != res.MergedSHA {
+		t.Errorf("target = %s, want the merged commit %s", after.SHA, res.MergedSHA)
+	}
+	if got := trim(mustGit(t, repo, "rev-parse", targetRefName)); got != res.MergedSHA {
+		t.Errorf("%s = %s, want %s", targetRefName, got, res.MergedSHA)
+	}
+	// The landed commit really contains the work.
+	if !fileExistsAt(repo, res.MergedSHA, "a.txt") {
+		t.Error("the landed commit does not contain the job's file")
+	}
+}
+
+// --- the semantic conflict -----------------------------------------------------
+
+// TestIntegrate_SemanticConflict_PassesAloneFailsMerged is the test the whole
+// transaction exists for: an artifact that verifies against its own base and
+// fails once combined with what landed in the meantime. No textual conflict is
+// involved — the rebase succeeds cleanly and the *result* is what fails.
+func TestIntegrate_SemanticConflict_PassesAloneFailsMerged(t *testing.T) {
+	repo := gitRepo(t)
+	rv := &conflictVerifier{}
+	svc, store, task := verifiedTask(t, repo, rv, "a.txt") // verified alone: passes
+
+	// Another integration lands b.txt on the target while this task waits.
+	base := task.BaseSHA
+	landed := commitFileOn(t, repo, base, "b.txt", "the other half of the conflict")
+	if _, err := store.AdvanceTarget("app", base, landed, "test: another task integrated"); err != nil {
+		t.Fatalf("AdvanceTarget: %v", err)
+	}
+
+	_, err := svc.IntegrateTask(task.ID)
+	var rej *RejectionError
+	if !errors.As(err, &rej) {
+		t.Fatalf("IntegrateTask = %v, want a *RejectionError", err)
+	}
+	if rej.Reason != ReasonMergedVerifyFailed {
+		t.Fatalf("reason = %q, want %q", rej.Reason, ReasonMergedVerifyFailed)
+	}
+	if !strings.Contains(rej.Message, "MERGED") {
+		t.Errorf("the rejection should say it was the merged result that failed: %q", rej.Message)
+	}
+
+	// THE TARGET IS UNTOUCHED — nothing landed.
+	after, _ := svc.TargetFor("app")
+	if after.SHA != landed {
+		t.Errorf("target = %s, want %s — a failed integration must not move it", after.SHA, landed)
+	}
+	// The task is recoverable through the normal ladder.
+	got, _ := store.GetTask(task.ID)
+	if got.State != StateRejected {
+		t.Errorf("task state = %q, want rejected", got.State)
+	}
+
+	// And the evidence that this is genuinely the merged-result check: the
+	// verifier was asked about a commit containing BOTH files, which is not the
+	// artifact's own head.
+	specs := rv.specs()
+	last := specs[len(specs)-1]
+	if last.HeadSHA == task.BaseSHA {
+		t.Error("the last verification was not of a merged commit")
+	}
+	if !fileExistsAt(repo, last.HeadSHA, "a.txt") || !fileExistsAt(repo, last.HeadSHA, "b.txt") {
+		t.Error("the re-verified commit should contain both changes (it is the merged result)")
+	}
+	// The FIRST verification (the candidate) saw only the artifact's own tree.
+	first := specs[0]
+	if fileExistsAt(repo, first.HeadSHA, "b.txt") {
+		t.Error("the pre-merge verification should not have seen the other change")
+	}
+}
+
+// --- the compare-and-swap race -------------------------------------------------
+
+// TestIntegrate_TargetMovesMidTransaction_Retries drives a genuine interleaving:
+// the target advances *while the merged result is being re-verified*, so the
+// compare-and-swap must lose, and the transaction must recompute against the new
+// tip rather than landing a commit built on a trunk that no longer exists.
+func TestIntegrate_TargetMovesMidTransaction_Retries(t *testing.T) {
+	repo := gitRepo(t)
+	svc, _, store := newService(t, mapResolver{"app": repo},
+		StubRunner{Result: ExecSuccess, WriteFile: true, MarkerName: "a.txt"}, nil, StubVerifyRunner{Pass: true})
+	task, err := svc.CreateTask(CreateTaskRequest{Project: "app", Objective: "x"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	if _, err := svc.DispatchTask(task.ID); err != nil {
+		t.Fatalf("Dispatch: %v", err)
+	}
+	if _, err := svc.VerifyTask(task.ID); err != nil {
+		t.Fatalf("Verify: %v", err)
+	}
+	// Swap in the racing verifier only for the integration phase.
+	racer := &racingVerifier{store: store, project: "app", repo: repo, t: t}
+	svc.verifier = racer
+
+	res, err := svc.IntegrateTask(task.ID)
+	if err != nil {
+		t.Fatalf("IntegrateTask: %v", err)
+	}
+	if res.Attempts != 2 {
+		t.Errorf("attempts = %d, want 2 (the first compare-and-swap must lose)", res.Attempts)
+	}
+	racer.mu.Lock()
+	landed := racer.landed
+	racer.mu.Unlock()
+	if res.PreviousTarget != landed {
+		t.Errorf("the winning attempt started from %s, want the concurrently-landed %s", res.PreviousTarget, landed)
+	}
+	// The final commit contains BOTH the concurrent work and ours — proof the
+	// retry rebased onto the new tip instead of clobbering it.
+	if !fileExistsAt(repo, res.MergedSHA, "other-work.txt") {
+		t.Error("the landed commit lost the concurrently-integrated work")
+	}
+	if !fileExistsAt(repo, res.MergedSHA, "a.txt") {
+		t.Error("the landed commit lost this task's work")
+	}
+	after, _ := svc.TargetFor("app")
+	if after.SHA != res.MergedSHA {
+		t.Errorf("target = %s, want %s", after.SHA, res.MergedSHA)
+	}
+}
+
+// TestIntegrate_ExhaustedRetries_LandsNothing: a target that keeps moving must
+// end in a typed refusal, not a corrupted landing.
+func TestIntegrate_ExhaustedRetries_LandsNothing(t *testing.T) {
+	repo := gitRepo(t)
+	svc, _, store := newService(t, mapResolver{"app": repo},
+		StubRunner{Result: ExecSuccess, WriteFile: true, MarkerName: "a.txt"}, nil, StubVerifyRunner{Pass: true})
+	task, _ := svc.CreateTask(CreateTaskRequest{Project: "app", Objective: "x"})
+	if _, err := svc.DispatchTask(task.ID); err != nil {
+		t.Fatalf("Dispatch: %v", err)
+	}
+	if _, err := svc.VerifyTask(task.ID); err != nil {
+		t.Fatalf("Verify: %v", err)
+	}
+	// A verifier that advances the target on EVERY pass: the CAS can never win.
+	n := 0
+	svc.verifier = verifyFunc(func(spec VerifySpec) VerifyOutcome {
+		n++
+		landed := commitFileOn(t, repo, spec.BaseSHA, "race-"+string(rune('a'+n))+".txt", "again")
+		if _, err := store.AdvanceTarget("app", spec.BaseSHA, landed, "test: yet another integration"); err != nil {
+			t.Errorf("advance: %v", err)
+		}
+		return VerifyOutcome{Passed: true}
+	})
+
+	_, err := svc.IntegrateTask(task.ID)
+	var rej *RejectionError
+	if !errors.As(err, &rej) {
+		t.Fatalf("IntegrateTask = %v, want a *RejectionError", err)
+	}
+	if rej.Reason != ReasonIntegrationRaced {
+		t.Errorf("reason = %q, want %q", rej.Reason, ReasonIntegrationRaced)
+	}
+	if n != integrateAttempts {
+		t.Errorf("verifier called %d times, want %d (one per attempt)", n, integrateAttempts)
+	}
+	// The Task is still approved and nothing of ours landed: the caller may retry.
+	got, _ := store.GetTask(task.ID)
+	if got.State != StateApproved {
+		t.Errorf("task state = %q, want approved (a lost race must not reject the work)", got.State)
+	}
+	target, _ := svc.TargetFor("app")
+	if fileExistsAt(repo, target.SHA, "a.txt") {
+		t.Error("the task's work landed despite the transaction failing")
+	}
+}
+
+// verifyFunc adapts a function to VerifyRunner.
+type verifyFunc func(VerifySpec) VerifyOutcome
+
+func (f verifyFunc) Verify(_ context.Context, spec VerifySpec) VerifyOutcome { return f(spec) }
+
+// --- textual conflict ----------------------------------------------------------
+
+func TestIntegrate_RebaseConflict_Rejects(t *testing.T) {
+	repo := gitRepo(t)
+	// The job edits seed.txt; the target edits the same line differently.
+	svc, _, store := newService(t, mapResolver{"app": repo},
+		conflictingRunner{}, nil, StubVerifyRunner{Pass: true})
+	task, err := svc.CreateTask(CreateTaskRequest{Project: "app", Objective: "edit the seed"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	if _, err := svc.DispatchTask(task.ID); err != nil {
+		t.Fatalf("Dispatch: %v", err)
+	}
+	if _, err := svc.VerifyTask(task.ID); err != nil {
+		t.Fatalf("Verify: %v", err)
+	}
+	landed := commitFileOn(t, repo, task.BaseSHA, "seed.txt", "the other side of the conflict\n")
+	if _, err := store.AdvanceTarget("app", task.BaseSHA, landed, "test: conflicting integration"); err != nil {
+		t.Fatalf("AdvanceTarget: %v", err)
+	}
+
+	_, err = svc.IntegrateTask(task.ID)
+	var rej *RejectionError
+	if !errors.As(err, &rej) {
+		t.Fatalf("IntegrateTask = %v, want a *RejectionError", err)
+	}
+	if rej.Reason != ReasonMergeConflict {
+		t.Errorf("reason = %q, want %q", rej.Reason, ReasonMergeConflict)
+	}
+	after, _ := svc.TargetFor("app")
+	if after.SHA != landed {
+		t.Errorf("target moved on a conflict: %s, want %s", after.SHA, landed)
+	}
+	got, _ := store.GetTask(task.ID)
+	if got.State != StateRejected {
+		t.Errorf("task state = %q, want rejected", got.State)
+	}
+	if job, _ := s2job(t, store, task.ID); job.State != StateRejected {
+		t.Errorf("job state = %q, want rejected", job.State)
+	}
+	// No scratch worktree survives a failed rebase.
+	if wts, _ := runGit(repo, "worktree", "list"); strings.Contains(wts, "integrate-") {
+		t.Errorf("a rebase scratch worktree leaked:\n%s", wts)
+	}
+}
+
+// conflictingRunner rewrites the repo's seed file, so the artifact and the target
+// touch the same line.
+type conflictingRunner struct{}
+
+func (conflictingRunner) Run(_ context.Context, spec JobSpec) RunOutcome {
+	if err := writeFileForTestNoT(spec.WorktreeDir, "seed.txt", "the job's version of the line\n"); err != nil {
+		return RunOutcome{Result: ExecFailed, Detail: err.Error()}
+	}
+	return RunOutcome{Result: ExecSuccess}
+}
+
+// --- guards --------------------------------------------------------------------
+
+func TestIntegrate_WrongState(t *testing.T) {
+	repo := gitRepo(t)
+	svc, _, _ := newService(t, mapResolver{"app": repo}, StubRunner{}, nil)
+	task, _ := svc.CreateTask(CreateTaskRequest{Project: "app", Objective: "x"}) // planned
+	if _, err := svc.IntegrateTask(task.ID); !errors.Is(err, ErrWrongState) {
+		t.Errorf("integrating a planned task = %v, want ErrWrongState", err)
+	}
+	if _, err := svc.IntegrateTask("T-404"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("integrating an unknown task = %v, want ErrNotFound", err)
+	}
+}
+
+func TestIntegrate_NoVerifier_Refuses(t *testing.T) {
+	repo := gitRepo(t)
+	svc, _, _ := newService(t, mapResolver{"app": repo},
+		StubRunner{Result: ExecSuccess, WriteFile: true}, nil, nil)
+	if _, err := svc.IntegrateTask("T-1"); err == nil {
+		t.Error("integration with no verifier must refuse — the merged result could not be checked")
+	}
+}
+
+// --- the rebase primitive ------------------------------------------------------
+
+func TestRebaseOnto(t *testing.T) {
+	repo := gitRepo(t)
+	base, _ := ReadHeadSHA(repo)
+	head := commitFileOn(t, repo, base, "work.txt", "the change")
+	onto := commitFileOn(t, repo, base, "other.txt", "landed first")
+
+	t.Run("replays onto the new base", func(t *testing.T) {
+		merged, err := RebaseOnto(repo, onto, base, head, t.TempDir()+"/scratch")
+		if err != nil {
+			t.Fatalf("RebaseOnto: %v", err)
+		}
+		if !fileExistsAt(repo, merged, "work.txt") || !fileExistsAt(repo, merged, "other.txt") {
+			t.Error("the rebased commit should contain both changes")
+		}
+		if merged == head {
+			t.Error("the rebased commit should be a new sha")
+		}
+	})
+
+	t.Run("already on the target is a no-op", func(t *testing.T) {
+		merged, err := RebaseOnto(repo, base, base, head, t.TempDir()+"/scratch")
+		if err != nil {
+			t.Fatalf("RebaseOnto: %v", err)
+		}
+		if merged != head {
+			t.Errorf("merged = %s, want the unchanged head %s", merged, head)
+		}
+	})
+
+	t.Run("an empty artifact is refused", func(t *testing.T) {
+		if _, err := RebaseOnto(repo, onto, head, head, t.TempDir()+"/scratch"); err == nil {
+			t.Error("rebasing base==head should refuse rather than land nothing")
+		}
+	})
+
+	t.Run("a conflict is typed", func(t *testing.T) {
+		mine := commitFileOn(t, repo, base, "seed.txt", "mine\n")
+		theirs := commitFileOn(t, repo, base, "seed.txt", "theirs\n")
+		_, err := RebaseOnto(repo, theirs, base, mine, t.TempDir()+"/scratch")
+		var conflict *ErrRebaseConflict
+		if !errors.As(err, &conflict) {
+			t.Fatalf("err = %v, want *ErrRebaseConflict", err)
+		}
+		if conflict.Detail == "" {
+			t.Error("a conflict should carry git's explanation")
+		}
+	})
+}
+
+// writeFileForTest writes a file into dir, creating parent directories.
+func writeFileForTest(t *testing.T, dir, name, content string) {
+	t.Helper()
+	if err := writeFileForTestNoT(dir, name, content); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// writeFileForTestNoT is the error-returning form, usable from a runner double
+// that has no *testing.T.
+func writeFileForTestNoT(dir, name, content string) error {
+	full := filepath.Join(dir, name)
+	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(full, []byte(content), 0o644)
+}
+
+// s2job returns a task's only job.
+func s2job(t *testing.T, store *Store, taskID string) (Job, bool) {
+	t.Helper()
+	jobs, err := store.ListJobsForTask(taskID)
+	if err != nil || len(jobs) == 0 {
+		t.Fatalf("ListJobsForTask(%s) = (%d jobs, %v)", taskID, len(jobs), err)
+	}
+	return jobs[len(jobs)-1], true
+}

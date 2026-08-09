@@ -86,6 +86,9 @@ const (
 	EventRejection    = "rejection"    // a request refused, or an artifact rejected
 	EventVerification = "verification" // a verification outcome
 	EventGovernance   = "governance"   // retry / replan / rebase and similar acts
+	EventIntegration  = "integration"  // a target advance / integration transaction step
+	EventApproval     = "approval"     // a human approve or reject
+	EventReview       = "review"       // an independent reviewer pass
 )
 
 // EventMeta annotates an event row. Kind defaults to EventTransition, Reason is
@@ -191,6 +194,7 @@ CREATE TABLE IF NOT EXISTS artifacts (
     branch     TEXT NOT NULL,
     verify     TEXT NOT NULL DEFAULT 'pending',
     review     TEXT NOT NULL DEFAULT 'pending',
+    integrated_sha TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -213,6 +217,19 @@ CREATE TABLE IF NOT EXISTS events (
     at          TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_events_entity ON events(entity_type, entity_id);
+
+-- The plane-owned integration target: one row per project, holding the commit
+-- the plane considers landed. It is deliberately HOST-SIDE state, not a git ref
+-- in the project repository: a Job's worktree shares the repo's refs, so any ref
+-- living there is writable by the worker, and this row is what the acceptance
+-- oracle is read from. Only a completed integration transaction advances it
+-- (an atomic compare-and-swap on the sha column), plus an explicit human resync.
+CREATE TABLE IF NOT EXISTS targets (
+    project    TEXT PRIMARY KEY,
+    sha        TEXT NOT NULL,
+    adopted_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
 `
 	if _, err := s.db.Exec(schema); err != nil {
 		return fmt.Errorf("migrating control db: %w", err)
@@ -236,6 +253,11 @@ CREATE INDEX IF NOT EXISTS idx_events_entity ON events(entity_type, entity_id);
 		return err
 	}
 	if err := s.addColumnIfMissing("events", "reason", "reason TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	// Sprint 59 (integration): the commit an artifact actually landed as, after
+	// being rebased onto the target and re-verified in that form.
+	if err := s.addColumnIfMissing("artifacts", "integrated_sha", "integrated_sha TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
 	}
 	return nil
@@ -663,6 +685,22 @@ func (s *Store) CountTaskTransitionsTo(taskID string, to State) (int, error) {
 	return n, nil
 }
 
+// CountReviewRuns returns how many independent-review passes a task has had,
+// counted from the event log. Kept separate from CountReviewCycles (verification
+// cycles): the same LIMIT applies to both, but they are not summed, so a task
+// gets N verifications and N reviews rather than N of the two combined.
+func (s *Store) CountReviewRuns(taskID string) (int, error) {
+	var n int
+	err := s.db.QueryRow(
+		`SELECT COUNT(*) FROM events WHERE entity_type = 'task' AND entity_id = ? AND kind = ?`,
+		taskID, EventReview,
+	).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("counting review runs of %s: %w", taskID, err)
+	}
+	return n, nil
+}
+
 // CountReviewCycles returns how many review cycles a task has actually consumed:
 // entries into `verifying`, MINUS the ones that were recovered back to
 // `candidate` without a verdict.
@@ -960,6 +998,37 @@ func (s *Store) SetArtifactVerify(id string, status VerifyStatus) (Artifact, err
 	return s.GetArtifact(id)
 }
 
+// SetArtifactReview records the independent-review outcome on an artifact (§6).
+func (s *Store) SetArtifactReview(id string, status ReviewStatus) (Artifact, error) {
+	res, err := s.db.Exec(
+		`UPDATE artifacts SET review = ?, updated_at = ? WHERE id = ?`,
+		string(status), s.now(), id,
+	)
+	if err != nil {
+		return Artifact{}, err
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		return Artifact{}, fmt.Errorf("%w: artifact %s", ErrNotFound, id)
+	}
+	return s.GetArtifact(id)
+}
+
+// SetArtifactIntegrated records the commit an artifact landed as — the rebased,
+// re-verified result, which is not its original head.
+func (s *Store) SetArtifactIntegrated(id, mergedSHA string) (Artifact, error) {
+	res, err := s.db.Exec(
+		`UPDATE artifacts SET integrated_sha = ?, updated_at = ? WHERE id = ?`,
+		mergedSHA, s.now(), id,
+	)
+	if err != nil {
+		return Artifact{}, err
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		return Artifact{}, fmt.Errorf("%w: artifact %s", ErrNotFound, id)
+	}
+	return s.GetArtifact(id)
+}
+
 // ListArtifactsForJob returns a job's artifacts ordered by creation.
 func (s *Store) ListArtifactsForJob(jobID string) ([]Artifact, error) {
 	rows, err := s.db.Query(artifactSelect+` WHERE job_id = ? ORDER BY seq ASC`, jobID)
@@ -978,12 +1047,12 @@ func (s *Store) ListArtifactsForJob(jobID string) ([]Artifact, error) {
 	return out, rows.Err()
 }
 
-const artifactSelect = `SELECT id, job_id, base_sha, head_sha, branch, verify, review, created_at, updated_at FROM artifacts`
+const artifactSelect = `SELECT id, job_id, base_sha, head_sha, branch, verify, review, integrated_sha, created_at, updated_at FROM artifacts`
 
 func scanArtifact(sc rowScanner) (Artifact, error) {
 	var a Artifact
 	var verify, review string
-	err := sc.Scan(&a.ID, &a.JobID, &a.BaseSHA, &a.HeadSHA, &a.Branch, &verify, &review, &a.CreatedAt, &a.UpdatedAt)
+	err := sc.Scan(&a.ID, &a.JobID, &a.BaseSHA, &a.HeadSHA, &a.Branch, &verify, &review, &a.IntegratedSHA, &a.CreatedAt, &a.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Artifact{}, ErrNotFound
 	}
@@ -1067,6 +1136,179 @@ func (s *Store) queryEvents(query string, args ...any) ([]Event, error) {
 			}
 		}
 		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+// ---- Targets -------------------------------------------------------------------
+
+// Target is the plane-owned integration ref for a project: the commit the
+// control plane considers landed, and the commit a Task's acceptance policy is
+// frozen at (docs/guild-master-plan.md §6).
+type Target struct {
+	Project   string `json:"project"`
+	SHA       string `json:"sha"`
+	AdoptedAt string `json:"adoptedAt"`
+	UpdatedAt string `json:"updatedAt"`
+}
+
+// GetTarget returns a project's target, or ErrNotFound if none is adopted yet.
+func (s *Store) GetTarget(project string) (Target, error) {
+	var t Target
+	err := s.db.QueryRow(
+		`SELECT project, sha, adopted_at, updated_at FROM targets WHERE project = ?`, project,
+	).Scan(&t.Project, &t.SHA, &t.AdoptedAt, &t.UpdatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Target{}, fmt.Errorf("%w: no integration target for project %q", ErrNotFound, project)
+	}
+	if err != nil {
+		return Target{}, err
+	}
+	return t, nil
+}
+
+// AdoptTarget records a project's first target, or returns the existing one
+// unchanged if it already has one. Adoption is trust-on-first-use: the plane has
+// no landed state for a new project, so it takes the operator's checkout as the
+// starting point — ONCE, before any Job for that project has ever run under the
+// plane. From then on only AdvanceTarget (a completed integration) or an explicit
+// human SetTarget moves it.
+//
+// The insert-or-read is a single transaction, so two concurrent first Tasks
+// cannot adopt two different commits.
+func (s *Store) AdoptTarget(project, sha string) (Target, error) {
+	if sha == "" {
+		return Target{}, fmt.Errorf("control: cannot adopt an empty target for %q", project)
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return Target{}, err
+	}
+	defer tx.Rollback()
+
+	var existing Target
+	err = tx.QueryRow(
+		`SELECT project, sha, adopted_at, updated_at FROM targets WHERE project = ?`, project,
+	).Scan(&existing.Project, &existing.SHA, &existing.AdoptedAt, &existing.UpdatedAt)
+	if err == nil {
+		return existing, nil // already adopted; never silently re-adopt
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return Target{}, err
+	}
+
+	now := s.now()
+	if _, err := tx.Exec(
+		`INSERT INTO targets (project, sha, adopted_at, updated_at) VALUES (?, ?, ?, ?)`,
+		project, sha, now, now,
+	); err != nil {
+		return Target{}, fmt.Errorf("adopting target for %s: %w", project, err)
+	}
+	if err := s.logEvent(tx, "project", project, "", "",
+		EventMeta{Kind: EventGovernance}, ActorSystem,
+		"integration target adopted at "+sha+" (trust-on-first-use)"); err != nil {
+		return Target{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Target{}, err
+	}
+	return Target{Project: project, SHA: sha, AdoptedAt: now, UpdatedAt: now}, nil
+}
+
+// AdvanceTarget is the compare-and-swap at the end of the integration
+// transaction: it moves a project's target from `from` to `to`, and fails with
+// ErrConflict if the row no longer holds `from` — meaning another integration
+// landed while this one was rebasing and re-verifying, so this transaction's
+// merged result is stale and must be recomputed against the new tip.
+//
+// This is the only mechanism that advances a target as a consequence of work.
+func (s *Store) AdvanceTarget(project, from, to, note string) (Target, error) {
+	if to == "" {
+		return Target{}, fmt.Errorf("control: cannot advance target of %q to an empty sha", project)
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return Target{}, err
+	}
+	defer tx.Rollback()
+
+	now := s.now()
+	res, err := tx.Exec(
+		`UPDATE targets SET sha = ?, updated_at = ? WHERE project = ? AND sha = ?`,
+		to, now, project, from,
+	)
+	if err != nil {
+		return Target{}, fmt.Errorf("advancing target for %s: %w", project, err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return Target{}, err
+	}
+	if n != 1 {
+		return Target{}, fmt.Errorf("%w: target of %s is no longer %s", ErrConflict, project, from)
+	}
+	if err := s.logEvent(tx, "project", project, "", "",
+		EventMeta{Kind: EventIntegration}, ActorPlane, note); err != nil {
+		return Target{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Target{}, err
+	}
+	return Target{Project: project, SHA: to, UpdatedAt: now}, nil
+}
+
+// SetTarget re-points a project's target unconditionally — the human resync for
+// commits that landed outside the plane (a developer pushing straight to the
+// branch). It is deliberately NOT automatic: an automatic follow would hand the
+// acceptance oracle back to whoever can write the repository's refs, which is the
+// hole the plane-owned target exists to close. Recorded as a governance event
+// with the supplied actor.
+func (s *Store) SetTarget(project, sha string, meta EventMeta, note string) (Target, error) {
+	if sha == "" {
+		return Target{}, fmt.Errorf("control: cannot set an empty target for %q", project)
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return Target{}, err
+	}
+	defer tx.Rollback()
+
+	now := s.now()
+	res, err := tx.Exec(`UPDATE targets SET sha = ?, updated_at = ? WHERE project = ?`, sha, now, project)
+	if err != nil {
+		return Target{}, fmt.Errorf("setting target for %s: %w", project, err)
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		if _, err := tx.Exec(
+			`INSERT INTO targets (project, sha, adopted_at, updated_at) VALUES (?, ?, ?, ?)`,
+			project, sha, now, now,
+		); err != nil {
+			return Target{}, fmt.Errorf("setting target for %s: %w", project, err)
+		}
+	}
+	if err := s.logEvent(tx, "project", project, "", "", meta, ActorPlane, note); err != nil {
+		return Target{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Target{}, err
+	}
+	return Target{Project: project, SHA: sha, AdoptedAt: now, UpdatedAt: now}, nil
+}
+
+// ListTargets returns every project's target, ordered by project name.
+func (s *Store) ListTargets() ([]Target, error) {
+	rows, err := s.db.Query(`SELECT project, sha, adopted_at, updated_at FROM targets ORDER BY project ASC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Target
+	for rows.Next() {
+		var t Target
+		if err := rows.Scan(&t.Project, &t.SHA, &t.AdoptedAt, &t.UpdatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, t)
 	}
 	return out, rows.Err()
 }

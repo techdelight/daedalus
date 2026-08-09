@@ -169,6 +169,67 @@ func (c *Client) postJSON(path string, body, out any) error {
 	return json.NewDecoder(resp.Body).Decode(out)
 }
 
+// ReviewTask implements TaskAPI.
+func (c *Client) ReviewTask(id string) (ReviewResult, error) {
+	var res ReviewResult
+	return res, c.postJSON("/tasks/"+url.PathEscape(id)+"/review", struct{}{}, &res)
+}
+
+// ApproveTask implements TaskAPI.
+func (c *Client) ApproveTask(id, note string) (Task, error) {
+	var t Task
+	return t, c.postJSON("/tasks/"+url.PathEscape(id)+"/approve", approvalRequest{Note: note}, &t)
+}
+
+// RejectApproval implements TaskAPI.
+func (c *Client) RejectApproval(id, note string) (Task, error) {
+	var t Task
+	return t, c.postJSON("/tasks/"+url.PathEscape(id)+"/reject", approvalRequest{Note: note}, &t)
+}
+
+// IntegrateTask implements TaskAPI.
+func (c *Client) IntegrateTask(id string) (IntegrationResult, error) {
+	var res IntegrationResult
+	return res, c.postJSON("/tasks/"+url.PathEscape(id)+"/integrate", struct{}{}, &res)
+}
+
+// PendingApprovals implements TaskAPI.
+func (c *Client) PendingApprovals() ([]Task, error) {
+	var tasks []Task
+	if err := c.getJSON("/approvals", &tasks); err != nil {
+		return nil, err
+	}
+	return tasks, nil
+}
+
+// ProjectTargets implements TaskAPI.
+func (c *Client) ProjectTargets() ([]Target, error) {
+	var targets []Target
+	if err := c.getJSON("/targets", &targets); err != nil {
+		return nil, err
+	}
+	return targets, nil
+}
+
+// SyncTarget implements TaskAPI.
+func (c *Client) SyncTarget(project string) (Target, error) {
+	var t Target
+	return t, c.postJSON("/targets/"+url.PathEscape(project)+"/sync", struct{}{}, &t)
+}
+
+// getJSON fetches path and decodes a 200 response into out.
+func (c *Client) getJSON(path string, out any) error {
+	resp, err := c.httpClient.Get(c.baseURL + path)
+	if err != nil {
+		return fmt.Errorf("control client: GET %s: %w", path, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return decodeError(resp)
+	}
+	return json.NewDecoder(resp.Body).Decode(out)
+}
+
 // CancelTask implements TaskAPI.
 func (c *Client) CancelTask(id string) (Task, error) {
 	req, _ := http.NewRequest(http.MethodDelete, c.baseURL+"/tasks/"+url.PathEscape(id), nil)

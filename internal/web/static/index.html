@@ -21,6 +21,13 @@
                 <span class="status" id="refresh-status"></span>
             </header>
             <div id="status-msg" class="status-msg"></div>
+            <!-- Control plane: tasks awaiting a human decision. Hidden entirely
+                 when the daedalus-control daemon is not running, so the panel
+                 never implies "nothing to approve" when it simply cannot ask. -->
+            <div id="approvals-panel" class="approvals-panel" style="display:none">
+                <div class="approvals-title">Awaiting your approval</div>
+                <div id="approvals-list"></div>
+            </div>
             <div class="project-list">
                 <table>
                     <thead>
@@ -797,5 +804,6 @@
         refreshTimer = setInterval(fetchProjects, 5000);
     </script>
     <script src="/static/guild.js"></script>
+    <script src="/static/approvals.js"></script>
 </body>
 </html>

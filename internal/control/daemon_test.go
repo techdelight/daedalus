@@ -335,3 +335,113 @@ func TestDaemon_WrongStateIsConflictNot500(t *testing.T) {
 		t.Errorf("dispatch of a verified task = %d, want 409\n%s", rec.Code, rec.Body.String())
 	}
 }
+
+// TestDaemon_IntegrationRoundTrip exercises the Sprint-59 routes over the socket:
+// review, approve/reject, integrate, the approvals queue, and the targets view.
+func TestDaemon_IntegrationRoundTrip(t *testing.T) {
+	repo := gitRepo(t)
+	svc, _, _ := newService(t, mapResolver{"app": repo},
+		StubRunner{Result: ExecSuccess, WriteFile: true, MarkerName: "a.txt"}, nil, StubVerifyRunner{Pass: true})
+	svc.SetPolicySource(StaticPolicy{Budget: DefaultBudget(), Approval: true})
+	svc.SetReviewRunner(StubReviewRunner{Pass: true})
+	client := serveUDS(t, svc)
+
+	task, err := client.CreateTask(CreateTaskRequest{Project: "app", Objective: "land something"})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	// The target is visible over the wire and was adopted at create.
+	targets, err := client.ProjectTargets()
+	if err != nil || len(targets) != 1 || targets[0].Project != "app" {
+		t.Fatalf("ProjectTargets = (%+v, %v), want one target for app", targets, err)
+	}
+	if targets[0].SHA != task.BaseSHA {
+		t.Errorf("target %s != task base %s", targets[0].SHA, task.BaseSHA)
+	}
+
+	if _, err := client.DispatchTask(task.ID); err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+	if _, err := client.VerifyTask(task.ID); err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	// Approval is required, so it shows up in the queue.
+	pending, err := client.PendingApprovals()
+	if err != nil || len(pending) != 1 || pending[0].ID != task.ID {
+		t.Fatalf("PendingApprovals = (%+v, %v), want [%s]", pending, err, task.ID)
+	}
+	// The reviewer gates integration; run it over the wire.
+	rres, err := client.ReviewTask(task.ID)
+	if err != nil {
+		t.Fatalf("ReviewTask: %v", err)
+	}
+	if !rres.Passed || rres.Artifact == nil || rres.Artifact.Review != ReviewPass {
+		t.Fatalf("review over wire = %+v", rres)
+	}
+	// Integrating before approval is a typed refusal, not a 500.
+	_, err = client.IntegrateTask(task.ID)
+	var rej *RejectionError
+	if !errors.As(err, &rej) || rej.Reason != ReasonApprovalRequired {
+		t.Fatalf("integrate before approval = %v, want approval_required", err)
+	}
+
+	approved, err := client.ApproveTask(task.ID, "ship it")
+	if err != nil {
+		t.Fatalf("ApproveTask: %v", err)
+	}
+	if approved.State != StateApproved {
+		t.Fatalf("state = %q, want approved", approved.State)
+	}
+	ires, err := client.IntegrateTask(task.ID)
+	if err != nil {
+		t.Fatalf("IntegrateTask: %v", err)
+	}
+	if ires.NewTarget == ires.PreviousTarget || ires.MergedSHA == "" {
+		t.Errorf("integration result over wire looks wrong: %+v", ires)
+	}
+	// The target advanced, over the wire.
+	targets, _ = client.ProjectTargets()
+	if targets[0].SHA != ires.NewTarget {
+		t.Errorf("target = %s, want %s", targets[0].SHA, ires.NewTarget)
+	}
+	// Nothing is pending any more.
+	if pending, _ := client.PendingApprovals(); len(pending) != 0 {
+		t.Errorf("PendingApprovals = %+v, want empty", pending)
+	}
+}
+
+func TestDaemon_RejectApprovalAndSyncTarget(t *testing.T) {
+	repo := gitRepo(t)
+	svc, _, _ := newService(t, mapResolver{"app": repo},
+		StubRunner{Result: ExecSuccess, WriteFile: true, MarkerName: "a.txt"}, nil, StubVerifyRunner{Pass: true})
+	svc.SetPolicySource(StaticPolicy{Budget: DefaultBudget(), Approval: true})
+	client := serveUDS(t, svc)
+
+	task, err := client.CreateTask(CreateTaskRequest{Project: "app", Objective: "x"})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if _, err := client.DispatchTask(task.ID); err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+	if _, err := client.VerifyTask(task.ID); err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	got, err := client.RejectApproval(task.ID, "not this way")
+	if err != nil {
+		t.Fatalf("RejectApproval: %v", err)
+	}
+	if got.State != StateRejected {
+		t.Errorf("state = %q, want rejected", got.State)
+	}
+
+	// The human resync moves the target to the checkout HEAD, over the wire.
+	moved := commitFile(t, repo, "human.txt", "landed by hand")
+	synced, err := client.SyncTarget("app")
+	if err != nil {
+		t.Fatalf("SyncTarget: %v", err)
+	}
+	if synced.SHA != moved {
+		t.Errorf("synced target = %s, want %s", synced.SHA, moved)
+	}
+}

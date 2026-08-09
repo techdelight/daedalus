@@ -83,6 +83,11 @@ the logic directly (tests) or over the socket (production).
 | `task dispatch <id>` | Run one headless Job attempt (see below). |
 | `task verify <id>` | Plane-owned verification of a candidate (see below). |
 | `task retry <id> [--rebase]` | Retry a rejected task as a fresh Job (see *Governance*). |
+| `task review <id>` | Run the independent reviewer over a verified artifact. |
+| `task approve\|reject <id> [--note]` | The human approval gate. |
+| `task integrate <id>` | Land it: rebase → re-verify merged → compare-and-swap. |
+| `task approvals` | Everything awaiting a human decision. |
+| `task target [<project> --sync]` | Show or resync the plane-owned integration targets. |
 | `task replan <id> --objective <text>` | Return a rejected task to `planned` with a revised objective. |
 | `task events <id>` | The control-plane-managed event log for a task. |
 | `task cancel <id>` | Cancel the task, cancel its active jobs, reclaim their worktrees. |
@@ -293,64 +298,14 @@ Two shapes of "no" share one machine-readable vocabulary:
 | `integrity_gate` | verdict | the Job's diff edits frozen acceptance files |
 | `verify_failed` | verdict | the clean verifier ran and reported failure |
 
-**Stale base.** An artifact built on a base the project has moved past proves
+**Stale base.** An artifact built on a base the plane has moved past proves
 something about a tree nobody will integrate, so it is rejected **before** the
 integrity gate or the verifier — a doomed artifact never costs a verifier
-container. The target tip is the project checkout's current `HEAD` (V1 has no
-separate target ref; that arrives with the integration transaction).
-
-**A Job's worktree shares the parent repository's refs, not just its objects.**
-This is worth stating because the obvious assumption is wrong: a linked worktree
-can run `git update-ref refs/heads/<target> <its-own-commit>` and move the very
-tip the staleness check reads. In the real container path the worktree's `.git`
-file points outside the bind mount, so those refs are typically unreachable — but
-that is an accident of mounting, not a guarantee this codebase makes or checks.
-
-Two consequences, both implemented rather than assumed away:
-
-- the `stale_base` rejection **does not reflexively tell you to run `--rebase`**.
-  If the tip moved because a Job moved it, a copy-pasteable rebase command would
-  complete the attack for it. The message names the condition and says to inspect
-  the tip first;
-- `retry --rebase` **refuses** (`unsafe_rebase`) when the new tip is reachable
-  from any commit this Task's Jobs produced. Re-freezing the acceptance oracle
-  onto a commit the worker authored is exactly what §6 forbids, and a failure to
-  *check* is treated as unsafe rather than fine.
-
-#### What the rebase guard does NOT cover (read this before trusting it)
-
-The guard is an **ancestry** check, and ancestry is not authorship. Stated plainly
-so nobody reads it as complete:
-
-- **It catches** the naive attack and its obvious variants: pointing the target
-  branch straight at a Job's commit, or at a merge/descendant that contains one.
-  Those are what a worker with shell access and a shared ref store reaches for
-  first, and they are now refused.
-- **It does not catch a content-preserving rewrite.** `git cherry-pick`,
-  `git commit-tree`, or `format-patch | am` reproduce the same weakened
-  `.daedalus/verify.json` under a **new SHA with no ancestry link** to any Job
-  commit. The guard sees an unrelated commit and allows the rebase. No ancestry
-  test can close this — the rewritten commit is, structurally, indistinguishable
-  from an honest developer commit that happens to contain the same bytes.
-- **`task create` is not guarded at all.** The guard is bolted onto
-  `retry --rebase`, but a Task freezes whatever `ReadHeadSHA` returns at create
-  time, with **no ancestry check whatsoever**. An attacker that can move the
-  target ref therefore does not need `--rebase` at all: it moves the ref and waits
-  for the next Task on that project to freeze its oracle. This is the sharper hole
-  of the two, and the guard does nothing about it.
-
-**The real fix is not a better ancestry check** — it is a **plane-owned target ref
-the agent cannot write**, so "the tip" stops being something a worker can
-influence at all. That is exactly what the integration transaction introduces
-(serialize → rebase → re-verify the merged result → compare-and-swap a ref the
-plane owns), and it is a tracked Sprint 59 item. Until it lands, treat the frozen
-acceptance oracle as trustworthy only to the extent that **write access to the
-project repository's refs** is trustworthy.
-
-The mitigations that *do* hold today are the ones that do not depend on ancestry:
-the integrity gate (a Job's own diff may not touch acceptance files), the
-null-agent floor, and the fact that `--rebase` is opt-in and human-driven rather
-than something the plane does on its own.
+container. Since Sprint 59 "the tip" is the **plane-owned integration target**
+(see below), so a stale base means *another integration landed*, not *somebody
+moved a branch*: recommending a rebase is safe again, because the commit being
+rebased onto is one the plane itself landed. The remedy is
+`daedalus task retry <id> --rebase`.
 
 Exit codes: `0` success, `1` failure, **`3` refused by policy**. That distinction
 is the whole point — a governed plane that only ever said "error" would be
@@ -367,11 +322,11 @@ rejected ──replan─→ planned                    (a revised objective, sam
   re-checked first. **Attempt history is preserved, never overwritten**: the
   previous Jobs (and the record of why each was rejected) stay exactly as they
   were, so a Task carries its whole chain. `--rebase` first re-pins the Task to
-  the project's current tip **and re-freezes the acceptance policy there** — the
-  remedy for `stale_base`. It is opt-in precisely because re-freezing the oracle
-  at a newer commit adopts whatever verify policy that commit carries, so a human
-  asks for it by name — and it is refused outright when that tip contains the
-  Task's own Job commits (see above).
+  the **plane-owned integration target** and re-freezes the acceptance policy
+  there — the remedy for `stale_base`. It stays opt-in because re-freezing the
+  oracle adopts whatever verify policy the new base carries, and it is still
+  refused outright when that target contains the Task's own Job commits (defence
+  in depth; the target itself is no longer worker-writable).
 - `daedalus task replan <id> --objective <text>` — for when the *instruction* was
   wrong rather than the work. Objective and state change in one transaction (no
   window where `planned` carries the objective that was just rejected). It does
@@ -450,6 +405,156 @@ later property and is not claimed here.
 caller identity must be carried on the request and checked. The label grants no
 authority in any case: transitions are gated by the two tables in `model.go`.
 
+## The plane-owned integration target (Sprint 59 / M15 — built)
+
+Each project has a **target commit that only the control plane can move**. It is
+a row in `control.db`, not a git ref in the project repository, and it is the
+answer to the sharpest finding of the Sprint-58 audit.
+
+**The problem it closes.** Until Sprint 59 a Task's `base_sha` and its frozen
+acceptance policy both came from the project checkout's `HEAD`. A Job's worktree
+shares the parent repository's **refs**, not merely its objects, so a worker able
+to reach the common git dir could move the branch the oracle was read from. The
+Sprint-58 ancestry guard caught the naive form — pointing the branch at the Job's
+own commit — but two ways past it were confirmed, and neither could be closed by a
+better ancestry check:
+
+- **cherry-pick laundering.** `git cherry-pick`, `git commit-tree`, or
+  `format-patch | am` reproduce the same weakened `.daedalus/verify.json` under a
+  **new SHA with no ancestry link** to any Job commit. Structurally that commit is
+  indistinguishable from an honest developer commit containing the same bytes.
+- **waiting for the next Task.** The guard was bolted onto `retry --rebase`, but
+  `CreateTask` froze whatever `HEAD` returned with no ancestry check at all — so
+  an attacker never needed `--rebase`. Poison the branch, wait.
+
+**The fix is structural, not a better check.** The plane stops reading the oracle
+from a ref the worker can write:
+
+| | Before (Sprint 58) | Now (Sprint 59) |
+|---|---|---|
+| Task `base_sha` | checkout `HEAD` | the plane-owned target |
+| Acceptance policy frozen at | checkout `HEAD` | the plane-owned target |
+| Staleness measured against | checkout `HEAD` | the plane-owned target |
+| Advanced by | anything that can write a git ref | a completed integration transaction, or an explicit human resync |
+
+An agent may now rewrite every branch in the repository — cherry-pick,
+`commit-tree`, `update-ref`, anything — to **no effect**: none of them is the
+commit its work is based on or graded against. Both attacks are covered by tests
+that first assert the attack still defeats ancestry, then assert it changes
+nothing (`TestAttack_CherryPickLaundering`, `TestAttack_WaitForTheNextTask`,
+`TestAttack_WorkerRewritesEveryRef`). The Sprint-58 ancestry guard survives as
+**defence in depth** — it would still catch a target that became self-authored
+some other way, e.g. an operator resyncing onto a commit a Job had planted — but
+it is no longer the mechanism, and nothing rests on it.
+
+`refs/daedalus/target` is written in the repository as a **projection**, so the
+landed commit is visible and reachable. Nothing reads a decision from it; a worker
+that overwrites it changes nothing the plane believes, which is asserted rather
+than assumed. It is deliberately not a branch anyone checks out, so updating it
+cannot disturb a working tree.
+
+**Two honest caveats:**
+
+1. **Adoption is trust-on-first-use.** A project with no target yet takes the
+   operator's checkout `HEAD`, once, at its first Task — before any Job for that
+   project has run under the plane. The plane cannot invent a trusted starting
+   commit; it can only refuse to keep taking new ones.
+2. **The resync is consequential.** `daedalus task target <project> --sync`
+   re-points the target at the checkout's `HEAD`, adopting whatever policy that
+   commit carries. It is manual, logged, and belongs on the Sprint-60 list of
+   operations an agent client must never be granted.
+
+## The integration transaction (Sprint 59 / M15 — built)
+
+`daedalus task integrate <id>` lands an approved artifact as a **race-safe
+transaction** (§6, "Integration is a race-safe transaction, not a merge"):
+
+```text
+serialize per project
+  → rebase the artifact onto the current target
+  → RE-VERIFY THE MERGED RESULT (not the pre-merge branch)
+  → compare-and-swap the target   (retry if it moved under us)
+```
+
+The step that is easy to drop is the third. Two artifacts that each pass
+verification against base A can conflict when combined with **no textual conflict
+at all** — a *semantic* merge conflict. Verifying the pre-merge branch proves
+something about a tree that will never exist; only the merged result is what
+lands. Re-verification runs through the same `VerifyRunner` seam as candidate
+verification, so production uses the real clean verifier and host tests use a
+fake.
+
+The compare-and-swap is the whole safety property in one statement:
+`UPDATE targets SET sha = ? WHERE project = ? AND sha = <what we started from>`.
+If another integration landed while this one was rebasing and re-verifying, it
+affects zero rows, **nothing is written**, and the transaction recomputes against
+the new tip — bounded to 3 attempts, after which it refuses with
+`integration_raced` having landed nothing.
+
+Every failure path leaves the target exactly where it was and the Task recoverable
+through the retry/replan ladder:
+
+| Failure | Reason | Result |
+|---|---|---|
+| The artifact does not replay onto the target | `merge_conflict` | Task → `rejected`, target untouched |
+| The **merged** result fails verification | `merged_verify_failed` | Task → `rejected`, target untouched |
+| The target kept moving | `integration_raced` | Task stays `approved`, nothing landed, try again |
+
+## Human approval and the independent reviewer (Sprint 59 / M15 — built)
+
+```text
+verified → approval_required → approved → integrated
+```
+
+**Approval is plane authority.** Every edge on that tail is absent from
+`workerReachable`, so no worker-driven request can approve, integrate, or walk any
+part of the gate. That much is structural and exhaustively tested.
+
+**What this does not yet prove.** The state machine stops a *worker* approving. It
+does not by itself stop an agent **client** of `control.sock` approving, because
+the actor recorded on an approval is a label of the request's origin, not an
+authenticated identity. "The Guild Master cannot approve its own work" is
+therefore enforced by the **socket boundary Sprint 60 introduces** — a separate
+socket per class of caller, since peer credentials alone cannot separate an agent
+from a human running under the same uid — and not by this state machine alone.
+Until then every client of `control.sock` is the human CLI, and that is the whole
+of the guarantee.
+
+**Approval is opt-in per project** (§9, "keep governance opt-in"), declared in the
+same host-side governance file as budgets:
+
+```json
+{
+  "default":  {"maxAttempts": 3},
+  "approval": {"default": false, "projects": {"payments": true}}
+}
+```
+
+A project that does not require it still *walks* `verified → approval_required →
+approved` at integration time, driven by the plane, with an event recording that
+policy — not oversight — is why no human was asked. The states are never skipped,
+so the log always answers "who approved this, and if nobody, why not".
+
+**The independent reviewer** (§6 ladder, rung 5) is an injectable `ReviewRunner`,
+a stub for now exactly as `VerifyRunner` was in Sprint 56. `daedalus task review
+<id>` runs it over the verified artifact and sets the Artifact's `review` status;
+a failure routes to `rejected` with `review_failed` and feeds retry/replan. When a
+reviewer is configured it **gates integration**; when none is, review is not a gate
+at all, so a plane without one is not blocked forever. Review passes are bounded by
+`maxReviewCycles` — the same *limit* as verification cycles, counted **separately
+and not summed**, so a Task gets N verifications and N reviews rather than N of the
+two combined.
+
+### Approving from the Web UI and TUI
+
+Both surfaces are **clients** of `control.sock` with no authority the CLI lacks:
+`GET /api/approvals` plus approve/reject in the Web dashboard, and `[A]` in the
+TUI. Neither **spawns** the control daemon — a dashboard that started one because
+somebody opened a tab or pressed a key would be a surprising side effect — and
+when the plane is unreachable both say so explicitly rather than rendering an
+empty queue, because "nothing needs you" and "I could not ask" are different
+answers and only one of them is reassuring.
+
 ## Scope boundary — what is deliberately NOT here yet
 
 Milestones 13–14 deliver the model, store, daemon, human CLI, isolated-worktree
@@ -458,13 +563,17 @@ digest pin, env policy, integrity gate, null-agent floor); Sprint 58 adds the
 governance core (budgets, typed rejection, retry/replan, the event log). Still
 ahead:
 
-- **No integration transaction, no human approval gate, no Guild Master client.**
-  The merge-queue integration transaction (serialize → rebase onto the current
-  tip → re-verify the *merged* result → compare-and-swap), the human
-  `verified → approval_required → approved → integrated` state machine with
-  Web/TUI approve-reject, and an independent reviewer pass are **Sprint 59**; the
-  (tiered, injection-safe) `guild-control-mcp` client is **Sprint 60**. Until
-  then a `verified` Task rests there — nothing lands automatically.
+- **No Guild Master client, and no authenticated caller identity.** The
+  (tiered, injection-safe) `guild-control-mcp` client is **Sprint 60**, and with
+  it the transport-derived caller identity that the approval gate's honesty
+  caveat depends on — a separate socket per class of caller, since peer
+  credentials alone cannot separate an agent from a human at the same uid. Until
+  then every client of `control.sock` is the human CLI.
+- **No real reviewer.** `ReviewRunner` is a seam with a stub behind it, wired only
+  under `DAEDALUS_CONTROL_FAKE_REVIEW`. With no reviewer configured, review is not
+  a gate.
+- **Nothing lands by itself.** Integration is always an explicit
+  `daedalus task integrate`; the plane never advances a target on its own.
 - **No parallelism.** One active Job per project; multiple concurrent worktrees
   are **M16**. `task dispatch` runs the attempt synchronously.
 - **The real `CoordinatorRunner` is host-only.** It needs a Docker daemon and is

@@ -5,6 +5,7 @@ package control
 import (
 	"context"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -12,38 +13,53 @@ import (
 
 // --- stale base (real temp repos) ---------------------------------------------
 
-func TestIsStaleBase(t *testing.T) {
+// TestStaleAgainstTarget: staleness is now measured against the PLANE-OWNED
+// integration target, not the project checkout's HEAD. A developer's (or an
+// agent's) commits to a branch no longer make a candidate stale, because they are
+// not what the plane will integrate onto — only a completed integration moves the
+// trunk.
+func TestStaleAgainstTarget(t *testing.T) {
 	repo := gitRepo(t)
-	base, err := ReadHeadSHA(repo)
-	if err != nil {
-		t.Fatalf("ReadHeadSHA: %v", err)
-	}
+	svc, _, store := newService(t, mapResolver{"app": repo}, StubRunner{}, nil)
 
-	stale, tip, err := IsStaleBase(repo, base)
+	task, err := svc.CreateTask(CreateTaskRequest{Project: "app", Objective: "x"})
 	if err != nil {
-		t.Fatalf("IsStaleBase: %v", err)
+		t.Fatalf("CreateTask: %v", err)
+	}
+	// The Task is based on the adopted target, so it starts fresh.
+	stale, tip, err := svc.staleAgainstTarget(task)
+	if err != nil {
+		t.Fatalf("staleAgainstTarget: %v", err)
 	}
 	if stale {
-		t.Errorf("base == tip should not be stale (tip %s)", tip)
+		t.Errorf("a task based on the current target should not be stale (tip %s)", tip)
 	}
 
-	// Someone else lands a commit on the project's target branch.
-	moved := commitFile(t, repo, "other.txt", "someone else's work")
-	stale, tip, err = IsStaleBase(repo, base)
+	// A commit landing on the repo's BRANCH does not make it stale any more —
+	// that is the Sprint-59 behaviour change and the point of the plane-owned ref.
+	commitFile(t, repo, "developer.txt", "landed out of band")
+	stale, _, err = svc.staleAgainstTarget(task)
 	if err != nil {
-		t.Fatalf("IsStaleBase after move: %v", err)
+		t.Fatalf("staleAgainstTarget after a branch commit: %v", err)
+	}
+	if stale {
+		t.Error("a commit on the project branch must NOT make a candidate stale — the plane's trunk is its own target")
+	}
+
+	// Advancing the TARGET does, because that is a completed integration.
+	landed := commitFile(t, repo, "landed.txt", "another task integrated")
+	if _, err := store.AdvanceTarget("app", task.BaseSHA, landed, "test: simulate an integration"); err != nil {
+		t.Fatalf("AdvanceTarget: %v", err)
+	}
+	stale, tip, err = svc.staleAgainstTarget(task)
+	if err != nil {
+		t.Fatalf("staleAgainstTarget after an integration: %v", err)
 	}
 	if !stale {
-		t.Error("base should be stale once the project tip moves on")
+		t.Error("a task based on a superseded target should be stale")
 	}
-	if tip != moved {
-		t.Errorf("tip = %s, want the new commit %s", tip, moved)
-	}
-
-	// An unreadable repo is an error, never a silent "not stale" — failing open
-	// would quietly retire the whole check.
-	if _, _, err := IsStaleBase(t.TempDir(), base); err == nil {
-		t.Error("IsStaleBase on a non-repo should error, not report 'fresh'")
+	if tip != landed {
+		t.Errorf("tip = %s, want the new target %s", tip, landed)
 	}
 }
 
@@ -60,8 +76,13 @@ func TestVerify_StaleBase_Rejected(t *testing.T) {
 	if _, err := svc.DispatchTask(task.ID); err != nil {
 		t.Fatalf("Dispatch: %v", err)
 	}
-	// While the Job ran, the project's target tip moved on.
+	// While the Job ran, another integration landed and advanced the plane-owned
+	// target. (A mere commit on the repo's branch would NOT do this — see
+	// TestStaleAgainstTarget.)
 	newTip := commitFile(t, repo, "unrelated.txt", "landed meanwhile")
+	if _, err := store.AdvanceTarget("app", task.BaseSHA, newTip, "test: another integration landed"); err != nil {
+		t.Fatalf("AdvanceTarget: %v", err)
+	}
 
 	res, err := svc.VerifyTask(task.ID)
 	if err != nil {
@@ -204,8 +225,13 @@ func TestRetry_Rebase_ReFreezesAtNewTip(t *testing.T) {
 	svc, store, task := rejectedTask(t, repo, Budget{MaxAttempts: 3, MaxReviewCycles: 3, Concurrency: 1})
 	oldBase, oldHash := task.BaseSHA, task.AcceptanceHash
 
-	// The project tip moves on, carrying a different verify policy.
+	// Another integration lands, advancing the PLANE-OWNED target onto a commit
+	// carrying a different verify policy. (A bare branch commit would not move the
+	// target — that is the Sprint-59 fix.)
 	newTip := commitFile(t, repo, ".daedalus/verify.json", `{"checks":["b"],"acceptanceGlobs":["**/*_test.go"]}`)
+	if _, err := store.AdvanceTarget("app", oldBase, newTip, "test: another integration landed"); err != nil {
+		t.Fatalf("AdvanceTarget: %v", err)
+	}
 
 	res, err := svc.RetryTask(task.ID, RetryRequest{Rebase: true})
 	if err != nil {
@@ -250,7 +276,10 @@ func TestRetry_RebaseThenVerify_ClearsStaleBase(t *testing.T) {
 	if _, err := svc.DispatchTask(task.ID); err != nil {
 		t.Fatalf("Dispatch: %v", err)
 	}
-	commitFile(t, repo, "meanwhile.txt", "landed")
+	landed := commitFile(t, repo, "meanwhile.txt", "landed")
+	if _, err := store.AdvanceTarget("app", task.BaseSHA, landed, "test: another integration landed"); err != nil {
+		t.Fatalf("AdvanceTarget: %v", err)
+	}
 	res, err := svc.VerifyTask(task.ID)
 	if err != nil {
 		t.Fatalf("Verify: %v", err)
@@ -654,15 +683,22 @@ func TestRetry_RebaseOntoSelfAuthoredTip_Refused(t *testing.T) {
 	}
 	jobCommit := jobs[0].OutputSnapshot
 
-	// Point the project's target branch at the Job's commit.
+	// Stage the self-authored tip. Note what this now takes: moving the repo's
+	// BRANCH is no longer enough (the plane does not read it), so the only way to
+	// reach this guard is for the plane-owned target itself to end up on a job
+	// commit — e.g. an operator resyncing onto a commit a Job had planted. That is
+	// precisely why the guard is now defence in depth rather than the mechanism.
 	branch := trim(mustGit(t, repo, "rev-parse", "--abbrev-ref", "HEAD"))
 	mustGit(t, repo, "update-ref", "refs/heads/"+branch, jobCommit)
-	tip, err := TargetTipSHA(repo)
-	if err != nil {
-		t.Fatalf("TargetTipSHA: %v", err)
+	if _, err := store.SetTarget("app", jobCommit, EventMeta{Kind: EventGovernance}, "test: operator resync onto a job commit"); err != nil {
+		t.Fatalf("SetTarget: %v", err)
 	}
-	if tip != jobCommit {
-		t.Fatalf("precondition: tip = %s, want the job commit %s", tip, jobCommit)
+	target, err := svc.TargetFor("app")
+	if err != nil {
+		t.Fatalf("TargetFor: %v", err)
+	}
+	if target.SHA != jobCommit {
+		t.Fatalf("precondition: target = %s, want the job commit %s", target.SHA, jobCommit)
 	}
 
 	_, err = svc.RetryTask(task.ID, RetryRequest{Rebase: true})
@@ -890,52 +926,138 @@ func (p *panicResolver) ProjectDir(name string) (string, error) {
 // TestBeginOp_RefusesAndReleases pins the in-flight set directly. It is the whole
 // mechanism that replaced the over-held mutex, so its refusal behaviour needs
 // covering on its own, not only through the reconcile-skip path.
-func TestBeginOp_RefusesAndReleases(t *testing.T) {
+func TestWithClaim_RefusesReleasesAndSurvivesPanics(t *testing.T) {
 	repo := gitRepo(t)
 	svc, _, _ := newService(t, mapResolver{"app": repo}, StubRunner{}, nil)
-
 	first := inflightOp{kind: "dispatch", jobID: "J-1", project: "app"}
-	svc.mu.Lock()
-	if err := svc.beginOp("T-1", first); err != nil {
-		svc.mu.Unlock()
-		t.Fatalf("first claim: %v", err)
-	}
-	// A second claim on the SAME task is refused, with a typed reason naming the
-	// operation already running.
-	err := svc.beginOp("T-1", inflightOp{kind: "verify", project: "app"})
-	svc.mu.Unlock()
 
-	var rej *RejectionError
-	if !errors.As(err, &rej) {
-		t.Fatalf("second claim err = %v, want *RejectionError", err)
-	}
-	if rej.Reason != ReasonOperationInFlight {
-		t.Errorf("reason = %q, want %q", rej.Reason, ReasonOperationInFlight)
-	}
-	if !strings.Contains(rej.Message, "dispatch") || !strings.Contains(rej.Message, "J-1") {
-		t.Errorf("message %q should name the operation already in flight", rej.Message)
-	}
-	// A DIFFERENT task is unaffected — the claim is per task, not global.
-	svc.mu.Lock()
-	if err := svc.beginOp("T-2", inflightOp{kind: "dispatch", project: "app"}); err != nil {
-		svc.mu.Unlock()
-		t.Fatalf("claim on a different task: %v", err)
-	}
-	// jobIsInflight only matches the claimed job.
-	if !svc.jobIsInflight("T-1", "J-1") {
-		t.Error("jobIsInflight(T-1, J-1) = false, want true")
-	}
-	if svc.jobIsInflight("T-1", "J-9") {
-		t.Error("jobIsInflight matched a job that is not the claimed one")
-	}
-	svc.mu.Unlock()
+	t.Run("a second claim on the same task is refused, not queued", func(t *testing.T) {
+		svc.mu.Lock()
+		defer svc.mu.Unlock()
+		err := svc.withClaim("T-1", first, func() error {
+			// Inside the scope the task is claimed…
+			if !svc.jobIsInflight("T-1", "J-1") {
+				t.Error("jobIsInflight(T-1, J-1) = false inside the claim")
+			}
+			if svc.jobIsInflight("T-1", "J-9") {
+				t.Error("jobIsInflight matched a job that is not the claimed one")
+			}
+			// …so a second claim is refused with a typed reason naming the holder.
+			inner := svc.withClaim("T-1", inflightOp{kind: "verify", project: "app"}, func() error {
+				t.Error("the body of a refused claim must not run")
+				return nil
+			})
+			var rej *RejectionError
+			if !errors.As(inner, &rej) {
+				t.Fatalf("second claim err = %v, want *RejectionError", inner)
+			}
+			if rej.Reason != ReasonOperationInFlight {
+				t.Errorf("reason = %q, want %q", rej.Reason, ReasonOperationInFlight)
+			}
+			if !strings.Contains(rej.Message, "dispatch") || !strings.Contains(rej.Message, "J-1") {
+				t.Errorf("message %q should name the operation already in flight", rej.Message)
+			}
+			// A DIFFERENT task is unaffected — claims are per task, not global.
+			if err := svc.withClaim("T-2", inflightOp{kind: "dispatch", project: "app"}, func() error { return nil }); err != nil {
+				t.Errorf("claim on a different task: %v", err)
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("withClaim: %v", err)
+		}
+		if _, leaked := svc.claimJobID("T-1"); leaked {
+			t.Error("the claim outlived its scope")
+		}
+	})
 
-	// endOp releases, and the task can be claimed again.
-	svc.endOp("T-1")
-	svc.mu.Lock()
-	defer svc.mu.Unlock()
-	if err := svc.beginOp("T-1", inflightOp{kind: "verify", project: "app"}); err != nil {
-		t.Errorf("re-claim after endOp: %v", err)
+	t.Run("an error inside the scope still releases", func(t *testing.T) {
+		svc.mu.Lock()
+		defer svc.mu.Unlock()
+		want := errors.New("body failed")
+		if got := svc.withClaim("T-3", first, func() error { return want }); !errors.Is(got, want) {
+			t.Errorf("withClaim err = %v, want %v", got, want)
+		}
+		if _, leaked := svc.claimJobID("T-3"); leaked {
+			t.Error("an error path leaked the claim")
+		}
+	})
+
+	t.Run("a PANIC inside the scope still releases", func(t *testing.T) {
+		svc.mu.Lock()
+		defer svc.mu.Unlock()
+		func() {
+			defer func() {
+				if recover() == nil {
+					t.Error("expected the panic to propagate")
+				}
+			}()
+			_ = svc.withClaim("T-4", first, func() error { panic("boom") })
+		}()
+		if _, leaked := svc.claimJobID("T-4"); leaked {
+			t.Error("a panic leaked the claim — this is the whole point of the helper")
+		}
+	})
+
+	t.Run("unlockedDuring re-takes the lock even on a panic", func(t *testing.T) {
+		svc.mu.Lock()
+		func() {
+			defer func() { _ = recover() }()
+			svc.unlockedDuring(func() { panic("boom") })
+		}()
+		// If the lock were not re-taken this Unlock would panic on an unlocked mutex.
+		svc.mu.Unlock()
+	})
+}
+
+// TestClaimReleaseIsUnrepresentable is the class-level guard the Sprint-58 audit
+// asked for. The same bug — a claim or a lock released by a bare statement that a
+// panic unwinds past — appeared three times in one sprint, and five hand-written
+// correct `defer` sites were still one bare statement away from a sixth bug.
+//
+// So the release lives in exactly ONE place. This test fails the moment a second
+// appears, which turns "somebody must remember" into "the suite will say so".
+func TestClaimReleaseIsUnrepresentable(t *testing.T) {
+	// Needles assembled at runtime so this file does not match itself.
+	release := "delete(" + "s.inflight"
+	unlock := "s.mu." + "Unlock()"
+
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatalf("reading package dir: %v", err)
+	}
+	scanned := 0
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		data, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatalf("reading %s: %v", name, err)
+		}
+		scanned++
+		body := string(data)
+		if name == "claim.go" {
+			continue // the one place both are allowed to be written
+		}
+		if strings.Contains(body, release) {
+			t.Errorf("%s releases an in-flight claim directly; use Service.withClaim so a panic cannot skip it", name)
+		}
+		for _, line := range strings.Split(body, "\n") {
+			trimmed := strings.TrimSpace(line)
+			if !strings.Contains(trimmed, unlock) || strings.HasPrefix(trimmed, "//") {
+				continue // prose about the rule is not a violation of it
+			}
+			// `defer s.mu.Unlock()` is the safe form; a bare call is not.
+			if !strings.HasPrefix(trimmed, "defer ") {
+				t.Errorf("%s: bare %s (%q) — use Service.unlockedDuring or defer, so a panic cannot leave the plane deadlocked",
+					name, unlock, trimmed)
+			}
+		}
+	}
+	if scanned == 0 {
+		t.Fatal("scanned no source files — the guard is not actually running")
 	}
 }
 
@@ -958,8 +1080,11 @@ func TestRefuseSelfAuthoredRebase_FailsClosedOnCheckError(t *testing.T) {
 		"0123456789abcdef0123456789abcdef01234567"); err != nil {
 		t.Fatalf("planting a bogus job commit: %v", err)
 	}
-	// Move the project tip so a rebase is actually attempted.
-	commitFile(t, repo, "moved.txt", "the tip moved")
+	// Advance the plane-owned target so a rebase is actually attempted.
+	moved := commitFile(t, repo, "moved.txt", "the target moved")
+	if _, err := store.AdvanceTarget("app", task.BaseSHA, moved, "test: another integration landed"); err != nil {
+		t.Fatalf("AdvanceTarget: %v", err)
+	}
 
 	_, err := svc.RetryTask(task.ID, RetryRequest{Rebase: true})
 	var rej *RejectionError

@@ -108,23 +108,13 @@ func refSearchDirs(gitDir string) []string {
 	return dirs
 }
 
-// TargetTipSHA returns the commit an artifact would ultimately land on: the
-// project checkout's current HEAD.
-//
-// V1 assumption, stated plainly: the *target branch is whatever the developer's
-// project checkout has checked out*. The control plane has no separate notion of
-// a target ref yet (that arrives with the integration transaction).
-//
-// This tip is NOT beyond a Job's reach, and it would be wrong to claim it is. A
-// linked worktree shares the parent repository's **refs**, not merely its object
-// store: a process inside a Job worktree that can reach the common git dir can
-// run `git update-ref refs/heads/<target> <its-own-commit>` and move this tip. In
-// the real container path the worktree's `.git` file points outside the bind
-// mount, so the refs are typically not reachable — but that is an accident of
-// mounting, not a guarantee this package makes or checks. Everything downstream
-// of TargetTipSHA is therefore written to be safe when the tip is attacker-
-// controlled: see IsSelfAuthoredTip and Service.RetryTask's rebase guard.
-func TargetTipSHA(repoDir string) (string, error) { return ReadHeadSHA(repoDir) }
+// NOTE — there is deliberately no exported "current tip" helper here any more.
+// Sprint 58 had TargetTipSHA/IsStaleBase, which read the project checkout's HEAD;
+// that is a ref a Job's worktree can write, and reading the acceptance oracle
+// from it was the hole the audit found. The tip the plane integrates onto now
+// lives in the control database (see target.go), so anything needing "the
+// current target" must ask Service.TargetFor and not git. ReadHeadSHA survives
+// only for trust-on-first-use adoption and for reading a worktree's own HEAD.
 
 // IsAncestor reports whether `ancestor` is reachable from `descendant` (i.e. it
 // is contained in that commit's history). A commit is its own ancestor. Shells
@@ -190,22 +180,6 @@ func IsSelfAuthoredTip(repoDir, tip string, jobCommits []string) (bool, string, 
 		}
 	}
 	return false, "", nil
-}
-
-// IsStaleBase reports whether baseSHA is no longer the project's target tip —
-// §6's "artifact built from a stale base → REJECTED, must rebase + re-verify".
-// A candidate verified against a base the project has since moved past proves
-// something about a tree nobody will ever integrate, so the plane refuses to
-// call it verified.
-//
-// Returns (stale, currentTip, err). A repo whose tip cannot be read is an error,
-// never a silent "not stale": failing open here would quietly retire the check.
-func IsStaleBase(repoDir, baseSHA string) (bool, string, error) {
-	tip, err := TargetTipSHA(repoDir)
-	if err != nil {
-		return false, "", err
-	}
-	return baseSHA != "" && tip != baseSHA, tip, nil
 }
 
 // resolveGitDir returns the real git directory for a project dir, following a

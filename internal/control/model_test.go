@@ -18,11 +18,15 @@ func TestCanTransition_Exhaustive(t *testing.T) {
 		StateCandidate:     {StateVerifying, StateRejected, StateCancelled, StateExpired, StateFailed},
 		// verifying → candidate is the interrupted-verification recovery edge
 		// (Sprint 58 fix): plane-only, and deliberately NOT worker-reachable.
-		StateVerifying:        {StateVerified, StateRejected, StateCandidate, StateCancelled, StateExpired, StateFailed},
-		StateVerified:         {StateApprovalRequired, StateCancelled, StateExpired},
+		StateVerifying: {StateVerified, StateRejected, StateCandidate, StateCancelled, StateExpired, StateFailed},
+		// verified → rejected: a post-verification gate (review, human approval)
+		// saying no. A downgrade, so it weakens nothing.
+		StateVerified:         {StateApprovalRequired, StateRejected, StateCancelled, StateExpired},
 		StateRejected:         {StateQueued, StatePlanned, StateCancelled, StateExpired},
 		StateApprovalRequired: {StateApproved, StateRejected, StateCancelled, StateExpired},
-		StateApproved:         {StateIntegrated, StateCancelled},
+		// approved → rejected is the failed-integration route (Sprint 59): a rebase
+		// conflict or a merged-result verification failure feeds the retry ladder.
+		StateApproved: {StateIntegrated, StateRejected, StateCancelled},
 		// terminal states: no outgoing edges
 		StateIntegrated: {},
 		StateFailed:     {},

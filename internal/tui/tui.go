@@ -49,6 +49,9 @@ func Run(cfg *core.Config) error {
 			client:    client,
 			cfg:       cfg,
 			statusMsg: nextStatus,
+			// Attached only if the control daemon is already listening; the TUI
+			// never spawns it (see approvals.go).
+			control: dialControlPlane(cfg),
 		}
 		nextStatus = ""
 

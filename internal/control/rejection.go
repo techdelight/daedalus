@@ -51,6 +51,15 @@ const (
 	// ReasonOperationInFlight: the same Task already has a dispatch or verify
 	// running in this process.
 	ReasonOperationInFlight RejectionReason = "operation_in_flight"
+	// ReasonApprovalRequired: the project's policy requires a human approval that
+	// has not been given.
+	ReasonApprovalRequired RejectionReason = "approval_required"
+	// ReasonReviewRequired: an independent reviewer is configured and has not
+	// passed this artifact.
+	ReasonReviewRequired RejectionReason = "review_required"
+	// ReasonIntegrationRaced: the integration transaction lost the compare-and-swap
+	// repeatedly — the target kept moving. Nothing was landed.
+	ReasonIntegrationRaced RejectionReason = "integration_raced"
 
 	// --- verdicts (the plane acted; the artifact was rejected) ---
 
@@ -66,6 +75,16 @@ const (
 	ReasonIntegrityGate RejectionReason = "integrity_gate"
 	// ReasonVerifyFailed: the clean verifier ran and reported failure.
 	ReasonVerifyFailed RejectionReason = "verify_failed"
+	// ReasonReviewFailed: the independent reviewer rejected the artifact.
+	ReasonReviewFailed RejectionReason = "review_failed"
+	// ReasonApprovalRejected: a human declined the change at the approval gate.
+	ReasonApprovalRejected RejectionReason = "approval_rejected"
+	// ReasonMergeConflict: the artifact does not replay cleanly onto the target.
+	ReasonMergeConflict RejectionReason = "merge_conflict"
+	// ReasonMergedVerifyFailed: the artifact verified alone but the MERGED result
+	// failed — a semantic conflict, the failure the integration transaction exists
+	// to catch.
+	ReasonMergedVerifyFailed RejectionReason = "merged_verify_failed"
 )
 
 // allRejectionReasons is the closed set, for validation and tests.
@@ -73,8 +92,11 @@ var allRejectionReasons = map[RejectionReason]bool{
 	ReasonOverBudget: true, ReasonInvalidBudget: true, ReasonAttemptsExhausted: true,
 	ReasonReviewCyclesExhausted: true, ReasonConcurrencyExceeded: true,
 	ReasonUnsafeRebase: true, ReasonOperationInFlight: true,
+	ReasonApprovalRequired: true, ReasonReviewRequired: true, ReasonIntegrationRaced: true,
 	ReasonStaleBase: true, ReasonNullAgentFloor: true,
 	ReasonPolicyDrift: true, ReasonIntegrityGate: true, ReasonVerifyFailed: true,
+	ReasonReviewFailed: true, ReasonApprovalRejected: true,
+	ReasonMergeConflict: true, ReasonMergedVerifyFailed: true,
 }
 
 // IsValidRejectionReason reports whether r is a known reason (ReasonNone is not
@@ -87,8 +109,10 @@ func AllRejectionReasons() []RejectionReason {
 	return []RejectionReason{
 		ReasonOverBudget, ReasonInvalidBudget, ReasonAttemptsExhausted,
 		ReasonReviewCyclesExhausted, ReasonConcurrencyExceeded, ReasonUnsafeRebase,
-		ReasonOperationInFlight, ReasonStaleBase, ReasonNullAgentFloor,
-		ReasonPolicyDrift, ReasonIntegrityGate, ReasonVerifyFailed,
+		ReasonOperationInFlight, ReasonApprovalRequired, ReasonReviewRequired,
+		ReasonIntegrationRaced, ReasonStaleBase, ReasonNullAgentFloor,
+		ReasonPolicyDrift, ReasonIntegrityGate, ReasonVerifyFailed, ReasonReviewFailed,
+		ReasonApprovalRejected, ReasonMergeConflict, ReasonMergedVerifyFailed,
 	}
 }
 

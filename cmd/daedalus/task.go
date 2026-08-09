@@ -14,8 +14,7 @@ import (
 	"github.com/techdelight/daedalus/internal/control"
 )
 
-// manageTasks dispatches
-// `daedalus task <create|list|status|dispatch|verify|retry|replan|events|cancel>`.
+// manageTasks dispatches `daedalus task <subcommand>` (see printTaskUsage).
 //
 // As of Sprint 55 the CLI is a THIN CLIENT of the daedalus-control daemon: it
 // obtains a client via control.EnsureRunning (auto-spawning the daemon, exactly
@@ -30,7 +29,7 @@ func manageTasks(cfg *core.Config) error {
 	args := cfg.TaskArgs
 	if len(args) == 0 {
 		printTaskUsage()
-		return fmt.Errorf("task: subcommand required (create|list|status|dispatch|verify|retry|replan|events|cancel)")
+		return fmt.Errorf("task: subcommand required (create|list|status|dispatch|verify|review|approve|reject|integrate|approvals|target|retry|replan|events|cancel)")
 	}
 	if args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
 		printTaskUsage()
@@ -64,10 +63,22 @@ func runTaskCommand(api control.TaskAPI, args []string) error {
 		return taskReplan(api, args[1:])
 	case "events", "log":
 		return taskEvents(api, args[1:])
+	case "review":
+		return taskReview(api, args[1:])
+	case "approve":
+		return taskApprove(api, args[1:])
+	case "reject":
+		return taskReject(api, args[1:])
+	case "integrate", "land":
+		return taskIntegrate(api, args[1:])
+	case "approvals", "pending":
+		return taskApprovals(api, args[1:])
+	case "target":
+		return taskTarget(api, args[1:])
 	case "cancel":
 		return taskCancel(api, args[1:])
 	default:
-		return fmt.Errorf("task: unknown subcommand %q\n%s daedalus task <create|list|status|dispatch|verify|retry|replan|events|cancel>", args[0], color.Cyan("Hint:"))
+		return fmt.Errorf("task: unknown subcommand %q\n%s daedalus task <create|list|status|dispatch|verify|review|approve|reject|integrate|approvals|target|retry|replan|events|cancel>", args[0], color.Cyan("Hint:"))
 	}
 }
 
@@ -434,6 +445,181 @@ func eventChange(e control.Event) string {
 	return change
 }
 
+// taskReview implements `task review <id>`: the independent reviewer pass over a
+// verified artifact, which gates integration when a reviewer is configured.
+func taskReview(api control.TaskAPI, args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: daedalus task review <id>")
+	}
+	res, err := api.ReviewTask(args[0])
+	if err != nil {
+		if errors.Is(err, control.ErrNotFound) {
+			return fmt.Errorf("task %q not found", args[0])
+		}
+		return err
+	}
+	cycles := fmt.Sprintf("%d", res.Cycles)
+	if res.MaxCycle > 0 {
+		cycles = fmt.Sprintf("%d/%d", res.Cycles, res.MaxCycle)
+	}
+	if res.Passed {
+		fmt.Printf("%s task %s passed independent review (pass %s) — %s\n",
+			color.Green("OK:"), args[0], cycles, res.Detail)
+		return nil
+	}
+	fmt.Printf("%s task %s REJECTED by independent review [%s] (pass %s) — %s\n",
+		color.Yellow("Reject:"), args[0], res.Reason, cycles, res.Detail)
+	fmt.Printf("     retry with `daedalus task retry %s`, or replan with `daedalus task replan %s --objective <text>`\n", args[0], args[0])
+	return nil
+}
+
+// taskApprove implements `task approve <id> [--note <text>]`.
+func taskApprove(api control.TaskAPI, args []string) error {
+	id, note, err := idAndNote("approve", args)
+	if err != nil {
+		return err
+	}
+	t, err := api.ApproveTask(id, note)
+	if err != nil {
+		if errors.Is(err, control.ErrNotFound) {
+			return fmt.Errorf("task %q not found", id)
+		}
+		return err
+	}
+	fmt.Printf("%s task %s approved (state %s)\n", color.Green("OK:"), color.Bold(t.ID), t.State)
+	fmt.Printf("     land it with `daedalus task integrate %s`\n", t.ID)
+	return nil
+}
+
+// taskReject implements `task reject <id> [--note <text>]`.
+func taskReject(api control.TaskAPI, args []string) error {
+	id, note, err := idAndNote("reject", args)
+	if err != nil {
+		return err
+	}
+	t, err := api.RejectApproval(id, note)
+	if err != nil {
+		if errors.Is(err, control.ErrNotFound) {
+			return fmt.Errorf("task %q not found", id)
+		}
+		return err
+	}
+	fmt.Printf("%s task %s rejected at the approval gate (state %s)\n", color.Yellow("Reject:"), color.Bold(t.ID), t.State)
+	fmt.Printf("     retry with `daedalus task retry %s`, or replan with `daedalus task replan %s --objective <text>`\n", t.ID, t.ID)
+	return nil
+}
+
+// idAndNote parses `<id> [--note <text>]` for the approve/reject commands.
+func idAndNote(cmd string, args []string) (string, string, error) {
+	if len(args) < 1 {
+		return "", "", fmt.Errorf("usage: daedalus task %s <id> [--note <text>]", cmd)
+	}
+	id, note := args[0], ""
+	for i := 1; i < len(args); i++ {
+		switch args[i] {
+		case "--note", "-m":
+			if i+1 >= len(args) {
+				return "", "", fmt.Errorf("--note requires text")
+			}
+			i++
+			note = args[i]
+		default:
+			return "", "", fmt.Errorf("task %s: unknown flag %q\n%s usage: daedalus task %s <id> [--note <text>]",
+				cmd, args[i], color.Cyan("Hint:"), cmd)
+		}
+	}
+	return id, note, nil
+}
+
+// taskIntegrate implements `task integrate <id>`: the race-safe landing
+// transaction (rebase onto the target → re-verify the MERGED result → CAS).
+func taskIntegrate(api control.TaskAPI, args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: daedalus task integrate <id>")
+	}
+	res, err := api.IntegrateTask(args[0])
+	if err != nil {
+		if errors.Is(err, control.ErrNotFound) {
+			return fmt.Errorf("task %q not found", args[0])
+		}
+		return err
+	}
+	fmt.Printf("%s task %s INTEGRATED — target %s → %s\n",
+		color.Green("OK:"), color.Bold(args[0]), shortSHA(res.PreviousTarget), color.Bold(shortSHA(res.NewTarget)))
+	fmt.Printf("     landed as %s (the artifact rebased onto the target and re-verified in that form)\n", shortSHA(res.MergedSHA))
+	if res.Attempts > 1 {
+		fmt.Printf("     took %d attempts — the target moved under us and the transaction recomputed\n", res.Attempts)
+	}
+	return nil
+}
+
+// taskApprovals implements `task approvals`: everything awaiting a human.
+func taskApprovals(api control.TaskAPI, args []string) error {
+	if len(args) > 0 {
+		return fmt.Errorf("task approvals: unexpected argument %q", args[0])
+	}
+	tasks, err := api.PendingApprovals()
+	if err != nil {
+		return err
+	}
+	if len(tasks) == 0 {
+		fmt.Println("Nothing is awaiting approval.")
+		return nil
+	}
+	fmt.Printf("%-6s  %-18s  %s\n", color.Bold("ID"), color.Bold("PROJECT"), color.Bold("OBJECTIVE"))
+	fmt.Printf("%-6s  %-18s  %s\n", "------", "------------------", "---------")
+	for _, t := range tasks {
+		fmt.Printf("%-6s  %-18s  %s\n", t.ID, truncate(t.Project, 18), truncate(t.Objective, 50))
+	}
+	fmt.Println()
+	fmt.Println("Approve with `daedalus task approve <id>`, reject with `daedalus task reject <id>`.")
+	return nil
+}
+
+// taskTarget implements `task target [<project> --sync]`: show the plane-owned
+// integration targets, or resync one to the checkout's HEAD.
+func taskTarget(api control.TaskAPI, args []string) error {
+	if len(args) == 0 {
+		targets, err := api.ProjectTargets()
+		if err != nil {
+			return err
+		}
+		if len(targets) == 0 {
+			fmt.Println("No integration targets yet — one is adopted when a project's first task is created.")
+			return nil
+		}
+		fmt.Printf("%-18s  %-10s  %s\n", color.Bold("PROJECT"), color.Bold("TARGET"), color.Bold("UPDATED"))
+		fmt.Printf("%-18s  %-10s  %s\n", "------------------", "----------", "-------")
+		for _, t := range targets {
+			fmt.Printf("%-18s  %-10s  %s\n", truncate(t.Project, 18), shortSHA(t.SHA), t.UpdatedAt)
+		}
+		fmt.Println()
+		fmt.Println("The target is the commit tasks are based on and graded against. Only a completed")
+		fmt.Println("integration advances it; `--sync` adopts the checkout's HEAD by hand.")
+		return nil
+	}
+	project := args[0]
+	sync := false
+	for _, a := range args[1:] {
+		switch a {
+		case "--sync":
+			sync = true
+		default:
+			return fmt.Errorf("task target: unknown flag %q\n%s usage: daedalus task target [<project> --sync]", a, color.Cyan("Hint:"))
+		}
+	}
+	if !sync {
+		return fmt.Errorf("usage: daedalus task target [<project> --sync]")
+	}
+	t, err := api.SyncTarget(project)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("%s integration target for %s is now %s\n", color.Green("OK:"), color.Bold(project), shortSHA(t.SHA))
+	fmt.Println("     future tasks are based on, and graded against, that commit")
+	return nil
+}
+
 // taskCancel implements `task cancel <id>` via a legal transition to cancelled.
 func taskCancel(api control.TaskAPI, args []string) error {
 	if len(args) < 1 {
@@ -500,7 +686,22 @@ func printTaskUsage() {
 	fmt.Println("  replan <id> --objective <text>")
 	fmt.Println("                       Return a rejected task to planned with a revised objective")
 	fmt.Println("  events <id>          Show the control-plane-managed event log for a task")
+	fmt.Println("  review <id>          Run the independent reviewer over a verified artifact")
+	fmt.Println("  approve <id> [--note <text>]")
+	fmt.Println("                       Approve a verified task for integration (human authority)")
+	fmt.Println("  reject <id> [--note <text>]")
+	fmt.Println("                       Reject at the approval gate (feeds retry/replan)")
+	fmt.Println("  integrate <id>       Land it: rebase onto the target, re-verify the MERGED result,")
+	fmt.Println("                       then compare-and-swap the plane-owned target ref")
+	fmt.Println("  approvals            List everything awaiting a human decision")
+	fmt.Println("  target [<project> --sync]")
+	fmt.Println("                       Show the plane-owned integration targets, or resync one by hand")
 	fmt.Println("  cancel <id>          Cancel a task (legal transition to cancelled)")
+	fmt.Println()
+	fmt.Println(color.Bold("Integration:"))
+	fmt.Println("  Each project has a plane-owned target commit that ONLY a completed integration")
+	fmt.Println("  advances. Tasks are based on it and their acceptance policy is frozen at it, so")
+	fmt.Println("  rewriting the repository's branches cannot influence how work is graded.")
 	fmt.Println()
 	fmt.Println(color.Bold("Budgets:"))
 	fmt.Println("  Enforced host-side: wall-clock, max-attempts, max-review-cycles, concurrency.")

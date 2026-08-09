@@ -116,6 +116,13 @@ type TaskAPI interface {
 	VerifyTask(id string) (VerifyResult, error)
 	RetryTask(id string, req RetryRequest) (RetryResult, error)
 	ReplanTask(id string, req ReplanRequest) (Task, error)
+	ReviewTask(id string) (ReviewResult, error)
+	ApproveTask(id, note string) (Task, error)
+	RejectApproval(id, note string) (Task, error)
+	IntegrateTask(id string) (IntegrationResult, error)
+	PendingApprovals() ([]Task, error)
+	ProjectTargets() ([]Target, error)
+	SyncTarget(project string) (Target, error)
 	// TaskEvents is READ-ONLY and is the only event-facing operation on this
 	// interface — there is deliberately no append/amend/delete counterpart, which
 	// is what "immutable through the API" means in practice (§6).
@@ -134,7 +141,8 @@ type Service struct {
 	verifier  VerifyRunner    // may be nil until a candidate is verified
 	digester  ImageDigester   // may be nil (digest pinning then skipped)
 	sessions  SessionObserver // may be nil (reconcile then skips session checks)
-	budgets   BudgetSource    // may be nil (then DefaultBudget() for every project)
+	budgets   PolicySource    // may be nil (then DefaultBudget(), no approval)
+	reviewer  ReviewRunner    // may be nil (then review is not a gate)
 
 	// mu serialises the DB bookkeeping of Dispatch, Verify, Cancel and Reconcile
 	// (V1 has a single SQLite writer conn). It is deliberately NOT held across the
@@ -195,21 +203,6 @@ func (s *Service) beginOp(taskID string, op inflightOp) error {
 	return nil
 }
 
-// setOpJob records the job id on an in-flight op once it exists. s.mu must be held.
-func (s *Service) setOpJob(taskID, jobID string) {
-	if op, ok := s.inflight[taskID]; ok {
-		op.jobID = jobID
-		s.inflight[taskID] = op
-	}
-}
-
-// endOp releases a task's in-flight claim, taking s.mu itself.
-func (s *Service) endOp(taskID string) {
-	s.mu.Lock()
-	delete(s.inflight, taskID)
-	s.mu.Unlock()
-}
-
 // jobIsInflight reports whether a job is being run or verified by this process
 // right now. s.mu must be held. Reconcile uses it so it never "repairs" live work.
 func (s *Service) jobIsInflight(taskID, jobID string) bool {
@@ -253,14 +246,19 @@ func (s *Service) governanceMeta() EventMeta {
 	return EventMeta{Kind: EventGovernance, Actor: s.callerActor()}
 }
 
-// SetBudgetSource installs the per-project budget ceiling source (the daemon
-// passes FileBudgetPolicy; tests pass a static one). Nil means every project gets
-// DefaultBudget().
-func (s *Service) SetBudgetSource(b BudgetSource) { s.budgets = b }
+// SetPolicySource installs the per-project governance policy source — budget
+// ceilings and the approval requirement (the daemon passes FileBudgetPolicy;
+// tests pass a static one). Nil means DefaultBudget() and no approval.
+func (s *Service) SetPolicySource(p PolicySource) { s.budgets = p }
+
+// SetBudgetSource is SetPolicySource under its Sprint-58 name.
+//
+// Deprecated: use SetPolicySource; the seam now carries the approval policy too.
+func (s *Service) SetBudgetSource(p PolicySource) { s.SetPolicySource(p) }
 
 // budgetCeiling resolves the ceiling for a project: the configured source, or
 // the built-in default when none is installed.
-// The result is sanitized: BudgetSource is an exported, injectable interface, so
+// The result is sanitized: PolicySource is an exported, injectable interface, so
 // the ceiling can arrive from a caller that never went through LoadBudgetPolicy
 // (StaticBudget, or any third implementation). A negative ceiling would make
 // exceededBy's `permitted > 0` guard permit *everything*, turning the ceiling
@@ -298,10 +296,17 @@ func (s *Service) CreateTask(req CreateTaskRequest) (Task, error) {
 	if err != nil {
 		return Task{}, err
 	}
-	baseSHA, err := ReadHeadSHA(dir)
+	// The base is the PLANE-OWNED integration target, never the checkout's HEAD
+	// (target.go). This is what makes the acceptance oracle unreachable from the
+	// repository: an agent may rewrite every branch it likes — by cherry-pick,
+	// commit-tree, or anything else — and none of them is the commit this Task is
+	// based on or graded against. A project with no target yet adopts its HEAD
+	// once, before any Job for it has ever run.
+	target, err := s.TargetFor(req.Project)
 	if err != nil {
 		return Task{}, err
 	}
+	baseSHA := target.SHA
 	// Freeze the acceptance policy as it stands at base_sha: read the committed
 	// .daedalus/verify.json at that sha (or the default) and store its stable
 	// hash. Because it is read from the commit — not the working tree — a later
@@ -437,21 +442,34 @@ func (s *Service) CancelTask(id string) (Task, error) {
 // promotes to a candidate Artifact; failure/timeout/cancel are terminal and
 // reclaim the worktree.
 func (s *Service) DispatchTask(id string) (DispatchResult, error) {
-	// The locked phase is a closure with `defer s.mu.Unlock()`, not a bare
-	// lock/unlock pair: prepareDispatch touches the DB, shells out to git, and
-	// reads files, and a panic in any of that would unwind past an inline unlock
-	// and leave the control plane deadlocked forever. net/http recovers the
-	// handler panic, so the daemon would stay up and simply stop answering — the
-	// worst failure mode there is.
-	prep, err := func() (dispatchPrep, error) {
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		return s.prepareDispatch(id)
-	}()
+	// One lock for the whole operation, with the (long) agent run released from it
+	// by unlockedDuring inside runDispatch. `defer s.mu.Unlock()` rather than a
+	// bare pair: prepareDispatch touches the DB, shells out to git and reads
+	// files, and a panic in any of that must not leave the plane deadlocked —
+	// net/http recovers a handler panic, so a deadlocked daemon would stay up and
+	// simply stop answering, the worst available failure mode.
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	prep, err := s.prepareDispatch(id)
 	if err != nil {
 		return DispatchResult{}, err
 	}
-	return s.runDispatch(prep)
+	return s.runClaimedDispatch(prep)
+}
+
+// runClaimedDispatch runs a prepared dispatch under an in-flight claim. s.mu must
+// be held; it is held again on return.
+func (s *Service) runClaimedDispatch(prep dispatchPrep) (DispatchResult, error) {
+	var res DispatchResult
+	err := s.withClaim(prep.task.ID,
+		inflightOp{kind: "dispatch", jobID: prep.job.ID, project: prep.task.Project},
+		func() error {
+			var runErr error
+			res, runErr = s.runDispatch(prep)
+			return runErr
+		})
+	return res, err
 }
 
 // dispatchPrep is everything the run phase needs, resolved while s.mu was held.
@@ -463,9 +481,9 @@ type dispatchPrep struct {
 }
 
 // prepareDispatch does the whole locked half of a dispatch: guards, budget,
-// state transitions, the Job row, and the isolated worktree. s.mu MUST be held.
-// On success the task is claimed in `inflight` and the caller owns the claim —
-// it must call runDispatch (which releases it) or endOp.
+// state transitions, the Job row, and the isolated worktree. s.mu MUST be held
+// throughout, which is what keeps two dispatches from interleaving here — it
+// takes no claim of its own, so it has nothing to leak.
 func (s *Service) prepareDispatch(id string) (dispatchPrep, error) {
 	if s.runner == nil || s.worktrees == nil {
 		return dispatchPrep{}, fmt.Errorf("control: dispatch not configured (no runner/worktrees)")
@@ -480,22 +498,6 @@ func (s *Service) prepareDispatch(id string) (dispatchPrep, error) {
 	if task.State != StatePlanned && task.State != StateQueued && task.State != StateRejected {
 		return dispatchPrep{}, fmt.Errorf("%w: task %s is %s, not dispatchable (want planned/queued/rejected)", ErrWrongState, id, task.State)
 	}
-	// Claim the task before anything else moves: with the lock released across the
-	// run, the task state alone is no longer enough to keep two dispatches apart.
-	if err := s.beginOp(id, inflightOp{kind: "dispatch", project: task.Project}); err != nil {
-		return dispatchPrep{}, err
-	}
-	// Release the claim by DEFER, disarmed only once the caller takes ownership of
-	// it (runDispatch releases it then). A manual release on each failure path
-	// would be one `return` — or one panic in the git/DB/filesystem work below —
-	// away from leaking a claim, and a leaked claim wedges the task permanently.
-	claimed := true
-	defer func() {
-		if claimed {
-			delete(s.inflight, id)
-		}
-	}()
-
 	// Budget gate, BEFORE any state change or side-effect: an over-budget dispatch
 	// must leave the task exactly as it found it.
 	if err := s.checkDispatchBudget(task); err != nil {
@@ -525,8 +527,6 @@ func (s *Service) prepareDispatch(id string) (dispatchPrep, error) {
 	if err != nil {
 		return dispatchPrep{}, err
 	}
-	s.setOpJob(id, job.ID)
-
 	// Isolated worktree at base_sha on the deterministic branch.
 	wtPath, err := s.worktrees.Add(repoDir, id, job.ID, task.BaseSHA)
 	if err != nil {
@@ -534,14 +534,13 @@ func (s *Service) prepareDispatch(id string) (dispatchPrep, error) {
 		s.failJobAndTask(id, job.ID, ExecFailed, "", "worktree add failed: "+err.Error())
 		return dispatchPrep{}, err
 	}
-	// Success: the caller now owns the claim and runDispatch will release it.
-	claimed = false
 	return dispatchPrep{task: task, job: job, repoDir: repoDir, worktree: wtPath}, nil
 }
 
-// runDispatch runs the agent WITHOUT s.mu held (process exit is the boundary,
-// bounded by the wall-clock budget), then retakes the lock to capture, classify
-// and promote. It always releases the task's in-flight claim.
+// runDispatch runs the agent with s.mu RELEASED (process exit is the boundary,
+// bounded by the wall-clock budget), then retakes it to capture, classify and
+// promote. s.mu must be held on entry and is held on return; the caller holds the
+// in-flight claim.
 //
 // Not holding the lock across the run is what keeps `task cancel` and the
 // reconcile loop responsive while a Job runs — at the cost of having to cope with
@@ -549,16 +548,15 @@ func (s *Service) prepareDispatch(id string) (dispatchPrep, error) {
 // explicitly rather than by fighting the state machine.
 func (s *Service) runDispatch(prep dispatchPrep) (DispatchResult, error) {
 	task, job := prep.task, prep.job
-	defer s.endOp(task.ID)
 
-	outcome := runUnderWallClock(s.runner, JobSpec{
-		TaskID: task.ID, JobID: job.ID, Project: task.Project, Objective: task.Objective,
-		Runner: "claude", Budget: task.Budget.WallClockSeconds, BaseSHA: task.BaseSHA,
-		WorktreeDir: prep.worktree,
+	var outcome RunOutcome
+	s.unlockedDuring(func() {
+		outcome = runUnderWallClock(s.runner, JobSpec{
+			TaskID: task.ID, JobID: job.ID, Project: task.Project, Objective: task.Objective,
+			Runner: "claude", Budget: task.Budget.WallClockSeconds, BaseSHA: task.BaseSHA,
+			WorktreeDir: prep.worktree,
+		})
 	})
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	// Capture the tree (salvage snapshot even on failure). Best-effort: a capture
 	// failure leaves output_snapshot empty but does not lose the outcome.
@@ -750,20 +748,18 @@ func (s *Service) VerifyTask(id string) (VerifyResult, error) {
 	// `task retry --rebase` re-pins the task to the new tip and re-freezes the
 	// acceptance policy there. Checked before the gate/verifier so a doomed
 	// artifact never costs a verifier container.
-	stale, tip, err := IsStaleBase(repoDir, task.BaseSHA)
+	stale, tip, err := s.staleAgainstTarget(task)
 	if err != nil {
 		return VerifyResult{}, err
 	}
 	if stale {
-		// The message deliberately does NOT tell the operator to run --rebase. The
-		// tip may have moved *because a Job moved it* (a linked worktree shares the
-		// parent repo's refs — see TargetTipSHA), and --rebase re-freezes the
-		// acceptance oracle at that tip. Reflexively recommending it would turn a
-		// detection into a self-completing attack. So: name the condition, name the
-		// remedy, and say to look first. The plane also refuses the unsafe case.
-		note := fmt.Sprintf("stale base: artifact built on %s but the project tip is now %s — it must be rebased onto the current tip and re-verified. "+
-			"Inspect that tip before rebasing (`git log %s`): `daedalus task retry %s --rebase` re-freezes the acceptance policy at it",
-			shortSHA(task.BaseSHA), shortSHA(tip), shortSHA(tip), id)
+		// The tip here is the PLANE-OWNED target, which only a completed integration
+		// advances — so a stale base now means "another integration landed while
+		// this Task was in flight", not "somebody moved a branch". Recommending a
+		// rebase is therefore safe again: the commit being rebased onto is one the
+		// plane itself landed, not one a worker could have planted.
+		note := fmt.Sprintf("stale base: artifact built on %s but the integration target is now %s — rebase onto it and re-verify (daedalus task retry %s --rebase)",
+			shortSHA(task.BaseSHA), shortSHA(tip), id)
 		res := s.doReject(task, job, art, repoDir, ReasonStaleBase, note)
 		res.Detail = note
 		return res, nil
@@ -816,19 +812,6 @@ func (s *Service) VerifyTask(id string) (VerifyResult, error) {
 			s.recoverStrandedVerify(id, job.ID, "verify aborted before a verdict — returned to candidate")
 		}
 	}()
-	if err := s.beginOp(id, inflightOp{kind: "verify", jobID: job.ID, project: task.Project}); err != nil {
-		return VerifyResult{}, err
-	}
-	// Released by DEFER, never by a bare statement further down: a panic in the
-	// verifier unwinds straight past any inline delete, and a leaked claim is a
-	// permanent wedge — `candidate`'s only forward move is verify, which would then
-	// be refused with operation_in_flight for the rest of the daemon's life. Same
-	// discipline as runDispatch's `defer s.endOp`. Deferred functions run LIFO, so
-	// this releases the claim while s.mu is still held (the closure around
-	// verifier.Verify re-acquires it even on a panic) and before the stranded-
-	// recovery defer above needs it.
-	defer delete(s.inflight, id)
-
 	// Refresh job/task snapshots for the return value + reject path.
 	job, _ = s.store.GetJob(job.ID)
 	task, _ = s.store.GetTask(id)
@@ -850,16 +833,16 @@ func (s *Service) VerifyTask(id string) (VerifyResult, error) {
 		BaseSHA: task.BaseSHA, HeadSHA: job.OutputSnapshot,
 		Branch: BranchName(id, job.ID), Policy: policy, ImageDigest: task.ImageDigest,
 	}
-	// The unlock/relock is a closure with `defer s.mu.Lock()` rather than a bare
-	// pair, so a PANIC inside the verifier still leaves the mutex held on the way
-	// out — which is what lets the deferred stranded-recovery above run correctly
-	// instead of deadlocking or unlocking an unlocked mutex. net/http recovers a
-	// handler panic, so the daemon survives; the task must survive with it.
-	outcome := func() VerifyOutcome {
-		s.mu.Unlock()
-		defer s.mu.Lock()
-		return s.verifier.Verify(context.Background(), spec)
-	}()
+	// The claim and the unlock are both scoped helpers (claim.go): the claim is
+	// released on every exit including a panic, and the mutex is re-taken the same
+	// way. Neither is a statement written here, so neither can be forgotten here.
+	var outcome VerifyOutcome
+	if err := s.withClaim(id, inflightOp{kind: "verify", jobID: job.ID, project: task.Project}, func() error {
+		s.unlockedDuring(func() { outcome = s.verifier.Verify(context.Background(), spec) })
+		return nil
+	}); err != nil {
+		return VerifyResult{}, err
+	}
 
 	// The task may have been cancelled while the verifier ran; a terminal task is
 	// not ours to move, and it is not stranded either.
@@ -894,6 +877,18 @@ func (s *Service) VerifyTask(id string) (VerifyResult, error) {
 	if art != nil {
 		if a, err := s.store.SetArtifactVerify(art.ID, VerifyPass); err == nil {
 			art = &a
+		}
+	}
+	// A project that requires human approval parks here, so the Task shows up in
+	// the pending-approvals queue immediately rather than only when somebody tries
+	// to integrate it. Projects that do not require approval rest at `verified`.
+	if s.requiresApproval(task.Project) {
+		if moved, err := s.store.TransitionTaskWith(id, StateApprovalRequired, false,
+			EventMeta{Kind: EventApproval},
+			"awaiting human approval: required for project "+task.Project+" by policy"); err == nil {
+			tk = moved
+		} else {
+			log.Printf("control: moving %s to approval_required: %v", id, err)
 		}
 	}
 	return VerifyResult{Job: jb, Task: tk, Artifact: art, VerifierCalled: true, Verified: true, Detail: outcome.Detail}, nil
@@ -962,17 +957,14 @@ func (s *Service) doReject(task Task, job Job, art *Artifact, repoDir string, re
 // That is deliberately opt-in: re-freezing the oracle at a newer commit adopts
 // whatever verify policy that commit carries, so a human asks for it by name.
 func (s *Service) RetryTask(id string, req RetryRequest) (RetryResult, error) {
-	// Closure + defer, for the same reason as DispatchTask: a panic in the locked
-	// phase must not deadlock the plane.
-	res, prep, err := func() (RetryResult, dispatchPrep, error) {
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		return s.prepareRetry(id, req)
-	}()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	res, prep, err := s.prepareRetry(id, req)
 	if err != nil {
 		return RetryResult{}, err
 	}
-	dispatch, err := s.runDispatch(prep)
+	dispatch, err := s.runClaimedDispatch(prep)
 	if err != nil {
 		return RetryResult{}, err
 	}
@@ -1010,18 +1002,18 @@ func (s *Service) prepareRetry(id string, req RetryRequest) (RetryResult, dispat
 		if err != nil {
 			return RetryResult{}, dispatchPrep{}, err
 		}
-		tip, err := TargetTipSHA(repoDir)
+		target, err := s.TargetFor(task.Project)
 		if err != nil {
 			return RetryResult{}, dispatchPrep{}, err
 		}
+		tip := target.SHA
 		if tip != task.BaseSHA {
-			// REFUSE a rebase onto a tip that contains this Task's own Job commits.
-			// A linked worktree shares the parent repo's refs, so a Job that can reach
-			// the common git dir can point the target branch at its own commit; a
-			// rebase would then re-freeze the acceptance oracle onto a policy the
-			// worker wrote, which is precisely what §6 forbids ("the oracle must live
-			// outside the agent's write scope"). Detecting it is one merge-base per
-			// attempt and does not care how the tip came to move.
+			// DEFENCE IN DEPTH, no longer the mechanism. The rebase target is now the
+			// plane-owned integration ref, which a worker cannot write, so the attack
+			// this guard was built for is closed structurally (target.go). The check
+			// stays because it costs one merge-base and would catch a target that
+			// became self-authored some other way — e.g. an operator resyncing onto a
+			// commit a Job had planted on the branch.
 			if err := s.refuseSelfAuthoredRebase(task, repoDir, tip); err != nil {
 				return RetryResult{}, dispatchPrep{}, err
 			}
@@ -1125,12 +1117,17 @@ func (s *Service) TaskEvents(id string) ([]Event, error) {
 
 // candidateJob returns the latest Job of a task that is in the candidate state.
 func (s *Service) candidateJob(taskID string) (Job, bool, error) {
+	return s.jobInState(taskID, StateCandidate)
+}
+
+// jobInState returns a task's latest Job in the given state.
+func (s *Service) jobInState(taskID string, state State) (Job, bool, error) {
 	jobs, err := s.store.ListJobsForTask(taskID)
 	if err != nil {
 		return Job{}, false, err
 	}
 	for i := len(jobs) - 1; i >= 0; i-- {
-		if jobs[i].State == StateCandidate {
+		if jobs[i].State == state {
 			return jobs[i], true, nil
 		}
 	}

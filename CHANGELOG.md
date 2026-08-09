@@ -5,6 +5,57 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- **The plane-owned integration target, the race-safe integration transaction,
+  human approval and the independent reviewer (Sprint 59, M15).**
+  - **Plane-owned target ref — closes the acceptance-oracle laundering hole
+    structurally.** Each project now has a target commit held in `control.db` that
+    **only a completed integration transaction advances** (plus an explicit human
+    resync). `CreateTask` and `retry --rebase` freeze the acceptance policy at
+    *that* commit rather than the project checkout's mutable `HEAD`, and staleness
+    is measured against it. This dissolves the whole class the Sprint-58 audit
+    documented but could not patch: cherry-pick/`commit-tree`/`format-patch|am`
+    laundering (a weakened policy under a fresh SHA with no ancestry link) and the
+    unguarded-`CreateTask` path ("poison the branch and wait for the next Task")
+    both change nothing, because none of the repository's refs is what work is
+    based on or graded against. Regression tests stage each attack, assert it
+    still defeats an ancestry check, then assert it has no effect. The Sprint-58
+    ancestry guard survives as **defence in depth**, not as the mechanism.
+    `refs/daedalus/target` is written as a non-authoritative projection so the
+    landed commit stays visible and reachable; a worker overwriting it is asserted
+    to change nothing. Adoption is trust-on-first-use and the resync is manual and
+    logged — both documented rather than glossed.
+  - **The integration transaction.** `daedalus task integrate <id>` serializes per
+    project, rebases the artifact onto the current target, **re-verifies the
+    MERGED result** through the existing `VerifyRunner` seam (not the pre-merge
+    branch — this is the semantic-conflict fix), then **compare-and-swaps** the
+    target, recomputing against the new tip if another integration landed
+    meanwhile. Every failure leaves the target untouched and the Task recoverable
+    via retry/replan, with typed reasons (`merge_conflict`,
+    `merged_verify_failed`, `integration_raced`). Host-tested against real temp
+    repos: a genuine N-goroutine compare-and-swap race with exactly one winner, a
+    target that moves *during* re-verification forcing a real retry, and a
+    semantic conflict that passes pre-merge and fails merged.
+  - **Human approval.** `verified → approval_required → approved → integrated`
+    with `daedalus task approve|reject <id> [--note]`, opt-in per project via the
+    host-side governance file. Every edge on the tail is absent from
+    `workerReachable`, so no worker-driven request can approve anything. A project
+    that does not require approval still *walks* the states, with an event
+    recording that policy — not oversight — is why no human was asked. The §6
+    limit is stated rather than implied: the state machine stops a *worker*, not
+    an agent client, so "the Guild Master cannot approve its own work" rests on the
+    Sprint-60 socket boundary.
+  - **Independent reviewer.** An injectable `ReviewRunner` (stub for now, as
+    `VerifyRunner` was in Sprint 56) producing the Artifact's `review` status,
+    gating integration when configured, bounded by `maxReviewCycles` — the same
+    limit as verification cycles, counted separately and not summed. A failed
+    review routes to `rejected` with `review_failed`.
+  - **Web/TUI approval surface.** `GET /api/approvals` + approve/reject in the
+    dashboard, and `[A]` in the TUI. Neither spawns the control daemon, and both
+    say the plane is unreachable rather than rendering an empty queue.
+  - **Claim leaks made unrepresentable.** The Sprint-58 residual: five correct
+    hand-written `defer` sites were still one bare statement from a sixth bug. The
+    release now lives in exactly one place — `Service.withClaim` /
+    `unlockedDuring` — and a test fails the moment a second appears.
 - **Governance core — budgets, typed rejection, retry/replan and the
   control-plane-managed event log (Sprint 58, opening M15).** The control plane
   can now say **no**. Every Task carries a **budget** captured at create and

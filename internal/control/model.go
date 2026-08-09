@@ -114,7 +114,14 @@ var legalTransitions = map[State]map[State]bool{
 		StateCancelled: true, StateExpired: true, StateFailed: true,
 	},
 	StateVerified: {
-		StateApprovalRequired: true, StateCancelled: true, StateExpired: true,
+		StateApprovalRequired: true,
+		// A gate AFTER verification can still say no: a failed independent review,
+		// or a human declining at the approval gate. This is a downgrade, never an
+		// escalation — it cannot bring anything closer to `verified`/`approved`/
+		// `integrated`, which is the invariant this table exists to protect — and it
+		// feeds the retry/replan ladder rather than stranding the Task.
+		StateRejected:  true,
+		StateCancelled: true, StateExpired: true,
 	},
 	StateRejected: {
 		// retry (re-queue) or replan (back to planned).
@@ -126,7 +133,12 @@ var legalTransitions = map[State]map[State]bool{
 		StateCancelled: true, StateExpired: true,
 	},
 	StateApproved: {
-		StateIntegrated: true, StateCancelled: true,
+		StateIntegrated: true,
+		// An integration that fails (a rebase conflict, or the MERGED result failing
+		// verification) routes here so the Sprint-58 retry/replan ladder can pick the
+		// Task up. Plane-only, like every edge past `candidate`.
+		StateRejected:  true,
+		StateCancelled: true,
 	},
 	// Terminal: StateIntegrated, StateFailed, StateCancelled, StateExpired have
 	// no outgoing edges.
@@ -277,13 +289,17 @@ type Job struct {
 // dedicated branch, with independent verify/review status the control plane
 // owns. Only a `success` execution promotes a snapshot to an Artifact.
 type Artifact struct {
-	ID        string       `json:"id"` // e.g. "A-1"
-	JobID     string       `json:"jobId"`
-	BaseSHA   string       `json:"baseSha"`
-	HeadSHA   string       `json:"headSha"`
-	Branch    string       `json:"branch"` // e.g. daedalus/T-1/J-1
-	Verify    VerifyStatus `json:"verify"`
-	Review    ReviewStatus `json:"review"`
-	CreatedAt string       `json:"createdAt"`
-	UpdatedAt string       `json:"updatedAt"`
+	ID      string       `json:"id"` // e.g. "A-1"
+	JobID   string       `json:"jobId"`
+	BaseSHA string       `json:"baseSha"`
+	HeadSHA string       `json:"headSha"`
+	Branch  string       `json:"branch"` // e.g. daedalus/T-1/J-1
+	Verify  VerifyStatus `json:"verify"`
+	Review  ReviewStatus `json:"review"`
+	// IntegratedSHA is the commit that actually landed — the artifact REBASED onto
+	// the integration target and re-verified in that combined form, which is
+	// generally NOT HeadSHA. Empty until the integration transaction completes.
+	IntegratedSHA string `json:"integratedSha"`
+	CreatedAt     string `json:"createdAt"`
+	UpdatedAt     string `json:"updatedAt"`
 }

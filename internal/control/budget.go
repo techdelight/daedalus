@@ -210,11 +210,13 @@ func (b Budget) exceededBy(requested Budget) (string, bool) {
 	return "", false
 }
 
-// BudgetSource resolves the ceiling budget for a project. It is the injectable
-// seam for per-project overrides (tests inject a fake; the daemon injects
-// FileBudgetPolicy). A nil BudgetSource on the Service means DefaultBudget().
-type BudgetSource interface {
+// PolicySource resolves a project's governance policy: its budget ceiling and
+// whether it requires human approval. It is the injectable seam for per-project
+// overrides (tests inject a fake; the daemon injects FileBudgetPolicy). A nil
+// PolicySource on the Service means DefaultBudget() and no approval requirement.
+type PolicySource interface {
 	BudgetFor(project string) Budget
+	RequiresApproval(project string) bool
 }
 
 // BudgetPolicy is the on-disk, HOST-SIDE budget configuration: a default
@@ -237,9 +239,18 @@ type BudgetSource interface {
 type BudgetPolicy struct {
 	Default  Budget            `json:"default"`
 	Projects map[string]Budget `json:"projects"`
+	// Approval declares which projects require a human approval before a verified
+	// artifact may land (Sprint 59). It shares this file rather than getting its
+	// own because it is the same kind of thing — host-side governance an agent
+	// cannot edit — and because an operator should find all of it in one place.
+	// Absent means opt-out: governance stays opt-in per §9.
+	Approval ApprovalPolicy `json:"approval,omitempty"`
 }
 
-// BudgetFor implements BudgetSource: the project override layered over the
+// RequiresApproval implements PolicySource.
+func (p BudgetPolicy) RequiresApproval(project string) bool { return p.Approval.RequiredFor(project) }
+
+// BudgetFor implements PolicySource: the project override layered over the
 // policy default layered over the built-in default. Sanitized last, so a policy
 // that reached memory without passing LoadBudgetPolicy still cannot produce a
 // negative (= unbounded) axis.
@@ -302,7 +313,24 @@ type FileBudgetPolicy struct {
 // a struct literal: the type carries a mutex and a last-known-good cache.
 func NewFileBudgetPolicy(path string) *FileBudgetPolicy { return &FileBudgetPolicy{Path: path} }
 
-// BudgetFor implements BudgetSource.
+// RequiresApproval implements PolicySource, with the same fail-closed caching as
+// BudgetFor: an unreadable policy holds the last known-good answer rather than
+// silently dropping an approval requirement.
+func (f *FileBudgetPolicy) RequiresApproval(project string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	p, err := LoadBudgetPolicy(f.Path)
+	if err == nil {
+		f.last, f.haveLast = p, true
+		return p.RequiresApproval(project)
+	}
+	if f.haveLast {
+		return f.last.RequiresApproval(project)
+	}
+	return false
+}
+
+// BudgetFor implements PolicySource.
 func (f *FileBudgetPolicy) BudgetFor(project string) Budget {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -326,12 +354,28 @@ func (f *FileBudgetPolicy) BudgetFor(project string) Budget {
 	return DefaultBudget()
 }
 
-// StaticBudget is a BudgetSource returning one fixed ceiling for every project
-// (tests, and any caller with no policy file).
+// StaticBudget is a PolicySource returning one fixed ceiling for every project
+// and requiring no approval (tests, and any caller with no policy file).
 type StaticBudget Budget
 
-// BudgetFor implements BudgetSource.
+// BudgetFor implements PolicySource.
 func (s StaticBudget) BudgetFor(string) Budget { return Budget(s) }
+
+// RequiresApproval implements PolicySource: a bare budget requires no approval.
+func (StaticBudget) RequiresApproval(string) bool { return false }
+
+// StaticPolicy is a PolicySource with both axes fixed — for tests that need
+// approval switched on without a policy file.
+type StaticPolicy struct {
+	Budget   Budget
+	Approval bool
+}
+
+// BudgetFor implements PolicySource.
+func (p StaticPolicy) BudgetFor(string) Budget { return p.Budget }
+
+// RequiresApproval implements PolicySource.
+func (p StaticPolicy) RequiresApproval(string) bool { return p.Approval }
 
 // DefaultBudgetPolicyPath is where the daemon looks for the host-side policy:
 // <data-dir>/control/budgets.json, alongside the job worktrees and never inside

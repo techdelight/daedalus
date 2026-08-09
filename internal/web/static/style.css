@@ -1453,3 +1453,39 @@ tbody td {
         background: rgba(122, 162, 247, 0.1);
     }
 }
+
+/* --- Control plane: pending approvals ------------------------------------- */
+.approvals-panel {
+    margin: 0 0 16px;
+    padding: 12px 16px;
+    border: 1px solid var(--accent, #c9a227);
+    border-radius: 6px;
+    background: rgba(201, 162, 39, 0.06);
+}
+
+.approvals-title {
+    font-weight: 600;
+    margin-bottom: 8px;
+}
+
+.approval-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 6px 0;
+}
+
+.approval-id {
+    font-family: monospace;
+    white-space: nowrap;
+}
+
+.approval-objective {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.btn-approve { background: #2e7d32; color: #fff; }
+.btn-reject  { background: #a33; color: #fff; }

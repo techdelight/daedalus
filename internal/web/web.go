@@ -6,20 +6,37 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
+	"net"
 	"net/http"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/techdelight/daedalus/core"
 	"github.com/techdelight/daedalus/internal/activity"
 	"github.com/techdelight/daedalus/internal/agentstate"
 	"github.com/techdelight/daedalus/internal/auth"
 	"github.com/techdelight/daedalus/internal/color"
+	"github.com/techdelight/daedalus/internal/control"
 	"github.com/techdelight/daedalus/internal/docker"
 	"github.com/techdelight/daedalus/internal/executor"
 	"github.com/techdelight/daedalus/internal/platform"
 	"github.com/techdelight/daedalus/internal/registry"
 )
+
+// dialControlPlane returns a control-plane client when the daemon is already
+// listening on its socket, and nil otherwise. It deliberately does not use
+// control.EnsureRunning: the CLI may spawn the daemon on demand, a web page must
+// not.
+func dialControlPlane(cfg *core.Config) control.TaskAPI {
+	sock := control.DefaultSocketPath(cfg.DataDir)
+	conn, err := net.DialTimeout("unix", sock, 300*time.Millisecond)
+	if err != nil {
+		return nil
+	}
+	_ = conn.Close()
+	return control.NewClient(sock)
+}
 
 // renderIndexHTML injects the version into the served index.html title. Kept
 // as a pure function so the substitution contract is unit-testable without
@@ -38,6 +55,9 @@ type WebServer struct {
 	cfg              *core.Config
 	observer         agentstate.Observer
 	activityResolver *activity.Resolver
+	// control is a client of the control plane, or nil when it is not running.
+	// The dashboard never spawns the daemon (see approvals.go).
+	control control.TaskAPI
 }
 
 // NewWebServerForTest creates a WebServer with injected dependencies.
@@ -83,6 +103,9 @@ func Run(cfg *core.Config) error {
 		cfg:              cfg,
 		observer:         observer,
 		activityResolver: actResolver,
+		// Attach to the control plane only if it is ALREADY listening. Opening a
+		// dashboard must not spawn a daemon as a side effect.
+		control: dialControlPlane(cfg),
 	}
 
 	mux := http.NewServeMux()
@@ -154,6 +177,11 @@ func (ws *WebServer) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/projects/{name}/dashboard", ws.handleDashboard)
 	mux.HandleFunc("GET /api/projects/{name}/state", ws.handleAgentState)
 	mux.HandleFunc("GET /api/guild", ws.handleGuild)
+
+	// Control plane: the pending-approvals surface (read + the two human decisions).
+	mux.HandleFunc("GET /api/approvals", ws.handleApprovals)
+	mux.HandleFunc("POST /api/approvals/{id}/approve", ws.handleApproveTask)
+	mux.HandleFunc("POST /api/approvals/{id}/reject", ws.handleRejectTask)
 
 	// roadmap.go
 	mux.HandleFunc("GET /api/projects/{name}/roadmap", ws.handleRoadmap)

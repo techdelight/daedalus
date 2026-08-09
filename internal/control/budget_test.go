@@ -346,13 +346,19 @@ func TestCreateTask_OverBudgetRefused(t *testing.T) {
 	}
 	// …but it is on the record.
 	events, _ := store.ListEvents()
-	if len(events) != 1 || events[0].Reason != ReasonOverBudget || events[0].Kind != EventBudget {
-		t.Fatalf("expected one budget-refusal event, got %+v", events)
+	var refusals []Event
+	for _, e := range events {
+		if e.Kind == EventBudget {
+			refusals = append(refusals, e)
+		}
+	}
+	if len(refusals) != 1 || refusals[0].Reason != ReasonOverBudget {
+		t.Fatalf("expected one budget-refusal event, got %+v (all: %+v)", refusals, events)
 	}
 	// No task existed yet, so the refusal is filed against the project — an event
 	// with an empty entity id would be unqueryable.
-	if events[0].EntityType != "project" || events[0].EntityID != "app" {
-		t.Errorf("refusal filed against %s/%s, want project/app", events[0].EntityType, events[0].EntityID)
+	if refusals[0].EntityType != "project" || refusals[0].EntityID != "app" {
+		t.Errorf("refusal filed against %s/%s, want project/app", refusals[0].EntityType, refusals[0].EntityID)
 	}
 }
 
