@@ -569,3 +569,87 @@ func TestCLI_TaskDependsGuards(t *testing.T) {
 		})
 	}
 }
+
+// --- M17: steering and the programme board --------------------------------------
+
+// TestCLI_TaskSteer covers the whole steering surface from the CLI, including the
+// outcome that matters most: the default runner has NO steering boundary, so an
+// operator asking for a steer is told plainly that nothing was delivered.
+func TestCLI_TaskSteer(t *testing.T) {
+	dir := makeGitRepo(t)
+	svc := newTestService(t, mapResolver{"app": dir})
+	if err := runTaskCommand(svc, []string{"create", "--project", "app", "--objective", "x"}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	// Drive the task into working with a live Job, which is the only state in which
+	// an instruction could reach anything.
+	store := svc.Store()
+	if _, err := store.TransitionTask("T-1", control.StateQueued, false, ""); err != nil {
+		t.Fatalf("→queued: %v", err)
+	}
+	if _, err := store.TransitionTask("T-1", control.StateWorking, false, ""); err != nil {
+		t.Fatalf("→working: %v", err)
+	}
+	job, err := store.CreateJob("T-1", "abc", "claude", 0, control.StateWorking)
+	if err != nil {
+		t.Fatalf("CreateJob: %v", err)
+	}
+
+	// Issuing succeeds as a COMMAND even though delivery failed: the plane recorded
+	// the instruction and reported the truth about it, which is not a CLI error.
+	if err := runTaskCommand(svc, []string{"steer", job.ID, "--instruction", "try the other approach"}); err != nil {
+		t.Fatalf("steer: %v", err)
+	}
+	steers, err := svc.JobSteering(job.ID)
+	if err != nil {
+		t.Fatalf("JobSteering: %v", err)
+	}
+	if len(steers) != 1 || steers[0].State != control.SteerUndeliverable {
+		t.Fatalf("steering = %+v, want one undeliverable instruction", steers)
+	}
+	// The history view renders.
+	if err := runTaskCommand(svc, []string{"steer", job.ID}); err != nil {
+		t.Errorf("steer (show): %v", err)
+	}
+}
+
+func TestCLI_TaskSteerGuards(t *testing.T) {
+	dir := makeGitRepo(t)
+	svc := newTestService(t, mapResolver{"app": dir})
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{"no job id", []string{"steer"}},
+		{"unknown flag", []string{"steer", "J-1", "--nope"}},
+		{"--instruction without text", []string{"steer", "J-1", "--instruction"}},
+		{"--withdraw without an id", []string{"steer", "--withdraw"}},
+		{"unknown steering id", []string{"steer", "--withdraw", "S-404"}},
+		{"unknown job", []string{"steer", "J-404"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := runTaskCommand(svc, tc.args); err == nil {
+				t.Errorf("%v = nil, want an error", tc.args)
+			}
+		})
+	}
+}
+
+func TestCLI_TaskBoard(t *testing.T) {
+	dir := makeGitRepo(t)
+	svc := newTestService(t, mapResolver{"app": dir})
+	// An empty board still renders — "no tasks yet" is an answer.
+	if err := runTaskCommand(svc, []string{"board"}); err != nil {
+		t.Fatalf("board (empty): %v", err)
+	}
+	if err := runTaskCommand(svc, []string{"create", "--project", "app", "--objective", "x"}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if err := runTaskCommand(svc, []string{"board"}); err != nil {
+		t.Fatalf("board: %v", err)
+	}
+	if err := runTaskCommand(svc, []string{"board", "extra"}); err == nil {
+		t.Error("board with an unexpected argument = nil, want an error")
+	}
+}

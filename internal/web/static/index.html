@@ -28,6 +28,14 @@
                 <div class="approvals-title">Awaiting your approval</div>
                 <div id="approvals-list"></div>
             </div>
+            <!-- Control plane: the cross-project programme board. Read-only —
+                 every action a card might suggest already has a surface with the
+                 right confirmations attached. Hidden when the daemon is absent. -->
+            <div id="board-panel" class="board-panel" style="display:none">
+                <div class="approvals-title">Programme board</div>
+                <div id="board-summary" class="board-summary"></div>
+                <div id="board-columns" class="board-columns"></div>
+            </div>
             <div class="project-list">
                 <table>
                     <thead>
@@ -805,5 +813,6 @@
     </script>
     <script src="/static/guild.js"></script>
     <script src="/static/approvals.js"></script>
+    <script src="/static/board.js"></script>
 </body>
 </html>

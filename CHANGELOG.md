@@ -2,6 +2,75 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- **Typed steering, the programme board, and the M13–M17 arc close (Sprint 63).**
+  - **`steer_job` is a typed, audited control-plane operation.** An instruction
+    aimed at a running Job, recorded as plane-owned state with its issuer, its
+    timestamp and an explicit **delivery state** — a worker can neither forge one
+    nor replay one, which is the whole difference between this and typing into a
+    terminal. `daedalus task steer <job-id> --instruction <text>`, `POST
+    /jobs/{id}/steer`, and a `request_steering` MCP tool.
+  - **Steering changes what the worker is told, never what counts as done.** A
+    steered Job still reaches `candidate` and is still verified against the
+    acceptance policy frozen at the plane-owned target. M17 adds **no state and no
+    transition** — nothing to `legalTransitions`, nothing to `workerReachable` —
+    and touches neither the acceptance hash, `base_sha`, the budget, nor the
+    objective. Two tests hold that shut, because if steering could influence
+    acceptance it would re-open M14's and M15's argument through a new door.
+  - **Honest failure is the point.** Delivery state is `pending` (a runner took
+    custody; the boundary has not arrived), `delivered` (it reached the Job),
+    `undeliverable` (it did not and will not), `superseded` (a newer instruction
+    replaced it) or `cancelled` (a human withdrew it). A steering op that reported
+    success without delivering would be **worse than one that refuses** — an
+    operator would go on believing they had redirected a Job that never heard them
+    — so `undeliverable` is a first-class outcome, printed in red, and carried on
+    the board.
+  - **Delivery sits behind an optional `SteeringDeliverer` seam**, so the authority
+    path stays runner-agnostic (§9) and the logic is host-testable with no Docker.
+    A runner that does not implement it is not broken; it is a runner with no
+    steering boundary.
+  - **Agent callers are proposal-tier.** An instruction injected into work that is
+    already running is at least as consequential as cancelling it, and rather more
+    subtle — the Job carries on and the change of direction shows up only in the
+    log. Withdrawing an instruction is tiered with issuing it, since an agent that
+    could cancel a human's pending steer would have the same control by
+    subtraction.
+  - **The programme board.** `daedalus task board`, `GET /board`, a Web panel, a
+    TUI header and a `programme_board` MCP tool: one cross-project view of what is
+    running, queued, blocked (**and on what**), in verification, awaiting approval,
+    landed, and closed without landing. **Derived, not stored** — a projection of
+    the same rows every other surface reads, so it cannot disagree with them. It
+    reuses the Sprint-59 approvals queue, the Sprint-62 dependency status and the
+    Sprint-61 plane status, and the agent-facing projection carries Sprint-60
+    **opaque queue ids** and no host paths. Every state maps to exactly one column,
+    asserted by a test, so work can never silently vanish from the board.
+  - **The arc's closing summary** in `docs/control-plane.md`: what M13–M17
+    guarantee, what they explicitly do not, and the standing limits collected in
+    one place — heuristic liveness, wall-clock as bookkeeping rather than a process
+    kill, tests as an incomplete oracle, and callers as a class rather than an
+    identity.
+
+### Changed
+- **The plan's demotion of M17 is recorded as correct, not justified away.** The
+  shipped `CoordinatorRunner` launches a single-shot headless invocation whose only
+  boundary is process exit, so it has no steering boundary and every instruction
+  against it is recorded `undeliverable`. **Cancel + redispatch remains the working
+  remedy for short Jobs.** What M17 genuinely bought is an audited record of each
+  instruction and its fate, a refusal an operator can read instead of a silent
+  no-op, and a seam ready for a runner that does have a boundary — a real but
+  modest return that does not retrospectively earn a milestone. Written down in
+  `ROADMAP.md`, `docs/guild-master-plan.md` and `docs/control-plane.md` rather than
+  smoothed over.
+
+### Fixed
+- `docs/control-plane.md` claimed the prompt-injection surface did not exist
+  because there was no agent client. That stopped being true in Sprint 60, when
+  `guild-control-mcp` shipped. The surface exists and is answered by tiered
+  authority and the proposal flow; the sentence is corrected rather than left
+  standing as a guarantee the plane no longer makes.
+
 ## [0.51.0] - 2026-08-09
 
 ### Added

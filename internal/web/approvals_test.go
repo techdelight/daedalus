@@ -210,3 +210,84 @@ func TestPlaneStatus_NoControlPlane(t *testing.T) {
 		t.Error("maps and slices must be non-nil so the UI can iterate them")
 	}
 }
+
+// --- M17: the programme board ---------------------------------------------------
+
+func (f *fakeControl) ProgrammeBoard() (control.BoardView, error) {
+	if f.err != nil {
+		return control.BoardView{}, f.err
+	}
+	return control.BoardView{
+		Columns: []control.BoardColumn{
+			{Key: "queued", Title: "Queued", Cards: nil},
+			{Key: "blocked", Title: "Blocked", Cards: []control.BoardCard{
+				{TaskID: "T-2", Project: "app", Objective: "wait for T-1",
+					State: "blocked", BlockedOn: []string{"T-1"}, Steering: "S-1 (undeliverable)"},
+			}},
+		},
+		Plane:            control.PlaneStatus{GlobalRunning: 2, Limits: control.SchedulerLimits{Global: 4}},
+		PendingApprovals: 1,
+		PendingProposals: 3,
+	}, nil
+}
+
+func boardMux(ws *WebServer) *http.ServeMux {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/board", ws.handleBoard)
+	return mux
+}
+
+// TestBoard_NoControlPlane: same rule as the approvals panel. An empty board and
+// an unreachable board are different answers, and only one of them is reassuring.
+func TestBoard_NoControlPlane(t *testing.T) {
+	ws := &WebServer{}
+	rec := httptest.NewRecorder()
+	boardMux(ws).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/board", nil))
+
+	var resp struct {
+		Available bool   `json:"available"`
+		Reason    string `json:"reason"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.Available {
+		t.Error("available = true with no control daemon")
+	}
+	if !strings.Contains(resp.Reason, "not running") {
+		t.Errorf("reason = %q, want it to explain that the daemon is absent", resp.Reason)
+	}
+}
+
+// TestBoard_RendersColumnsAndBlockedReasons: the board must carry "blocked, and on
+// what" through to the dashboard, and it must keep EMPTY columns — a column that
+// disappears when it empties makes "nothing is queued" look like a missing feature.
+func TestBoard_RendersColumnsAndBlockedReasons(t *testing.T) {
+	ws := &WebServer{control: &fakeControl{}}
+	rec := httptest.NewRecorder()
+	boardMux(ws).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/board", nil))
+
+	var resp boardResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !resp.Available {
+		t.Fatal("available = false with a reachable control plane")
+	}
+	if len(resp.Columns) != 2 {
+		t.Fatalf("%d columns, want 2 (including the empty one)", len(resp.Columns))
+	}
+	if resp.Columns[0].Cards == nil {
+		t.Error("an empty column serialised its cards as null, not []")
+	}
+	card := resp.Columns[1].Cards[0]
+	if len(card.BlockedOn) != 1 || card.BlockedOn[0] != "T-1" {
+		t.Errorf("blockedOn = %v, want [T-1]", card.BlockedOn)
+	}
+	if card.Steering != "S-1 (undeliverable)" {
+		t.Errorf("steering = %q, want the undeliverable outcome carried through", card.Steering)
+	}
+	if resp.PendingApprovals != 1 || resp.PendingProposals != 3 {
+		t.Errorf("queues = %d approvals / %d proposals, want 1 / 3", resp.PendingApprovals, resp.PendingProposals)
+	}
+}

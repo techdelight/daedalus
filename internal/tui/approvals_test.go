@@ -29,6 +29,22 @@ func (f *fakeControl) PlaneStatus() (control.PlaneStatus, error) {
 
 func (f *fakeControl) PendingApprovals() ([]control.Task, error) { return f.pending, f.err }
 
+// ProgrammeBoard is the M17 board the view now renders above the queue. The
+// double implements it explicitly rather than falling through to the embedded nil
+// TaskAPI, which would panic — the panic is the correct signal that a view started
+// calling something the double does not answer.
+func (f *fakeControl) ProgrammeBoard() (control.BoardView, error) {
+	if f.err != nil {
+		return control.BoardView{}, f.err
+	}
+	return control.BoardView{Columns: []control.BoardColumn{
+		{Key: "queued", Title: "Queued", Cards: nil},
+		{Key: "blocked", Title: "Blocked", Cards: []control.BoardCard{
+			{TaskID: "T-7", Project: "app", Objective: "wait", State: "blocked"},
+		}},
+	}}, nil
+}
+
 func (f *fakeControl) ApproveTask(id, _ string) (control.Task, error) {
 	if f.err != nil {
 		return control.Task{}, f.err
@@ -64,6 +80,17 @@ func TestApprovals_LoadAndRender(t *testing.T) {
 	for _, want := range []string{"T-1", "add dark mode", "T-2", "[a]pprove", "[x] reject"} {
 		if !contains(view, want) {
 			t.Errorf("view missing %q:\n%s", want, view)
+		}
+	}
+	// The M17 board sits above the queue. The EMPTY column has to be there too:
+	// "nothing is queued" is an answer, and a column that vanishes when it empties
+	// reads as a missing feature.
+	if len(msg.board) != 2 {
+		t.Fatalf("board summary = %+v, want both columns including the empty one", msg.board)
+	}
+	for _, want := range []string{"Programme board", "Queued", "Blocked", "T-7"} {
+		if !contains(view, want) {
+			t.Errorf("view missing board content %q:\n%s", want, view)
 		}
 	}
 }

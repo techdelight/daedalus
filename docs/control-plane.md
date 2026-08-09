@@ -957,6 +957,219 @@ it legitimately needs — the id is stable and comparable, so it can still tell
 that two projects share a queue — and learns nothing about host layout. Humans
 still see the path, because for a person the path is the useful part.
 
+## Typed steering (Sprint 63 / M17 — built)
+
+Steering is "tell the worker something else while it is running". Until now the
+only way to do it was to attach to a terminal and type, which is unrecorded,
+unattributable and unavailable to anything but a human at a keyboard. M17 makes it
+a control-plane operation instead: `steer_job(job, instruction)`, recorded as a
+row with an issuer, a timestamp and — the part that matters — an explicit
+**delivery state**.
+
+### What steering may and may not do
+
+    Steering changes what the worker is TOLD. It never changes what counts as DONE.
+
+A steered Job still reaches `candidate` and is still independently verified
+against the acceptance policy frozen at the plane-owned target. M17 adds **no
+state, no transition, and no edge** — neither to `legalTransitions` nor to
+`workerReachable` — and touches nothing an oracle reads: not the acceptance hash,
+not `base_sha`, not the budget, not even the Task's objective. If steering could
+influence acceptance, M14's and M15's entire argument would be re-opened through a
+new door, and it is exactly the kind of door a "just let the operator nudge it"
+feature tends to open. `TestSteering_ChangesNothingThatDecidesDone` and
+`TestSteering_AddsNoTransitions` hold it shut.
+
+Note the deliberate omission: steering does **not** rewrite the objective.
+`replan` is the operation that rewrites an objective, and it goes through
+`rejected` so the change is a decision with a record, not an edit.
+
+### Provenance comes from the transport
+
+The issuer is the Sprint-60 caller class, derived from the socket the request
+arrived on, never a request field — a client that can name its own issuer can name
+"human". Agent callers are **proposal-tier**: an instruction injected into work
+that is already running is at least as consequential as cancelling it, and rather
+more subtle, because the Job carries on and the change of direction shows up only
+in the log. So a poisoned project document can cause a steering *proposal* to
+appear in a human's queue, and nothing else. Withdrawing an instruction is tiered
+with issuing it — an agent that could cancel a human's pending steer would have the
+same control by subtraction.
+
+### Delivery state, and why it is the honest part
+
+| State | Means |
+|---|---|
+| `pending` | A runner took custody; the boundary has not arrived. **Not** known to have reached the worker. |
+| `delivered` | It reached the Job at a boundary the runner supports. The only state that claims the worker was told. |
+| `undeliverable` | It did not reach the worker and will not — no steering boundary, or the handoff failed. |
+| `superseded` | A newer instruction replaced it before delivery. |
+| `cancelled` | A human withdrew it before delivery. |
+
+A steering op that reported success without delivering would be **worse than one
+that refuses**: it leaves an operator believing they redirected a Job that never
+heard them, and they then reason from that belief. So `undeliverable` is a
+first-class outcome rather than an error swallowed on the way out, the CLI prints
+it in red and says "the job was not told anything", and the programme board carries
+it on the card.
+
+The brief for this sprint named four states; there are five. `cancelled` is the
+addition, because a human withdrawing an instruction and a newer instruction
+replacing it are different facts, and collapsing the first into `superseded` would
+make the log say something that did not happen.
+
+### The runner seam
+
+Delivery is the **one genuinely runner-specific piece** in the whole control plane
+(§9), so it sits behind an optional `SteeringDeliverer` interface exactly as
+`AgentRunner` and `VerifyRunner` do. The authority path stays runner-agnostic; a
+runner that does not implement the seam is not a broken runner, it is a runner
+with no steering boundary, and the plane records that as such. The contract is
+narrow on purpose: return `nil` **only** when the instruction reached the Job —
+never for "I wrote it somewhere the agent may or may not read", which is the
+failure mode the whole design exists to prevent.
+
+### Honest assessment: what steering actually bought
+
+The plan demoted M17 and said live steering should prove its value in real use
+before earning a milestone. Having built it, the assessment is:
+
+**For the runner Daedalus actually ships, steering delivers nothing.**
+`CoordinatorRunner` launches `daedalus <name> <dir> -p <objective>` — a single-shot
+headless invocation whose only boundary is process exit, with stdin closed and no
+injection channel. It therefore does not implement `SteeringDeliverer`, and every
+steer against it is recorded `undeliverable`. That is not a gap to be filled later
+by a small patch; it is a property of taking process exit as the Job boundary,
+which is the same decision that makes the rest of the plane runner-agnostic.
+
+**Against cancel-plus-redispatch, the ledger is honest but thin.** For a short Job,
+`daedalus task cancel` followed by `replan --objective` achieves the actual goal —
+work proceeding in a new direction — using machinery that already existed, and it
+does so *reliably* rather than *maybe*. What M17 adds over that is:
+
+- an **audited record** of the instruction, its issuer and its fate, on the Task's
+  event log, which cancel-and-redispatch does not produce and terminal-typing
+  cannot;
+- a **refusal that is legible**: an operator who tries to steer learns immediately
+  that this runner cannot be steered, instead of assuming it worked;
+- a **seam** for a future runner that does have a boundary (a `Stop`-hook nudge,
+  an interactive coordinator session), so the authority, provenance and tiering do
+  not have to be designed again under time pressure when one appears.
+
+That is a real but modest return, and it does not retrospectively justify a
+milestone. **The plan's demotion was right.** The correct reading is that M17
+should have stayed in the backlog until a runner with a steering boundary existed,
+at which point the delivery adapter would have been the only new work. Building the
+typed shell first was not wasted — it is small, it is honest about doing nothing,
+and it cost one sprint — but anyone reading this arc for guidance should take the
+demotion, not the completion, as the lesson.
+
+## The programme board (Sprint 63 / M17 — built)
+
+`daedalus task board`, `GET /board`, a Web panel and a TUI header: one
+cross-project view of what is running, queued, blocked (**and on what**), in
+verification, awaiting approval, landed, and closed without landing.
+
+It is **derived, not stored**. There is no board table and nothing that another
+part of the plane must remember to update — it is a projection of the same rows
+the CLI and the event log already read, so it cannot disagree with them. It reuses
+rather than duplicates: the approvals queue is Sprint 59's, "blocked on what" is
+Sprint 62's `DependencyStatusFor`, the concurrency picture is Sprint 61's
+`PlaneStatus`, and the agent-facing projection carries Sprint 60's **opaque queue
+ids** and never a host path — so an agent can see which projects will serialize
+against each other at integration without learning where anything lives.
+
+Two deliberate details. Every state maps to exactly one column, asserted by a test,
+because the failure mode of a projection is that work appears to have *vanished*
+rather than to have gone somewhere the reader did not expect. And empty columns are
+rendered rather than skipped: "nothing is blocked" is an answer.
+
+## The arc, closed: what M13–M17 guarantee, and what they do not
+
+Five milestones, ten sprints. Collected here so a reader does not have to assemble
+the picture from five sprint sections — and, more importantly, so the limits are in
+one place rather than scattered where each was honestly disclosed and easily
+missed.
+
+### What the control plane guarantees
+
+- **Work is isolated.** Every Job runs in its own Git worktree at a pinned
+  `base_sha`, on a deterministic branch. Concurrent Jobs cannot see or corrupt each
+  other's trees.
+- **"Done" is decided by the plane, never by the worker.** A worker may drive a
+  Task at most to `candidate`. Everything past that — verification, review,
+  approval, integration — is control-plane-only, enforced by two transition tables
+  rather than by convention.
+- **The acceptance oracle is outside the agent's reach.** The verify policy is
+  hashed and frozen at task creation, at a **plane-owned target ref** that only a
+  completed integration transaction advances. Rewriting the repository's branches,
+  including by cherry-pick, cannot change how a Task is graded.
+- **Verification is independent.** A clean checkout of the artifact's `head_sha`,
+  in a digest-pinned container, with no worker state, no ambient credentials and no
+  inherited tools; plus a test-integrity gate that rejects any diff touching the
+  frozen acceptance files, and a null-agent floor that fails an empty change.
+- **Landing is a transaction.** Serialize per repository → rebase onto the current
+  target → **re-verify the merged result** → compare-and-swap. A semantic conflict
+  that passes alone and fails merged is caught. Any step failing leaves the target
+  untouched.
+- **The plane can say no, in a way a machine can act on.** Typed rejection reasons,
+  HTTP 422, CLI exit 3 — a policy refusal is distinguishable from a failure.
+- **Capacity cannot be starved or leaked.** Global, per-project and per-Task limits
+  with fair admission (oldest waiter first) and queue tickets that expire, so freed
+  capacity always becomes usable without a human.
+- **Dependencies are plane-owned and acyclic.** Cross-project Task→Task edges live
+  in `control.db`, never in an agent-writable file; cycles are refused at
+  declaration; a dependency counts as satisfied only at `integrated`.
+- **Agent authority is structural.** Caller class comes from which socket accepted
+  the connection. Reads and bounded creation execute; cancel, dispatch, retry,
+  replan, integrate, approve, sync-target, add-dependency and steer come back as
+  proposals a human must confirm. A poisoned README can put a row in a queue and
+  nothing more.
+- **History is append-only through the API.** Every transition, budget decision,
+  rejection, verdict, approval, proposal, schedule decision, graph move and steering
+  outcome is a typed event, written in the same transaction as the change.
+
+### What it explicitly does not guarantee
+
+- **"Verified" is evidence, not proof.** Tests are an incomplete oracle. A change
+  can pass every frozen check and still be wrong; the integrity gate stops a worker
+  editing the checks, it does not make the checks sufficient.
+- **The event log is control-plane-managed, not tamper-proof.** There is no
+  update or delete path in the API — that is what "immutable" means here. Anyone
+  with the SQLite file can edit it. Hash-chaining remains an optional later
+  property, and calling this "audit-proof" would be a lie.
+- **Turn, token and cost budgets are policy, not enforcement.** They are recorded
+  and honoured by convention. Daedalus cannot measure them, so it does not claim
+  to enforce them. Wall-clock, max-attempts, max-review-cycles and concurrency
+  *are* enforced.
+- **Wall-clock is bookkeeping at the boundary, not a process kill.** The plane
+  bounds the run it supervises and records `timeout`; it does not reach inside a
+  container and stop a runaway mid-turn. Nothing in this design can pause a token
+  stream, and §3 says so deliberately: the answer is structural verification of a
+  committed artifact, not mid-turn control.
+- **Liveness is heuristic where no per-Job observer exists.** `HasSessionForJob` is
+  the real answer; without it the plane falls back to "worktree gone, or long past
+  its budget", which cannot distinguish a crashed Job from a slow one. It is
+  labelled a heuristic in the code, and "I don't know" leaves the Job alone.
+- **The caller is a class, not an identity.** Two agent clients on the restricted
+  socket are indistinguishable, and anything already running as the operator can
+  open the human socket. The boundary is the container's mount namespace, not the
+  socket's file mode.
+- **Steering delivery is not guaranteed, and today is not available at all.** See
+  the honest assessment above.
+- **Nothing lands by itself.** Integration is always an explicit act. The plane
+  never advances a target on its own.
+- **The real runner and the real verifier container are host-only.** Both sit
+  behind injectable seams and are proven in tests with fakes; the container paths
+  are exercised on a real host by `scripts/verify-m13.sh`, not in CI.
+
+### The one-line version
+
+The control plane makes *reliable, isolated, reproducibly-verified, independently
+approved* execution the default, and is honest about the four places it cannot see:
+inside a running turn, inside the tests' blind spots, inside the database file, and
+behind a caller's class.
+
 ## Scope boundary — what is deliberately NOT here yet
 
 Milestones 13–14 deliver the model, store, daemon, human CLI, isolated-worktree
@@ -970,9 +1183,10 @@ ahead:
   a gate.
 - **Nothing lands by itself.** Integration is always an explicit
   `daedalus task integrate`; the plane never advances a target on its own.
-- **Typed steering is M17.** `steer_job` as an audited, cancellable operation
-  delivered at a supported boundary remains unbuilt, and deliberately so: for
-  short Jobs, cancel-and-redispatch may well suffice.
+- **Steering has no delivery path on the shipped runner.** `steer_job` is built,
+  typed and audited (M17), but `CoordinatorRunner` has no steering boundary, so
+  every instruction against it is recorded `undeliverable`. Cancel-and-redispatch
+  remains the working remedy. See the honest assessment above.
 - **Dependency scheduling is not a scheduler.** The graph decides *whether* a Task
   may run; it does not order or prioritise ready Tasks beyond the queue's
   first-asked-first-served fairness. There is no critical-path or priority notion.
@@ -982,12 +1196,21 @@ ahead:
   mount namespace, not the socket's file mode.
 - **`task dispatch` runs its attempt synchronously.** Several dispatches may be in
   flight at once (Sprint 61), but each call blocks until its own Job ends.
+- **The board is uncached, and it is the most expensive read.** Rendering it
+  resolves every registered project's canonical repository path — a `git rev-parse`
+  per project — plus a dependency query per Task. The Web panel therefore polls it
+  more slowly than the approvals queue. A TTL cache would fix it, and is not built
+  because a stale queue identity is a *wrong* answer about which work serializes,
+  which is worse than a slow one.
 - **The real `CoordinatorRunner` is host-only.** It needs a Docker daemon and is
   not exercised in CI; the control-plane logic is proven with the fake runner.
 
-Because there is still no agent client, the prompt-injection surface does not
-exist yet and the foundation stays small — boring reliability from a small
-surface area.
+This section used to close by saying that because there was still no agent client,
+the prompt-injection surface did not exist. That was true when written and stopped
+being true in Sprint 60: `guild-control-mcp` exists, so the surface exists. It is
+answered by tiered authority and the human-confirmed proposal flow rather than by
+absence — corrected here rather than left standing as a guarantee the plane no
+longer makes.
 
 ## Verifying on a real host
 

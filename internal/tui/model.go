@@ -72,6 +72,11 @@ type tuiModel struct {
 	approvalsAvailable bool
 	approvalsReason    string
 	plane              planeLine
+	// board is the cross-project programme summary (M17) shown above the queue.
+	// The approvals view IS the board view: the two answer "what is happening" and
+	// "what needs me", and splitting them into separate screens would have made an
+	// operator flip between two projections of one state.
+	board []boardLine
 }
 
 func (m tuiModel) filteredProjects() []projectRow {
@@ -141,6 +146,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.approvalsAvailable = msg.available
 		m.approvalsReason = msg.reason
 		m.plane = msg.plane
+		m.board = msg.board
 		if m.approvalCursor >= len(m.approvals) {
 			m.approvalCursor = max(len(m.approvals)-1, 0)
 		}

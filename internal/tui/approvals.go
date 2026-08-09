@@ -37,6 +37,19 @@ type approvalsLoadedMsg struct {
 	available bool
 	reason    string
 	plane     planeLine
+	// board is the cross-project column summary (M17). It is derived from the same
+	// control-plane state as the queue below it, so the two can never disagree.
+	board []boardLine
+}
+
+// boardLine is one programme-board column, reduced to what fits on a TUI row.
+type boardLine struct {
+	title string
+	count int
+	// detail names the first few tasks, so a column is not just a number: "3
+	// blocked" without saying which three is a prompt to go and look somewhere
+	// else, which is what the board exists to avoid.
+	detail string
 }
 
 // planeLine is the one-line concurrency summary.
@@ -92,8 +105,35 @@ func loadApprovals(api control.TaskAPI) tea.Cmd {
 				globalLimit: st.Limits.Global, waiting: len(st.Waiting),
 			}
 		}
+		if view, err := api.ProgrammeBoard(); err == nil {
+			msg.board = summariseBoard(view)
+		}
 		return msg
 	}
+}
+
+// summariseBoard reduces the board to one line per column.
+//
+// EVERY column is kept, including the empty ones: a column that disappeared when
+// it emptied would make "nothing is blocked" indistinguishable from "the board
+// forgot about blocking".
+func summariseBoard(view control.BoardView) []boardLine {
+	out := make([]boardLine, 0, len(view.Columns))
+	for _, col := range view.Columns {
+		line := boardLine{title: col.Title, count: len(col.Cards)}
+		for i, c := range col.Cards {
+			if i == 3 {
+				line.detail += fmt.Sprintf(" +%d more", len(col.Cards)-3)
+				break
+			}
+			if i > 0 {
+				line.detail += " "
+			}
+			line.detail += c.TaskID
+		}
+		out = append(out, line)
+	}
+	return out
 }
 
 // decideApproval approves or rejects a task.
@@ -165,7 +205,7 @@ func (m tuiModel) viewApprovals() string {
 	var b []byte
 	add := func(s string) { b = append(b, s...) }
 
-	add(titleStyle.Render("  Awaiting approval"))
+	add(titleStyle.Render("  Programme board"))
 	add("\n")
 	if m.plane.known {
 		limit := "∞"
@@ -179,6 +219,19 @@ func (m tuiModel) viewApprovals() string {
 		add(helpStyle.Render(line))
 		add("\n")
 	}
+	for _, line := range m.board {
+		row := fmt.Sprintf("  %-22s %3d", line.title, line.count)
+		if line.detail != "" {
+			row += "  " + line.detail
+		}
+		add(normalStyle.Render(row))
+		add("\n")
+	}
+	if len(m.board) > 0 {
+		add("\n")
+	}
+	add(titleStyle.Render("  Awaiting approval"))
+	add("\n")
 	add("\n")
 	if !m.approvalsAvailable {
 		add(normalStyle.Render("  The control plane is not reachable."))

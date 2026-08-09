@@ -312,18 +312,27 @@ without losing track of what happened.
   worktree, verifier and container paths are genuinely untouched; the **state
   machine is not** — M16 added the `blocked` state, three plane-only edges, and a
   plane-owned dependency table.)
-- **M17 · Typed Steering (demoted — validate before building).** `steer_job` as an
-  audited, cancellable op delivered at a supported boundary. Kept Planned but
-  low-priority: for short Jobs, **cancel + redispatch with corrected instructions**
-  may suffice, so live steering should prove its value in real use before becoming
-  a milestone (candidate to move to BACKLOG).
+- **M17 · Typed Steering (demoted — and the demotion was right).** `steer_job` as
+  an audited, cancellable op delivered at a supported boundary, plus the
+  cross-project programme board. Built in Sprint 63, and the honest verdict is
+  recorded rather than smoothed over: the shipped `CoordinatorRunner` has **no
+  steering boundary** — a single-shot headless invocation whose only boundary is
+  process exit — so every instruction against it is recorded `undeliverable`, and
+  **cancel + redispatch remains the working remedy for short Jobs**. What M17
+  genuinely bought is an audited record of the instruction and its fate, a refusal
+  an operator can read, and a seam ready for a runner that does have a boundary.
+  That is a modest return; the demotion should have held until such a runner
+  existed. See "Honest assessment" in `control-plane.md`.
 
 ## 9. Risks & decisions to evaluate
 
 - **Runner coupling** — the whole authority path (Task/Job/Artifact + clean-checkout
   verify + reconciliation) is **runner-agnostic** (git + containers). Only *steering
   delivery* and any optional Stop-hook nudge are runner-specific. Accept
-  runner-specific niceties only where the authority path stays agnostic.
+  runner-specific niceties only where the authority path stays agnostic. *Settled
+  in M17: steering delivery sits behind an optional `SteeringDeliverer` seam, the
+  authority path never learns which runner it is talking to, and a runner without
+  a boundary is recorded as such rather than pretended around.*
 - **The self-grading trap** — narrowed but never fully closed: the test-integrity
   gate stops committed-test edits, held-out tests move the oracle out of reach, and
   human approval gates integration — but tests remain an incomplete oracle (§12), so

@@ -181,6 +181,9 @@ func (ws *WebServer) RegisterRoutes(mux *http.ServeMux) {
 	// Control plane: the pending-approvals surface (read + the two human decisions).
 	mux.HandleFunc("GET /api/approvals", ws.handleApprovals)
 	mux.HandleFunc("GET /api/plane-status", ws.handlePlaneStatus)
+	// The cross-project programme board (M17): the same control client, a
+	// projection of the same state — no board store to fall out of step.
+	mux.HandleFunc("GET /api/board", ws.handleBoard)
 	mux.HandleFunc("POST /api/approvals/{id}/approve", ws.handleApproveTask)
 	mux.HandleFunc("POST /api/approvals/{id}/reject", ws.handleRejectTask)
 

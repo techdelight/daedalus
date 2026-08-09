@@ -88,6 +88,52 @@ func (c *callerScope) ProjectTargets() ([]TargetView, error) {
 	return c.svc.projectTargets(c.caller)
 }
 
+// ProgrammeBoard renders the cross-project board for this caller. Same rule as
+// ProjectTargets, and for the same reason: an agent sees the opaque queue id, so
+// it can tell which projects serialize against each other without learning where
+// anything lives on the host.
+func (c *callerScope) ProgrammeBoard() (BoardView, error) {
+	return c.svc.programmeBoard(c.caller)
+}
+
+// JobSteering is a read: what a Job has been told is part of its history, and an
+// agent that can read the event log can already see it.
+func (c *callerScope) JobSteering(jobID string) ([]SteeringEvent, error) {
+	return c.svc.JobSteering(jobID)
+}
+
+// SteerJob injects an instruction into RUNNING work. Tiered: an agent may ask, a
+// human confirms.
+//
+// The Job is resolved to its Task before proposing, so the proposal lands on the
+// Task's event log where an operator will actually see it — and so an agent naming
+// a Job that does not exist gets ErrNotFound rather than a proposal for a human to
+// puzzle over.
+func (c *callerScope) SteerJob(jobID, instruction string) (SteeringEvent, error) {
+	if !c.allowed(OpSteer) {
+		job, err := c.svc.store.GetJob(jobID)
+		if err != nil {
+			return SteeringEvent{}, err
+		}
+		return SteeringEvent{}, c.propose(OpSteer, job.TaskID, encodeSteerArgument(jobID, instruction))
+	}
+	return c.svc.steerJob(c.caller, jobID, instruction)
+}
+
+// CancelSteering withdraws an undelivered instruction. Tiered with SteerJob: an
+// agent that could cancel a human's pending steer would have the same control by
+// subtraction.
+func (c *callerScope) CancelSteering(steerID string) (SteeringEvent, error) {
+	if !c.allowed(OpCancelSteer) {
+		steer, err := c.svc.store.GetSteering(steerID)
+		if err != nil {
+			return SteeringEvent{}, err
+		}
+		return SteeringEvent{}, c.propose(OpCancelSteer, steer.TaskID, steerID)
+	}
+	return c.svc.cancelSteering(c.caller, steerID)
+}
+
 // --- bounded creation: allowed within policy ------------------------------------
 
 func (c *callerScope) CreateTask(req CreateTaskRequest) (Task, error) {

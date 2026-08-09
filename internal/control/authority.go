@@ -61,6 +61,10 @@ const (
 	OpTargets       = "list_targets"
 	OpProposalAct   = "confirm_or_deny_proposal"
 	OpAddDependency = "add_dependency"
+	OpSteer         = "steer_job"
+	OpCancelSteer   = "cancel_steering"
+	OpJobSteering   = "job_steering"
+	OpBoard         = "programme_board"
 )
 
 // agentAuthority is the authority table for CallerAgent. Anything absent is
@@ -74,6 +78,11 @@ var agentAuthority = map[string]Tier{
 	OpTaskEvents: TierAllowed,
 	OpApprovals:  TierAllowed,
 	OpTargets:    TierAllowed,
+	// The board and a Job's steering history are reads over state the agent can
+	// already list, projected through the same caller-aware rendering as
+	// ProjectTargets — an agent sees opaque queue ids and no host paths.
+	OpBoard:       TierAllowed,
+	OpJobSteering: TierAllowed,
 
 	// Bounded creation: allowed, because it cannot exceed policy. The budget is
 	// clamped to the project ceiling and the acceptance oracle is frozen at the
@@ -105,6 +114,15 @@ var agentAuthority = map[string]Tier{
 	// as load-bearing as what grades it. An agent that could declare its own
 	// dependencies could declare them satisfied.
 	OpAddDependency: TierProposal,
+	// Steering injects an instruction into work that is ALREADY RUNNING — at least
+	// as consequential as cancelling it, and rather more subtle, because the Job
+	// carries on and the change of direction is only visible in the log. An agent
+	// that reads a poisoned README must not be able to redirect a human's in-flight
+	// Job on the strength of it. Withdrawing an instruction is tiered with it:
+	// letting an agent cancel a human's pending steer would hand it the same
+	// control by subtraction.
+	OpSteer:       TierProposal,
+	OpCancelSteer: TierProposal,
 
 	// Confirming a proposal is the human act the whole tier exists to reserve.
 	// The refusal that actually enforces it lives in callerScope.ResolveProposal
@@ -121,7 +139,7 @@ var agentAuthority = map[string]Tier{
 var mutatingOps = []string{
 	OpCreateTask, OpDispatch, OpVerify, OpReview, OpRetry, OpReplan,
 	OpCancel, OpApprove, OpRejectAppr, OpIntegrate, OpSyncTarget, OpProposalAct,
-	OpAddDependency,
+	OpAddDependency, OpSteer, OpCancelSteer,
 }
 
 // TierFor returns the authority a caller class has over an operation.

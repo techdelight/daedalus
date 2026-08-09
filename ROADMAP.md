@@ -144,7 +144,7 @@ Scale from one Job at a time to a real programme scheduler. The **worktrees alre
 
 Represent steering as a typed, audited control-plane operation — `steer_job(job, instruction)`, recorded as a `SteeringEvent` with issuer, timestamp, and delivery state, delivered by the runner/hook layer at the next supported boundary — rather than an ad-hoc terminal injection. Round out the coordination surface (task-board views, provenance, cancellation) so the whole orchestration model is uniform and auditable.
 
-Kept Planned but **low-priority / demotion candidate to BACKLOG**: for short Jobs, **cancel + redispatch with corrected instructions** may suffice, so live steering should prove its value in real use before it earns a milestone.
+Built in Sprint 63 — and the demotion was right. The shipped `CoordinatorRunner` has **no steering boundary** (a single-shot headless invocation whose only boundary is process exit), so every instruction against it is recorded `undeliverable`, and **cancel + redispatch remains the working remedy for short Jobs**. What M17 genuinely bought: an audited record of each instruction and its fate, a refusal an operator can read rather than a silent no-op, and a seam ready for a runner that does have a boundary. Recorded honestly rather than justified retroactively — see "Honest assessment" in `docs/control-plane.md`.
 
 - Typed `steer_job` with provenance / delivery-state / cancellation, delivered at a supported boundary
 - Coordination polish: cross-project task-board views over control-plane state; uniform provenance across tasks, jobs, steering, and approvals
@@ -152,16 +152,16 @@ Kept Planned but **low-priority / demotion candidate to BACKLOG**: for short Job
 ## Phasing
 
 ```
-M1..M14 (Done, except M10) ─► ( no active milestone )
+M1..M16 (Done, except M10) ─► M17 Typed Steering (the arc's last milestone)
 
-Planned — the "controlling Guild Master" control-plane arc
+The "controlling Guild Master" control-plane arc
 (design: docs/guild-master-plan.md; evidence: docs/guild-master-control.md):
   V1  M13 Control-Plane Foundation + CLI path (worktrees · reconcile) ─► M14 Independent Verification
   V2  M15 Governance · Integration txn · Guild Master (gated) client
-  V3  M16 Parallel Execution (dependency graph) ─► M17 Typed Steering (demoted)
-Also Planned: M10 Homebrew Distribution.
+  V3  M16 Parallel Execution (dependency graph) ─► M17 Typed Steering (demoted; built, delivers nothing on the shipped runner)
+Still Planned: M10 Homebrew Distribution.
 ```
 
 ## Current Focus
 
-**Milestone 17 (Typed Steering) is In Progress — the final milestone of the control-plane arc. Milestone 16 is complete.** M1–M9 and M11–M16 are complete. **M16 shipped in v0.51.0** over Sprints 61–62: the one-active-Job-per-project invariant that had held since M13 is lifted, so several Tasks run concurrently — each already isolated in its own Git worktree, so this added **concurrency, scheduling and a dependency graph, with no new execution machinery**. A **scheduler** enforces global, per-project and per-Task limits (tightest binds) with **fair admission** — the oldest waiter takes freed capacity — and queue tickets are **leases** that expire by passovers on a busy queue or by TTL on a quiet one, so free capacity always becomes usable without human intervention. **Per-Job liveness** (`HasSessionForJob`) replaced a project-level check that was only accidentally related to the Job it judged, closing a capacity denial-of-service where a crashed Job among healthy siblings consumed a scheduler slot forever; a labelled **heuristic** (worktree-gone, past-budget) is the fallback where no per-Job observer exists, and "I don't know" is a valid answer that leaves the Job alone. Reconcile now sweeps **both** Tasks and Jobs. The **cross-project dependency graph** adds a plane-only `blocked` state: cycles are refused at declaration rather than detected at dispatch, a dependency is satisfied only at **`integrated`** (not merely verified, which may still be rejected), and landing wakes dependents with a reconcile backstop. The M15 merge queue is now **load-bearing** rather than insurance, because two integrations can finally be in flight at once. **M17 (Typed Steering) is now In Progress**, kept deliberately tight: the plan itself demotes it and notes that cancel-plus-redispatch may suffice for short Jobs, so it must earn its keep rather than expand to fill a milestone. Also Planned: M10 (Homebrew).
+**Milestone 17 (Typed Steering) is the last milestone of the M13–M17 control-plane arc, and its work is complete (Sprint 63); the milestone closes formally with the release.** M1–M9 and M11–M16 are complete; **M10 (Homebrew Distribution) remains Planned**. M17’s own verdict is the honest one: the plan demoted typed steering and the demotion was right. `steer_job` is now a typed, audited control-plane operation — issuer taken from the Sprint-60 transport class, an explicit **delivery state** (`pending` / `delivered` / `undeliverable` / `superseded` / `cancelled`), proposal-tier for agent callers, and adding **no state and no transition** to the machine, because steering changes what a worker is *told* and never what counts as *done*. But the shipped `CoordinatorRunner` has **no steering boundary**, so every instruction against it is recorded `undeliverable` and **cancel + redispatch remains the working remedy for short Jobs**; what M17 genuinely bought is an audited record, a legible refusal, and a seam for a runner that does have a boundary. Sprint 63 also added the **programme board** — a derived, cross-project view (running, queued, blocked and on what, in verification, awaiting approval, landed) reusing the Sprint-59 approvals queue, the Sprint-62 dependency graph and the Sprint-60 opaque queue ids, with no board state of its own to fall out of step. `docs/control-plane.md` now closes the arc in one place: what M13–M17 guarantee, what they explicitly do not, and the standing limits — heuristic liveness, wall-clock as bookkeeping rather than a process kill, tests as an incomplete oracle, and callers as a class rather than an identity.

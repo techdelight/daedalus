@@ -160,6 +160,43 @@ type OutcomeOutput struct {
 	Reason string `json:"reason,omitempty"`
 }
 
+// SteerRef names a RUNNING job and what to tell it.
+type SteerRef struct {
+	JobID       string `json:"jobId" jsonschema:"the running job id, e.g. J-7"`
+	Instruction string `json:"instruction" jsonschema:"what the worker should do differently, in plain language"`
+}
+
+// BoardOutput is the cross-project programme board as an agent sees it.
+type BoardOutput struct {
+	Columns          []BoardColumnLine `json:"columns"`
+	GlobalRunning    int               `json:"globalRunning"`
+	PendingApprovals int               `json:"pendingApprovals"`
+	PendingProposals int               `json:"pendingProposals"`
+}
+
+// BoardColumnLine is one column with its cards.
+type BoardColumnLine struct {
+	Key   string          `json:"key"`
+	Title string          `json:"title"`
+	Cards []BoardCardLine `json:"cards"`
+}
+
+// BoardCardLine is one task on the board. Note what is absent: no repository
+// path. The queue id is the OPAQUE Sprint-60 identity, which tells this caller
+// which projects serialize against each other and nothing about host layout — and
+// the stripping happens in the plane, not here, so this tool cannot leak what it
+// is never sent.
+type BoardCardLine struct {
+	TaskID        string   `json:"taskId"`
+	Project       string   `json:"project"`
+	State         string   `json:"state"`
+	Objective     string   `json:"objective"`
+	QueueID       string   `json:"queueId,omitempty"`
+	BlockedOn     []string `json:"blockedOn,omitempty"`
+	Unsatisfiable []string `json:"unsatisfiable,omitempty"`
+	Steering      string   `json:"steering,omitempty"`
+}
+
 // --- tools ----------------------------------------------------------------------
 
 func registerControlTools(server *mcp.Server, api control.TaskAPI) {
@@ -248,6 +285,34 @@ func registerControlTools(server *mcp.Server, api control.TaskAPI) {
 			Detail: fmt.Sprintf("rejected (%s): %s", res.Reason, res.Detail), Reason: string(res.Reason)}, nil
 	})
 
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "programme_board",
+		Description: "The cross-project programme board: what is running, queued, blocked (and on what), in verification, awaiting approval, and what landed. Read-only. Repository paths are never included; tasks sharing a queueId will serialize against each other at integration.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, BoardOutput, error) {
+		view, err := api.ProgrammeBoard()
+		if err != nil {
+			return errResult(err), BoardOutput{}, nil
+		}
+		out := BoardOutput{
+			GlobalRunning:    view.Plane.GlobalRunning,
+			PendingApprovals: view.PendingApprovals,
+			PendingProposals: view.PendingProposals,
+			Columns:          make([]BoardColumnLine, 0, len(view.Columns)),
+		}
+		for _, col := range view.Columns {
+			line := BoardColumnLine{Key: col.Key, Title: col.Title, Cards: make([]BoardCardLine, 0, len(col.Cards))}
+			for _, c := range col.Cards {
+				line.Cards = append(line.Cards, BoardCardLine{
+					TaskID: c.TaskID, Project: c.Project, State: c.State, Objective: c.Objective,
+					QueueID: c.QueueID, BlockedOn: c.BlockedOn, Unsatisfiable: c.Unsatisfiable,
+					Steering: c.Steering,
+				})
+			}
+			out.Columns = append(out.Columns, line)
+		}
+		return nil, out, nil
+	})
+
 	// --- proposal-tier tools ----------------------------------------------------
 	//
 	// Each of these calls the plane and reports back what it decided. For this
@@ -299,6 +364,27 @@ func registerControlTools(server *mcp.Server, api control.TaskAPI) {
 			},
 		},
 	}
+	// Steering takes two values rather than a task and a note, so it is registered
+	// on its own rather than through the loop above. It is proposal-tier for the
+	// sharpest version of the §6 reason: this agent reads project-controlled
+	// documents, and an instruction injected into a human's RUNNING job is at least
+	// as consequential as cancelling it — and rather more subtle, because the job
+	// carries on and the change of direction shows up only in the log.
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "request_steering",
+		Description: "Ask for a typed instruction to be delivered to a RUNNING job. Consequential, so this is recorded as a proposal for a human to confirm. Steering changes what the worker is told; it never changes what counts as done — the result is still independently verified against the frozen acceptance policy. Delivery is not guaranteed: a runner with no steering boundary records the instruction as undeliverable.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in SteerRef) (*mcp.CallToolResult, OutcomeOutput, error) {
+		steer, err := api.SteerJob(in.JobID, in.Instruction)
+		if err != nil {
+			return nil, outcomeFor(err), nil
+		}
+		// Reached only if the plane executed it directly. Even then the honest answer
+		// depends on the DELIVERY state, not on the absence of an error: "recorded"
+		// is not "the worker was told".
+		return nil, OutcomeOutput{Executed: true,
+			Detail: fmt.Sprintf("steering %s recorded for %s; delivery: %s", steer.ID, in.JobID, steer.State)}, nil
+	})
+
 	for _, tool := range proposalTools {
 		call := tool.call
 		mcp.AddTool(server, &mcp.Tool{Name: tool.name, Description: tool.description},

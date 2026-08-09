@@ -99,6 +99,82 @@ func (ws *WebServer) handlePlaneStatus(w http.ResponseWriter, r *http.Request) {
 	writeApprovalsJSON(w, http.StatusOK, resp)
 }
 
+// boardResponse is the cross-project programme board (M17), flattened for the
+// dashboard.
+//
+// It is served from the SAME control client as the approvals queue and derived
+// from the same control-plane state — there is no board store, so this view can
+// never disagree with the CLI's. Like the approvals panel it reports
+// unavailability rather than rendering an empty board, because "nothing is
+// running" and "I could not ask" are different answers.
+type boardResponse struct {
+	Available        bool          `json:"available"`
+	Reason           string        `json:"reason,omitempty"`
+	Columns          []boardColumn `json:"columns"`
+	GlobalRunning    int           `json:"globalRunning"`
+	GlobalLimit      int           `json:"globalLimit"`
+	PendingApprovals int           `json:"pendingApprovals"`
+	PendingProposals int           `json:"pendingProposals"`
+}
+
+type boardColumn struct {
+	Key   string      `json:"key"`
+	Title string      `json:"title"`
+	Cards []boardCard `json:"cards"`
+}
+
+type boardCard struct {
+	TaskID            string   `json:"taskId"`
+	Project           string   `json:"project"`
+	Objective         string   `json:"objective"`
+	State             string   `json:"state"`
+	BlockedOn         []string `json:"blockedOn,omitempty"`
+	Unsatisfiable     []string `json:"unsatisfiable,omitempty"`
+	QueuedForCapacity bool     `json:"queuedForCapacity,omitempty"`
+	Steering          string   `json:"steering,omitempty"`
+}
+
+// handleBoard serves the programme board.
+func (ws *WebServer) handleBoard(w http.ResponseWriter, r *http.Request) {
+	api := ws.controlClient()
+	if api == nil {
+		writeApprovalsJSON(w, http.StatusOK, boardResponse{
+			Available: false,
+			Reason:    "the daedalus-control daemon is not running",
+			Columns:   []boardColumn{},
+		})
+		return
+	}
+	view, err := api.ProgrammeBoard()
+	if err != nil {
+		writeApprovalsJSON(w, http.StatusOK, boardResponse{
+			Available: false,
+			Reason:    "could not reach the control plane: " + err.Error(),
+			Columns:   []boardColumn{},
+		})
+		return
+	}
+	resp := boardResponse{
+		Available: true, Columns: []boardColumn{},
+		GlobalRunning:    view.Plane.GlobalRunning,
+		GlobalLimit:      view.Plane.Limits.Global,
+		PendingApprovals: view.PendingApprovals,
+		PendingProposals: view.PendingProposals,
+	}
+	for _, col := range view.Columns {
+		out := boardColumn{Key: col.Key, Title: col.Title, Cards: []boardCard{}}
+		for _, c := range col.Cards {
+			out.Cards = append(out.Cards, boardCard{
+				TaskID: c.TaskID, Project: c.Project, Objective: c.Objective,
+				State: c.State, BlockedOn: c.BlockedOn, Unsatisfiable: c.Unsatisfiable,
+				QueuedForCapacity: c.QueuedForCapacity, Steering: c.Steering,
+			})
+		}
+		resp.Columns = append(resp.Columns, out)
+	}
+	writeApprovalsJSON(w, http.StatusOK, resp)
+}
+
 // handleApprovals serves the queue of tasks awaiting a human decision.
 func (ws *WebServer) handleApprovals(w http.ResponseWriter, r *http.Request) {
 	api := ws.controlClient()

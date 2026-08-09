@@ -494,3 +494,70 @@ func TestDaemon_ConfirmedButInapplicableProposalIsConflictNot500(t *testing.T) {
 		t.Errorf("task state = %q, want planned — nothing should have been mutated", after.State)
 	}
 }
+
+// TestDaemon_SteeringAndBoardRoundTrip walks M17's new routes over a real socket.
+//
+// The wire half matters here for a specific reason: the CLI branches on the
+// DELIVERY STATE, so if that field did not survive the round trip an operator
+// would be shown "recorded" where the plane said "undeliverable" — the exact lie
+// the design exists to prevent.
+func TestDaemon_SteeringAndBoardRoundTrip(t *testing.T) {
+	repo := gitRepo(t)
+	runner := &steerableRunner{answer: ErrSteeringDeferred}
+	svc, _, store := newService(t, mapResolver{"app": repo}, runner, nil)
+	client := serveUDS(t, svc)
+
+	task, job := stageSteerableJob(t, svc, store, "app")
+
+	steer, err := client.SteerJob(job.ID, "over the wire")
+	if err != nil {
+		t.Fatalf("client SteerJob: %v", err)
+	}
+	if steer.State != SteerPending || steer.Instruction != "over the wire" || steer.IssuedBy != CallerHuman {
+		t.Fatalf("steering did not survive the wire: %+v", steer)
+	}
+
+	steers, err := client.JobSteering(job.ID)
+	if err != nil {
+		t.Fatalf("client JobSteering: %v", err)
+	}
+	if len(steers) != 1 || steers[0].ID != steer.ID {
+		t.Fatalf("JobSteering over the wire = %+v", steers)
+	}
+
+	withdrawn, err := client.CancelSteering(steer.ID)
+	if err != nil {
+		t.Fatalf("client CancelSteering: %v", err)
+	}
+	if withdrawn.State != SteerCancelled {
+		t.Errorf("state = %q, want cancelled", withdrawn.State)
+	}
+
+	// An empty instruction is malformed input, and the 400 survives as a sentinel.
+	if _, err := client.SteerJob(job.ID, "  "); !errors.Is(err, ErrInvalidRequest) {
+		t.Errorf("empty instruction over the wire: err = %v, want ErrInvalidRequest", err)
+	}
+	// An unknown Job is a 404, not a 500.
+	if _, err := client.SteerJob("J-404", "hello"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("unknown job over the wire: err = %v, want ErrNotFound", err)
+	}
+
+	board, err := client.ProgrammeBoard()
+	if err != nil {
+		t.Fatalf("client ProgrammeBoard: %v", err)
+	}
+	found := false
+	for _, col := range board.Columns {
+		for _, card := range col.Cards {
+			if card.TaskID == task.ID {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Error("the task is missing from the board over the wire")
+	}
+	if len(board.Columns) != len(boardColumns) {
+		t.Errorf("%d columns over the wire, want %d", len(board.Columns), len(boardColumns))
+	}
+}

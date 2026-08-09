@@ -30,7 +30,7 @@ func manageTasks(cfg *core.Config) error {
 	args := cfg.TaskArgs
 	if len(args) == 0 {
 		printTaskUsage()
-		return fmt.Errorf("task: subcommand required (create|list|status|dispatch|verify|review|approve|reject|integrate|approvals|proposals|depends|target|retry|replan|events|cancel)")
+		return fmt.Errorf("task: subcommand required (create|list|status|dispatch|verify|review|approve|reject|integrate|approvals|proposals|depends|steer|board|target|retry|replan|events|cancel)")
 	}
 	if args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
 		printTaskUsage()
@@ -80,10 +80,14 @@ func runTaskCommand(api control.TaskAPI, args []string) error {
 		return taskProposals(api, args[1:])
 	case "depends", "dependencies":
 		return taskDepends(api, args[1:])
+	case "steer":
+		return taskSteer(api, args[1:])
+	case "board":
+		return taskBoard(api, args[1:])
 	case "cancel":
 		return taskCancel(api, args[1:])
 	default:
-		return fmt.Errorf("task: unknown subcommand %q\n%s daedalus task <create|list|status|dispatch|verify|review|approve|reject|integrate|approvals|proposals|depends|target|retry|replan|events|cancel>", args[0], color.Cyan("Hint:"))
+		return fmt.Errorf("task: unknown subcommand %q\n%s daedalus task <create|list|status|dispatch|verify|review|approve|reject|integrate|approvals|proposals|depends|steer|board|target|retry|replan|events|cancel>", args[0], color.Cyan("Hint:"))
 	}
 }
 
@@ -848,6 +852,169 @@ func renderDependencyStatus(status control.DependencyStatus) {
 	}
 }
 
+// taskSteer implements `task steer <job-id> [--instruction <text>]` and
+// `task steer --withdraw <steering-id>`.
+//
+// The output is deliberately blunt about UNDELIVERABLE. An operator who steered a
+// Job and was told "OK" would go away believing they had redirected it; the whole
+// value of typed steering over shouting into a terminal is that this command can
+// say "recorded, NOT delivered" and mean it.
+func taskSteer(api control.TaskAPI, args []string) error {
+	const usage = "usage: daedalus task steer <job-id> [--instruction <text>] | daedalus task steer --withdraw <steering-id>"
+	if len(args) < 1 {
+		return fmt.Errorf("%s", usage)
+	}
+	if args[0] == "--withdraw" {
+		if len(args) < 2 {
+			return fmt.Errorf("--withdraw requires a steering id\n%s %s", color.Cyan("Hint:"), usage)
+		}
+		steer, err := api.CancelSteering(args[1])
+		if err != nil {
+			if errors.Is(err, control.ErrNotFound) {
+				return fmt.Errorf("steering %q not found", args[1])
+			}
+			return err
+		}
+		fmt.Printf("%s steering %s withdrawn before delivery\n", color.Green("OK:"), color.Bold(steer.ID))
+		return nil
+	}
+
+	jobID := args[0]
+	var instruction string
+	for i := 1; i < len(args); i++ {
+		switch args[i] {
+		case "--instruction", "--say":
+			if i+1 >= len(args) {
+				return fmt.Errorf("--instruction requires text")
+			}
+			i++
+			instruction = args[i]
+		default:
+			return fmt.Errorf("task steer: unknown flag %q\n%s %s", args[i], color.Cyan("Hint:"), usage)
+		}
+	}
+
+	if instruction == "" {
+		steers, err := api.JobSteering(jobID)
+		if err != nil {
+			if errors.Is(err, control.ErrNotFound) {
+				return fmt.Errorf("job %q not found", jobID)
+			}
+			return err
+		}
+		if len(steers) == 0 {
+			fmt.Printf("Job %s has not been steered.\n", jobID)
+			return nil
+		}
+		fmt.Printf("%-6s  %-14s  %-8s  %s\n",
+			color.Bold("ID"), color.Bold("DELIVERY"), color.Bold("ISSUER"), color.Bold("INSTRUCTION"))
+		for _, s := range steers {
+			fmt.Printf("%-6s  %-14s  %-8s  %s\n",
+				s.ID, renderDelivery(s.State), s.IssuedBy, truncate(s.Instruction, 60))
+			if s.Detail != "" {
+				fmt.Printf("        %s\n", truncate(s.Detail, 90))
+			}
+		}
+		return nil
+	}
+
+	steer, err := api.SteerJob(jobID, instruction)
+	if err != nil {
+		if errors.Is(err, control.ErrNotFound) {
+			return fmt.Errorf("job %q not found", jobID)
+		}
+		return err
+	}
+	switch steer.State {
+	case control.SteerDelivered:
+		fmt.Printf("%s steering %s DELIVERED to job %s\n", color.Green("OK:"), color.Bold(steer.ID), jobID)
+	case control.SteerPending:
+		fmt.Printf("%s steering %s recorded; the runner has it and will hand it over at its next boundary\n",
+			color.Yellow("Pending:"), color.Bold(steer.ID))
+		fmt.Println("     it has NOT reached the worker yet — `daedalus task steer " + jobID + "` shows the outcome")
+	default:
+		fmt.Printf("%s steering %s recorded but NOT DELIVERED (%s)\n",
+			color.Red("Undelivered:"), color.Bold(steer.ID), steer.State)
+		fmt.Printf("     %s\n", steer.Detail)
+		fmt.Println("     the job was not told anything. To change its direction, cancel it and dispatch again")
+		fmt.Println("     with a revised objective (`daedalus task replan <task-id> --objective <text>`).")
+	}
+	fmt.Println("     steering changes what the worker is told; it never changes what counts as done —")
+	fmt.Println("     the result is still verified against the frozen acceptance policy.")
+	return nil
+}
+
+// renderDelivery colours a delivery state so the one that matters stands out.
+func renderDelivery(state control.DeliveryState) string {
+	switch state {
+	case control.SteerDelivered:
+		return color.Green(string(state))
+	case control.SteerUndeliverable:
+		return color.Red(string(state))
+	case control.SteerPending:
+		return color.Yellow(string(state))
+	default:
+		return string(state)
+	}
+}
+
+// taskBoard implements `task board`: the cross-project programme view.
+//
+// It is a projection of the same rows every other command reads — there is no
+// board state — so it can never disagree with `task list`, `task approvals` or the
+// event log.
+func taskBoard(api control.TaskAPI, args []string) error {
+	if len(args) > 0 {
+		return fmt.Errorf("task board: unexpected argument %q\n%s usage: daedalus task board", args[0], color.Cyan("Hint:"))
+	}
+	view, err := api.ProgrammeBoard()
+	if err != nil {
+		return err
+	}
+	fmt.Println(color.Bold("Programme board") + " — every project the control plane knows about")
+	limit := limitText(view.Plane.Limits.Global)
+	fmt.Printf("  %d/%s jobs running", view.Plane.GlobalRunning, limit)
+	if n := len(view.Plane.Waiting); n > 0 {
+		fmt.Printf(", %d queued for capacity", n)
+	}
+	fmt.Printf("  ·  %d awaiting approval  ·  %d proposals pending\n", view.PendingApprovals, view.PendingProposals)
+	fmt.Println()
+
+	total := 0
+	for _, col := range view.Columns {
+		total += len(col.Cards)
+		fmt.Printf("%s (%d)\n", color.Bold(col.Title), len(col.Cards))
+		if len(col.Cards) == 0 {
+			// Printed rather than skipped: "nothing is blocked" is an answer.
+			fmt.Println("  —")
+			continue
+		}
+		for _, c := range col.Cards {
+			fmt.Printf("  %-6s  %-16s  %s\n", c.TaskID, truncate(c.Project, 16), truncate(c.Objective, 52))
+			if len(c.BlockedOn) > 0 {
+				fmt.Printf("          waiting on %s\n", strings.Join(c.BlockedOn, " "))
+			}
+			if len(c.Unsatisfiable) > 0 {
+				fmt.Printf("          %s %s can never complete\n", color.Red("stuck:"), strings.Join(c.Unsatisfiable, " "))
+			}
+			if c.QueuedForCapacity {
+				fmt.Println("          holding a place in line for a free slot")
+			}
+			if c.Steering != "" {
+				fmt.Printf("          steering %s\n", c.Steering)
+			}
+		}
+	}
+	fmt.Println()
+	if total == 0 {
+		fmt.Println("No tasks yet. Create one with `daedalus task create --project <name> --objective <text>`.")
+		return nil
+	}
+	fmt.Printf("%d task(s) across %d project(s). Tasks sharing a merge queue serialize at integration.\n",
+		total, len(view.Projects))
+	return nil
+}
+
 // taskCancel implements `task cancel <id>` via a legal transition to cancelled.
 func taskCancel(api control.TaskAPI, args []string) error {
 	if len(args) < 1 {
@@ -925,6 +1092,12 @@ func printTaskUsage() {
 	fmt.Println("  depends <id> [--on <other-id>]")
 	fmt.Println("                       Show or declare a cross-project dependency; a blocked task")
 	fmt.Println("                       is never dispatched until its dependencies have landed")
+	fmt.Println("  steer <job-id> [--instruction <text>]")
+	fmt.Println("                       Show, or issue, a typed instruction for a RUNNING job. Recorded")
+	fmt.Println("                       with its delivery state; `undeliverable` means the worker was")
+	fmt.Println("                       NOT told. Add --withdraw <steering-id> to pull an undelivered one")
+	fmt.Println("  board                Cross-project programme board: running, queued, blocked (and on")
+	fmt.Println("                       what), in verification, awaiting approval, landed")
 	fmt.Println("  proposals [list [--all] | confirm <id> | deny <id>]")
 	fmt.Println("                       Consequential operations an AGENT asked for; confirming")
 	fmt.Println("                       executes them as you, denying does nothing")
@@ -936,6 +1109,12 @@ func printTaskUsage() {
 	fmt.Println("  Each project has a plane-owned target commit that ONLY a completed integration")
 	fmt.Println("  advances. Tasks are based on it and their acceptance policy is frozen at it, so")
 	fmt.Println("  rewriting the repository's branches cannot influence how work is graded.")
+	fmt.Println()
+	fmt.Println(color.Bold("Steering:"))
+	fmt.Println("  Steering changes what a worker is TOLD; it never changes what counts as done.")
+	fmt.Println("  A steered job still reaches `candidate` and is still verified against the frozen")
+	fmt.Println("  acceptance policy. Delivery depends on the runner: one with no steering boundary")
+	fmt.Println("  records `undeliverable` rather than reporting a success that did not happen.")
 	fmt.Println()
 	fmt.Println(color.Bold("Budgets:"))
 	fmt.Println("  Enforced host-side: wall-clock, max-attempts, max-review-cycles, concurrency.")

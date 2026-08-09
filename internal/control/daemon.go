@@ -34,6 +34,13 @@ package control
 //	                                                       → 409 cycle / invalid
 //	GET    /tasks/{id}/dependencies                       → 200 DependencyView
 //	GET    /status                                        → 200 PlaneStatus
+//	GET    /board                                         → 200 BoardView
+//	POST   /jobs/{id}/steer     body: {instruction}       → 200 SteeringEvent
+//	                                                       → 400 empty instruction
+//	                                                       → 422 not steerable
+//	GET    /jobs/{id}/steering                            → 200 []SteeringEvent
+//	DELETE /steering/{id}                                 → 200 SteeringEvent
+//	                                                          (withdrawn before delivery)
 //	GET    /targets                                       → 200 []TargetView
 //	GET    /proposals[?state=pending]                     → 200 []Proposal
 //	POST   /proposals/{id}/confirm  body: {note}          → 200 Proposal (and the
@@ -101,6 +108,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /tasks/{id}/dependencies", s.handleAddDependency)
 	mux.HandleFunc("GET /tasks/{id}/dependencies", s.handleTaskDependencies)
 	mux.HandleFunc("GET /status", s.handlePlaneStatus)
+	mux.HandleFunc("GET /board", s.handleBoard)
+	mux.HandleFunc("POST /jobs/{id}/steer", s.handleSteerJob)
+	mux.HandleFunc("GET /jobs/{id}/steering", s.handleJobSteering)
+	mux.HandleFunc("DELETE /steering/{id}", s.handleCancelSteering)
 	mux.HandleFunc("GET /targets", s.handleTargets)
 	mux.HandleFunc("GET /proposals", s.handleListProposals)
 	mux.HandleFunc("POST /proposals/{id}/confirm", s.handleConfirmProposal)
@@ -332,6 +343,60 @@ func (s *Server) handlePlaneStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, st)
 }
 
+func (s *Server) handleBoard(w http.ResponseWriter, r *http.Request) {
+	view, err := s.api.ProgrammeBoard()
+	if err != nil {
+		writeError(w, statusFor(err), err)
+		return
+	}
+	writeJSON(w, http.StatusOK, view)
+}
+
+// steerRequest carries a typed instruction for a running Job.
+//
+// The ISSUER is deliberately absent: it comes from the listener this request
+// arrived on (caller.go), never from the body. A client that could name its own
+// issuer could name "human", which would make the provenance on every steering row
+// an assertion by the party it exists to constrain.
+type steerRequest struct {
+	Instruction string `json:"instruction"`
+}
+
+func (s *Server) handleSteerJob(w http.ResponseWriter, r *http.Request) {
+	var req steerRequest
+	if err := decodeOptionalJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	steer, err := s.api.SteerJob(r.PathValue("id"), req.Instruction)
+	if err != nil {
+		writeError(w, statusFor(err), err)
+		return
+	}
+	writeJSON(w, http.StatusOK, steer)
+}
+
+func (s *Server) handleJobSteering(w http.ResponseWriter, r *http.Request) {
+	steers, err := s.api.JobSteering(r.PathValue("id"))
+	if err != nil {
+		writeError(w, statusFor(err), err)
+		return
+	}
+	if steers == nil {
+		steers = []SteeringEvent{}
+	}
+	writeJSON(w, http.StatusOK, steers)
+}
+
+func (s *Server) handleCancelSteering(w http.ResponseWriter, r *http.Request) {
+	steer, err := s.api.CancelSteering(r.PathValue("id"))
+	if err != nil {
+		writeError(w, statusFor(err), err)
+		return
+	}
+	writeJSON(w, http.StatusOK, steer)
+}
+
 func (s *Server) handleTargets(w http.ResponseWriter, r *http.Request) {
 	targets, err := s.api.ProjectTargets()
 	if err != nil {
@@ -420,7 +485,10 @@ func statusFor(err error) int {
 	case errors.Is(err, ErrConflict),
 		errors.Is(err, ErrIllegalTransition), errors.Is(err, ErrWrongState):
 		return http.StatusConflict
-	case errors.As(err, &notGit):
+	case errors.As(err, &notGit), errors.Is(err, ErrInvalidRequest):
+		// 400: the request itself is malformed (an empty steering instruction, a
+		// non-Git project). The caller fixes it by asking differently, which is not
+		// true of a 409 state conflict or a 422 policy refusal.
 		return http.StatusBadRequest
 	default:
 		return http.StatusInternalServerError

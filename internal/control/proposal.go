@@ -2,7 +2,10 @@
 
 package control
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // The human-confirmed proposal flow (docs/guild-master-plan.md §6).
 //
@@ -124,6 +127,13 @@ func (s *Service) executeProposal(caller Caller, p Proposal) error {
 	case OpAddDependency:
 		_, err := s.AddDependency(p.TaskID, p.Argument)
 		return err
+	case OpSteer:
+		jobID, instruction := decodeSteerArgument(p.Argument)
+		_, err := s.steerJob(caller, jobID, instruction)
+		return err
+	case OpCancelSteer:
+		_, err := s.cancelSteering(caller, p.Argument)
+		return err
 	case OpSyncTarget:
 		_, err := s.syncTarget(caller, p.Argument)
 		return err
@@ -138,6 +148,23 @@ func (s *Service) executeProposal(caller Caller, p Proposal) error {
 		// the proposal would be marked confirmed with nothing having happened.
 		return fmt.Errorf("control: proposal %s names an operation this plane cannot execute (%q)", p.ID, p.Operation)
 	}
+}
+
+// A steering proposal has to carry TWO values — the Job and the instruction —
+// through a row that has one Argument column. They are encoded as
+// "<job-id> <instruction>" and split on the FIRST space: a Job id never contains
+// one, and an instruction may contain anything at all, including newlines, so the
+// split can never cut the instruction short.
+//
+// The Proposal's TaskID still holds the Task, not the Job, so the proposal appears
+// on the Task's event log where an operator reads it.
+func encodeSteerArgument(jobID, instruction string) string {
+	return jobID + " " + instruction
+}
+
+func decodeSteerArgument(argument string) (jobID, instruction string) {
+	jobID, instruction, _ = strings.Cut(argument, " ")
+	return jobID, instruction
 }
 
 // proposalNote renders the agent's argument as the note recorded on the effect,

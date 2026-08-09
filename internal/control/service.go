@@ -189,6 +189,10 @@ type TaskAPI interface {
 	PlaneStatus() (PlaneStatus, error)
 	AddDependency(taskID, dependsOn string) (DependencyEdge, error)
 	TaskDependencies(taskID string) (DependencyView, error)
+	ProgrammeBoard() (BoardView, error)
+	SteerJob(jobID, instruction string) (SteeringEvent, error)
+	CancelSteering(steerID string) (SteeringEvent, error)
+	JobSteering(jobID string) ([]SteeringEvent, error)
 	SyncTarget(project string) (Target, error)
 	ListProposals(state ProposalState) ([]Proposal, error)
 	ResolveProposal(id string, confirm bool, note string) (Proposal, error)
@@ -213,6 +217,12 @@ type Service struct {
 	budgets   PolicySource    // may be nil (then DefaultBudget(), no approval)
 	reviewer  ReviewRunner    // may be nil (then review is not a gate)
 	sched     *Scheduler      // admission control; never nil after NewService
+	// steerTimeout bounds how long a steering handoff may take before the plane
+	// records it undeliverable. A field rather than a bare const so a test can
+	// exercise the "the runner never answered" path in milliseconds instead of
+	// adding the real timeout to every suite run.
+	steerTimeout time.Duration
+
 	// now is the clock the reconcile heuristic measures against. Injected so a
 	// test can make "long past its budget" deterministic rather than slow.
 	now func() time.Time
@@ -249,9 +259,10 @@ func NewService(store *Store, projects ProjectResolver, worktrees *WorktreeManag
 	return &Service{
 		store: store, projects: projects, worktrees: worktrees,
 		runner: runner, verifier: verifier, sessions: sessions,
-		inflight: map[string]inflightOp{},
-		sched:    NewScheduler(DefaultSchedulerLimits()),
-		now:      func() time.Time { return time.Now().UTC() },
+		inflight:     map[string]inflightOp{},
+		sched:        NewScheduler(DefaultSchedulerLimits()),
+		now:          func() time.Time { return time.Now().UTC() },
+		steerTimeout: steeringDeliveryTimeout,
 	}
 }
 

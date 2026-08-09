@@ -69,6 +69,12 @@ const (
 	// ReasonForbidden: the caller class may not perform this operation at all, and
 	// may not propose it either.
 	ReasonForbidden RejectionReason = "forbidden"
+	// ReasonNotSteerable: the Job is not in a state where an instruction could
+	// reach a worker (it has finished, or has not started). Refused rather than
+	// recorded-and-dropped: recording an undeliverable steer against a Job that
+	// exited last week would bury a caller mistake in the log instead of answering
+	// it.
+	ReasonNotSteerable RejectionReason = "not_steerable"
 	// ReasonApprovalRequired: the project's policy requires a human approval that
 	// has not been given.
 	ReasonApprovalRequired RejectionReason = "approval_required"
@@ -113,7 +119,7 @@ var allRejectionReasons = map[RejectionReason]bool{
 	ReasonDependenciesUnmet: true,
 	ReasonUnsafeRebase:      true, ReasonOperationInFlight: true,
 	ReasonApprovalRequired: true, ReasonReviewRequired: true, ReasonIntegrationRaced: true,
-	ReasonProposalRecorded: true, ReasonForbidden: true,
+	ReasonProposalRecorded: true, ReasonForbidden: true, ReasonNotSteerable: true,
 	ReasonStaleBase: true, ReasonNullAgentFloor: true,
 	ReasonPolicyDrift: true, ReasonIntegrityGate: true, ReasonVerifyFailed: true,
 	ReasonReviewFailed: true, ReasonApprovalRejected: true,
@@ -132,7 +138,7 @@ func AllRejectionReasons() []RejectionReason {
 		ReasonReviewCyclesExhausted, ReasonConcurrencyExceeded, ReasonSchedulerSaturated,
 		ReasonQueuedBehind, ReasonJoblessTask, ReasonDependenciesUnmet, ReasonUnsafeRebase,
 		ReasonOperationInFlight, ReasonProposalRecorded, ReasonForbidden,
-		ReasonApprovalRequired, ReasonReviewRequired,
+		ReasonNotSteerable, ReasonApprovalRequired, ReasonReviewRequired,
 		ReasonIntegrationRaced, ReasonStaleBase, ReasonNullAgentFloor,
 		ReasonPolicyDrift, ReasonIntegrityGate, ReasonVerifyFailed, ReasonReviewFailed,
 		ReasonApprovalRejected, ReasonMergeConflict, ReasonMergedVerifyFailed,

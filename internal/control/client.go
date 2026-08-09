@@ -249,6 +249,43 @@ func (c *Client) TaskDependencies(taskID string) (DependencyView, error) {
 	return view, c.getJSON("/tasks/"+url.PathEscape(taskID)+"/dependencies", &view)
 }
 
+// ProgrammeBoard implements TaskAPI.
+func (c *Client) ProgrammeBoard() (BoardView, error) {
+	var view BoardView
+	return view, c.getJSON("/board", &view)
+}
+
+// SteerJob implements TaskAPI.
+func (c *Client) SteerJob(jobID, instruction string) (SteeringEvent, error) {
+	var steer SteeringEvent
+	return steer, c.postJSON("/jobs/"+url.PathEscape(jobID)+"/steer",
+		steerRequest{Instruction: instruction}, &steer)
+}
+
+// JobSteering implements TaskAPI.
+func (c *Client) JobSteering(jobID string) ([]SteeringEvent, error) {
+	var out []SteeringEvent
+	if err := c.getJSON("/jobs/"+url.PathEscape(jobID)+"/steering", &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// CancelSteering implements TaskAPI.
+func (c *Client) CancelSteering(steerID string) (SteeringEvent, error) {
+	req, _ := http.NewRequest(http.MethodDelete, c.baseURL+"/steering/"+url.PathEscape(steerID), nil)
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return SteeringEvent{}, fmt.Errorf("control client: DELETE /steering/%s: %w", steerID, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return SteeringEvent{}, decodeError(resp)
+	}
+	var steer SteeringEvent
+	return steer, json.NewDecoder(resp.Body).Decode(&steer)
+}
+
 // ListProposals implements TaskAPI.
 func (c *Client) ListProposals(state ProposalState) ([]Proposal, error) {
 	path := "/proposals"
@@ -312,6 +349,12 @@ func decodeError(resp *http.Response) error {
 	}
 	if resp.StatusCode == http.StatusNotFound {
 		return fmt.Errorf("%w: %s", ErrNotFound, msg)
+	}
+	// Malformed input survives the wire as the same sentinel, so a caller can tell
+	// "you asked wrongly" from "the daemon broke" in-process and over the socket
+	// alike.
+	if resp.StatusCode == http.StatusBadRequest {
+		return fmt.Errorf("%w: %s", ErrInvalidRequest, msg)
 	}
 	return fmt.Errorf("control daemon %d: %s", resp.StatusCode, msg)
 }

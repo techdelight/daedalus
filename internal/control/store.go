@@ -80,6 +80,7 @@ const (
 	EventProposal     = "proposal"     // an agent proposed a consequential operation
 	EventSchedule     = "schedule"     // a scheduler admission decision
 	EventGraph        = "graph"        // a dependency edge or blocked/ready move
+	EventSteering     = "steering"     // a typed instruction issued at a running Job
 )
 
 // EventMeta annotates an event row. Kind defaults to EventTransition, Reason is
@@ -259,6 +260,36 @@ CREATE TABLE IF NOT EXISTS task_dependencies (
     PRIMARY KEY (task_id, depends_on)
 );
 CREATE INDEX IF NOT EXISTS idx_deps_dependson ON task_dependencies(depends_on);
+
+-- Typed steering: instructions aimed at a RUNNING Job (M17).
+--
+-- Plane-owned, like the dependency edge: a worker cannot forge one or replay one,
+-- which is the whole difference between this and writing into a terminal. The
+-- state column is the honest part — an instruction that never reached the worker
+-- is recorded undeliverable, because a steering op that reported success without
+-- delivering would leave an operator believing they redirected a Job that never
+-- heard them.
+--
+-- (No backticks in this comment: the schema lives in a Go raw string literal, and
+-- a backtick here terminates it. That has cost a build once already.)
+--
+-- Note what is NOT here: nothing on this table is read by verification. Steering
+-- changes what the worker is told, never what counts as done.
+CREATE TABLE IF NOT EXISTS steering (
+    seq          INTEGER PRIMARY KEY AUTOINCREMENT,
+    id           TEXT NOT NULL UNIQUE,
+    task_id      TEXT NOT NULL,
+    job_id       TEXT NOT NULL,
+    instruction  TEXT NOT NULL,
+    issued_by    TEXT NOT NULL,
+    state        TEXT NOT NULL,
+    detail       TEXT NOT NULL DEFAULT '',
+    created_at   TEXT NOT NULL,
+    updated_at   TEXT NOT NULL,
+    delivered_at TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_steering_job ON steering(job_id);
+CREATE INDEX IF NOT EXISTS idx_steering_task ON steering(task_id);
 -- The project-keyed table this replaces existed only on an unreleased development
 -- build (it was added and re-keyed within Sprint 59), so there is no shipped data
 -- to migrate.
