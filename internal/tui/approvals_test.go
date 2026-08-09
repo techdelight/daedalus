@@ -20,6 +20,13 @@ type fakeControl struct {
 	err      error
 }
 
+func (f *fakeControl) PlaneStatus() (control.PlaneStatus, error) {
+	return control.PlaneStatus{
+		Limits:        control.SchedulerLimits{Global: 4, PerProject: 2},
+		GlobalRunning: 1,
+	}, f.err
+}
+
 func (f *fakeControl) PendingApprovals() ([]control.Task, error) { return f.pending, f.err }
 
 func (f *fakeControl) ApproveTask(id, _ string) (control.Task, error) {

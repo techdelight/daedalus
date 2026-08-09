@@ -136,6 +136,18 @@ func main() {
 	log.Printf("budget policy: %s (enforced: %v; policy-only, not enforced: %v)",
 		budgetPath, control.EnforcedAxes(), control.PolicyOnlyAxes())
 
+	// Scheduler limits come from the same host-side governance file. Absent, the
+	// defaults preserve the pre-Sprint-61 behaviour of one Job per project, so
+	// lifting the invariant does not silently change an existing installation.
+	limits := control.DefaultSchedulerLimits()
+	if policy, err := control.LoadBudgetPolicy(budgetPath); err == nil {
+		limits = policy.SchedulerLimitsFor()
+	} else {
+		log.Printf("scheduler limits: %s unreadable (%v) — using defaults", budgetPath, err)
+	}
+	svc.SetSchedulerLimits(limits)
+	log.Printf("scheduler: global=%d per-project=%d", limits.Global, limits.PerProject)
+
 	// Image-digest pin: capture the project image's sha256 digest so the verifier
 	// runs against the exact environment the artifact was authored against. Only
 	// wired when the real verifier is active — under DAEDALUS_CONTROL_FAKE_VERIFY

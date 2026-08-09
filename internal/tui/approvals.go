@@ -29,11 +29,22 @@ type approvalRow struct {
 	objective string
 }
 
-// approvalsLoadedMsg carries the result of a refresh.
+// approvalsLoadedMsg carries the result of a refresh, plus the plane's
+// concurrency picture — with several Jobs able to run at once, "what is running"
+// is no longer implied by the project list.
 type approvalsLoadedMsg struct {
 	rows      []approvalRow
 	available bool
 	reason    string
+	plane     planeLine
+}
+
+// planeLine is the one-line concurrency summary.
+type planeLine struct {
+	known         bool
+	globalRunning int
+	globalLimit   int
+	waiting       int
 }
 
 // approvalDecidedMsg is the outcome of an approve/reject keypress.
@@ -74,7 +85,14 @@ func loadApprovals(api control.TaskAPI) tea.Cmd {
 		for _, t := range tasks {
 			rows = append(rows, approvalRow{id: t.ID, project: t.Project, objective: t.Objective})
 		}
-		return approvalsLoadedMsg{rows: rows, available: true}
+		msg := approvalsLoadedMsg{rows: rows, available: true}
+		if st, err := api.PlaneStatus(); err == nil {
+			msg.plane = planeLine{
+				known: true, globalRunning: st.GlobalRunning,
+				globalLimit: st.Limits.Global, waiting: len(st.Waiting),
+			}
+		}
+		return msg
 	}
 }
 
@@ -148,7 +166,20 @@ func (m tuiModel) viewApprovals() string {
 	add := func(s string) { b = append(b, s...) }
 
 	add(titleStyle.Render("  Awaiting approval"))
-	add("\n\n")
+	add("\n")
+	if m.plane.known {
+		limit := "∞"
+		if m.plane.globalLimit > 0 {
+			limit = fmt.Sprintf("%d", m.plane.globalLimit)
+		}
+		line := fmt.Sprintf("  plane: %d/%s jobs running", m.plane.globalRunning, limit)
+		if m.plane.waiting > 0 {
+			line += fmt.Sprintf(", %d queued for capacity", m.plane.waiting)
+		}
+		add(helpStyle.Render(line))
+		add("\n")
+	}
+	add("\n")
 	if !m.approvalsAvailable {
 		add(normalStyle.Render("  The control plane is not reachable."))
 		add("\n")

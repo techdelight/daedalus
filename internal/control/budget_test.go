@@ -29,12 +29,13 @@ func TestBudgetPolicy_Layering(t *testing.T) {
 			name:    "unknown project gets policy default over built-in",
 			project: "small",
 			// MaxAttempts from the policy default; everything else from DefaultBudget.
-			want: Budget{WallClockSeconds: 3600, MaxAttempts: 2, MaxReviewCycles: 3, Concurrency: 1},
+			// Concurrency is unset: per-project concurrency is the scheduler's.
+			want: Budget{WallClockSeconds: 3600, MaxAttempts: 2, MaxReviewCycles: 3, Concurrency: 0},
 		},
 		{
 			name:    "project override layers over the policy default",
 			project: "big",
-			want:    Budget{WallClockSeconds: 7200, MaxAttempts: 2, MaxReviewCycles: 3, Concurrency: 1},
+			want:    Budget{WallClockSeconds: 7200, MaxAttempts: 2, MaxReviewCycles: 3, Concurrency: 0},
 		},
 	}
 	for _, tc := range tests {

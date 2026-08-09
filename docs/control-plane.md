@@ -77,7 +77,7 @@ the logic directly (tests) or over the socket (production).
 
 | Command | Effect |
 |---|---|
-| `task create --project <name> --objective <text> [--acceptance <ref>]` | Daemon resolves the project via the registry, requires a **Git repo**, captures `base_sha` from HEAD, enforces one-active-task-per-project, inserts a `planned` Task. |
+| `task create --project <name> --objective <text> [--acceptance <ref>]` | Daemon resolves the project via the registry, requires a **Git repo**, pins `base_sha` to the plane-owned target, inserts a `planned` Task. Several active Tasks per project are allowed. |
 | `task list` | All tasks: id, project, state, objective snippet. |
 | `task status <id>` | A task with its jobs and artifacts. |
 | `task dispatch <id>` | Run one headless Job attempt (see below). |
@@ -514,13 +514,14 @@ through the retry/replan ladder:
 | The **merged** result fails verification | `merged_verify_failed` | Task → `rejected`, target untouched |
 | The target kept moving | `integration_raced` | Task stays `approved`, nothing landed, try again |
 
-**What the queue is doing today.** With one active Task per project, two
-integrations cannot be in flight for a single repository right now, so the
-compare-and-swap has no concurrent writer to lose to in normal operation. It is
-**insurance for M16's parallel Jobs**, not load-bearing yet — correct, and proven
-to serialize 16 ways under a real race, but currently protecting against a case
-the rest of the system does not yet produce. Worth saying, so a reader does not
-assume it is carrying weight it is not.
+**The queue is load-bearing as of Sprint 61.** Until then, one active Task per
+project meant two integrations could never be in flight for a single repository,
+so the compare-and-swap had no concurrent writer to lose to — it was insurance.
+Lifting that invariant made it real work: two Tasks on one project can now be
+verified against the same target and try to land at the same time, and the CAS is
+what decides. The loser rebases onto the winner and re-verifies, so both changes
+end up in the trunk and neither is lost. This is exercised by competing landings
+from real goroutines under `-race`, not by simulated interleaving.
 
 **Re-integration is idempotent.** The compare-and-swap commits before the Task is
 marked `integrated`, and those are two different stores — git and the target row,
@@ -611,6 +612,98 @@ and auth is on by default, so the shipped configuration is safe — but `--no-au
 now hands the approve button to anyone who can reach the port, and WSL2
 auto-detection binds `0.0.0.0`. The approval gate is only as strong as the
 weakest surface that can operate it.
+
+## Concurrency and the scheduler (Sprint 61 / M16 — built)
+
+Until Sprint 61 a project could have **one active Task**, and therefore one Job.
+That invariant had held since M13 and was quietly relied on in several places, so
+lifting it was mostly an audit: find what assumed it, then decide each case.
+
+**What actually changed is smaller than it looks, and the shape decides the rest:**
+
+- A **Task** still has at most one Job in flight. The state machine guarantees it
+  — a Task is dispatchable only from `planned`/`queued`/`rejected`, and
+  dispatching moves it to `working`. So every per-Task singular lookup
+  (`candidateJob`, `firstArtifact`, `jobInState`) stays correct unchanged.
+- What was forbidden and is now allowed is **several Tasks active on one
+  project**. That is the unit of parallelism.
+- The service lock was **already** released across the long calls (Sprint 58's
+  `unlockedDuring`), so two dispatches genuinely overlap the moment two Tasks
+  exist. No execution machinery was added.
+
+**The trap, named because it is easy to get wrong:** `withClaim` is keyed by
+**Task**, and concurrency is per **project**. While only one Task per project
+could be active those were the same sentence; they are not any more. N Tasks on
+one project hold N independent claims, so the claim set does not limit project
+concurrency and never did — it stops two operations racing on *one* Task. The
+per-project limit had to come from somewhere else, and that is the scheduler.
+Building the limiter on the claim set would have produced one that silently never
+fires.
+
+### Limits
+
+| Limit | Source | Meaning |
+|---|---|---|
+| **Global** | `concurrency.global` in the governance file | running Jobs across every project — the host's capacity, since each Job is a container |
+| **Per-project** | `concurrency.perProject` | running Jobs within one project |
+| **Per-Task** | the Task budget's `concurrency` axis | an optional cap a Task sets on *itself*, for a Task that wants to be stricter than its project |
+
+The tightest applicable limit binds. "Running" means `queued`/`working`/
+`input_required` — `candidate`, `verifying` and `rejected` are non-terminal but
+**idle**, waiting on a plane or human decision rather than a container, so
+counting them would make a project look full while nothing executed.
+
+```json
+{
+  "default":     {"maxAttempts": 3},
+  "concurrency": {"global": 8, "perProject": 3}
+}
+```
+
+**Defaults preserve the old behaviour**: `perProject: 1`. Lifting the invariant
+changes what the plane *can* do; it must not silently change what an existing
+installation *does* do. Parallelism is opt-in.
+
+This is also what finally makes the budget's `concurrency` axis fire at all —
+Sprint 58's audit noted it could effectively never trigger, because only one Job
+per project was possible. Its default moved from `1` to *unset* for the same
+reason: a Task-level default of 1 would silently override the operator's
+per-project limit and make parallelism impossible to switch on.
+
+### Fairness
+
+When capacity is available, **only the oldest waiter may take it**.
+
+Without that rule a project dispatching in a tight loop starves the Task that
+asked first — and because a refusal is a typed rejection the caller retries, so
+the starved Task would retry forever while newer work sailed past. A Task refused
+for capacity keeps a place in line; a newer Task offered free capacity is refused
+with `queued_behind` and told which Task it is yielding to.
+
+Fairness is **per project**, because freeing project A's slot does nothing for a
+Task waiting on project B — making B wait would be starvation dressed as fairness.
+The exception is the global limit, which *is* shared: a Task waiting on global
+saturation competes with every project. A Task that is cancelled or finishes drops
+its ticket, so work that will never run cannot block the queue head forever.
+
+Every admission decision — allowed or refused — is a typed `schedule` event.
+A scheduler that quietly declines is indistinguishable from one that is broken.
+
+### What stayed correct, and what needed care
+
+- **Reconcile** skips Jobs this process is running (the in-flight set), so a pass
+  during N concurrent Jobs adopts nothing and reclaims nothing.
+- **Cancellation** targets one Task's Job and leaves its siblings running.
+- **Worktrees** are named per Job (`J-n`), which is globally unique, so concurrent
+  create/remove cannot collide.
+- **Session liveness is per PROJECT, not per Job** — an honest limitation.
+  `SessionObserver.HasSession(project)` cannot say *which* of a project's Jobs is
+  alive. The consequence is conservative in the safe direction: with no session at
+  all, every Job of that project is correctly reaped; with at least one session,
+  none is, so a crashed Job among healthy siblings is adopted rather than failed
+  and survives until the daemon restarts with none running. That leaks a stale Job
+  rather than destroying a live one, which is the right way round, but it is a
+  real imprecision and per-Job liveness is the fix.
 
 ## The Guild Master as a gated client (Sprint 60 / M15 — built)
 
@@ -712,14 +805,15 @@ ahead:
   a gate.
 - **Nothing lands by itself.** Integration is always an explicit
   `daedalus task integrate`; the plane never advances a target on its own.
-- **No parallelism.** One active Job per project; concurrent Jobs and the
-  cross-project task graph are **M16**, typed steering **M17**.
+- **No dependency scheduling.** Jobs run concurrently (Sprint 61), but there is
+  no cross-project task graph and no blocked/ready ordering between Tasks — that
+  is **Sprint 62**. Typed steering is **M17**.
 - **The caller class is a class, not an identity.** Two agent clients on the
   restricted socket are indistinguishable from each other, and anything already
   running as the operator can open either socket. The boundary is the container's
   mount namespace, not the socket's file mode.
-- **No parallelism.** One active Job per project; multiple concurrent worktrees
-  are **M16**. `task dispatch` runs the attempt synchronously.
+- **`task dispatch` runs its attempt synchronously.** Several dispatches may be in
+  flight at once (Sprint 61), but each call blocks until its own Job ends.
 - **The real `CoordinatorRunner` is host-only.** It needs a Docker daemon and is
   not exercised in CI; the control-plane logic is proven with the fake runner.
 

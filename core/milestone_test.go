@@ -251,14 +251,16 @@ func TestParseMilestonesAgainstRealRoadmap(t *testing.T) {
 	if got[13].Status != StatusDone {
 		t.Errorf("Milestone 14 Status = %q, want %q", got[13].Status, StatusDone)
 	}
-	// M15 (governance, integration & the gated Guild Master client) is Done —
-	// V2 complete. No milestone is open; M16–M17 remain Planned.
+	// M15 (governance, integration & the gated Guild Master client) is Done — V2
+	// complete. M16 (parallel programme execution) is the open milestone; M17
+	// remains Planned.
 	if got[14].Status != StatusDone {
 		t.Errorf("Milestone 15 Status = %q, want %q", got[14].Status, StatusDone)
 	}
-	for i := 15; i <= 16; i++ {
-		if got[i].Status != StatusPlanned {
-			t.Errorf("Milestone %d Status = %q, want %q (planned arc)", i+1, got[i].Status, StatusPlanned)
-		}
+	if got[15].Status != StatusInProgress {
+		t.Errorf("Milestone 16 Status = %q, want %q", got[15].Status, StatusInProgress)
+	}
+	if got[16].Status != StatusPlanned {
+		t.Errorf("Milestone 17 Status = %q, want %q (planned arc)", got[16].Status, StatusPlanned)
 	}
 }

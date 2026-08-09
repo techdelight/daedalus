@@ -2,6 +2,62 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- **Concurrent Jobs and the scheduler (Sprint 61, opening M16).** The **one active
+  Job per project** invariant that had held since M13 is lifted, and the M15 merge
+  queue becomes load-bearing instead of insurance.
+  - **What actually changed.** A *Task* still has at most one Job in flight (the
+    state machine guarantees it), so every per-Task singular lookup stays correct
+    unchanged; what was forbidden and is now allowed is several *Tasks* active on
+    one project. The service lock was already released across long calls since
+    Sprint 58, so dispatches genuinely overlap the moment two Tasks exist — no
+    execution machinery was added. The audit's load-bearing finding: `withClaim` is
+    keyed by **Task** while concurrency is per **project**; those were the same
+    sentence under the old invariant and are not any more, so the per-project limit
+    had to come from the scheduler rather than the claim set, which would otherwise
+    have been a limiter that silently never fired.
+  - **The scheduler** admits Jobs under a **global** limit, a **per-project** limit,
+    and the per-Task budget `concurrency` axis — the tightest binds. This is what
+    finally makes that budget axis fire at all (Sprint 58 audit finding 11), and its
+    default moved from `1` to *unset*, because a Task-level default of 1 would
+    silently override the operator's per-project limit and make parallelism
+    impossible to switch on. Limits come from the host-side governance file, and the
+    defaults (`perProject: 1`) **preserve the previous behaviour**: lifting the
+    invariant changes what the plane can do, not what an existing installation does.
+  - **Fairness.** When capacity frees, only the **oldest waiter** may take it — a
+    newer Task is refused with `queued_behind` and told which Task it yields to.
+    Without it, a project dispatching in a loop would starve the Task that asked
+    first, forever, since a refusal is a retryable typed rejection. Fairness is per
+    project (freeing A's slot does nothing for B), except for the shared global
+    limit. Every admission decision, allowed or refused, is a typed `schedule`
+    event: a scheduler that quietly declines is indistinguishable from a broken one.
+  - **Concurrency correctness**, proven with real goroutines under `-race` rather
+    than simulated interleaving: three Jobs live on one project each with their own
+    worktree and artifact; Jobs on separate projects not contending; reconcile
+    adopting/settling/reclaiming nothing while N Jobs run; cancellation hitting
+    exactly one Job and leaving its siblings running; concurrent worktree
+    create/remove leaving git's own view clean; and **competing landings on one
+    queue** — two Tasks verified against the same target racing to integrate, where
+    the compare-and-swap decides and the loser rebases onto the winner so neither
+    change is lost.
+  - **Observability.** `task list` shows the plane-wide and per-project running
+    counts and names what is queued; `task status` shows a Task's scheduling
+    standing, making a Task **queued for capacity** visibly distinct from one that
+    is working. New `GET /status` and `GET /api/plane-status`, with the same summary
+    in the TUI.
+  - **Honest limitation:** session liveness is observed per *project*, not per
+    *Job*, so reconcile cannot tell which of a project's Jobs a live session belongs
+    to. It errs conservatively — a crashed Job among healthy siblings is adopted
+    rather than failed — which leaks a stale Job rather than destroying a live one.
+    Per-Job liveness is the fix.
+
+### Fixed
+- **`core` milestone test broke when M16 was opened**, the same way it did for M15:
+  it hard-asserted M16–M17 were both `Planned`. It now asserts M16 `In Progress`
+  and M17 `Planned`.
+
 ## [0.50.0] - 2026-08-09
 
 ### Added

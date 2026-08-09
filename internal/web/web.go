@@ -180,6 +180,7 @@ func (ws *WebServer) RegisterRoutes(mux *http.ServeMux) {
 
 	// Control plane: the pending-approvals surface (read + the two human decisions).
 	mux.HandleFunc("GET /api/approvals", ws.handleApprovals)
+	mux.HandleFunc("GET /api/plane-status", ws.handlePlaneStatus)
 	mux.HandleFunc("POST /api/approvals/{id}/approve", ws.handleApproveTask)
 	mux.HandleFunc("POST /api/approvals/{id}/reject", ws.handleRejectTask)
 

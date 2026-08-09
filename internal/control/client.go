@@ -8,7 +8,7 @@ package control
 //
 // Domain sentinels survive the wire: the daemon maps them to status codes and an
 // {"error": ...} envelope, and the client re-raises a matching sentinel via
-// errors.Is where the CLI needs to branch (ErrNotFound, active-task conflict).
+// errors.Is where the CLI needs to branch (ErrNotFound, policy refusals).
 
 import (
 	"bytes"
@@ -228,6 +228,12 @@ func (c *Client) getJSON(path string, out any) error {
 		return decodeError(resp)
 	}
 	return json.NewDecoder(resp.Body).Decode(out)
+}
+
+// PlaneStatus implements TaskAPI.
+func (c *Client) PlaneStatus() (PlaneStatus, error) {
+	var st PlaneStatus
+	return st, c.getJSON("/status", &st)
 }
 
 // ListProposals implements TaskAPI.

@@ -71,6 +71,7 @@ type tuiModel struct {
 	approvalCursor     int
 	approvalsAvailable bool
 	approvalsReason    string
+	plane              planeLine
 }
 
 func (m tuiModel) filteredProjects() []projectRow {
@@ -139,6 +140,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.approvals = msg.rows
 		m.approvalsAvailable = msg.available
 		m.approvalsReason = msg.reason
+		m.plane = msg.plane
 		if m.approvalCursor >= len(m.approvals) {
 			m.approvalCursor = max(len(m.approvals)-1, 0)
 		}

@@ -40,8 +40,11 @@ type Budget struct {
 	MaxAttempts int `json:"maxAttempts"`
 	// MaxReviewCycles bounds how many times a Task may enter `verifying`.
 	MaxReviewCycles int `json:"maxReviewCycles"`
-	// Concurrency bounds how many of a project's Jobs may be running at once
-	// (queued/working/input_required). V1 is 1; M16 raises it.
+	// Concurrency optionally caps how many of a project's Jobs may run at once on
+	// behalf of THIS Task. 0 means "no Task-level cap — the scheduler decides",
+	// which is the normal case: per-project concurrency is the operator's setting
+	// (SchedulerLimits.PerProject), and this axis exists only for a Task that
+	// wants to be stricter than its project. The tighter of the two binds.
 	Concurrency int `json:"concurrency"`
 
 	// --- policy in the plane, NOT enforced (runner-dependent measurement) ---
@@ -56,13 +59,20 @@ type Budget struct {
 
 // DefaultBudget is the built-in envelope used when neither a project override
 // nor an explicit request narrows it. One hour per attempt, three attempts,
-// three review cycles, one Job at a time (V1's one-active-Job-per-project rule).
+// three review cycles, and no Task-level concurrency cap (the scheduler's
+// per-project limit applies instead).
 func DefaultBudget() Budget {
 	return Budget{
 		WallClockSeconds: 3600,
 		MaxAttempts:      3,
 		MaxReviewCycles:  3,
-		Concurrency:      1,
+		// Concurrency is deliberately UNSET. Until Sprint 61 it defaulted to 1,
+		// which was the one-Job-per-project invariant written into the budget; now
+		// that the scheduler owns per-project concurrency, a Task-level default of 1
+		// would silently override the operator's limit and make parallelism
+		// impossible to switch on. Old behaviour is preserved by
+		// DefaultSchedulerLimits().PerProject, which is where it belongs.
+		Concurrency: 0,
 	}
 }
 
@@ -107,8 +117,12 @@ func (b Budget) withDefaults(fallback Budget) Budget {
 
 // String renders a budget compactly for CLI output and event notes.
 func (b Budget) String() string {
-	return fmt.Sprintf("wall-clock=%ds attempts=%d review-cycles=%d concurrency=%d",
-		b.WallClockSeconds, b.MaxAttempts, b.MaxReviewCycles, b.Concurrency)
+	concurrency := "scheduler"
+	if b.Concurrency > 0 {
+		concurrency = fmt.Sprintf("%d", b.Concurrency)
+	}
+	return fmt.Sprintf("wall-clock=%ds attempts=%d review-cycles=%d concurrency=%s",
+		b.WallClockSeconds, b.MaxAttempts, b.MaxReviewCycles, concurrency)
 }
 
 // axes enumerates a budget's fields as (name, value) pairs, in a fixed order, so
@@ -245,6 +259,24 @@ type BudgetPolicy struct {
 	// cannot edit — and because an operator should find all of it in one place.
 	// Absent means opt-out: governance stays opt-in per §9.
 	Approval ApprovalPolicy `json:"approval,omitempty"`
+	// Concurrency is the scheduler's global and per-project limits (Sprint 61).
+	// Absent keeps DefaultSchedulerLimits — one Job per project, as before — so
+	// lifting the invariant changes what the plane CAN do without changing what an
+	// existing installation DOES do.
+	Concurrency SchedulerLimits `json:"concurrency,omitempty"`
+}
+
+// SchedulerLimitsFor returns the configured limits, falling back to the defaults
+// for any axis the operator left unset.
+func (p BudgetPolicy) SchedulerLimitsFor() SchedulerLimits {
+	limits, def := p.Concurrency, DefaultSchedulerLimits()
+	if limits.Global == 0 {
+		limits.Global = def.Global
+	}
+	if limits.PerProject == 0 {
+		limits.PerProject = def.PerProject
+	}
+	return limits
 }
 
 // RequiresApproval implements PolicySource.

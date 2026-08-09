@@ -22,6 +22,15 @@ type fakeControl struct {
 	err             error
 }
 
+func (f *fakeControl) PlaneStatus() (control.PlaneStatus, error) {
+	return control.PlaneStatus{
+		Limits:         control.SchedulerLimits{Global: 4, PerProject: 2},
+		GlobalRunning:  2,
+		ProjectRunning: map[string]int{"app": 2},
+		Waiting:        []string{"T-9"},
+	}, f.err
+}
+
 func (f *fakeControl) PendingApprovals() ([]control.Task, error) {
 	return f.pending, f.err
 }
@@ -148,5 +157,56 @@ func TestApprovals_DecisionsNeedTheControlPlane(t *testing.T) {
 		if rec.Code != http.StatusServiceUnavailable {
 			t.Errorf("POST %s = %d, want 503", path, rec.Code)
 		}
+	}
+}
+
+// TestPlaneStatus_ReportsRunningAndQueued: with several Jobs able to run at once,
+// the dashboard must show what is actually running — and a queued Task must be
+// visibly distinct from a working one.
+func TestPlaneStatus_ReportsRunningAndQueued(t *testing.T) {
+	fake := &fakeControl{}
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/plane-status", (&WebServer{control: fake}).handlePlaneStatus)
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/plane-status", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	var got planeStatusResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !got.Available || got.GlobalRunning != 2 || got.GlobalLimit != 4 || got.PerProjectLmt != 2 {
+		t.Errorf("got %+v, want the fake's counts and limits", got)
+	}
+	if got.ProjectRunning["app"] != 2 {
+		t.Errorf("per-project running = %v, want app=2", got.ProjectRunning)
+	}
+	if len(got.Waiting) != 1 || got.Waiting[0] != "T-9" {
+		t.Errorf("waiting = %v, want [T-9] — a queued task must be visible", got.Waiting)
+	}
+}
+
+// TestPlaneStatus_NoControlPlane: unavailable must not render as "nothing
+// running", which is a different and reassuring claim.
+func TestPlaneStatus_NoControlPlane(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/plane-status", (&WebServer{}).handlePlaneStatus)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/plane-status", nil))
+
+	var got planeStatusResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got.Available {
+		t.Error("available should be false with no control plane")
+	}
+	if got.Reason == "" {
+		t.Error("the response should explain why")
+	}
+	if got.ProjectRunning == nil || got.Waiting == nil {
+		t.Error("maps and slices must be non-nil so the UI can iterate them")
 	}
 }

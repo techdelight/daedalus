@@ -89,10 +89,32 @@ type JobView struct {
 	Artifacts []Artifact `json:"artifacts"`
 }
 
-// StatusView is a Task plus its jobs (each with artifacts).
+// StatusView is a Task plus its jobs (each with artifacts), and where it stands
+// with the scheduler.
 type StatusView struct {
 	Task Task      `json:"task"`
 	Jobs []JobView `json:"jobs"`
+	// Scheduling describes what the plane is doing with this Task right now: it is
+	// what makes a Task that is QUEUED FOR CAPACITY visibly different from one that
+	// is running, which are otherwise both just "not finished".
+	Scheduling TaskScheduling `json:"scheduling"`
+}
+
+// TaskScheduling is a Task's position with respect to concurrency.
+type TaskScheduling struct {
+	// Running is true when this Task has a Job actually executing.
+	Running bool `json:"running"`
+	// QueuedForCapacity is true when a dispatch was refused for capacity and the
+	// Task is holding a place in line.
+	QueuedForCapacity bool `json:"queuedForCapacity"`
+	// QueuePosition is 1-based among waiting Tasks, 0 when not waiting.
+	QueuePosition int `json:"queuePosition,omitempty"`
+	// ProjectRunning and GlobalRunning are the counts the next admission decision
+	// will be made against.
+	ProjectRunning int `json:"projectRunning"`
+	GlobalRunning  int `json:"globalRunning"`
+	// Limits in force.
+	Limits SchedulerLimits `json:"limits"`
 }
 
 // DispatchResult is the terminal-of-this-attempt view returned by dispatch.
@@ -135,6 +157,7 @@ type TaskAPI interface {
 	IntegrateTask(id string) (IntegrationResult, error)
 	PendingApprovals() ([]Task, error)
 	ProjectTargets() ([]TargetView, error)
+	PlaneStatus() (PlaneStatus, error)
 	SyncTarget(project string) (Target, error)
 	ListProposals(state ProposalState) ([]Proposal, error)
 	ResolveProposal(id string, confirm bool, note string) (Proposal, error)
@@ -158,6 +181,7 @@ type Service struct {
 	sessions  SessionObserver // may be nil (reconcile then skips session checks)
 	budgets   PolicySource    // may be nil (then DefaultBudget(), no approval)
 	reviewer  ReviewRunner    // may be nil (then review is not a gate)
+	sched     *Scheduler      // admission control; never nil after NewService
 
 	// mu serialises the DB bookkeeping of Dispatch, Verify, Cancel and Reconcile
 	// (V1 has a single SQLite writer conn). It is deliberately NOT held across the
@@ -192,6 +216,7 @@ func NewService(store *Store, projects ProjectResolver, worktrees *WorktreeManag
 		store: store, projects: projects, worktrees: worktrees,
 		runner: runner, verifier: verifier, sessions: sessions,
 		inflight: map[string]inflightOp{},
+		sched:    NewScheduler(DefaultSchedulerLimits()),
 	}
 }
 
@@ -253,6 +278,12 @@ func (s *Service) SetImageDigester(d ImageDigester) { s.digester = d }
 func governanceMetaFor(c Caller) EventMeta {
 	return EventMeta{Kind: EventGovernance, Actor: c.Actor()}
 }
+
+// Scheduler exposes the admission scheduler (daemon wiring, status views, tests).
+func (s *Service) Scheduler() *Scheduler { return s.sched }
+
+// SetSchedulerLimits applies the host-side concurrency limits.
+func (s *Service) SetSchedulerLimits(l SchedulerLimits) { s.sched.SetLimits(l) }
 
 // SetPolicySource installs the per-project governance policy source — budget
 // ceilings and the approval requirement (the daemon passes FileBudgetPolicy;
@@ -408,15 +439,73 @@ func (s *Service) TaskStatus(id string) (StatusView, error) {
 	if err != nil {
 		return StatusView{}, err
 	}
-	view := StatusView{Task: t}
+	view := StatusView{Task: t, Scheduling: s.schedulingFor(t)}
 	for _, j := range jobs {
 		arts, err := s.store.ListArtifactsForJob(j.ID)
 		if err != nil {
 			return StatusView{}, err
 		}
 		view.Jobs = append(view.Jobs, JobView{Job: j, Artifacts: arts})
+		if IsRunningState(j.State) {
+			view.Scheduling.Running = true
+		}
 	}
 	return view, nil
+}
+
+// schedulingFor describes a Task's standing with the scheduler.
+func (s *Service) schedulingFor(t Task) TaskScheduling {
+	sched := TaskScheduling{Limits: s.sched.Limits()}
+	if n, err := s.store.CountRunningJobsForProject(t.Project); err == nil {
+		sched.ProjectRunning = n
+	}
+	if n, err := s.store.CountRunningJobs(); err == nil {
+		sched.GlobalRunning = n
+	}
+	for i, id := range s.sched.Waiting() {
+		if id == t.ID {
+			sched.QueuedForCapacity = true
+			sched.QueuePosition = i + 1
+			break
+		}
+	}
+	return sched
+}
+
+// PlaneStatus is the plane-wide concurrency picture behind `daedalus task list`.
+type PlaneStatus struct {
+	Limits         SchedulerLimits `json:"limits"`
+	GlobalRunning  int             `json:"globalRunning"`
+	ProjectRunning map[string]int  `json:"projectRunning"`
+	Waiting        []string        `json:"waiting"`
+}
+
+// PlaneStatus reports what is actually running, per project and globally.
+func (s *Service) PlaneStatus() (PlaneStatus, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	out := PlaneStatus{Limits: s.sched.Limits(), ProjectRunning: map[string]int{}, Waiting: s.sched.Waiting()}
+	global, err := s.store.CountRunningJobs()
+	if err != nil {
+		return PlaneStatus{}, err
+	}
+	out.GlobalRunning = global
+	tasks, err := s.store.ListTasks()
+	if err != nil {
+		return PlaneStatus{}, err
+	}
+	seen := map[string]bool{}
+	for _, t := range tasks {
+		if seen[t.Project] {
+			continue
+		}
+		seen[t.Project] = true
+		if n, err := s.store.CountRunningJobsForProject(t.Project); err == nil && n > 0 {
+			out.ProjectRunning[t.Project] = n
+		}
+	}
+	return out, nil
 }
 
 // CancelTask cancels a task and any non-terminal jobs, reclaiming their
@@ -446,6 +535,9 @@ func (s *Service) cancelTask(caller Caller, id string) (Task, error) {
 			}
 		}
 	}
+	// Drop any place in the scheduler's queue: a cancelled Task must not keep
+	// blocking younger ones by holding the oldest ticket forever.
+	s.sched.Forget(id)
 	return s.store.TransitionTaskWith(id, StateCancelled, false,
 		EventMeta{Actor: caller.Actor()}, "cancelled")
 }
@@ -515,6 +607,10 @@ func (s *Service) prepareDispatch(id string) (dispatchPrep, error) {
 	// Budget gate, BEFORE any state change or side-effect: an over-budget dispatch
 	// must leave the task exactly as it found it.
 	if err := s.checkDispatchBudget(task); err != nil {
+		return dispatchPrep{}, err
+	}
+	// Admission: capacity, and fairness about who gets it.
+	if err := s.admitDispatch(task); err != nil {
 		return dispatchPrep{}, err
 	}
 	repoDir, err := s.projects.ProjectDir(task.Project)
@@ -639,21 +735,47 @@ func (s *Service) checkDispatchBudget(task Task) error {
 				task.ID, b.MaxAttempts, task.Project))
 		}
 	}
-	if b.Concurrency > 0 {
-		running, err := s.store.CountRunningJobsForProject(task.Project)
-		if err != nil {
-			return err
+	// Concurrency is now the SCHEDULER's decision, not a lone budget check: the
+	// per-Task budget axis, the operator's per-project limit and the global limit
+	// all apply, and fairness decides who takes free capacity. See admitDispatch.
+	return nil
+}
+
+// admitDispatch asks the scheduler whether this Task may start a Job now, and
+// records the decision either way. s.mu must be held, so the counts it reads
+// cannot drift between the count and the decision.
+//
+// Every refusal is a typed rejection and a logged event — a scheduler that
+// silently declines is indistinguishable from one that is broken.
+func (s *Service) admitDispatch(task Task) error {
+	projectRunning, err := s.store.CountRunningJobsForProject(task.Project)
+	if err != nil {
+		return err
+	}
+	globalRunning, err := s.store.CountRunningJobs()
+	if err != nil {
+		return err
+	}
+	req := admissionRequest{
+		taskID: task.ID, project: task.Project,
+		projectRunning: projectRunning, globalRunning: globalRunning,
+		taskConcurrency: task.Budget.Concurrency,
+	}
+	if err := s.sched.admit(req); err != nil {
+		reason, _ := Rejected(err)
+		if logErr := s.store.LogDecision("task", task.ID,
+			EventMeta{Kind: EventSchedule, Reason: reason, Actor: ActorPlane},
+			fmt.Sprintf("not admitted: %s (project running %d, global running %d)",
+				err.Error(), projectRunning, globalRunning)); logErr != nil {
+			log.Printf("control: logging admission refusal for %s: %v", task.ID, logErr)
 		}
-		// The DB count alone is authoritative here: prepareDispatch holds s.mu from
-		// the guards through the Job insert without ever releasing it, so no other
-		// dispatch can observe the window between claiming a task and its Job row
-		// existing. (Counting in-flight claims as well would double-count this very
-		// dispatch and refuse every first attempt.)
-		if running >= b.Concurrency {
-			return s.refuse("task", task.ID, EventBudget, ReasonConcurrencyExceeded, fmt.Sprintf(
-				"project %q already has %d running job(s) (concurrency budget %d)",
-				task.Project, running, b.Concurrency))
-		}
+		return err
+	}
+	if err := s.store.LogDecision("task", task.ID,
+		EventMeta{Kind: EventSchedule, Actor: ActorPlane},
+		fmt.Sprintf("admitted (project running %d, global running %d)",
+			projectRunning, globalRunning)); err != nil {
+		log.Printf("control: logging admission for %s: %v", task.ID, err)
 	}
 	return nil
 }
@@ -1177,6 +1299,8 @@ func withDetail(base, detail string) string {
 
 // terminate drives a job+task to a terminal state and reclaims the worktree.
 func (s *Service) terminate(taskID, jobID, repoDir string, term State, note string) {
+	// A Task that has finished releases its place in line along with its capacity.
+	s.sched.Forget(taskID)
 	if _, err := s.store.TransitionJob(jobID, term, false, note); err != nil {
 		log.Printf("control: terminate job %s → %s: %v", jobID, term, err)
 	}

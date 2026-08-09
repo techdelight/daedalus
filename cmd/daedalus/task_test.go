@@ -89,16 +89,24 @@ func TestCLI_TaskCreate_NonGitRejected(t *testing.T) {
 	}
 }
 
-func TestCLI_TaskCreate_SecondActiveRejected(t *testing.T) {
+// TestCLI_TaskCreate_SeveralActiveAllowed: since Sprint 61 a project may have
+// several active Tasks. Concurrency is decided at DISPATCH by the scheduler,
+// where capacity is actually consumed — planning work ahead is not the thing that
+// needed limiting.
+func TestCLI_TaskCreate_SeveralActiveAllowed(t *testing.T) {
 	dir := makeGitRepo(t)
 	svc := newTestService(t, mapResolver{"app": dir})
-	if err := runTaskCommand(svc, []string{"create", "--project", "app", "--objective", "first"}); err != nil {
-		t.Fatalf("first: %v", err)
+	for _, objective := range []string{"first", "second", "third"} {
+		if err := runTaskCommand(svc, []string{"create", "--project", "app", "--objective", objective}); err != nil {
+			t.Fatalf("create %q: %v", objective, err)
+		}
 	}
-	err := runTaskCommand(svc, []string{"create", "--project", "app", "--objective", "second"})
-	var active *control.ErrActiveTaskExists
-	if !errors.As(err, &active) {
-		t.Errorf("second create = %v, want ErrActiveTaskExists", err)
+	tasks, err := svc.ListTasks()
+	if err != nil {
+		t.Fatalf("ListTasks: %v", err)
+	}
+	if len(tasks) != 3 {
+		t.Errorf("tasks = %d, want 3 active on one project", len(tasks))
 	}
 }
 

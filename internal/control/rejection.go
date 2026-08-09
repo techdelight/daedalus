@@ -43,6 +43,12 @@ const (
 	// ReasonConcurrencyExceeded: the project already has its budgeted number of
 	// running Jobs.
 	ReasonConcurrencyExceeded RejectionReason = "concurrency_exceeded"
+	// ReasonSchedulerSaturated: the control plane is at its GLOBAL job limit —
+	// nothing is wrong with this task, the host is simply full.
+	ReasonSchedulerSaturated RejectionReason = "scheduler_saturated"
+	// ReasonQueuedBehind: capacity exists, but an older Task is waiting for it.
+	// This is the anti-starvation rule doing its job, not a fault.
+	ReasonQueuedBehind RejectionReason = "queued_behind"
 	// ReasonUnsafeRebase: the rebase target contains commits the Job itself
 	// authored, so re-freezing the acceptance oracle there would adopt an oracle
 	// the worker wrote. Refused (§6 — the oracle must live outside the agent's
@@ -97,6 +103,7 @@ const (
 var allRejectionReasons = map[RejectionReason]bool{
 	ReasonOverBudget: true, ReasonInvalidBudget: true, ReasonAttemptsExhausted: true,
 	ReasonReviewCyclesExhausted: true, ReasonConcurrencyExceeded: true,
+	ReasonSchedulerSaturated: true, ReasonQueuedBehind: true,
 	ReasonUnsafeRebase: true, ReasonOperationInFlight: true,
 	ReasonApprovalRequired: true, ReasonReviewRequired: true, ReasonIntegrationRaced: true,
 	ReasonProposalRecorded: true, ReasonForbidden: true,
@@ -115,7 +122,8 @@ func IsValidRejectionReason(r RejectionReason) bool { return allRejectionReasons
 func AllRejectionReasons() []RejectionReason {
 	return []RejectionReason{
 		ReasonOverBudget, ReasonInvalidBudget, ReasonAttemptsExhausted,
-		ReasonReviewCyclesExhausted, ReasonConcurrencyExceeded, ReasonUnsafeRebase,
+		ReasonReviewCyclesExhausted, ReasonConcurrencyExceeded, ReasonSchedulerSaturated,
+		ReasonQueuedBehind, ReasonUnsafeRebase,
 		ReasonOperationInFlight, ReasonProposalRecorded, ReasonForbidden,
 		ReasonApprovalRequired, ReasonReviewRequired,
 		ReasonIntegrationRaced, ReasonStaleBase, ReasonNullAgentFloor,

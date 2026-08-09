@@ -43,19 +43,6 @@ var ErrNotFound = errors.New("control: not found")
 // store's optimistic UPDATE.
 var ErrWrongState = errors.New("control: operation not allowed in the task's current state")
 
-// ErrActiveTaskExists is returned by CreateTask when the project already has a
-// non-terminal task (the "one active Task/Job per project" invariant, §5).
-type ErrActiveTaskExists struct {
-	Project    string
-	ExistingID string
-	State      State
-}
-
-func (e *ErrActiveTaskExists) Error() string {
-	return fmt.Sprintf("project %q already has an active task %s (state %s); "+
-		"finish or cancel it before creating another", e.Project, e.ExistingID, e.State)
-}
-
 // Actor labels who drove an event, recorded in the append-only event log.
 //
 // Honest caveat (§6): the actor is a *label of a request's origin*, not an
@@ -91,6 +78,7 @@ const (
 	EventApproval     = "approval"     // a human approve or reject
 	EventReview       = "review"       // an independent reviewer pass
 	EventProposal     = "proposal"     // an agent proposed a consequential operation
+	EventSchedule     = "schedule"     // a scheduler admission decision
 )
 
 // EventMeta annotates an event row. Kind defaults to EventTransition, Reason is
@@ -436,8 +424,14 @@ type NewTask struct {
 }
 
 // CreateTask inserts a new task in the given initial state (planned or queued)
-// and logs a creation event, atomically. It enforces the one-active-task-per-
-// project invariant.
+// and logs a creation event, atomically.
+//
+// Since Sprint 61 a project may have SEVERAL active Tasks. The old
+// one-active-task-per-project refusal is gone: how much runs at once is now the
+// scheduler's decision (scheduler.go), taken at DISPATCH — where capacity is
+// actually consumed — rather than at create, where it only prevented planning
+// ahead. Creating work you cannot run yet is useful; starting it is what needs a
+// limit.
 func (s *Store) CreateTask(spec NewTask, initial State) (Task, error) {
 	if !validState(initial) {
 		return Task{}, fmt.Errorf("control: invalid initial state %q", initial)
@@ -447,13 +441,6 @@ func (s *Store) CreateTask(spec NewTask, initial State) (Task, error) {
 		return Task{}, err
 	}
 	defer tx.Rollback()
-
-	// One active (non-terminal) task per project.
-	if existing, ok, err := activeTaskTx(tx, spec.Project); err != nil {
-		return Task{}, err
-	} else if ok {
-		return Task{}, &ErrActiveTaskExists{Project: spec.Project, ExistingID: existing.ID, State: existing.State}
-	}
 
 	id, err := nextID(tx, "tasks", "T")
 	if err != nil {
@@ -528,7 +515,11 @@ func (s *Store) ListTasks() ([]Task, error) {
 	return out, rows.Err()
 }
 
-// ActiveTaskForProject returns the project's non-terminal task, if any.
+// ActiveTaskForProject returns one of the project's non-terminal tasks, if any.
+//
+// With several Tasks now permitted per project this is "any active task", not
+// "the active task" — it survives as a cheap existence check, and callers that
+// need them all should use ListTasks.
 func (s *Store) ActiveTaskForProject(project string) (Task, bool, error) {
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -913,6 +904,21 @@ func (s *Store) CountRunningJobsForProject(project string) (int, error) {
 	).Scan(&n)
 	if err != nil {
 		return 0, fmt.Errorf("counting running jobs for %s: %w", project, err)
+	}
+	return n, nil
+}
+
+// CountRunningJobs returns how many Jobs are running across EVERY project — the
+// host-wide figure the scheduler's global limit is checked against, since each
+// running Job is a container on this machine.
+func (s *Store) CountRunningJobs() (int, error) {
+	var n int
+	err := s.db.QueryRow(
+		`SELECT COUNT(*) FROM jobs WHERE state IN (?, ?, ?)`,
+		string(StateQueued), string(StateWorking), string(StateInputRequired),
+	).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("counting running jobs: %w", err)
 	}
 	return n, nil
 }

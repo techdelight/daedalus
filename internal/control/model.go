@@ -75,9 +75,21 @@ var terminalStates = map[State]bool{
 // IsTerminal reports whether s is a terminal state (no legal outgoing move).
 func IsTerminal(s State) bool { return terminalStates[s] }
 
-// IsActive reports whether s is a non-terminal (in-flight) state. Used to
-// enforce "one active Task/Job per project".
+// IsActive reports whether s is a non-terminal (in-flight) state.
 func IsActive(s State) bool { return validState(s) && !terminalStates[s] }
+
+// runningStates are the states in which a Job occupies a runner slot — the ones
+// the scheduler's concurrency limits count.
+//
+// `candidate`, `verifying` and `rejected` are non-terminal but IDLE: they are
+// waiting on a plane or human decision, not on a container, so counting them
+// would make a project look full while nothing was executing.
+var runningStates = map[State]bool{
+	StateQueued: true, StateWorking: true, StateInputRequired: true,
+}
+
+// IsRunningState reports whether a Job in this state is occupying a runner slot.
+func IsRunningState(s State) bool { return runningStates[s] }
 
 // legalTransitions is the full transition table the control plane may drive.
 // A terminal state is intentionally absent (no outgoing edges). Cancellation

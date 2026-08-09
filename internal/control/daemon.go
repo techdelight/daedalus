@@ -11,7 +11,6 @@ package control
 //
 //	POST   /tasks                 body: CreateTaskRequest → 201 Task
 //	                                                       → 400 not-git / bad input
-//	                                                       → 409 active task exists
 //	                                                       → 422 over-budget (refused by policy)
 //	GET    /tasks                                         → 200 []Task
 //	GET    /tasks/{id}                                    → 200 StatusView
@@ -31,6 +30,7 @@ package control
 //	POST   /tasks/{id}/integrate                          → 200 IntegrationResult
 //	                                                       → 422 approval/review/merge refusal
 //	GET    /approvals                                     → 200 []Task awaiting a human
+//	GET    /status                                        → 200 PlaneStatus
 //	GET    /targets                                       → 200 []TargetView
 //	GET    /proposals[?state=pending]                     → 200 []Proposal
 //	POST   /proposals/{id}/confirm  body: {note}          → 200 Proposal (and the
@@ -95,6 +95,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /tasks/{id}/reject", s.handleRejectApproval)
 	mux.HandleFunc("POST /tasks/{id}/integrate", s.handleIntegrate)
 	mux.HandleFunc("GET /approvals", s.handlePendingApprovals)
+	mux.HandleFunc("GET /status", s.handlePlaneStatus)
 	mux.HandleFunc("GET /targets", s.handleTargets)
 	mux.HandleFunc("GET /proposals", s.handleListProposals)
 	mux.HandleFunc("POST /proposals/{id}/confirm", s.handleConfirmProposal)
@@ -289,6 +290,15 @@ func (s *Server) handlePendingApprovals(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, tasks)
 }
 
+func (s *Server) handlePlaneStatus(w http.ResponseWriter, r *http.Request) {
+	st, err := s.api.PlaneStatus()
+	if err != nil {
+		writeError(w, statusFor(err), err)
+		return
+	}
+	writeJSON(w, http.StatusOK, st)
+}
+
 func (s *Server) handleTargets(w http.ResponseWriter, r *http.Request) {
 	targets, err := s.api.ProjectTargets()
 	if err != nil {
@@ -356,7 +366,6 @@ func (s *Server) handleCancel(w http.ResponseWriter, r *http.Request) {
 // statusFor maps domain errors to HTTP status codes so the client can recover
 // the original sentinel via the status + error envelope.
 func statusFor(err error) int {
-	var activeErr *ErrActiveTaskExists
 	var notGit *ErrNotGitRepo
 	var rejected *RejectionError
 	switch {
@@ -370,7 +379,7 @@ func statusFor(err error) int {
 	// 409 Conflict: the request is fine, the entity's current state is not — a
 	// second active task, a stale/illegal transition, or an unmet state
 	// precondition (retrying a task that was never rejected, …).
-	case errors.As(err, &activeErr), errors.Is(err, ErrConflict),
+	case errors.Is(err, ErrConflict),
 		errors.Is(err, ErrIllegalTransition), errors.Is(err, ErrWrongState):
 		return http.StatusConflict
 	case errors.As(err, &notGit):

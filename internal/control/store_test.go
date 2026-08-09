@@ -87,26 +87,36 @@ func TestGetTask_NotFound(t *testing.T) {
 	}
 }
 
-func TestOneActiveTaskPerProject(t *testing.T) {
+// TestSeveralActiveTasksPerProject: the one-active-task-per-project invariant is
+// gone (Sprint 61). Creating work is no longer where concurrency is decided —
+// that moved to the scheduler at DISPATCH, where capacity is actually consumed.
+// Planning several Tasks ahead is useful and now permitted.
+func TestSeveralActiveTasksPerProject(t *testing.T) {
 	s := openTestStore(t)
-	if _, err := s.CreateTask(NewTask{Project: "proj", Objective: "first", BaseSHA: "sha1"}, StatePlanned); err != nil {
-		t.Fatalf("first create: %v", err)
+	for _, objective := range []string{"first", "second", "third"} {
+		if _, err := s.CreateTask(NewTask{Project: "proj", Objective: objective, BaseSHA: "sha1"}, StatePlanned); err != nil {
+			t.Fatalf("create %q: %v", objective, err)
+		}
 	}
-	_, err := s.CreateTask(NewTask{Project: "proj", Objective: "second", BaseSHA: "sha1"}, StatePlanned)
-	var active *ErrActiveTaskExists
-	if !errors.As(err, &active) {
-		t.Fatalf("second create err = %v, want ErrActiveTaskExists", err)
+	tasks, err := s.ListTasks()
+	if err != nil {
+		t.Fatalf("ListTasks: %v", err)
 	}
-	if active.ExistingID != "T-1" {
-		t.Errorf("conflict points at %q, want T-1", active.ExistingID)
+	if len(tasks) != 3 {
+		t.Fatalf("tasks = %d, want 3 active tasks on one project", len(tasks))
 	}
-
-	// Cancelling the first frees the project.
-	if _, err := s.TransitionTask("T-1", StateCancelled, false, ""); err != nil {
-		t.Fatalf("cancel: %v", err)
+	for _, task := range tasks {
+		if !IsActive(task.State) {
+			t.Errorf("task %s is %s, want active", task.ID, task.State)
+		}
 	}
-	if _, err := s.CreateTask(NewTask{Project: "proj", Objective: "third", BaseSHA: "sha1"}, StatePlanned); err != nil {
-		t.Errorf("create after cancel should succeed, got %v", err)
+	// ActiveTaskForProject survives as an existence check and may name any of them.
+	got, ok, err := s.ActiveTaskForProject("proj")
+	if err != nil || !ok {
+		t.Fatalf("ActiveTaskForProject = (%v, %v, %v)", got, ok, err)
+	}
+	if got.Project != "proj" {
+		t.Errorf("ActiveTaskForProject returned %+v", got)
 	}
 }
 

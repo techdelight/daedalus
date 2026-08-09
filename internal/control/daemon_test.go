@@ -131,12 +131,13 @@ func TestDaemon_ErrorMapping(t *testing.T) {
 		t.Error("create non-git over wire = nil, want error")
 	}
 
-	// Second active task → conflict.
+	// A second active task on one project is ALLOWED since Sprint 61 — concurrency
+	// is the scheduler's decision at dispatch, not a create-time refusal.
 	if _, err := client.CreateTask(CreateTaskRequest{Project: "app", Objective: "first"}); err != nil {
 		t.Fatalf("first create: %v", err)
 	}
-	if _, err := client.CreateTask(CreateTaskRequest{Project: "app", Objective: "second"}); err == nil {
-		t.Error("second active create over wire = nil, want conflict error")
+	if _, err := client.CreateTask(CreateTaskRequest{Project: "app", Objective: "second"}); err != nil {
+		t.Errorf("second active create over wire = %v, want success", err)
 	}
 }
 

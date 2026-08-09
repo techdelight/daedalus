@@ -50,6 +50,55 @@ func (ws *WebServer) controlClient() control.TaskAPI {
 	return nil
 }
 
+// planeStatusResponse is the concurrency picture the dashboard shows: with
+// several Jobs able to run at once, "what is running" is no longer implied by the
+// task list.
+type planeStatusResponse struct {
+	Available      bool           `json:"available"`
+	Reason         string         `json:"reason,omitempty"`
+	GlobalRunning  int            `json:"globalRunning"`
+	GlobalLimit    int            `json:"globalLimit"`
+	PerProjectLmt  int            `json:"perProjectLimit"`
+	ProjectRunning map[string]int `json:"projectRunning"`
+	Waiting        []string       `json:"waiting"`
+}
+
+// handlePlaneStatus serves the scheduler's view of what is running and queued.
+func (ws *WebServer) handlePlaneStatus(w http.ResponseWriter, r *http.Request) {
+	api := ws.controlClient()
+	if api == nil {
+		writeApprovalsJSON(w, http.StatusOK, planeStatusResponse{
+			Available:      false,
+			Reason:         "the daedalus-control daemon is not running",
+			ProjectRunning: map[string]int{},
+			Waiting:        []string{},
+		})
+		return
+	}
+	st, err := api.PlaneStatus()
+	if err != nil {
+		writeApprovalsJSON(w, http.StatusOK, planeStatusResponse{
+			Available:      false,
+			Reason:         "could not reach the control plane: " + err.Error(),
+			ProjectRunning: map[string]int{},
+			Waiting:        []string{},
+		})
+		return
+	}
+	resp := planeStatusResponse{
+		Available: true, GlobalRunning: st.GlobalRunning,
+		GlobalLimit: st.Limits.Global, PerProjectLmt: st.Limits.PerProject,
+		ProjectRunning: st.ProjectRunning, Waiting: st.Waiting,
+	}
+	if resp.ProjectRunning == nil {
+		resp.ProjectRunning = map[string]int{}
+	}
+	if resp.Waiting == nil {
+		resp.Waiting = []string{}
+	}
+	writeApprovalsJSON(w, http.StatusOK, resp)
+}
+
 // handleApprovals serves the queue of tasks awaiting a human decision.
 func (ws *WebServer) handleApprovals(w http.ResponseWriter, r *http.Request) {
 	api := ws.controlClient()

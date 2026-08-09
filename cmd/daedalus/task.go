@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -192,12 +193,53 @@ func taskList(api control.TaskAPI, args []string) error {
 		fmt.Println("No tasks. Create one with `daedalus task create --project <name> --objective <text>`.")
 		return nil
 	}
-	fmt.Printf("%-6s  %-18s  %-16s  %s\n", color.Bold("ID"), color.Bold("PROJECT"), color.Bold("STATE"), color.Bold("OBJECTIVE"))
-	fmt.Printf("%-6s  %-18s  %-16s  %s\n", "------", "------------------", "----------------", "---------")
+	// The plane-wide picture first: with several Jobs able to run at once, "what
+	// is actually running" is no longer implied by the task list.
+	status, statusErr := api.PlaneStatus()
+	if statusErr == nil {
+		fmt.Printf("%s %d/%s running", color.Bold("Plane:"), status.GlobalRunning, limitText(status.Limits.Global))
+		if len(status.ProjectRunning) > 0 {
+			parts := make([]string, 0, len(status.ProjectRunning))
+			for project, n := range status.ProjectRunning {
+				parts = append(parts, fmt.Sprintf("%s=%d", project, n))
+			}
+			sort.Strings(parts)
+			fmt.Printf("  (per project: %s; limit %s)", strings.Join(parts, " "), limitText(status.Limits.PerProject))
+		}
+		if len(status.Waiting) > 0 {
+			fmt.Printf("  %s %s", color.Yellow("queued:"), strings.Join(status.Waiting, " "))
+		}
+		fmt.Println()
+		fmt.Println()
+	}
+
+	queued := map[string]int{}
+	if statusErr == nil {
+		for i, id := range status.Waiting {
+			queued[id] = i + 1
+		}
+	}
+	fmt.Printf("%-6s  %-18s  %-18s  %s\n", color.Bold("ID"), color.Bold("PROJECT"), color.Bold("STATE"), color.Bold("OBJECTIVE"))
+	fmt.Printf("%-6s  %-18s  %-18s  %s\n", "------", "------------------", "------------------", "---------")
 	for _, t := range tasks {
-		fmt.Printf("%-6s  %-18s  %-16s  %s\n", t.ID, truncate(t.Project, 18), t.State, truncate(t.Objective, 50))
+		state := string(t.State)
+		// A Task queued for capacity is NOT the same as one that is working, and
+		// with parallelism the difference is the thing an operator most needs to
+		// see: `planned` alone would hide that the plane has already said "not yet".
+		if pos, waiting := queued[t.ID]; waiting {
+			state = fmt.Sprintf("%s (queued #%d)", t.State, pos)
+		}
+		fmt.Printf("%-6s  %-18s  %-18s  %s\n", t.ID, truncate(t.Project, 18), truncate(state, 18), truncate(t.Objective, 50))
 	}
 	return nil
+}
+
+// limitText renders a scheduler limit, where 0 means unbounded.
+func limitText(limit int) string {
+	if limit <= 0 {
+		return "∞"
+	}
+	return fmt.Sprintf("%d", limit)
 }
 
 // taskStatus implements `task status <id>`: the task plus its jobs and artifacts.
@@ -223,6 +265,20 @@ func taskStatus(api control.TaskAPI, args []string) error {
 	fmt.Printf("%s  %s\n", color.Bold("Base SHA:"), t.BaseSHA)
 	fmt.Printf("%s    %s\n", color.Bold("Budget:"), t.Budget)
 	fmt.Printf("%s   %s\n", color.Bold("Created:"), t.CreatedAt)
+
+	sc := view.Scheduling
+	switch {
+	case sc.Running:
+		fmt.Printf("%s  running (project %d/%s, plane %d/%s)\n", color.Bold("Schedule:"),
+			sc.ProjectRunning, limitText(sc.Limits.PerProject), sc.GlobalRunning, limitText(sc.Limits.Global))
+	case sc.QueuedForCapacity:
+		fmt.Printf("%s  %s (position %d; project %d/%s, plane %d/%s)\n", color.Bold("Schedule:"),
+			color.Yellow("queued for capacity"), sc.QueuePosition,
+			sc.ProjectRunning, limitText(sc.Limits.PerProject), sc.GlobalRunning, limitText(sc.Limits.Global))
+	default:
+		fmt.Printf("%s  not running (project %d/%s, plane %d/%s)\n", color.Bold("Schedule:"),
+			sc.ProjectRunning, limitText(sc.Limits.PerProject), sc.GlobalRunning, limitText(sc.Limits.Global))
+	}
 
 	fmt.Printf("\n%s (%d)\n", color.Bold("Jobs:"), len(view.Jobs))
 	for _, jv := range view.Jobs {

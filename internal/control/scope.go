@@ -60,6 +60,12 @@ func (c *callerScope) TaskStatus(id string) (StatusView, error) { return c.svc.T
 func (c *callerScope) TaskEvents(id string) ([]Event, error)    { return c.svc.TaskEvents(id) }
 func (c *callerScope) PendingApprovals() ([]Task, error)        { return c.svc.PendingApprovals() }
 
+// PlaneStatus is a read: how much is running is not sensitive, and an agent that
+// cannot see saturation cannot reason about why its dispatch was refused. It
+// carries counts and limits only — no paths, and no project names the caller
+// could not already list.
+func (c *callerScope) PlaneStatus() (PlaneStatus, error) { return c.svc.PlaneStatus() }
+
 // ProjectTargets renders the queue list for this caller: an agent receives the
 // opaque queue id and never the host path (QueueIDFor).
 func (c *callerScope) ProjectTargets() ([]TargetView, error) {
