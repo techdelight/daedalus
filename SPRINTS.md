@@ -2,7 +2,11 @@
 
 ## Current Sprint
 
-### Sprint 62: Per-Job Liveness, the Cross-Project Task Graph & the M16 Close
+_No active sprint. Milestone 16 shipped in **v0.51.0** (Sprints 61–62, in the history below) — concurrent Jobs, the scheduler with a leased fair queue, per-Job liveness, and the cross-project dependency graph. The arc continues with **M17 (Typed Steering)** — deliberately demoted in `docs/guild-master-plan.md`, so its scope stays tight._
+
+## Sprint History
+
+### Sprint 62: Per-Job Liveness, the Cross-Project Task Graph & the M16 Close (v0.51.0)
 
 Goal: finish parallel programme execution. First **repair reconciliation** — Sprint 61's audit showed that lifting the one-Job-per-project invariant turned a benign stale-Job leak into a capacity denial-of-service, because liveness is observed per *project* and a ghost Job still consumes a scheduler slot. Then add the **cross-project task graph**: Tasks that depend on other Tasks, with `blocked`/`ready` scheduling composing with the existing `programmes` feature. Closes Milestone 16. Pure Go + git + SQLite; the coordinator seam stays injectable and host-testable. Design in `docs/guild-master-plan.md` (M16, V3).
 
@@ -17,7 +21,6 @@ Milestone: 16
 
 Out of scope: typed steering (Milestone 17).
 
-## Sprint History
 
 ### Sprint 61: Concurrent Jobs & the Scheduler (v0.51.0)
 

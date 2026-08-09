@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [0.51.0] - 2026-08-09
 
 ### Added
 - **Per-Job liveness, the cross-project task graph, and the M16 close (Sprint 62).**
