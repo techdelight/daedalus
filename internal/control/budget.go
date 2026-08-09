@@ -313,9 +313,21 @@ type FileBudgetPolicy struct {
 // a struct literal: the type carries a mutex and a last-known-good cache.
 func NewFileBudgetPolicy(path string) *FileBudgetPolicy { return &FileBudgetPolicy{Path: path} }
 
-// RequiresApproval implements PolicySource, with the same fail-closed caching as
-// BudgetFor: an unreadable policy holds the last known-good answer rather than
-// silently dropping an approval requirement.
+// RequiresApproval implements PolicySource, and FAILS CLOSED in the direction
+// that matters for an authority gate.
+//
+// "Fail closed" means something different on each axis, which is why they are not
+// one function. For a BUDGET, closed means the narrower envelope: an unreadable
+// policy holds the last known-good ceiling, and with none ever read it falls back
+// to the built-in default — a real ceiling either way. For APPROVAL, closed means
+// REQUIRING A HUMAN. A corrupt or half-written budgets.json at daemon boot must
+// never be the reason a change lands unreviewed: the plane does not know whether
+// this project needs approval, and "I don't know" has to mean "ask someone".
+//
+// So: last known-good if there is one; otherwise require approval. The cost of
+// being wrong is a human being asked unnecessarily. The cost of the other
+// direction is an unapproved change landing while the log claims policy said it
+// was fine.
 func (f *FileBudgetPolicy) RequiresApproval(project string) bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -327,7 +339,11 @@ func (f *FileBudgetPolicy) RequiresApproval(project string) bool {
 	if f.haveLast {
 		return f.last.RequiresApproval(project)
 	}
-	return false
+	if !f.warned {
+		log.Printf("control: governance policy %s unreadable (%v) and never read successfully — REQUIRING human approval until it parses", f.Path, err)
+		f.warned = true
+	}
+	return true
 }
 
 // BudgetFor implements PolicySource.

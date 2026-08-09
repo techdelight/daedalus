@@ -407,9 +407,17 @@ authority in any case: transitions are gated by the two tables in `model.go`.
 
 ## The plane-owned integration target (Sprint 59 / M15 — built)
 
-Each project has a **target commit that only the control plane can move**. It is
-a row in `control.db`, not a git ref in the project repository, and it is the
+Each **repository** has a target commit that only the control plane can move. It
+is a row in `control.db`, not a git ref in the project repository, and it is the
 answer to the sharpest finding of the Sprint-58 audit.
+
+It is keyed by **canonical repository path**, not by project name. Two registry
+projects can point at one checkout — a clone registered twice, or a project
+registered on a subdirectory of another — and per-project rows would give them
+two merge queues on one trunk, each rebasing onto its own notion of it and
+swapping a row the other never reads. The queue's entire safety property would
+silently not apply between them. `daedalus task target` shows which projects
+share a queue, because sharing is surprising unless it is said out loud.
 
 **The problem it closes.** Until Sprint 59 a Task's `base_sha` and its frozen
 acceptance policy both came from the project checkout's `HEAD`. A Job's worktree
@@ -455,10 +463,14 @@ cannot disturb a working tree.
 
 **Two honest caveats:**
 
-1. **Adoption is trust-on-first-use.** A project with no target yet takes the
-   operator's checkout `HEAD`, once, at its first Task — before any Job for that
-   project has run under the plane. The plane cannot invent a trusted starting
-   commit; it can only refuse to keep taking new ones.
+1. **Adoption is trust-on-first-use.** A repository with no target yet takes the
+   operator's checkout `HEAD`, once, at the first Task for it — before any Job for
+   that repository has run under the plane. The plane cannot invent a trusted
+   starting commit; it can only refuse to keep taking new ones. Adoption happens
+   **only** when the target genuinely does not exist: any other failure reading it
+   is surfaced, never treated as "there isn't one", because that fallback reads
+   the worker-writable checkout `HEAD` and it is the single most
+   security-relevant read in the package.
 2. **The resync is consequential.** `daedalus task target <project> --sync`
    re-points the target at the checkout's `HEAD`, adopting whatever policy that
    commit carries. It is manual, logged, and belongs on the Sprint-60 list of
@@ -485,7 +497,8 @@ verification, so production uses the real clean verifier and host tests use a
 fake.
 
 The compare-and-swap is the whole safety property in one statement:
-`UPDATE targets SET sha = ? WHERE project = ? AND sha = <what we started from>`.
+`UPDATE integration_targets SET sha = ? WHERE repo_path = ? AND sha = <what we
+started from>`.
 If another integration landed while this one was rebasing and re-verifying, it
 affects zero rows, **nothing is written**, and the transaction recomputes against
 the new tip — bounded to 3 attempts, after which it refuses with
@@ -499,6 +512,17 @@ through the retry/replan ladder:
 | The artifact does not replay onto the target | `merge_conflict` | Task → `rejected`, target untouched |
 | The **merged** result fails verification | `merged_verify_failed` | Task → `rejected`, target untouched |
 | The target kept moving | `integration_raced` | Task stays `approved`, nothing landed, try again |
+
+**Re-integration is idempotent.** The compare-and-swap commits before the Task is
+marked `integrated`, and those are two different stores — git and the target row,
+then the task row. If the second write fails, the target has advanced while the
+Task still says `approved`: the one place in the transaction where a write
+survives an error. That cannot be made atomic across SQLite and git, so instead a
+re-integration first asks whether the artifact's commits are **already contained
+in the target** — by ancestry for a fast-forward landing, by patch id
+(`git cherry`) for a rebased one, since a rebase changes the sha but not the
+content — and settles the Task to `integrated` rather than landing the same work
+a second time.
 
 ## Human approval and the independent reviewer (Sprint 59 / M15 — built)
 
@@ -519,6 +543,19 @@ socket per class of caller, since peer credentials alone cannot separate an agen
 from a human running under the same uid — and not by this state machine alone.
 Until then every client of `control.sock` is the human CLI, and that is the whole
 of the guarantee.
+
+**Approval fails closed.** "Fail closed" means something different on each
+governance axis, which is why they are not one function. For a **budget** it means
+the narrower envelope — an unreadable policy holds the last known-good ceiling,
+falling back to the built-in default. For **approval** it means **requiring a
+human**: if the governance file cannot be read and nothing good was ever read
+from it, the plane does not know whether this project needs approval, and "I
+don't know" has to mean "ask someone". The cost of being wrong that way is a
+person asked unnecessarily; the cost of the other direction is an unapproved
+change landing while the log claims policy said it was fine. For the same reason
+the auto-approval event says only that *the configured policy source did not
+request* a human — never that "policy said" something, which would be a lie
+whenever no policy was read.
 
 **Approval is opt-in per project** (§9, "keep governance opt-in"), declared in the
 same host-side governance file as budgets:
@@ -554,6 +591,15 @@ somebody opened a tab or pressed a key would be a surprising side effect — and
 when the plane is unreachable both say so explicitly rather than rendering an
 empty queue, because "nothing needs you" and "I could not ask" are different
 answers and only one of them is reassuring.
+
+**This changes what `daedalus web --no-auth` gives away.** The dashboard now
+carries **write authority over human approval**: `POST
+/api/approvals/{id}/approve|reject` decides whether an agent's work may be
+integrated. The handlers are behind the same auth middleware as everything else
+and auth is on by default, so the shipped configuration is safe — but `--no-auth`
+now hands the approve button to anyone who can reach the port, and WSL2
+auto-detection binds `0.0.0.0`. The approval gate is only as strong as the
+weakest surface that can operate it.
 
 ## Scope boundary — what is deliberately NOT here yet
 

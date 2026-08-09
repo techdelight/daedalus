@@ -278,7 +278,7 @@ func (s *Server) handleTargets(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if targets == nil {
-		targets = []Target{}
+		targets = []TargetView{}
 	}
 	writeJSON(w, http.StatusOK, targets)
 }

@@ -5,6 +5,7 @@ package control
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -73,7 +74,7 @@ func (v *racingVerifier) Verify(_ context.Context, spec VerifySpec) VerifyOutcom
 		// Land an unrelated commit on the target, exactly as a concurrent
 		// integration would have.
 		landed := commitFileOn(v.t, v.repo, spec.BaseSHA, "other-work.txt", "another task landed")
-		if _, err := v.store.AdvanceTarget(v.project, spec.BaseSHA, landed, "test: a concurrent integration landed"); err != nil {
+		if _, err := v.store.AdvanceTarget(repoKeyNoT(v.repo), spec.BaseSHA, landed, "test: a concurrent integration landed"); err != nil {
 			v.t.Errorf("racing verifier could not advance the target: %v", err)
 		}
 		v.mu.Lock()
@@ -198,7 +199,7 @@ func TestIntegrate_SemanticConflict_PassesAloneFailsMerged(t *testing.T) {
 	// Another integration lands b.txt on the target while this task waits.
 	base := task.BaseSHA
 	landed := commitFileOn(t, repo, base, "b.txt", "the other half of the conflict")
-	if _, err := store.AdvanceTarget("app", base, landed, "test: another task integrated"); err != nil {
+	if _, err := store.AdvanceTarget(repoKey(t, repo), base, landed, "test: another task integrated"); err != nil {
 		t.Fatalf("AdvanceTarget: %v", err)
 	}
 
@@ -312,7 +313,7 @@ func TestIntegrate_ExhaustedRetries_LandsNothing(t *testing.T) {
 	svc.verifier = verifyFunc(func(spec VerifySpec) VerifyOutcome {
 		n++
 		landed := commitFileOn(t, repo, spec.BaseSHA, "race-"+string(rune('a'+n))+".txt", "again")
-		if _, err := store.AdvanceTarget("app", spec.BaseSHA, landed, "test: yet another integration"); err != nil {
+		if _, err := store.AdvanceTarget(repoKey(t, repo), spec.BaseSHA, landed, "test: yet another integration"); err != nil {
 			t.Errorf("advance: %v", err)
 		}
 		return VerifyOutcome{Passed: true}
@@ -363,7 +364,7 @@ func TestIntegrate_RebaseConflict_Rejects(t *testing.T) {
 		t.Fatalf("Verify: %v", err)
 	}
 	landed := commitFileOn(t, repo, task.BaseSHA, "seed.txt", "the other side of the conflict\n")
-	if _, err := store.AdvanceTarget("app", task.BaseSHA, landed, "test: conflicting integration"); err != nil {
+	if _, err := store.AdvanceTarget(repoKey(t, repo), task.BaseSHA, landed, "test: conflicting integration"); err != nil {
 		t.Fatalf("AdvanceTarget: %v", err)
 	}
 
@@ -503,4 +504,164 @@ func s2job(t *testing.T, store *Store, taskID string) (Job, bool) {
 		t.Fatalf("ListJobsForTask(%s) = (%d jobs, %v)", taskID, len(jobs), err)
 	}
 	return jobs[len(jobs)-1], true
+}
+
+// --- audit follow-up (Sprint 59) -----------------------------------------------
+
+// TestRebaseOnto_CleansUpItsScratchWorktree pins the cleanup the audit found was
+// the sole mutation survivor: deleting the deferred `worktree remove` left the
+// whole package green while leaking a worktree per failed integration.
+func TestRebaseOnto_CleansUpItsScratchWorktree(t *testing.T) {
+	repo := gitRepo(t)
+	base, _ := ReadHeadSHA(repo)
+	head := commitFileOn(t, repo, base, "work.txt", "the change")
+	onto := commitFileOn(t, repo, base, "other.txt", "landed first")
+	mine := commitFileOn(t, repo, base, "seed.txt", "mine\n")
+	theirs := commitFileOn(t, repo, base, "seed.txt", "theirs\n")
+
+	// A deterministic scratch path, as the integration transaction uses.
+	scratch := filepath.Join(t.TempDir(), "integrate-J-1")
+
+	countWorktrees := func() int {
+		out, err := runGit(repo, "worktree", "list", "--porcelain")
+		if err != nil {
+			t.Fatalf("worktree list: %v", err)
+		}
+		return strings.Count(out, "worktree ")
+	}
+	before := countWorktrees()
+
+	tests := []struct {
+		name             string
+		onto, base, head string
+		wantErr          bool
+	}{
+		{"after a successful rebase", onto, base, head, false},
+		{"after a conflicting rebase", theirs, base, mine, true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := RebaseOnto(repo, tc.onto, tc.base, tc.head, scratch)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("RebaseOnto err = %v, wantErr %v", err, tc.wantErr)
+			}
+			if got := countWorktrees(); got != before {
+				out, _ := runGit(repo, "worktree", "list")
+				t.Errorf("worktree count = %d, want %d — the scratch worktree leaked:\n%s", got, before, out)
+			}
+			if _, err := os.Stat(scratch); !os.IsNotExist(err) {
+				t.Errorf("the scratch directory %s survived (err=%v)", scratch, err)
+			}
+		})
+	}
+
+	// A crashed prior attempt must not block the next one: the path is
+	// deterministic, so a leftover directory is cleared rather than fatal.
+	if err := os.MkdirAll(scratch, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := RebaseOnto(repo, onto, base, head, scratch); err != nil {
+		t.Errorf("RebaseOnto over a leftover scratch dir: %v", err)
+	}
+	if got := countWorktrees(); got != before {
+		t.Errorf("worktree count = %d, want %d after recovering from a leftover", got, before)
+	}
+}
+
+// TestIntegrate_AlreadyLanded_IsIdempotent is the regression for the audit's F8.
+// The compare-and-swap commits before the Task transition, so a failure in that
+// window leaves the target advanced with the Task still `approved`. Re-integrating
+// must SETTLE the task, not land the same work twice.
+func TestIntegrate_AlreadyLanded_IsIdempotent(t *testing.T) {
+	repo := gitRepo(t)
+	svc, store, task := verifiedTask(t, repo, StubVerifyRunner{Pass: true}, "a.txt")
+
+	// Land it normally.
+	first, err := svc.IntegrateTask(task.ID)
+	if err != nil {
+		t.Fatalf("IntegrateTask: %v", err)
+	}
+	landedTarget := first.NewTarget
+
+	// Simulate the post-CAS failure: the target stays advanced, the Task is put
+	// back to `approved` as though the transition after the swap had failed.
+	if _, err := store.TransitionTaskWith(task.ID, StateApprovalRequired, false, EventMeta{}, "test: rewind"); err != nil {
+		// integrated is terminal, so rewind by hand at the SQL level instead.
+		if _, err := store.db.Exec(`UPDATE tasks SET state = ? WHERE id = ?`, string(StateApproved), task.ID); err != nil {
+			t.Fatalf("rewinding the task: %v", err)
+		}
+	}
+	if _, err := store.db.Exec(`UPDATE jobs SET state = ? WHERE task_id = ?`, string(StateVerified), task.ID); err != nil {
+		t.Fatalf("rewinding the job: %v", err)
+	}
+
+	// Re-integrating must notice the work is already contained in the target.
+	second, err := svc.IntegrateTask(task.ID)
+	if err != nil {
+		t.Fatalf("re-integration should settle, not fail: %v", err)
+	}
+	if second.NewTarget != landedTarget {
+		t.Errorf("the target moved again: %s → %s — the work was landed twice",
+			landedTarget, second.NewTarget)
+	}
+	if second.PreviousTarget != landedTarget {
+		t.Errorf("previous target = %s, want the already-landed %s", second.PreviousTarget, landedTarget)
+	}
+	after, _ := store.GetTask(task.ID)
+	if after.State != StateIntegrated {
+		t.Errorf("task state = %q, want integrated", after.State)
+	}
+	// No duplicate commit: the target's history did not grow.
+	count := func(sha string) int {
+		out, err := runGit(repo, "rev-list", "--count", sha)
+		if err != nil {
+			t.Fatalf("rev-list: %v", err)
+		}
+		n := 0
+		fmt.Sscanf(strings.TrimSpace(out), "%d", &n)
+		return n
+	}
+	if got, want := count(second.NewTarget), count(landedTarget); got != want {
+		t.Errorf("history length %d != %d — a duplicate commit was landed", got, want)
+	}
+}
+
+// TestArtifactIsLanded answers by CONTENT, not by sha: a rebased commit has a
+// different sha from the artifact's head, so an ancestry check would wrongly say
+// "not landed" for work that plainly did.
+func TestArtifactIsLanded(t *testing.T) {
+	repo := gitRepo(t)
+	base, _ := ReadHeadSHA(repo)
+	head := commitFileOn(t, repo, base, "work.txt", "the change")
+	other := commitFileOn(t, repo, base, "other.txt", "unrelated")
+
+	// Rebase the artifact onto `other`: same content, new sha.
+	merged, err := RebaseOnto(repo, other, base, head, filepath.Join(t.TempDir(), "scratch"))
+	if err != nil {
+		t.Fatalf("RebaseOnto: %v", err)
+	}
+	if merged == head {
+		t.Fatal("precondition: the rebase should produce a new sha")
+	}
+
+	tests := []struct {
+		name   string
+		target string
+		want   bool
+	}{
+		{"landed as a rebased commit with a different sha", merged, true},
+		{"not landed on an unrelated target", other, false},
+		{"not landed on its own base", base, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := ArtifactIsLanded(repo, tc.target, base, head)
+			if err != nil {
+				t.Fatalf("ArtifactIsLanded: %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("ArtifactIsLanded = %v, want %v", got, tc.want)
+			}
+		})
+	}
 }

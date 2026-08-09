@@ -116,6 +116,42 @@ func refSearchDirs(gitDir string) []string {
 // current target" must ask Service.TargetFor and not git. ReadHeadSHA survives
 // only for trust-on-first-use adoption and for reading a worktree's own HEAD.
 
+// CanonicalRepoPath returns the stable identity of the repository containing dir:
+// its top-level directory, with symlinks resolved.
+//
+// This is what the plane keys its integration target by, and the reason is F2 of
+// the Sprint-59 audit: two REGISTRY PROJECTS can point at one repository (a clone
+// registered twice, or a project registered on a subdirectory of another). Keyed
+// by project name they would get independent target rows — two merge queues on
+// one trunk, each rebasing onto its own notion of it and swapping a row the other
+// never reads. The queue's entire safety property would silently not apply
+// between them. Keyed by repository, they share one queue and serialize properly.
+//
+// `git rev-parse --show-toplevel` is the authority (it maps a subdirectory to its
+// repo root); EvalSymlinks then removes /tmp-vs-/private/tmp style aliasing. If
+// git cannot answer, the resolved absolute path is used — worse as an identity,
+// but never worse than the project name it replaces.
+func CanonicalRepoPath(dir string) (string, error) {
+	if out, err := runGit(dir, "rev-parse", "--show-toplevel"); err == nil {
+		if top := strings.TrimSpace(out); top != "" {
+			return resolvePath(top), nil
+		}
+	}
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return "", fmt.Errorf("resolving %q: %w", dir, err)
+	}
+	return resolvePath(abs), nil
+}
+
+// resolvePath resolves symlinks where possible, falling back to the cleaned path.
+func resolvePath(p string) string {
+	if real, err := filepath.EvalSymlinks(p); err == nil {
+		return filepath.Clean(real)
+	}
+	return filepath.Clean(p)
+}
+
 // IsAncestor reports whether `ancestor` is reachable from `descendant` (i.e. it
 // is contained in that commit's history). A commit is its own ancestor. Shells
 // out to `git merge-base --is-ancestor`, whose exit status 1 means "no" rather

@@ -48,7 +48,7 @@ func TestStaleAgainstTarget(t *testing.T) {
 
 	// Advancing the TARGET does, because that is a completed integration.
 	landed := commitFile(t, repo, "landed.txt", "another task integrated")
-	if _, err := store.AdvanceTarget("app", task.BaseSHA, landed, "test: simulate an integration"); err != nil {
+	if _, err := store.AdvanceTarget(repoKey(t, repo), task.BaseSHA, landed, "test: simulate an integration"); err != nil {
 		t.Fatalf("AdvanceTarget: %v", err)
 	}
 	stale, tip, err = svc.staleAgainstTarget(task)
@@ -80,7 +80,7 @@ func TestVerify_StaleBase_Rejected(t *testing.T) {
 	// target. (A mere commit on the repo's branch would NOT do this — see
 	// TestStaleAgainstTarget.)
 	newTip := commitFile(t, repo, "unrelated.txt", "landed meanwhile")
-	if _, err := store.AdvanceTarget("app", task.BaseSHA, newTip, "test: another integration landed"); err != nil {
+	if _, err := store.AdvanceTarget(repoKey(t, repo), task.BaseSHA, newTip, "test: another integration landed"); err != nil {
 		t.Fatalf("AdvanceTarget: %v", err)
 	}
 
@@ -229,7 +229,7 @@ func TestRetry_Rebase_ReFreezesAtNewTip(t *testing.T) {
 	// carrying a different verify policy. (A bare branch commit would not move the
 	// target — that is the Sprint-59 fix.)
 	newTip := commitFile(t, repo, ".daedalus/verify.json", `{"checks":["b"],"acceptanceGlobs":["**/*_test.go"]}`)
-	if _, err := store.AdvanceTarget("app", oldBase, newTip, "test: another integration landed"); err != nil {
+	if _, err := store.AdvanceTarget(repoKey(t, repo), oldBase, newTip, "test: another integration landed"); err != nil {
 		t.Fatalf("AdvanceTarget: %v", err)
 	}
 
@@ -277,7 +277,7 @@ func TestRetry_RebaseThenVerify_ClearsStaleBase(t *testing.T) {
 		t.Fatalf("Dispatch: %v", err)
 	}
 	landed := commitFile(t, repo, "meanwhile.txt", "landed")
-	if _, err := store.AdvanceTarget("app", task.BaseSHA, landed, "test: another integration landed"); err != nil {
+	if _, err := store.AdvanceTarget(repoKey(t, repo), task.BaseSHA, landed, "test: another integration landed"); err != nil {
 		t.Fatalf("AdvanceTarget: %v", err)
 	}
 	res, err := svc.VerifyTask(task.ID)
@@ -690,7 +690,7 @@ func TestRetry_RebaseOntoSelfAuthoredTip_Refused(t *testing.T) {
 	// precisely why the guard is now defence in depth rather than the mechanism.
 	branch := trim(mustGit(t, repo, "rev-parse", "--abbrev-ref", "HEAD"))
 	mustGit(t, repo, "update-ref", "refs/heads/"+branch, jobCommit)
-	if _, err := store.SetTarget("app", jobCommit, EventMeta{Kind: EventGovernance}, "test: operator resync onto a job commit"); err != nil {
+	if _, err := store.SetTarget(repoKey(t, repo), jobCommit, EventMeta{Kind: EventGovernance}, "test: operator resync onto a job commit"); err != nil {
 		t.Fatalf("SetTarget: %v", err)
 	}
 	target, err := svc.TargetFor("app")
@@ -1021,6 +1021,11 @@ func TestClaimReleaseIsUnrepresentable(t *testing.T) {
 	// Needles assembled at runtime so this file does not match itself.
 	release := "delete(" + "s.inflight"
 	unlock := "s.mu." + "Unlock()"
+	// The claim witness closes the deliberate-act gap the type system cannot: Go
+	// has no unconstructible-within-its-package type, so constructing the witness
+	// anywhere but claim.go is the one remaining way to take a claim outside the
+	// scope helper.
+	witness := "claimWitness" + "{"
 
 	entries, err := os.ReadDir(".")
 	if err != nil {
@@ -1043,6 +1048,9 @@ func TestClaimReleaseIsUnrepresentable(t *testing.T) {
 		}
 		if strings.Contains(body, release) {
 			t.Errorf("%s releases an in-flight claim directly; use Service.withClaim so a panic cannot skip it", name)
+		}
+		if strings.Contains(body, witness) {
+			t.Errorf("%s constructs a claim witness; only Service.withClaim may, or the claim can be taken without its scoped release", name)
 		}
 		for _, line := range strings.Split(body, "\n") {
 			trimmed := strings.TrimSpace(line)
@@ -1082,7 +1090,7 @@ func TestRefuseSelfAuthoredRebase_FailsClosedOnCheckError(t *testing.T) {
 	}
 	// Advance the plane-owned target so a rebase is actually attempted.
 	moved := commitFile(t, repo, "moved.txt", "the target moved")
-	if _, err := store.AdvanceTarget("app", task.BaseSHA, moved, "test: another integration landed"); err != nil {
+	if _, err := store.AdvanceTarget(repoKey(t, repo), task.BaseSHA, moved, "test: another integration landed"); err != nil {
 		t.Fatalf("AdvanceTarget: %v", err)
 	}
 
@@ -1101,5 +1109,63 @@ func TestRefuseSelfAuthoredRebase_FailsClosedOnCheckError(t *testing.T) {
 	got, _ := store.GetTask(task.ID)
 	if got.AcceptanceHash != frozen {
 		t.Errorf("acceptance hash changed despite the refusal: %s → %s", frozen, got.AcceptanceHash)
+	}
+}
+
+// TestReconcile_SettlesAGhostJob is the regression for the audit's F6: a Job whose
+// bookkeeping failed after its Task settled stays non-terminal forever, so
+// ListActiveJobs returns it on every pass and the other reconcile checks skip it
+// (its state is neither `working` nor `verifying`). A ghost in the census.
+func TestReconcile_SettlesAGhostJob(t *testing.T) {
+	repo := gitRepo(t)
+	svc, _, store := newService(t, mapResolver{"app": repo},
+		StubRunner{Result: ExecSuccess, WriteFile: true, MarkerName: "a.txt"},
+		fakeSessions{live: map[string]bool{"app": true}}, StubVerifyRunner{Pass: true})
+
+	task, err := svc.CreateTask(CreateTaskRequest{Project: "app", Objective: "x"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	res, err := svc.DispatchTask(task.ID)
+	if err != nil {
+		t.Fatalf("Dispatch: %v", err)
+	}
+	if _, err := svc.VerifyTask(task.ID); err != nil {
+		t.Fatalf("Verify: %v", err)
+	}
+	if _, err := svc.IntegrateTask(task.ID); err != nil {
+		t.Fatalf("Integrate: %v", err)
+	}
+	// Strand the Job as a failed driveJob would: Task integrated, Job left behind.
+	if _, err := store.db.Exec(`UPDATE jobs SET state = ? WHERE id = ?`,
+		string(StateApprovalRequired), res.Job.ID); err != nil {
+		t.Fatalf("stranding the job: %v", err)
+	}
+	if active, _ := store.ListActiveJobs(); len(active) != 1 {
+		t.Fatalf("precondition: expected 1 ghost job, got %d", len(active))
+	}
+
+	rep, err := svc.Reconcile()
+	if err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if len(rep.SettledOrphanJobs) != 1 || rep.SettledOrphanJobs[0] != res.Job.ID {
+		t.Errorf("SettledOrphanJobs = %v, want [%s]", rep.SettledOrphanJobs, res.Job.ID)
+	}
+	got, _ := store.GetJob(res.Job.ID)
+	if !IsTerminal(got.State) {
+		t.Errorf("job state = %q, still not terminal", got.State)
+	}
+	// The census is clean, and a second pass is a no-op.
+	if active, _ := store.ListActiveJobs(); len(active) != 0 {
+		t.Errorf("ListActiveJobs = %d, want 0", len(active))
+	}
+	rep2, _ := svc.Reconcile()
+	if len(rep2.SettledOrphanJobs) != 0 {
+		t.Errorf("second pass settled %v, want nothing (idempotent)", rep2.SettledOrphanJobs)
+	}
+	// A live Job under a NON-terminal task is untouched by this rule.
+	if _, err := svc.CancelTask(task.ID); err != nil && !errors.Is(err, ErrIllegalTransition) {
+		t.Logf("cancel of an integrated task: %v (expected)", err)
 	}
 }

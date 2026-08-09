@@ -23,6 +23,22 @@ package control
 // the helper, where a caller cannot forget it or write it any other way. There is
 // no exported way to take a claim without one.
 
+// claimWitness is proof that a caller is inside withClaim's scope. beginOp
+// requires one, so `beginOp` cannot be reached by writing `s.beginOp(...)`
+// somewhere else — the compiler asks for a witness the caller has no way to have
+// obtained.
+//
+// HONEST SCOPE, because the previous version of this comment overstated the
+// guarantee. Go has no way to make a type unconstructible *within its own
+// package*: another file here could still write `claimWitness{}`. What the
+// witness buys is that the leak cannot be written by ACCIDENT — a stray
+// `beginOp` call does not compile — and what closes the remaining gap is
+// TestClaimReleaseIsUnrepresentable, which fails if the witness type is
+// constructed anywhere but this file. Type system for the accident, test for the
+// deliberate act; neither alone is the whole thing, and saying otherwise is how
+// the last overstatement got through.
+type claimWitness struct{ _ struct{} }
+
 // claimedFunc is the body of a claimed operation. It runs with s.mu HELD and the
 // Task claimed; it may release and re-take s.mu internally (that is the whole
 // point — see unlockedDuring), and the claim survives regardless.
@@ -34,7 +50,7 @@ type claimedFunc func() error
 // A Task that already has a claim is refused with ReasonOperationInFlight rather
 // than blocked; fn is not called.
 func (s *Service) withClaim(taskID string, op inflightOp, fn claimedFunc) error {
-	if err := s.beginOp(taskID, op); err != nil {
+	if err := s.beginOp(taskID, op, claimWitness{}); err != nil {
 		return err
 	}
 	// The ONLY release path. Not a statement a caller writes, so not a statement a

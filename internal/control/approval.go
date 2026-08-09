@@ -51,12 +51,30 @@ func (p ApprovalPolicy) RequiredFor(project string) bool {
 }
 
 // requiresApproval resolves the project's approval policy through the policy
-// source, defaulting to false (opt-in) when none is configured.
+// source, defaulting to false (opt-in) when NO SOURCE IS CONFIGURED AT ALL.
+//
+// Note the distinction, which matters: "no policy source installed" is a
+// deliberate deployment choice (host tests, a plane with no governance file
+// wired) and means approval is opt-in per §9. "A policy source that cannot read
+// its file" is a different thing entirely, and the source itself answers that by
+// requiring approval — see FileBudgetPolicy.RequiresApproval. The plane never
+// converts "I could not read the policy" into "no approval needed".
 func (s *Service) requiresApproval(project string) bool {
 	if s.budgets == nil {
 		return false
 	}
 	return s.budgets.RequiresApproval(project)
+}
+
+// noApprovalNote is the note recorded when the plane approves without a human.
+//
+// It says what is actually known — the policy source did not require approval —
+// rather than asserting what a policy "said". An event that claims a policy
+// declared something is a lie whenever no policy could be read, and this is the
+// one gate where the log is the only evidence a human was or was not involved.
+func noApprovalNote(project string) string {
+	return "auto-approved: no human approval is required for project " + project +
+		" (the configured policy source did not request one)"
 }
 
 // ApproveTask records a human approval: approval_required → approved.
@@ -138,8 +156,7 @@ func (s *Service) ensureApproved(task Task) (Task, error) {
 				task.ID, task.ID))
 		}
 		return s.store.TransitionTaskWith(task.ID, StateApproved, false,
-			EventMeta{Kind: EventApproval},
-			"auto-approved: project "+task.Project+" does not require human approval by policy")
+			EventMeta{Kind: EventApproval}, noApprovalNote(task.Project))
 	case StateVerified:
 		if s.requiresApproval(task.Project) {
 			// Move it into the queue a human can see, then say no — the operator's
@@ -156,13 +173,11 @@ func (s *Service) ensureApproved(task Task) (Task, error) {
 				task.ID, task.ID))
 		}
 		if _, err := s.store.TransitionTaskWith(task.ID, StateApprovalRequired, false,
-			EventMeta{Kind: EventApproval},
-			"approval not required for project "+task.Project+" by policy"); err != nil {
+			EventMeta{Kind: EventApproval}, noApprovalNote(task.Project)); err != nil {
 			return Task{}, err
 		}
 		return s.store.TransitionTaskWith(task.ID, StateApproved, false,
-			EventMeta{Kind: EventApproval},
-			"auto-approved: project "+task.Project+" does not require human approval by policy")
+			EventMeta{Kind: EventApproval}, noApprovalNote(task.Project))
 	default:
 		return Task{}, fmt.Errorf("%w: task %s is %s, not ready for integration (want verified/approval_required/approved)",
 			ErrWrongState, task.ID, task.State)

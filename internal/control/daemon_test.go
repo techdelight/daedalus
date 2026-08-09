@@ -352,8 +352,11 @@ func TestDaemon_IntegrationRoundTrip(t *testing.T) {
 	}
 	// The target is visible over the wire and was adopted at create.
 	targets, err := client.ProjectTargets()
-	if err != nil || len(targets) != 1 || targets[0].Project != "app" {
-		t.Fatalf("ProjectTargets = (%+v, %v), want one target for app", targets, err)
+	if err != nil || len(targets) != 1 {
+		t.Fatalf("ProjectTargets = (%+v, %v), want one target", targets, err)
+	}
+	if len(targets[0].Projects) != 1 || targets[0].Projects[0] != "app" {
+		t.Errorf("target projects = %v, want [app]", targets[0].Projects)
 	}
 	if targets[0].SHA != task.BaseSHA {
 		t.Errorf("target %s != task base %s", targets[0].SHA, task.BaseSHA)

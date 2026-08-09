@@ -218,18 +218,26 @@ CREATE TABLE IF NOT EXISTS events (
 );
 CREATE INDEX IF NOT EXISTS idx_events_entity ON events(entity_type, entity_id);
 
--- The plane-owned integration target: one row per project, holding the commit
+-- The plane-owned integration target: one row per REPOSITORY, holding the commit
 -- the plane considers landed. It is deliberately HOST-SIDE state, not a git ref
 -- in the project repository: a Job's worktree shares the repo's refs, so any ref
 -- living there is writable by the worker, and this row is what the acceptance
 -- oracle is read from. Only a completed integration transaction advances it
 -- (an atomic compare-and-swap on the sha column), plus an explicit human resync.
-CREATE TABLE IF NOT EXISTS targets (
-    project    TEXT PRIMARY KEY,
+--
+-- Keyed by canonical repo path, NOT project name: two registry projects can point
+-- at one repository, and per-project rows would give them two uncoordinated merge
+-- queues on the same trunk. See CanonicalRepoPath.
+CREATE TABLE IF NOT EXISTS integration_targets (
+    repo_path  TEXT PRIMARY KEY,
     sha        TEXT NOT NULL,
     adopted_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+-- The project-keyed table this replaces existed only on an unreleased development
+-- build (it was added and re-keyed within Sprint 59), so there is no shipped data
+-- to migrate.
+DROP TABLE IF EXISTS targets;
 `
 	if _, err := s.db.Exec(schema); err != nil {
 		return fmt.Errorf("migrating control db: %w", err)
@@ -1142,24 +1150,27 @@ func (s *Store) queryEvents(query string, args ...any) ([]Event, error) {
 
 // ---- Targets -------------------------------------------------------------------
 
-// Target is the plane-owned integration ref for a project: the commit the
+// Target is the plane-owned integration ref for a REPOSITORY: the commit the
 // control plane considers landed, and the commit a Task's acceptance policy is
 // frozen at (docs/guild-master-plan.md §6).
+//
+// Keyed by repository rather than project so that several registry projects
+// pointing at one checkout share a single merge queue (see CanonicalRepoPath).
 type Target struct {
-	Project   string `json:"project"`
+	RepoPath  string `json:"repoPath"`
 	SHA       string `json:"sha"`
 	AdoptedAt string `json:"adoptedAt"`
 	UpdatedAt string `json:"updatedAt"`
 }
 
 // GetTarget returns a project's target, or ErrNotFound if none is adopted yet.
-func (s *Store) GetTarget(project string) (Target, error) {
+func (s *Store) GetTarget(repoPath string) (Target, error) {
 	var t Target
 	err := s.db.QueryRow(
-		`SELECT project, sha, adopted_at, updated_at FROM targets WHERE project = ?`, project,
-	).Scan(&t.Project, &t.SHA, &t.AdoptedAt, &t.UpdatedAt)
+		`SELECT repo_path, sha, adopted_at, updated_at FROM integration_targets WHERE repo_path = ?`, repoPath,
+	).Scan(&t.RepoPath, &t.SHA, &t.AdoptedAt, &t.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
-		return Target{}, fmt.Errorf("%w: no integration target for project %q", ErrNotFound, project)
+		return Target{}, fmt.Errorf("%w: no integration target for repository %q", ErrNotFound, repoPath)
 	}
 	if err != nil {
 		return Target{}, err
@@ -1176,9 +1187,9 @@ func (s *Store) GetTarget(project string) (Target, error) {
 //
 // The insert-or-read is a single transaction, so two concurrent first Tasks
 // cannot adopt two different commits.
-func (s *Store) AdoptTarget(project, sha string) (Target, error) {
+func (s *Store) AdoptTarget(repoPath, sha string) (Target, error) {
 	if sha == "" {
-		return Target{}, fmt.Errorf("control: cannot adopt an empty target for %q", project)
+		return Target{}, fmt.Errorf("control: cannot adopt an empty target for %q", repoPath)
 	}
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -1188,8 +1199,8 @@ func (s *Store) AdoptTarget(project, sha string) (Target, error) {
 
 	var existing Target
 	err = tx.QueryRow(
-		`SELECT project, sha, adopted_at, updated_at FROM targets WHERE project = ?`, project,
-	).Scan(&existing.Project, &existing.SHA, &existing.AdoptedAt, &existing.UpdatedAt)
+		`SELECT repo_path, sha, adopted_at, updated_at FROM integration_targets WHERE repo_path = ?`, repoPath,
+	).Scan(&existing.RepoPath, &existing.SHA, &existing.AdoptedAt, &existing.UpdatedAt)
 	if err == nil {
 		return existing, nil // already adopted; never silently re-adopt
 	}
@@ -1199,12 +1210,12 @@ func (s *Store) AdoptTarget(project, sha string) (Target, error) {
 
 	now := s.now()
 	if _, err := tx.Exec(
-		`INSERT INTO targets (project, sha, adopted_at, updated_at) VALUES (?, ?, ?, ?)`,
-		project, sha, now, now,
+		`INSERT INTO integration_targets (repo_path, sha, adopted_at, updated_at) VALUES (?, ?, ?, ?)`,
+		repoPath, sha, now, now,
 	); err != nil {
-		return Target{}, fmt.Errorf("adopting target for %s: %w", project, err)
+		return Target{}, fmt.Errorf("adopting target for %s: %w", repoPath, err)
 	}
-	if err := s.logEvent(tx, "project", project, "", "",
+	if err := s.logEvent(tx, "repository", repoPath, "", "",
 		EventMeta{Kind: EventGovernance}, ActorSystem,
 		"integration target adopted at "+sha+" (trust-on-first-use)"); err != nil {
 		return Target{}, err
@@ -1212,7 +1223,7 @@ func (s *Store) AdoptTarget(project, sha string) (Target, error) {
 	if err := tx.Commit(); err != nil {
 		return Target{}, err
 	}
-	return Target{Project: project, SHA: sha, AdoptedAt: now, UpdatedAt: now}, nil
+	return Target{RepoPath: repoPath, SHA: sha, AdoptedAt: now, UpdatedAt: now}, nil
 }
 
 // AdvanceTarget is the compare-and-swap at the end of the integration
@@ -1222,9 +1233,9 @@ func (s *Store) AdoptTarget(project, sha string) (Target, error) {
 // merged result is stale and must be recomputed against the new tip.
 //
 // This is the only mechanism that advances a target as a consequence of work.
-func (s *Store) AdvanceTarget(project, from, to, note string) (Target, error) {
+func (s *Store) AdvanceTarget(repoPath, from, to, note string) (Target, error) {
 	if to == "" {
-		return Target{}, fmt.Errorf("control: cannot advance target of %q to an empty sha", project)
+		return Target{}, fmt.Errorf("control: cannot advance target of %q to an empty sha", repoPath)
 	}
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -1234,27 +1245,27 @@ func (s *Store) AdvanceTarget(project, from, to, note string) (Target, error) {
 
 	now := s.now()
 	res, err := tx.Exec(
-		`UPDATE targets SET sha = ?, updated_at = ? WHERE project = ? AND sha = ?`,
-		to, now, project, from,
+		`UPDATE integration_targets SET sha = ?, updated_at = ? WHERE repo_path = ? AND sha = ?`,
+		to, now, repoPath, from,
 	)
 	if err != nil {
-		return Target{}, fmt.Errorf("advancing target for %s: %w", project, err)
+		return Target{}, fmt.Errorf("advancing target for %s: %w", repoPath, err)
 	}
 	n, err := res.RowsAffected()
 	if err != nil {
 		return Target{}, err
 	}
 	if n != 1 {
-		return Target{}, fmt.Errorf("%w: target of %s is no longer %s", ErrConflict, project, from)
+		return Target{}, fmt.Errorf("%w: target of %s is no longer %s", ErrConflict, repoPath, from)
 	}
-	if err := s.logEvent(tx, "project", project, "", "",
+	if err := s.logEvent(tx, "repository", repoPath, "", "",
 		EventMeta{Kind: EventIntegration}, ActorPlane, note); err != nil {
 		return Target{}, err
 	}
 	if err := tx.Commit(); err != nil {
 		return Target{}, err
 	}
-	return Target{Project: project, SHA: to, UpdatedAt: now}, nil
+	return Target{RepoPath: repoPath, SHA: to, UpdatedAt: now}, nil
 }
 
 // SetTarget re-points a project's target unconditionally — the human resync for
@@ -1263,9 +1274,9 @@ func (s *Store) AdvanceTarget(project, from, to, note string) (Target, error) {
 // acceptance oracle back to whoever can write the repository's refs, which is the
 // hole the plane-owned target exists to close. Recorded as a governance event
 // with the supplied actor.
-func (s *Store) SetTarget(project, sha string, meta EventMeta, note string) (Target, error) {
+func (s *Store) SetTarget(repoPath, sha string, meta EventMeta, note string) (Target, error) {
 	if sha == "" {
-		return Target{}, fmt.Errorf("control: cannot set an empty target for %q", project)
+		return Target{}, fmt.Errorf("control: cannot set an empty target for %q", repoPath)
 	}
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -1274,30 +1285,30 @@ func (s *Store) SetTarget(project, sha string, meta EventMeta, note string) (Tar
 	defer tx.Rollback()
 
 	now := s.now()
-	res, err := tx.Exec(`UPDATE targets SET sha = ?, updated_at = ? WHERE project = ?`, sha, now, project)
+	res, err := tx.Exec(`UPDATE integration_targets SET sha = ?, updated_at = ? WHERE repo_path = ?`, sha, now, repoPath)
 	if err != nil {
-		return Target{}, fmt.Errorf("setting target for %s: %w", project, err)
+		return Target{}, fmt.Errorf("setting target for %s: %w", repoPath, err)
 	}
 	if n, _ := res.RowsAffected(); n != 1 {
 		if _, err := tx.Exec(
-			`INSERT INTO targets (project, sha, adopted_at, updated_at) VALUES (?, ?, ?, ?)`,
-			project, sha, now, now,
+			`INSERT INTO integration_targets (repo_path, sha, adopted_at, updated_at) VALUES (?, ?, ?, ?)`,
+			repoPath, sha, now, now,
 		); err != nil {
-			return Target{}, fmt.Errorf("setting target for %s: %w", project, err)
+			return Target{}, fmt.Errorf("setting target for %s: %w", repoPath, err)
 		}
 	}
-	if err := s.logEvent(tx, "project", project, "", "", meta, ActorPlane, note); err != nil {
+	if err := s.logEvent(tx, "repository", repoPath, "", "", meta, ActorPlane, note); err != nil {
 		return Target{}, err
 	}
 	if err := tx.Commit(); err != nil {
 		return Target{}, err
 	}
-	return Target{Project: project, SHA: sha, AdoptedAt: now, UpdatedAt: now}, nil
+	return Target{RepoPath: repoPath, SHA: sha, AdoptedAt: now, UpdatedAt: now}, nil
 }
 
-// ListTargets returns every project's target, ordered by project name.
+// ListTargets returns every repository's target, ordered by path.
 func (s *Store) ListTargets() ([]Target, error) {
-	rows, err := s.db.Query(`SELECT project, sha, adopted_at, updated_at FROM targets ORDER BY project ASC`)
+	rows, err := s.db.Query(`SELECT repo_path, sha, adopted_at, updated_at FROM integration_targets ORDER BY repo_path ASC`)
 	if err != nil {
 		return nil, err
 	}
@@ -1305,7 +1316,7 @@ func (s *Store) ListTargets() ([]Target, error) {
 	var out []Target
 	for rows.Next() {
 		var t Target
-		if err := rows.Scan(&t.Project, &t.SHA, &t.AdoptedAt, &t.UpdatedAt); err != nil {
+		if err := rows.Scan(&t.RepoPath, &t.SHA, &t.AdoptedAt, &t.UpdatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, t)

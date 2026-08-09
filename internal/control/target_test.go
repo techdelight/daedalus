@@ -4,6 +4,8 @@ package control
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -209,7 +211,7 @@ func TestTarget_AdoptionIsOnce(t *testing.T) {
 		t.Errorf("%s = %s, want %s", targetRefName, got, first.SHA)
 	}
 	// And the adoption is on the record.
-	events, _ := store.ListEventsFor("project", "app")
+	events, _ := store.ListEventsFor("repository", repoKey(t, repo))
 	if len(events) == 0 || !strings.Contains(events[0].Note, "trust-on-first-use") {
 		t.Errorf("adoption should be logged as trust-on-first-use, got %+v", events)
 	}
@@ -250,7 +252,7 @@ func TestTarget_SyncIsExplicit(t *testing.T) {
 // is the whole safety property of the merge queue.
 func TestAdvanceTarget_CompareAndSwap(t *testing.T) {
 	s := openTestStore(t)
-	if _, err := s.AdoptTarget("proj", "aaaa"); err != nil {
+	if _, err := s.AdoptTarget("/repos/proj", "aaaa"); err != nil {
 		t.Fatalf("AdoptTarget: %v", err)
 	}
 
@@ -268,7 +270,7 @@ func TestAdvanceTarget_CompareAndSwap(t *testing.T) {
 			defer wg.Done()
 			<-start // release them all at once
 			to := "bbbb" + string(rune('a'+i))
-			_, err := s.AdvanceTarget("proj", "aaaa", to, "racer")
+			_, err := s.AdvanceTarget("/repos/proj", "aaaa", to, "racer")
 			mu.Lock()
 			defer mu.Unlock()
 			switch {
@@ -290,7 +292,7 @@ func TestAdvanceTarget_CompareAndSwap(t *testing.T) {
 	if losers != racers-1 {
 		t.Errorf("losers = %d, want %d", losers, racers-1)
 	}
-	got, err := s.GetTarget("proj")
+	got, err := s.GetTarget("/repos/proj")
 	if err != nil {
 		t.Fatalf("GetTarget: %v", err)
 	}
@@ -301,18 +303,18 @@ func TestAdvanceTarget_CompareAndSwap(t *testing.T) {
 
 func TestAdvanceTarget_StaleFromLoses(t *testing.T) {
 	s := openTestStore(t)
-	if _, err := s.AdoptTarget("proj", "aaaa"); err != nil {
+	if _, err := s.AdoptTarget("/repos/proj", "aaaa"); err != nil {
 		t.Fatalf("AdoptTarget: %v", err)
 	}
-	if _, err := s.AdvanceTarget("proj", "aaaa", "bbbb", "first"); err != nil {
+	if _, err := s.AdvanceTarget("/repos/proj", "aaaa", "bbbb", "first"); err != nil {
 		t.Fatalf("first advance: %v", err)
 	}
 	// A second integration that started from the old target must lose.
-	_, err := s.AdvanceTarget("proj", "aaaa", "cccc", "stale")
+	_, err := s.AdvanceTarget("/repos/proj", "aaaa", "cccc", "stale")
 	if !errors.Is(err, ErrConflict) {
 		t.Errorf("stale advance err = %v, want ErrConflict", err)
 	}
-	got, _ := s.GetTarget("proj")
+	got, _ := s.GetTarget("/repos/proj")
 	if got.SHA != "bbbb" {
 		t.Errorf("target = %s, want bbbb (the stale advance must not write)", got.SHA)
 	}
@@ -334,7 +336,7 @@ func TestAdoptTarget_ConcurrentFirstTasksAgree(t *testing.T) {
 			<-start
 			// Each racer offers a DIFFERENT commit, as two concurrent first Tasks
 			// reading a moving HEAD might.
-			tgt, err := s.AdoptTarget("proj", "sha"+string(rune('a'+i)))
+			tgt, err := s.AdoptTarget("/repos/proj", "sha"+string(rune('a'+i)))
 			if err != nil {
 				t.Errorf("AdoptTarget: %v", err)
 				return
@@ -349,5 +351,125 @@ func TestAdoptTarget_ConcurrentFirstTasksAgree(t *testing.T) {
 
 	if len(seen) != 1 {
 		t.Errorf("concurrent adoption produced %d different targets, want 1: %v", len(seen), seen)
+	}
+}
+
+// repoKey resolves a repository's canonical path — the key the plane stores its
+// integration target under.
+func repoKey(t *testing.T, repoDir string) string {
+	t.Helper()
+	key, err := CanonicalRepoPath(repoDir)
+	if err != nil {
+		t.Fatalf("CanonicalRepoPath(%s): %v", repoDir, err)
+	}
+	return key
+}
+
+// repoKeyNoT is repoKey for doubles that have no *testing.T to fail on.
+func repoKeyNoT(repoDir string) string {
+	key, err := CanonicalRepoPath(repoDir)
+	if err != nil {
+		return repoDir
+	}
+	return key
+}
+
+// --- one repository, one merge queue (audit F2) --------------------------------
+
+// TestTarget_TwoProjectsOneRepoShareAQueue is the regression for the audit's F2:
+// the target used to be keyed by PROJECT name, so two registry projects pointing
+// at one repository got independent target rows — two merge queues on one trunk,
+// each rebasing onto its own notion of it and swapping a row the other never
+// read. The queue's whole safety property silently did not apply between them.
+func TestTarget_TwoProjectsOneRepoShareAQueue(t *testing.T) {
+	repo := gitRepo(t)
+	// Two registry entries, one checkout — a clone registered twice, or a project
+	// registered on a subdirectory of another.
+	svc, _, store := newService(t, mapResolver{"app": repo, "app-clone": repo}, StubRunner{}, nil)
+
+	a, err := svc.TargetFor("app")
+	if err != nil {
+		t.Fatalf("TargetFor(app): %v", err)
+	}
+	b, err := svc.TargetFor("app-clone")
+	if err != nil {
+		t.Fatalf("TargetFor(app-clone): %v", err)
+	}
+	if a.RepoPath != b.RepoPath {
+		t.Fatalf("two projects on one repo resolved to %q and %q — they must share a key", a.RepoPath, b.RepoPath)
+	}
+	if a.SHA != b.SHA {
+		t.Errorf("shared repo has two targets: %s vs %s", a.SHA, b.SHA)
+	}
+	// Exactly ONE row exists, not one per project.
+	all, _ := store.ListTargets()
+	if len(all) != 1 {
+		t.Fatalf("targets = %d, want 1 for one repository: %+v", len(all), all)
+	}
+
+	// An integration landing under one project moves the trunk the OTHER sees —
+	// which is what makes the compare-and-swap protect them from each other.
+	landed := commitFileOn(t, repo, a.SHA, "landed.txt", "integrated under app")
+	if _, err := store.AdvanceTarget(a.RepoPath, a.SHA, landed, "test: app integrated"); err != nil {
+		t.Fatalf("AdvanceTarget: %v", err)
+	}
+	after, err := svc.TargetFor("app-clone")
+	if err != nil {
+		t.Fatalf("TargetFor(app-clone) after: %v", err)
+	}
+	if after.SHA != landed {
+		t.Errorf("app-clone's target = %s, want %s — a landing under one project must move the shared trunk",
+			after.SHA, landed)
+	}
+	// And a stale compare-and-swap from the other project's starting point loses.
+	if _, err := store.AdvanceTarget(b.RepoPath, b.SHA, "cafebabe", "test: app-clone integrating from a stale start"); !errors.Is(err, ErrConflict) {
+		t.Errorf("stale CAS from the sibling project = %v, want ErrConflict", err)
+	}
+
+	// The operator-facing view says the queue is shared, rather than leaving it
+	// to be discovered.
+	if _, err := svc.CreateTask(CreateTaskRequest{Project: "app", Objective: "x"}); err != nil {
+		t.Fatalf("CreateTask(app): %v", err)
+	}
+	if _, err := svc.CreateTask(CreateTaskRequest{Project: "app-clone", Objective: "y"}); err != nil {
+		t.Fatalf("CreateTask(app-clone): %v", err)
+	}
+	views, err := svc.ProjectTargets()
+	if err != nil {
+		t.Fatalf("ProjectTargets: %v", err)
+	}
+	if len(views) != 1 {
+		t.Fatalf("views = %d, want 1", len(views))
+	}
+	if len(views[0].Projects) != 2 {
+		t.Errorf("view projects = %v, want both projects listed as sharing the queue", views[0].Projects)
+	}
+}
+
+// TestCanonicalRepoPath maps a subdirectory and a symlink onto the same identity,
+// so "two projects, one repository" cannot be dodged by registering a subdir.
+func TestCanonicalRepoPath(t *testing.T) {
+	repo := gitRepo(t)
+	root, err := CanonicalRepoPath(repo)
+	if err != nil {
+		t.Fatalf("CanonicalRepoPath: %v", err)
+	}
+
+	sub := filepath.Join(repo, "nested", "deeper")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	got, err := CanonicalRepoPath(sub)
+	if err != nil {
+		t.Fatalf("CanonicalRepoPath(subdir): %v", err)
+	}
+	if got != root {
+		t.Errorf("subdirectory resolved to %q, want the repo root %q", got, root)
+	}
+
+	// A non-repository still yields a stable absolute identity rather than an error.
+	plain := t.TempDir()
+	if got, err := CanonicalRepoPath(plain); err != nil || got == "" {
+		t.Errorf("CanonicalRepoPath(non-repo) = (%q, %v), want a resolved path", got, err)
 	}
 }

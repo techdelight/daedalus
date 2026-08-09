@@ -588,10 +588,18 @@ func taskTarget(api control.TaskAPI, args []string) error {
 			fmt.Println("No integration targets yet — one is adopted when a project's first task is created.")
 			return nil
 		}
-		fmt.Printf("%-18s  %-10s  %s\n", color.Bold("PROJECT"), color.Bold("TARGET"), color.Bold("UPDATED"))
-		fmt.Printf("%-18s  %-10s  %s\n", "------------------", "----------", "-------")
+		fmt.Printf("%-30s  %-10s  %s\n", color.Bold("PROJECT(S)"), color.Bold("TARGET"), color.Bold("REPOSITORY"))
+		fmt.Printf("%-30s  %-10s  %s\n", "------------------------------", "----------", "----------")
 		for _, t := range targets {
-			fmt.Printf("%-18s  %-10s  %s\n", truncate(t.Project, 18), shortSHA(t.SHA), t.UpdatedAt)
+			who := strings.Join(t.Projects, ", ")
+			if who == "" {
+				who = "—"
+			}
+			fmt.Printf("%-30s  %-10s  %s\n", truncate(who, 30), shortSHA(t.SHA), t.RepoPath)
+			if len(t.Projects) > 1 {
+				// Sharing is surprising unless it is said out loud.
+				fmt.Printf("%s these projects share one merge queue (same repository)\n", color.Cyan("     note:"))
+			}
 		}
 		fmt.Println()
 		fmt.Println("The target is the commit tasks are based on and graded against. Only a completed")

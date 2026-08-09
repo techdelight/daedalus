@@ -97,6 +97,55 @@ All notable changes to this project will be documented in this file.
   See `docs/control-plane.md`.
 
 ### Fixed
+- **Integration hardening after an adversarial audit of the Sprint 59 core.**
+  - **The approval gate failed OPEN when the governance file was unreadable
+    (blocking).** With a corrupt or half-written `budgets.json` and no
+    last-known-good — the state at daemon boot — `RequiresApproval` returned
+    false, so the plane auto-approved and logged that policy said no human was
+    needed. Nothing had said anything. The approval axis now fails closed by
+    **requiring** a human, and the auto-approval event says only that the
+    configured policy source did not request one. (The budget axis keeps failing
+    closed toward the narrower ceiling — the two directions differ deliberately
+    and are now documented as such.)
+  - **Two projects on one repository got two uncoordinated merge queues.** The
+    integration target was keyed by project name, so a clone registered twice — or
+    a project registered on a subdirectory of another — produced independent
+    target rows, each rebasing onto its own notion of the trunk and swapping a row
+    the other never read. Targets are now keyed by **canonical repository path**
+    (`git rev-parse --show-toplevel` + symlink resolution), so those projects
+    share one queue and serialize against each other; `daedalus task target` shows
+    which projects share a queue.
+  - **`TargetFor` swallowed every `GetTarget` error, not just not-found**, then
+    fell through to trust-on-first-use adoption of the worker-writable checkout
+    `HEAD`. Only a genuine `ErrNotFound` may reach the adoption path now — this is
+    the single most security-relevant read in the package, and its safety was
+    accidental rather than asserted.
+  - **The claim-leak guard was defeatable.** `beginOp` was a plain method, so a
+    claim could be taken outside `withClaim`'s scope and never released. It now
+    requires an unexported witness only `withClaim` constructs, and the source
+    scan additionally forbids constructing that witness elsewhere — the type
+    system for the accident, the test for the deliberate act. (Go cannot make a
+    type unconstructible within its own package; the comment now says so instead
+    of overstating.)
+  - **`RebaseOnto`'s scratch-worktree cleanup was unpinned** — the sole mutation
+    survivor of the audit. Deleting the deferred `worktree remove` left the suite
+    green while leaking a worktree per failed integration. Now tested on the
+    success path, the conflict path, and over a leftover from a crashed attempt.
+  - **A Job could be stranded as a ghost in the census.** A Job whose bookkeeping
+    failed after its Task settled stayed non-terminal forever: `ListActiveJobs`
+    returned it on every pass and the other reconcile checks skipped it.
+    `Reconcile` now settles a Job whose Task is already terminal.
+  - **A post-CAS failure could double-land.** The compare-and-swap commits before
+    the Task transition, so a failure in that window left the target advanced with
+    the Task still `approved`, and re-integrating would replay the same commits.
+    Re-integration is now idempotent: it detects that the artifact is already
+    contained in the target — by ancestry for a fast-forward landing, by patch id
+    for a rebased one — and settles the Task instead of landing twice.
+  - **`--no-auth` documentation.** The web UI now carries write authority over
+    human approval, and WSL2 auto-detection binds `0.0.0.0`; `--no-auth` therefore
+    hands the approve button to anyone who can reach the port. Auth is on by
+    default and the handlers are behind the middleware, so this is a documentation
+    fix, in `README.md`, `docs/control-plane.md` and `--help`.
 - **Governance hardening after an adversarial audit of the Sprint 58 core.** Six
   holes found by a hostile review of the governance implementation, each with a
   permanent regression test:

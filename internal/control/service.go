@@ -121,7 +121,7 @@ type TaskAPI interface {
 	RejectApproval(id, note string) (Task, error)
 	IntegrateTask(id string) (IntegrationResult, error)
 	PendingApprovals() ([]Task, error)
-	ProjectTargets() ([]Target, error)
+	ProjectTargets() ([]TargetView, error)
 	SyncTarget(project string) (Target, error)
 	// TaskEvents is READ-ONLY and is the only event-facing operation on this
 	// interface — there is deliberately no append/amend/delete counterpart, which
@@ -190,7 +190,10 @@ func NewService(store *Store, projects ProjectResolver, worktrees *WorktreeManag
 // gets here). This claim is what reconcile reads to tell live work from crashed
 // work, and it is the backstop if a state guard is ever loosened — it is not the
 // primary refusal path, and it does not pretend to be.
-func (s *Service) beginOp(taskID string, op inflightOp) error {
+// The claimWitness parameter is unused at runtime and load-bearing at compile
+// time: it is what stops this being callable from anywhere but withClaim (see
+// claim.go for the honest scope of that guarantee).
+func (s *Service) beginOp(taskID string, op inflightOp, _ claimWitness) error {
 	if existing, busy := s.inflight[taskID]; busy {
 		return &RejectionError{
 			Reason: ReasonOperationInFlight,
@@ -1189,6 +1192,7 @@ type ReconcileReport struct {
 	FailedVanished    []string // job ids failed because their run was gone
 	RemovedOrphans    []string // worktree job ids removed (no live non-terminal job)
 	RecoveredVerifies []string // job ids returned to candidate from a stranded `verifying`
+	SettledOrphanJobs []string // job ids driven terminal because their Task already was
 	CheckedActive     int      // non-terminal jobs examined
 	SkippedUnverified int      // jobs left alone because liveness couldn't be verified
 	SkippedInflight   int      // jobs left alone because this process is running them
@@ -1235,6 +1239,19 @@ func (s *Service) Reconcile() (ReconcileReport, error) {
 			s.recoverStrandedVerify(j.TaskID, j.ID, "reconcile: verification interrupted — returned to candidate")
 			rep.RecoveredVerifies = append(rep.RecoveredVerifies, j.ID)
 			liveWorktreeJobs[j.ID] = true // the candidate's commit must survive
+			continue
+		}
+		// A Job whose Task is already terminal is a ghost in the census: nothing
+		// will ever move it, ListActiveJobs returns it forever, and the checks
+		// below skip it because its state is neither `working` nor `verifying`.
+		// It happens when a Job's bookkeeping fails after its Task has settled —
+		// driveJob logs and continues rather than claiming a completed landing
+		// failed, which is right, but the resulting inconsistency has to be
+		// reconciled somewhere, and this is that somewhere.
+		if task, err := s.store.GetTask(j.TaskID); err == nil && IsTerminal(task.State) {
+			if s.settleJobWithTask(j, task) {
+				rep.SettledOrphanJobs = append(rep.SettledOrphanJobs, j.ID)
+			}
 			continue
 		}
 		if j.State != StateWorking {
@@ -1293,6 +1310,34 @@ func (s *Service) Reconcile() (ReconcileReport, error) {
 		rep.RemovedOrphans = append(rep.RemovedOrphans, jobID)
 	}
 	return rep, nil
+}
+
+// settleJobWithTask drives a non-terminal Job to its Task's terminal state and
+// reclaims its worktree, returning whether anything changed. s.mu must be held.
+//
+// The Job follows the Task rather than the other way round: the Task is the unit
+// of intent and it has already settled, so the Job's own state is the stale side
+// of the disagreement.
+func (s *Service) settleJobWithTask(job Job, task Task) bool {
+	meta := EventMeta{Kind: EventGovernance}
+	note := "reconcile: task " + task.ID + " is " + string(task.State) + " — settling its job to match"
+	// Walk to the Task's terminal state through whatever edges exist; `cancelled`
+	// is reachable from every active state, so it is the fallback when the Task's
+	// own terminal state is not reachable from where the Job is stuck.
+	before := job.State
+	s.driveJob(job.ID, []State{StateApprovalRequired, StateApproved, task.State}, meta, note)
+	if got, err := s.store.GetJob(job.ID); err == nil && !IsTerminal(got.State) {
+		s.driveJob(job.ID, []State{StateCancelled}, meta, note)
+	}
+	got, err := s.store.GetJob(job.ID)
+	if err != nil || got.State == before {
+		return false
+	}
+	repoDir, _ := s.projects.ProjectDir(task.Project)
+	if s.worktrees != nil {
+		_ = s.worktrees.Remove(repoDir, job.ID)
+	}
+	return true
 }
 
 // sessionLive returns (live, verifiable). verifiable is false when there is no

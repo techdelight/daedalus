@@ -132,6 +132,29 @@ func (s *Service) integrateOnce(id string, attempt int) (IntegrationResult, bool
 		return IntegrationResult{}, false, err
 	}
 
+	// --- 0. ALREADY LANDED? ---------------------------------------------------
+	//
+	// The compare-and-swap commits before the Task is marked `integrated`, and
+	// those are two different stores (git + the target row, then the task row).
+	// If the second write fails, the target has advanced while the Task still
+	// says `approved` — the one place in this transaction where a write survives
+	// an error. That cannot be made atomic across SQLite and git, so instead
+	// re-integration is made IDEMPOTENT: if the artifact's commits are already
+	// contained in the target, the work has landed and the Task is settled to
+	// match rather than landed a second time.
+	//
+	// Without this, a retry would cherry-pick --allow-empty the same commits onto
+	// the new target and swap again — an empty duplicate commit, and a second
+	// "integrated" event for one piece of work.
+	if landed, err := ArtifactIsLanded(repoDir, target.SHA, art.BaseSHA, art.HeadSHA); err != nil {
+		log.Printf("control: integrate %s: checking whether the artifact already landed: %v", id, err)
+	} else if landed {
+		note := fmt.Sprintf("already landed: the artifact's commits are contained in target %s — settling the task rather than landing twice",
+			shortSHA(target.SHA))
+		log.Printf("control: integrate %s: %s", id, note)
+		return s.settleAlreadyLanded(task, job, art, repoDir, target, note)
+	}
+
 	// --- 1. REBASE the artifact onto the current target -----------------------
 	//
 	// Replaying base..head onto the target (rather than merging) keeps the landed
@@ -187,7 +210,7 @@ func (s *Service) integrateOnce(id string, attempt int) (IntegrationResult, bool
 	// merged commit was computed against a trunk that no longer exists. The CAS
 	// fails, nothing is written, and the caller recomputes — the merge-queue's
 	// entire safety property in one UPDATE ... WHERE sha = <what we started from>.
-	newTarget, err := s.store.AdvanceTarget(task.Project, target.SHA, merged, fmt.Sprintf(
+	newTarget, err := s.store.AdvanceTarget(target.RepoPath, target.SHA, merged, fmt.Sprintf(
 		"integrated %s (job %s, artifact %s): target %s → %s",
 		id, job.ID, art.ID, shortSHA(target.SHA), shortSHA(merged)))
 	if err != nil {
@@ -225,6 +248,31 @@ func (s *Service) integrateOnce(id string, attempt int) (IntegrationResult, bool
 		Task: tk, Artifact: art, MergedSHA: merged,
 		PreviousTarget: target.SHA, NewTarget: newTarget.SHA, Attempts: attempt,
 		Detail: outcome.Detail,
+	}, false, nil
+}
+
+// settleAlreadyLanded finishes a transaction whose work is already contained in
+// the target — the recovery path for a failure between the compare-and-swap and
+// the Task transition. It advances no target and creates no commit.
+func (s *Service) settleAlreadyLanded(task Task, job Job, art *Artifact, repoDir string, target Target, note string) (IntegrationResult, bool, error) {
+	meta := EventMeta{Kind: EventIntegration}
+	s.driveJob(job.ID, []State{StateApprovalRequired, StateApproved, StateIntegrated}, meta, note)
+	tk, err := s.store.TransitionTaskWith(task.ID, StateIntegrated, false, meta, note)
+	if err != nil {
+		return IntegrationResult{}, false, err
+	}
+	if art != nil && art.IntegratedSHA == "" {
+		if a, err := s.store.SetArtifactIntegrated(art.ID, target.SHA); err == nil {
+			art = &a
+		}
+	}
+	if s.worktrees != nil {
+		_ = s.worktrees.Remove(repoDir, job.ID)
+	}
+	return IntegrationResult{
+		Task: tk, Artifact: art, MergedSHA: target.SHA,
+		PreviousTarget: target.SHA, NewTarget: target.SHA, Attempts: 1,
+		Detail: note,
 	}, false, nil
 }
 
@@ -280,6 +328,59 @@ func integrationWorktree(m *WorktreeManager, jobID string) string {
 		return filepath.Join(os.TempDir(), "daedalus-integrate-"+jobID)
 	}
 	return filepath.Join(m.Root(), "integrate-"+jobID)
+}
+
+// ArtifactIsLanded reports whether an artifact's own commits (base..head) are
+// already contained in `target`.
+//
+// Two ways an artifact can be in, and both must be recognised:
+//
+//  1. BY ANCESTRY — it landed unrebased (the target was its base, so the swap was
+//     a fast-forward and the landed commit IS the artifact's head).
+//  2. BY CONTENT — it was rebased, so the landed commit has a different sha. Only
+//     the patch id survives that, which is what `git cherry` compares: it marks a
+//     commit `-` when an equivalent change is already upstream and `+` when it is
+//     not.
+//
+// Checking only ancestry would miss every rebased landing; checking only
+// `git cherry` would miss every fast-forward one, because with target == head the
+// range base..head-not-in-target is empty and it reports nothing at all. Getting
+// this wrong in the "not landed" direction lands the work twice, which is the
+// failure this function exists to prevent — so it errs toward asking both.
+//
+// An artifact with no commits of its own is not "landed"; that case is refused
+// earlier by RebaseOnto.
+func ArtifactIsLanded(repoDir, target, base, head string) (bool, error) {
+	if target == "" || base == "" || head == "" || base == head {
+		return false, nil
+	}
+	// 1. Unrebased: the artifact's head is contained in the target.
+	contained, err := IsAncestor(repoDir, head, target)
+	if err != nil {
+		return false, err
+	}
+	if contained {
+		return true, nil
+	}
+	// 2. Rebased: every commit in base..head has an equivalent upstream.
+	out, err := runGit(repoDir, "cherry", target, head, base)
+	if err != nil {
+		return false, wrapGit("git cherry", out, err)
+	}
+	counted := 0
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "+") {
+			return false, nil // at least one commit is not upstream yet
+		}
+		if strings.HasPrefix(line, "-") {
+			counted++
+		}
+	}
+	return counted > 0, nil
 }
 
 // ErrRebaseConflict reports that an artifact could not be replayed onto the

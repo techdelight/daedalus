@@ -315,6 +315,16 @@ The web UI provides:
 
 **Security:** Authentication is enabled by default. On first launch, a random access token is generated, saved to `config.json`, and printed to the terminal. Enter the token in the login page to start a session (cookie-based, default 24h expiry). Use `--no-auth` to disable authentication. Binds to `127.0.0.1` by default (localhost only); use `--host 0.0.0.0` for remote access.
 
+> **`--no-auth` now gives away more than a dashboard.** Since the control plane's
+> approval gate landed, the web UI carries **write authority over human
+> approval** — `POST /api/approvals/{id}/approve|reject` decides whether an
+> agent's work is allowed to be integrated. Those handlers sit behind the same
+> auth middleware as everything else, so the default is safe; but with
+> `--no-auth`, anyone who can reach the port can approve an agent's changes.
+> Note also that WSL2 auto-detection binds `0.0.0.0` so the UI is reachable from
+> Windows, which makes "anyone who can reach the port" a larger set than it looks.
+> Use `--no-auth` only on a host you would be happy to hand the approve button to.
+
 ### WSL2
 
 When running inside WSL2, `daedalus web` auto-detects the environment and binds to `0.0.0.0` so the Windows host can reach it. The startup output prints the VM IP for easy access.

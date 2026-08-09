@@ -4,6 +4,7 @@ package control
 
 import (
 	"errors"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -81,8 +82,14 @@ func TestApproval_NotRequired_AutoApprovesWithAReason(t *testing.T) {
 	}
 	// The audit trail says WHY no human was asked, rather than silently skipping.
 	events, _ := store.ListEventsForTask(task.ID)
-	if !hasNote(events, "does not require human approval by policy") {
-		t.Error("the log should record that policy, not oversight, is why no human approved")
+	if !hasNote(events, "no human approval is required") {
+		t.Error("the log should record why no human approved")
+	}
+	// The note must not assert what a policy "said": when the governance file
+	// cannot be read, no policy said anything, and this is the one gate where the
+	// log is the only evidence a human was or was not involved.
+	if hasNote(events, "by policy") {
+		t.Error("the auto-approval note must not claim a policy declared something")
 	}
 	// The edges were walked, not skipped.
 	var path []State
@@ -327,4 +334,82 @@ func TestPolicySource_InterfaceShape(t *testing.T) {
 	var _ PolicySource = StaticPolicy{}
 	var _ PolicySource = BudgetPolicy{}
 	var _ PolicySource = (*FileBudgetPolicy)(nil)
+}
+
+// TestApproval_UnreadablePolicyRequiresAHuman is the regression for the audit's
+// blocking finding: the approval gate used to fail OPEN. With a corrupt (or
+// half-written) governance file and no last-known-good — the state at daemon boot
+// — the plane auto-approved and logged that policy said no human was needed.
+// Nothing had said anything.
+func TestApproval_UnreadablePolicyRequiresAHuman(t *testing.T) {
+	dir := t.TempDir()
+	path := dir + "/budgets.json"
+
+	t.Run("never-read policy requires approval", func(t *testing.T) {
+		if err := writeFileForTestNoT(dir, "budgets.json", `{"default":{"maxAtt`); err != nil {
+			t.Fatal(err)
+		}
+		src := NewFileBudgetPolicy(path)
+		if !src.RequiresApproval("app") {
+			t.Error("an unreadable policy with no known-good must REQUIRE approval — 'I don't know' cannot mean 'nobody needs to look'")
+		}
+		// The budget axis still degrades to a real ceiling: the two axes fail
+		// closed in different directions, deliberately.
+		if got := src.BudgetFor("app"); got != DefaultBudget() {
+			t.Errorf("budget = %+v, want the built-in default", got)
+		}
+	})
+
+	t.Run("last known-good still wins over the fallback", func(t *testing.T) {
+		if err := writeFileForTestNoT(dir, "budgets.json", `{"approval":{"default":false}}`); err != nil {
+			t.Fatal(err)
+		}
+		src := NewFileBudgetPolicy(path)
+		if src.RequiresApproval("app") {
+			t.Fatal("precondition: a readable opt-out policy should not require approval")
+		}
+		if err := writeFileForTestNoT(dir, "budgets.json", `{"appro`); err != nil {
+			t.Fatal(err)
+		}
+		if src.RequiresApproval("app") {
+			t.Error("a corrupt read should hold the last known-good answer, not flip to requiring approval")
+		}
+	})
+
+	t.Run("a project requiring approval is not auto-approved when the file breaks", func(t *testing.T) {
+		repo := gitRepo(t)
+		broken := t.TempDir() + "/budgets.json"
+		if err := writeFileForTestNoT(filepath.Dir(broken), "budgets.json", `{"broken`); err != nil {
+			t.Fatal(err)
+		}
+		svc, _, store := newService(t, mapResolver{"app": repo},
+			StubRunner{Result: ExecSuccess, WriteFile: true, MarkerName: "a.txt"}, nil, StubVerifyRunner{Pass: true})
+		svc.SetPolicySource(NewFileBudgetPolicy(broken))
+
+		task, err := svc.CreateTask(CreateTaskRequest{Project: "app", Objective: "x"})
+		if err != nil {
+			t.Fatalf("CreateTask: %v", err)
+		}
+		if _, err := svc.DispatchTask(task.ID); err != nil {
+			t.Fatalf("Dispatch: %v", err)
+		}
+		if _, err := svc.VerifyTask(task.ID); err != nil {
+			t.Fatalf("Verify: %v", err)
+		}
+		// It must be parked for a human, not auto-approved.
+		got, _ := store.GetTask(task.ID)
+		if got.State != StateApprovalRequired {
+			t.Fatalf("state = %q, want approval_required", got.State)
+		}
+		_, err = svc.IntegrateTask(task.ID)
+		var rej *RejectionError
+		if !errors.As(err, &rej) || rej.Reason != ReasonApprovalRequired {
+			t.Fatalf("integrate = %v, want an approval_required refusal", err)
+		}
+		// And nothing in the log claims a policy approved it.
+		events, _ := store.ListEventsForTask(task.ID)
+		if hasNote(events, "auto-approved") {
+			t.Error("an unreadable policy must not produce an auto-approval event")
+		}
+	})
 }

@@ -203,8 +203,8 @@ func (c *Client) PendingApprovals() ([]Task, error) {
 }
 
 // ProjectTargets implements TaskAPI.
-func (c *Client) ProjectTargets() ([]Target, error) {
-	var targets []Target
+func (c *Client) ProjectTargets() ([]TargetView, error) {
+	var targets []TargetView
 	if err := c.getJSON("/targets", &targets); err != nil {
 		return nil, err
 	}

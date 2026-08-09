@@ -3,8 +3,10 @@
 package control
 
 import (
+	"errors"
 	"fmt"
 	"log"
+	"sort"
 )
 
 // The plane-owned integration target (Sprint 59, item 1).
@@ -56,26 +58,52 @@ import (
 // never disturb a developer's working tree.
 const targetRefName = "refs/daedalus/target"
 
-// TargetFor returns a project's plane-owned integration target, adopting the
-// checkout's current HEAD if the project has none yet (trust-on-first-use).
-func (s *Service) TargetFor(project string) (Target, error) {
-	if t, err := s.store.GetTarget(project); err == nil {
-		return t, nil
+// repoIdentity resolves a project to (its directory, the canonical repository
+// path the plane keys its target by). Two projects on one repository resolve to
+// the same identity and therefore share one merge queue.
+func (s *Service) repoIdentity(project string) (dir string, repoPath string, err error) {
+	dir, err = s.projects.ProjectDir(project)
+	if err != nil {
+		return "", "", err
 	}
-	dir, err := s.projects.ProjectDir(project)
+	repoPath, err = CanonicalRepoPath(dir)
+	if err != nil {
+		return "", "", err
+	}
+	return dir, repoPath, nil
+}
+
+// TargetFor returns a project's plane-owned integration target, adopting the
+// checkout's current HEAD if its repository has none yet (trust-on-first-use).
+func (s *Service) TargetFor(project string) (Target, error) {
+	dir, repoPath, err := s.repoIdentity(project)
 	if err != nil {
 		return Target{}, err
+	}
+	t, err := s.store.GetTarget(repoPath)
+	switch {
+	case err == nil:
+		return t, nil
+	case !errors.Is(err, ErrNotFound):
+		// ONLY a genuine "no target yet" may fall through to adoption. Any other
+		// failure — a locked database, a corrupt row, an I/O error — must surface,
+		// because the fallback path adopts the worker-writable checkout HEAD, and
+		// this is the single most security-relevant read in the package: it decides
+		// which commit the acceptance oracle is read from. Treating an unreadable
+		// target as "there isn't one" would let a read failure re-open the very
+		// hole the plane-owned target closes.
+		return Target{}, fmt.Errorf("reading the integration target for %s: %w", project, err)
 	}
 	head, err := ReadHeadSHA(dir)
 	if err != nil {
 		return Target{}, err
 	}
-	t, err := s.store.AdoptTarget(project, head)
+	adopted, err := s.store.AdoptTarget(repoPath, head)
 	if err != nil {
 		return Target{}, err
 	}
-	s.writeTargetProjection(dir, t.SHA)
-	return t, nil
+	s.writeTargetProjection(dir, adopted.SHA)
+	return adopted, nil
 }
 
 // SyncTarget re-points a project's target at its checkout's current HEAD — the
@@ -88,7 +116,7 @@ func (s *Service) SyncTarget(project string) (Target, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	dir, err := s.projects.ProjectDir(project)
+	dir, repoPath, err := s.repoIdentity(project)
 	if err != nil {
 		return Target{}, err
 	}
@@ -97,15 +125,17 @@ func (s *Service) SyncTarget(project string) (Target, error) {
 		return Target{}, err
 	}
 	previous := "(none)"
-	if t, err := s.store.GetTarget(project); err == nil {
+	if t, err := s.store.GetTarget(repoPath); err == nil {
 		if t.SHA == head {
 			return t, nil // already there; no event, no noise
 		}
 		previous = t.SHA
+	} else if !errors.Is(err, ErrNotFound) {
+		return Target{}, fmt.Errorf("reading the integration target for %s: %w", project, err)
 	}
-	t, err := s.store.SetTarget(project, head, s.governanceMeta(), fmt.Sprintf(
-		"target resynced by hand: %s → %s (adopts the acceptance policy at the new commit)",
-		shortSHA(previous), shortSHA(head)))
+	t, err := s.store.SetTarget(repoPath, head, s.governanceMeta(), fmt.Sprintf(
+		"target resynced by hand for %s: %s → %s (adopts the acceptance policy at the new commit)",
+		project, shortSHA(previous), shortSHA(head)))
 	if err != nil {
 		return Target{}, err
 	}
@@ -113,8 +143,52 @@ func (s *Service) SyncTarget(project string) (Target, error) {
 	return t, nil
 }
 
-// ProjectTargets lists every project's target (the CLI's `task target` view).
-func (s *Service) ProjectTargets() ([]Target, error) { return s.store.ListTargets() }
+// TargetView is a target as an operator sees it: which repository queue it is,
+// which registry projects share that queue, and where the trunk currently is.
+//
+// SharedWith exists because sharing is the thing an operator most needs to know:
+// two projects on one repository serialize against each other, and that is
+// surprising unless it is shown.
+type TargetView struct {
+	RepoPath  string   `json:"repoPath"`
+	SHA       string   `json:"sha"`
+	UpdatedAt string   `json:"updatedAt"`
+	Projects  []string `json:"projects"`
+}
+
+// ProjectTargets lists every integration target with the projects that share it
+// (the CLI's `task target` view).
+func (s *Service) ProjectTargets() ([]TargetView, error) {
+	targets, err := s.store.ListTargets()
+	if err != nil {
+		return nil, err
+	}
+	// Map each known project onto its repository, so a shared queue is visible
+	// rather than implied. Projects the resolver cannot answer for are skipped:
+	// a stale registry entry must not fail the whole view.
+	byRepo := map[string][]string{}
+	if tasks, err := s.store.ListTasks(); err == nil {
+		seen := map[string]bool{}
+		for _, t := range tasks {
+			if seen[t.Project] {
+				continue
+			}
+			seen[t.Project] = true
+			if _, repoPath, err := s.repoIdentity(t.Project); err == nil {
+				byRepo[repoPath] = append(byRepo[repoPath], t.Project)
+			}
+		}
+	}
+	out := make([]TargetView, 0, len(targets))
+	for _, t := range targets {
+		projects := byRepo[t.RepoPath]
+		sort.Strings(projects)
+		out = append(out, TargetView{
+			RepoPath: t.RepoPath, SHA: t.SHA, UpdatedAt: t.UpdatedAt, Projects: projects,
+		})
+	}
+	return out, nil
+}
 
 // writeTargetProjection best-effort updates the repository's projection ref.
 // A failure is logged and ignored: the database row is the authority, and the
