@@ -2,7 +2,11 @@
 
 ## Current Sprint
 
-### Sprint 60: The Guild Master Joins — `guild-control-mcp`, Tiered Authority & the M15 Close
+_No active sprint, and no active milestone. Milestone 15 shipped in **v0.50.0** (Sprints 58–60, in the history below) — governance, the race-safe integration transaction, and the Guild Master as a tiered, injection-safe client. A between-milestones state; the arc continues with **M16 (Parallel Programme Execution)** when opened — see `ROADMAP.md`._
+
+## Sprint History
+
+### Sprint 60: The Guild Master Joins — `guild-control-mcp`, Tiered Authority & the M15 Close (v0.50.0)
 
 Goal: let the Guild Master finally **act** — as a *gated* client. Give the control plane a **transport-derived caller identity** (a separate socket per caller class, since peer credentials cannot separate agent from human at the same uid), then `cmd/guild-control-mcp` exposing **intent-level operations only**, under **tiered authority**: read/status free, create-bounded-task allowed, and cancel / raise-budget / request-integration reduced to **human-confirmed proposals**. This is the §6 lethal-trifecta defence made structural — the Guild Master reads untrusted project docs, so a poisoned README may *propose*, never *execute*. Closes Milestone 15. Design in `docs/guild-master-plan.md` §4, §6 and M15 in §8.
 
@@ -18,7 +22,6 @@ Milestone: 15
 
 Out of scope: parallel Jobs and the cross-project task graph (Milestone 16); typed steering (Milestone 17).
 
-## Sprint History
 
 ### Sprint 59: The Integration Transaction, the Plane-Owned Target Ref & Human Approval (v0.50.0)
 

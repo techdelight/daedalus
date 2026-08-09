@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [0.50.0] - 2026-08-09
 
 ### Added
 - **The Guild Master joins as a gated client — `guild-control-mcp`, transport-derived
