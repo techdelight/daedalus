@@ -2,7 +2,26 @@
 
 ## Current Sprint
 
-### Sprint 58: Governance Core — Budgets, Rejection, Retry/Replan & the Event Log
+### Sprint 59: The Integration Transaction, the Plane-Owned Target Ref & Human Approval
+
+Goal: make landing work **safe and race-free**, and close the acceptance-oracle laundering hole structurally rather than by patching an ancestry check. Introduce a **plane-owned target ref** the agent cannot write (the real fix for the Sprint-58 audit's F3/F4), the **merge-queue integration transaction** (serialize → rebase → re-verify the *merged* result → compare-and-swap), and the human **`verified → approval_required → approved → integrated`** gate with a CLI and Web/TUI surface, plus the independent **reviewer** pass. Git + pure Go; the verifier stays behind the existing `VerifyRunner` seam, so all of it is host-testable without Docker. Design in `docs/guild-master-plan.md` (M15, V2) + §6 ("Integration is a race-safe transaction"). Out of scope: `guild-control-mcp` and transport-derived caller identity (Sprint 60).
+
+Milestone: 15
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | **Plane-owned target ref (closes the oracle-laundering hole).** The plane records a per-project integration ref that **only a completed integration transaction advances** — never the project checkout's mutable `HEAD`. `CreateTask` and `retry --rebase` freeze `acceptance_policy` at *that* ref, so an agent moving the repo's branch (by any means, including a cherry-picked commit with no ancestry link) cannot influence the oracle a future Task is graded against. The Sprint-58 ancestry guard survives as defence-in-depth, not as the mechanism. Tests must include the **cherry-pick laundering** attack the audit confirmed bypasses ancestry, and the unguarded-`CreateTask` path. Update `docs/control-plane.md` — the "what the rebase guard does NOT cover" subsection should now describe a closed hole. |  |
+| 2 | **The race-safe integration transaction.** `daedalus task integrate <id>`: **serialize** per project → **rebase** the Artifact onto the current target tip → **re-verify the *merged* result** (not the pre-merge branch — this is the semantic-conflict fix, and re-verification must run through the existing `VerifyRunner`) → **compare-and-swap** the target ref, retrying if it moved under us. Any step failing leaves the target ref untouched and the Task recoverable. Host-tested against real temp repos with a fake verifier, including a genuine concurrent CAS race and a semantic conflict that passes pre-merge and fails merged. |  |
+| 3 | **Human approval state machine + CLI.** Wire `verified → approval_required → approved → integrated` with `daedalus task approve|reject <id>`, and a per-project policy for whether approval is required at all (opt-in per §9's "keep governance opt-in"). Approval must be a **plane-authority** transition, absent from `workerReachable`, so no worker-driven request can approve anything. Record the §6 constraint honestly: today the actor label is request-origin, not authenticated identity, so "the Guild Master cannot approve its own work" is enforced by the socket boundary in Sprint 60, not by this state machine alone — say so in the docs rather than implying more. |  |
+| 4 | **Independent reviewer pass.** An injectable `ReviewRunner` (stub now, as `VerifyRunner` was in Sprint 56) producing the Artifact's `review` status, wired as a gate between `verified` and integration and bounded by the existing max-review-cycles budget. A failed review routes to `rejected` with a typed reason and feeds the Sprint-58 retry/replan path. |  |
+| 5 | **Web/TUI approval surface + claim-leak hardening + docs.** A minimal pending-approvals view with approve/reject in the Web UI and TUI, over the existing control-plane read API. Plus the class-level fix the Sprint-58 audit's residual calls for: a `withClaim(taskID, fn)`-style helper (or equivalent) making an in-flight claim **impossible to leak by a bare statement**, replacing the five hand-written `defer` sites — close the class, not the instances. `docs/control-plane.md`, CHANGELOG. |  |
+
+Out of scope (Sprint 60): `cmd/guild-control-mcp`, tiered/injection-safe authority and the human-confirmed proposal flow, transport-derived caller identity (a separate socket per caller class — peer credentials alone cannot separate agent from human at the same uid), and the M15 close.
+
+
+## Sprint History
+
+### Sprint 58: Governance Core — Budgets, Rejection, Retry/Replan & the Event Log (v0.50.0)
 
 Goal: make the control plane *governed* — it can now say **no**. Add a per-Task **budget** enforced host-side on the axes that are genuinely enforceable (wall-clock, max-attempts, review-cycles, concurrency), **typed rejection** with machine-readable reasons (over-budget, stale base), **retry/replan** out of `rejected` with a preserved Job chain, and the **control-plane-managed event log** (`daedalus task events`) — named honestly, immutable through the API rather than cryptographically tamper-proof. Pure Go + git, fully host-testable without Docker. Design in `docs/guild-master-plan.md` (M15, V2) + §6. Out of scope: the integration transaction + human approval (Sprint 59) and `guild-control-mcp` (Sprint 60).
 
@@ -15,7 +34,6 @@ Milestone: 15
 | 3 | **Retry / replan from `rejected`** — `daedalus task retry <id>` (rejected → queued, a fresh Job, attempt counter incremented, budget re-checked) and `daedalus task replan <id> --objective` (rejected → planned with a revised objective). Attempt history is preserved — never overwritten — so a Task carries its full Job chain. Enforced against max-attempts. Tests for both paths, including the exhausted-attempts refusal. |Done |
 | 4 | **Control-plane-managed event log + `daedalus task events`** — every transition, budget decision, rejection and verification outcome recorded as a typed event with actor (human/plane/worker), immutable *through the API* (no update/delete op exists); a `daedalus task events <id>` view. Named honestly in the docs: control-plane-managed, NOT cryptographically tamper-proof (hash-chaining stays an optional later property). Tests assert the API exposes no mutation path. CHANGELOG. |Done |
 
-## Sprint History
 
 ### Sprint 57: The Clean Verifier Container (v0.49.0)
 
