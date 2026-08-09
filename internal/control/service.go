@@ -397,7 +397,21 @@ func (s *Service) createTask(caller Caller, req CreateTaskRequest) (Task, error)
 	// commit-tree, or anything else — and none of them is the commit this Task is
 	// based on or graded against. A project with no target yet adopts its HEAD
 	// once, before any Job for it has ever run.
-	target, err := s.TargetFor(req.Project)
+	//
+	// THIS IS THE ONLY PLACE ADOPTION HAPPENS, and it is a command run before the
+	// read rather than a side effect of it (target.go). Task creation is the one
+	// moment where "this repository has no target" is an ordinary state rather than
+	// a fault; everywhere else a missing target means something is wrong, and
+	// inventing one from the worker-writable checkout HEAD would be the worst
+	// available response.
+	if err := s.ensureTarget(req.Project); err != nil {
+		return Task{}, err
+	}
+	// Re-read rather than have ensureTarget hand the row back: a human resync could
+	// have moved the target between the two calls, and this Task should freeze at
+	// whatever the plane holds NOW. Both values are plane-owned, so either is safe —
+	// the later one is simply the more truthful.
+	target, err := s.Target(req.Project)
 	if err != nil {
 		return Task{}, err
 	}
@@ -1234,7 +1248,12 @@ func (s *Service) prepareRetry(caller Caller, id string, req RetryRequest) (Retr
 		if err != nil {
 			return RetryResult{}, dispatchPrep{}, err
 		}
-		target, err := s.TargetFor(task.Project)
+		// A pure read. The Task exists, so CreateTask adopted a target for its
+		// repository already; a miss here is a fault, and adopting one would be
+		// actively dangerous — `--rebase` RE-FREEZES the acceptance policy at the
+		// tip, so a target invented from the checkout HEAD would re-open oracle
+		// laundering on precisely the path Sprint 59 closed it on.
+		target, err := s.Target(task.Project)
 		if err != nil {
 			return RetryResult{}, dispatchPrep{}, err
 		}

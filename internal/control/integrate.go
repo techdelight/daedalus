@@ -127,7 +127,12 @@ func (s *Service) integrateOnce(id string, attempt int) (IntegrationResult, bool
 	if err != nil {
 		return IntegrationResult{}, false, err
 	}
-	target, err := s.TargetFor(task.Project)
+	// A pure read, and a missing target here is a REAL ERROR rather than a cue to
+	// adopt one. Landing work is the operation that moves the plane's trunk; doing
+	// it against a target invented from the checkout's HEAD, at the moment of the
+	// compare-and-swap, would hand the trunk to whoever can write the repository's
+	// refs — the precise failure the plane-owned target was built to prevent.
+	target, err := s.Target(task.Project)
 	if err != nil {
 		return IntegrationResult{}, false, err
 	}

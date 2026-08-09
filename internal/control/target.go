@@ -100,37 +100,88 @@ func (s *Service) repoIdentity(project string) (dir string, repoPath string, err
 	return dir, repoPath, nil
 }
 
-// TargetFor returns a project's plane-owned integration target, adopting the
-// checkout's current HEAD if its repository has none yet (trust-on-first-use).
-func (s *Service) TargetFor(project string) (Target, error) {
-	dir, repoPath, err := s.repoIdentity(project)
+// Reading the target and adopting one are TWO OPERATIONS, deliberately
+// (CONTRIBUTING.md § Command-Query Separation).
+//
+// They used to be one function, `TargetFor`, named and typed as a query — it
+// returned a Target — that on first call also wrote a database row and a git ref.
+// A command wearing a query's name is always a liability, and here it was the
+// worst possible one: this is the single most security-relevant read in the
+// package, because it decides which commit the acceptance oracle is frozen at.
+// Every caller that merely wanted to *know* the target was, on a bad day, one
+// missing row away from *creating* one from the worker-writable checkout HEAD —
+// on a retry, on a re-verification, in the middle of landing code.
+//
+// So: Target reads and never writes; ensureTarget adopts and is called from
+// exactly one place. Trust-on-first-use is unchanged as a behaviour. What changed
+// is that it can now only happen where it belongs.
+
+// Target returns a project's plane-owned integration target.
+//
+// PURE QUERY. It adopts nothing, writes nothing, and returns an ErrNotFound-
+// wrapped error when the project's repository has no target yet. A caller that
+// gets that answer should think hard before doing anything other than failing:
+// outside `CreateTask`, "there is no target" means something is wrong, not that
+// one should be invented.
+func (s *Service) Target(project string) (Target, error) {
+	_, repoPath, err := s.repoIdentity(project)
 	if err != nil {
 		return Target{}, err
 	}
 	t, err := s.store.GetTarget(repoPath)
-	switch {
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			// Wrapped so errors.Is still answers true. The distinction between "no
+			// target yet" and "the read failed" is load-bearing for ensureTarget, and
+			// a caller that cannot tell them apart cannot make it.
+			return Target{}, fmt.Errorf("%w: no integration target has been adopted for %s", ErrNotFound, project)
+		}
+		return Target{}, fmt.Errorf("reading the integration target for %s: %w", project, err)
+	}
+	return t, nil
+}
+
+// ensureTarget adopts the checkout's current HEAD as a project's integration
+// target if its repository has none (trust-on-first-use).
+//
+// COMMAND: it returns no data, only whether it succeeded. Idempotent — a
+// repository that already has a target is left exactly as it was, and
+// Store.AdoptTarget makes that true even against a concurrent first Task, because
+// its insert-or-read is a single transaction.
+//
+// UNEXPORTED, AND THAT IS THE POINT. The only production caller is createTask,
+// which is the one moment a project legitimately has no target: before any Job for
+// it has ever run under the plane. Keeping it off the Service's exported surface
+// means no daemon route, no CLI verb and no MCP tool can be wired to it by
+// somebody who has not read this comment — which is the whole difference between
+// "adoption happens once, at the beginning" and "adoption happens whenever a read
+// misses".
+func (s *Service) ensureTarget(project string) error {
+	dir, repoPath, err := s.repoIdentity(project)
+	if err != nil {
+		return err
+	}
+	switch _, err := s.store.GetTarget(repoPath); {
 	case err == nil:
-		return t, nil
+		return nil // already adopted; never silently re-adopted
 	case !errors.Is(err, ErrNotFound):
 		// ONLY a genuine "no target yet" may fall through to adoption. Any other
 		// failure — a locked database, a corrupt row, an I/O error — must surface,
-		// because the fallback path adopts the worker-writable checkout HEAD, and
-		// this is the single most security-relevant read in the package: it decides
-		// which commit the acceptance oracle is read from. Treating an unreadable
-		// target as "there isn't one" would let a read failure re-open the very
-		// hole the plane-owned target closes.
-		return Target{}, fmt.Errorf("reading the integration target for %s: %w", project, err)
+		// because the fallback path below adopts the worker-writable checkout HEAD.
+		// Treating an unreadable target as "there isn't one" would let a read failure
+		// re-open the very hole the plane-owned target closes.
+		return fmt.Errorf("reading the integration target for %s: %w", project, err)
 	}
 	head, err := ReadHeadSHA(dir)
 	if err != nil {
-		return Target{}, err
+		return err
 	}
 	adopted, err := s.store.AdoptTarget(repoPath, head)
 	if err != nil {
-		return Target{}, err
+		return err
 	}
 	s.writeTargetProjection(dir, adopted.SHA)
-	return adopted, nil
+	return nil
 }
 
 // SyncTarget re-points a project's target at its checkout's current HEAD — the
@@ -278,7 +329,12 @@ func (s *Service) writeTargetProjection(repoDir, sha string) {
 // make a candidate stale, because they are not what the plane will integrate
 // onto. Only a completed integration moves the trunk.
 func (s *Service) staleAgainstTarget(task Task) (bool, string, error) {
-	target, err := s.TargetFor(task.Project)
+	// A pure read. If the Task exists, CreateTask already adopted a target, so a
+	// miss here is a genuine fault — and adopting one at this point would be worse
+	// than failing: the verdict "is this candidate stale?" would then be computed
+	// against the checkout HEAD, which is exactly the worker-writable value the
+	// plane-owned target exists to stop grading against.
+	target, err := s.Target(task.Project)
 	if err != nil {
 		return false, "", err
 	}

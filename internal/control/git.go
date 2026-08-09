@@ -113,7 +113,7 @@ func refSearchDirs(gitDir string) []string {
 // that is a ref a Job's worktree can write, and reading the acceptance oracle
 // from it was the hole the audit found. The tip the plane integrates onto now
 // lives in the control database (see target.go), so anything needing "the
-// current target" must ask Service.TargetFor and not git. ReadHeadSHA survives
+// current target" must ask Service.Target and not git. ReadHeadSHA survives
 // only for trust-on-first-use adoption and for reading a worktree's own HEAD.
 
 // CanonicalRepoPath returns the stable identity of the repository containing dir:

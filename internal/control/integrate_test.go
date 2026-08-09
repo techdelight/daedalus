@@ -141,7 +141,7 @@ func TestIntegrate_AdvancesTheTarget(t *testing.T) {
 	rv := &conflictVerifier{}
 	svc, store, task := verifiedTask(t, repo, rv, "a.txt")
 
-	before, _ := svc.TargetFor("app")
+	before, _ := svc.Target("app")
 	res, err := svc.IntegrateTask(task.ID)
 	if err != nil {
 		t.Fatalf("IntegrateTask: %v", err)
@@ -172,7 +172,7 @@ func TestIntegrate_AdvancesTheTarget(t *testing.T) {
 		t.Errorf("job state %q is not terminal after integration", job.State)
 	}
 	// The plane's target row moved, and the projection ref followed.
-	after, _ := svc.TargetFor("app")
+	after, _ := svc.Target("app")
 	if after.SHA != res.MergedSHA {
 		t.Errorf("target = %s, want the merged commit %s", after.SHA, res.MergedSHA)
 	}
@@ -216,7 +216,7 @@ func TestIntegrate_SemanticConflict_PassesAloneFailsMerged(t *testing.T) {
 	}
 
 	// THE TARGET IS UNTOUCHED — nothing landed.
-	after, _ := svc.TargetFor("app")
+	after, _ := svc.Target("app")
 	if after.SHA != landed {
 		t.Errorf("target = %s, want %s — a failed integration must not move it", after.SHA, landed)
 	}
@@ -289,7 +289,7 @@ func TestIntegrate_TargetMovesMidTransaction_Retries(t *testing.T) {
 	if !fileExistsAt(repo, res.MergedSHA, "a.txt") {
 		t.Error("the landed commit lost this task's work")
 	}
-	after, _ := svc.TargetFor("app")
+	after, _ := svc.Target("app")
 	if after.SHA != res.MergedSHA {
 		t.Errorf("target = %s, want %s", after.SHA, res.MergedSHA)
 	}
@@ -335,7 +335,7 @@ func TestIntegrate_ExhaustedRetries_LandsNothing(t *testing.T) {
 	if got.State != StateApproved {
 		t.Errorf("task state = %q, want approved (a lost race must not reject the work)", got.State)
 	}
-	target, _ := svc.TargetFor("app")
+	target, _ := svc.Target("app")
 	if fileExistsAt(repo, target.SHA, "a.txt") {
 		t.Error("the task's work landed despite the transaction failing")
 	}
@@ -376,7 +376,7 @@ func TestIntegrate_RebaseConflict_Rejects(t *testing.T) {
 	if rej.Reason != ReasonMergeConflict {
 		t.Errorf("reason = %q, want %q", rej.Reason, ReasonMergeConflict)
 	}
-	after, _ := svc.TargetFor("app")
+	after, _ := svc.Target("app")
 	if after.SHA != landed {
 		t.Errorf("target moved on a conflict: %s, want %s", after.SHA, landed)
 	}

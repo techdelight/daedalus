@@ -44,9 +44,9 @@ func TestAttack_CherryPickLaundering(t *testing.T) {
 		t.Fatalf("CreateTask: %v", err)
 	}
 	honestHash := first.AcceptanceHash
-	target, err := svc.TargetFor("app")
+	target, err := svc.Target("app")
 	if err != nil {
-		t.Fatalf("TargetFor: %v", err)
+		t.Fatalf("Target: %v", err)
 	}
 
 	// --- the attack -----------------------------------------------------------
@@ -83,9 +83,9 @@ func TestAttack_CherryPickLaundering(t *testing.T) {
 
 	// --- the defence ----------------------------------------------------------
 	// The plane's target never moved, so nothing downstream of it changed.
-	after, err := svc.TargetFor("app")
+	after, err := svc.Target("app")
 	if err != nil {
-		t.Fatalf("TargetFor after the attack: %v", err)
+		t.Fatalf("Target after the attack: %v", err)
 	}
 	if after.SHA != target.SHA {
 		t.Errorf("the target moved to %s — a worker must not be able to advance it", after.SHA)
@@ -152,7 +152,7 @@ func TestAttack_WorkerRewritesEveryRef(t *testing.T) {
 		t.Fatalf("CreateTask: %v", err)
 	}
 	honest := task.AcceptanceHash
-	target, _ := svc.TargetFor("app")
+	target, _ := svc.Target("app")
 
 	// Rewrite everything a worker could reach: the checked-out branch, a fresh
 	// branch, and even the plane's own PROJECTION ref (which is explicitly not
@@ -164,9 +164,9 @@ func TestAttack_WorkerRewritesEveryRef(t *testing.T) {
 	mustGit(t, repo, "update-ref", "refs/heads/"+branch, poisoned)
 	mustGit(t, repo, "update-ref", targetRefName, poisoned)
 
-	after, err := svc.TargetFor("app")
+	after, err := svc.Target("app")
 	if err != nil {
-		t.Fatalf("TargetFor: %v", err)
+		t.Fatalf("Target: %v", err)
 	}
 	if after.SHA != target.SHA {
 		t.Errorf("target moved to %s after ref rewrites — the DB row must be the authority", after.SHA)
@@ -190,19 +190,30 @@ func TestTarget_AdoptionIsOnce(t *testing.T) {
 	repo := gitRepo(t)
 	svc, _, store := newService(t, mapResolver{"app": repo}, StubRunner{}, nil)
 
-	first, err := svc.TargetFor("app")
+	// Adoption is a COMMAND now, asked for by name rather than fired by a read.
+	if err := svc.ensureTarget("app"); err != nil {
+		t.Fatalf("ensureTarget: %v", err)
+	}
+	first, err := svc.Target("app")
 	if err != nil {
-		t.Fatalf("TargetFor: %v", err)
+		t.Fatalf("Target: %v", err)
 	}
 	head, _ := ReadHeadSHA(repo)
 	if first.SHA != head {
 		t.Errorf("adopted %s, want the checkout HEAD %s", first.SHA, head)
 	}
-	// HEAD moves; a second resolution must NOT re-adopt.
+	// HEAD moves; asking to adopt AGAIN must not re-adopt. This is the stronger
+	// form of the old assertion: it used to prove that a second *read* did not
+	// re-adopt, which is now true by construction because reads cannot adopt at
+	// all. What still needs proving is that the adoption command itself is
+	// idempotent.
 	commitFile(t, repo, "later.txt", "later")
-	second, err := svc.TargetFor("app")
+	if err := svc.ensureTarget("app"); err != nil {
+		t.Fatalf("ensureTarget again: %v", err)
+	}
+	second, err := svc.Target("app")
 	if err != nil {
-		t.Fatalf("TargetFor 2: %v", err)
+		t.Fatalf("Target 2: %v", err)
 	}
 	if second.SHA != first.SHA {
 		t.Errorf("target re-adopted (%s → %s) — adoption must be trust-on-FIRST-use only", first.SHA, second.SHA)
@@ -231,11 +242,20 @@ func TestTarget_SyncIsExplicit(t *testing.T) {
 	repo := gitRepo(t)
 	svc, _, _ := newService(t, mapResolver{"app": repo}, StubRunner{}, nil)
 
-	adopted, _ := svc.TargetFor("app")
+	if err := svc.ensureTarget("app"); err != nil {
+		t.Fatalf("ensureTarget: %v", err)
+	}
+	adopted, err := svc.Target("app")
+	if err != nil {
+		t.Fatalf("Target: %v", err)
+	}
 	moved := commitFile(t, repo, "human.txt", "a developer landed this by hand")
 
 	// Not automatic…
-	still, _ := svc.TargetFor("app")
+	still, err := svc.Target("app")
+	if err != nil {
+		t.Fatalf("Target after HEAD moved: %v", err)
+	}
 	if still.SHA != adopted.SHA {
 		t.Fatal("the target followed HEAD without being asked")
 	}
@@ -397,13 +417,19 @@ func TestTarget_TwoProjectsOneRepoShareAQueue(t *testing.T) {
 	// registered on a subdirectory of another.
 	svc, _, store := newService(t, mapResolver{"app": repo, "app-clone": repo}, StubRunner{}, nil)
 
-	a, err := svc.TargetFor("app")
-	if err != nil {
-		t.Fatalf("TargetFor(app): %v", err)
+	// Both projects ask for adoption; one repository, so the second is a no-op.
+	for _, project := range []string{"app", "app-clone"} {
+		if err := svc.ensureTarget(project); err != nil {
+			t.Fatalf("ensureTarget(%s): %v", project, err)
+		}
 	}
-	b, err := svc.TargetFor("app-clone")
+	a, err := svc.Target("app")
 	if err != nil {
-		t.Fatalf("TargetFor(app-clone): %v", err)
+		t.Fatalf("Target(app): %v", err)
+	}
+	b, err := svc.Target("app-clone")
+	if err != nil {
+		t.Fatalf("Target(app-clone): %v", err)
 	}
 	if a.RepoPath != b.RepoPath {
 		t.Fatalf("two projects on one repo resolved to %q and %q — they must share a key", a.RepoPath, b.RepoPath)
@@ -423,9 +449,9 @@ func TestTarget_TwoProjectsOneRepoShareAQueue(t *testing.T) {
 	if _, err := store.AdvanceTarget(a.RepoPath, a.SHA, landed, "test: app integrated"); err != nil {
 		t.Fatalf("AdvanceTarget: %v", err)
 	}
-	after, err := svc.TargetFor("app-clone")
+	after, err := svc.Target("app-clone")
 	if err != nil {
-		t.Fatalf("TargetFor(app-clone) after: %v", err)
+		t.Fatalf("Target(app-clone) after: %v", err)
 	}
 	if after.SHA != landed {
 		t.Errorf("app-clone's target = %s, want %s — a landing under one project must move the shared trunk",
@@ -540,12 +566,17 @@ func TestCanonicalRepoPath_SymlinkAliasing(t *testing.T) {
 	}
 }
 
-// TestTargetFor_ReadErrorDoesNotAdopt pins the `errors.Is(err, ErrNotFound)`
-// gate — the other mutation survivor. Any read failure that is NOT "no target
-// yet" must surface, because the fallback path adopts the worker-writable
-// checkout HEAD, and treating an unreadable target as "there isn't one" would
-// re-open the hole the plane-owned target closes.
-func TestTargetFor_ReadErrorDoesNotAdopt(t *testing.T) {
+// TestEnsureTarget_ReadErrorDoesNotAdopt pins the `errors.Is(err, ErrNotFound)`
+// gate — a known mutation survivor. Any read failure that is NOT "no target yet"
+// must surface, because the path beyond it adopts the worker-writable checkout
+// HEAD, and treating an unreadable target as "there isn't one" would re-open the
+// hole the plane-owned target closes.
+//
+// It follows the guard: the guard now lives in the ADOPTION COMMAND, which is the
+// only code that can reach the fallback at all. Left pointed at the query it would
+// still have passed — and would have been testing nothing, because a query that
+// cannot adopt cannot fail this way.
+func TestEnsureTarget_ReadErrorDoesNotAdopt(t *testing.T) {
 	repo := gitRepo(t)
 	svc, _, store := newService(t, mapResolver{"app": repo}, StubRunner{}, nil)
 
@@ -554,16 +585,85 @@ func TestTargetFor_ReadErrorDoesNotAdopt(t *testing.T) {
 	if _, err := store.db.Exec(`DROP TABLE integration_targets`); err != nil {
 		t.Fatalf("breaking the targets table: %v", err)
 	}
-	_, err := svc.TargetFor("app")
+	err := svc.ensureTarget("app")
 	if err == nil {
-		t.Fatal("TargetFor with an unreadable target should error, not adopt HEAD")
+		t.Fatal("ensureTarget with an unreadable target should error, not adopt HEAD")
 	}
 	if errors.Is(err, ErrNotFound) {
 		t.Errorf("a read failure was reported as not-found: %v", err)
 	}
-	// And nothing was adopted as a side effect.
 	if !strings.Contains(err.Error(), "reading the integration target") {
 		t.Errorf("error should name the failed read, got %v", err)
+	}
+}
+
+// TestTarget_QueryNeverAdopts is the point of the command/query split, asserted
+// directly rather than left as a property of how the code happens to be arranged.
+//
+// The query used to BE the adoption path. Every caller that only wanted to know
+// the target was one missing row away from creating one out of the checkout's
+// HEAD — on a retry, during a re-verification, in the middle of landing code. The
+// split is only worth anything if the read really is inert, so: ask for a target
+// that does not exist, twice, and assert that the repository and the store are
+// exactly as they were.
+func TestTarget_QueryNeverAdopts(t *testing.T) {
+	repo := gitRepo(t)
+	svc, _, store := newService(t, mapResolver{"app": repo}, StubRunner{}, nil)
+
+	for i := 0; i < 2; i++ {
+		_, err := svc.Target("app")
+		if !errors.Is(err, ErrNotFound) {
+			t.Fatalf("Target with no target adopted: err = %v, want ErrNotFound", err)
+		}
+	}
+	// No row was written…
+	if all, err := store.ListTargets(); err != nil || len(all) != 0 {
+		t.Errorf("targets = %d (err %v) after reads only, want 0 — the query adopted", len(all), err)
+	}
+	// …and no projection ref either, which is the other write the old read did.
+	if _, err := runGit(repo, "rev-parse", "--verify", targetRefName); err == nil {
+		t.Errorf("%s exists after reads only — the query wrote a git ref", targetRefName)
+	}
+	// The adoption command still works afterwards: refusing to adopt on a read is
+	// not the same as refusing to adopt.
+	if err := svc.ensureTarget("app"); err != nil {
+		t.Fatalf("ensureTarget after failed reads: %v", err)
+	}
+	if _, err := svc.Target("app"); err != nil {
+		t.Errorf("Target after adoption: %v", err)
+	}
+}
+
+// TestCreateTask_AdoptsExactlyOnce ties the split back to the one caller that is
+// allowed to adopt, and pins that it does.
+func TestCreateTask_AdoptsExactlyOnce(t *testing.T) {
+	repo := gitRepo(t)
+	svc, _, store := newService(t, mapResolver{"app": repo}, StubRunner{}, nil)
+
+	head, _ := ReadHeadSHA(repo)
+	first, err := svc.CreateTask(CreateTaskRequest{Project: "app", Objective: "first"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	if first.BaseSHA != head {
+		t.Errorf("first task based on %s, want the adopted HEAD %s", first.BaseSHA, head)
+	}
+	// HEAD moves; a SECOND task must still be based on the adopted target, not on
+	// the new HEAD. This is TestAttack_WaitForTheNextTask's property, restated at
+	// the seam the refactor moved.
+	moved := commitFile(t, repo, "later.txt", "later")
+	second, err := svc.CreateTask(CreateTaskRequest{Project: "app", Objective: "second"})
+	if err != nil {
+		t.Fatalf("CreateTask 2: %v", err)
+	}
+	if second.BaseSHA == moved {
+		t.Errorf("the second task adopted the moved HEAD %s — adoption must be first-use only", moved)
+	}
+	if second.BaseSHA != first.BaseSHA {
+		t.Errorf("second task based on %s, want the same target %s", second.BaseSHA, first.BaseSHA)
+	}
+	if all, _ := store.ListTargets(); len(all) != 1 {
+		t.Errorf("targets = %d, want exactly 1", len(all))
 	}
 }
 

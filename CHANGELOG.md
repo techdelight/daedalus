@@ -2,6 +2,34 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Changed
+- **`Service.TargetFor` is split into a query and a command (CQS).** It was named
+  and typed as a query — it returned a `Target` — but on first call it also wrote a
+  database row and a git ref. `CONTRIBUTING.md` § Command-Query Separation forbids
+  exactly that, and this was the worst place in the package to break it: the read
+  decides which commit the acceptance oracle is frozen at, so every caller that
+  merely wanted to *know* the target was one missing row away from *creating* one
+  out of the worker-writable checkout `HEAD`.
+  - `Service.Target(project)` is now a **pure query** — no adoption, no projection
+    ref, no writes — returning an `ErrNotFound`-wrapped error when a repository has
+    no target.
+  - `Service.ensureTarget(project)` is the **adoption command**: idempotent,
+    unexported so no route or CLI verb can be wired to it, and called from
+    `CreateTask` and nowhere else — the one moment a project legitimately has no
+    target yet.
+  - The other three call sites now **fail rather than adopt**. For `retry --rebase`
+    that is a strict improvement: `--rebase` re-freezes the acceptance policy at the
+    tip, so silently adopting the checkout `HEAD` there would have re-opened oracle
+    laundering on the very path Sprint 59 closed it on. For `integrate` and the
+    staleness check, adopting mid-transaction would have handed the trunk to
+    whoever can write the repository's refs.
+  - Behaviour is otherwise unchanged: trust-on-first-use still happens, and the
+    `errors.Is(err, ErrNotFound)` discipline (only a genuine "no target yet" may
+    adopt; any other read failure surfaces) moved intact to the command. The
+    `TestAttack_*` suite passes with **no assertion changed**.
+
 ## [0.52.0] - 2026-08-09
 
 ### Added

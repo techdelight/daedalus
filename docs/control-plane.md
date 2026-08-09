@@ -464,14 +464,32 @@ cannot disturb a working tree.
 
 **Two honest caveats:**
 
-1. **Adoption is trust-on-first-use.** A repository with no target yet takes the
-   operator's checkout `HEAD`, once, at the first Task for it — before any Job for
-   that repository has run under the plane. The plane cannot invent a trusted
-   starting commit; it can only refuse to keep taking new ones. Adoption happens
-   **only** when the target genuinely does not exist: any other failure reading it
-   is surfaced, never treated as "there isn't one", because that fallback reads
-   the worker-writable checkout `HEAD` and it is the single most
-   security-relevant read in the package.
+1. **Adoption is trust-on-first-use, and it is a command, not a side effect of a
+   read.** A repository with no target yet takes the operator's checkout `HEAD`,
+   once, at the first Task for it — before any Job for that repository has run
+   under the plane. The plane cannot invent a trusted starting commit; it can only
+   refuse to keep taking new ones. Adoption happens **only** when the target
+   genuinely does not exist: any other failure reading it is surfaced, never
+   treated as "there isn't one", because that fallback reads the worker-writable
+   checkout `HEAD`.
+
+   Reading and adopting are **two operations**
+   (`CONTRIBUTING.md` § Command-Query Separation):
+
+   | | Operation | Effect |
+   |---|---|---|
+   | `Service.Target(project)` | query | reads the target; returns `ErrNotFound` when there is none. **Writes nothing.** |
+   | `Service.ensureTarget(project)` | command | adopts `HEAD` if and only if there is no target. Idempotent, unexported, called from `CreateTask` and nowhere else. |
+
+   They were one function until this split — a query by name and type that wrote a
+   database row and a git ref on first call. That mattered more here than it would
+   almost anywhere else, because this read decides which commit the acceptance
+   oracle is frozen at: every caller that merely wanted to *know* the target was
+   one missing row away from *creating* one out of the worker-writable checkout,
+   on a retry, during a re-verification, or in the middle of landing code.
+   Outside task creation, **a missing target is a fault, not a cue to adopt** —
+   `retry --rebase`, `integrate` and the staleness check all now fail rather than
+   invent one.
 2. **The resync is consequential.** `daedalus task target <project> --sync`
    re-points the target at the checkout's `HEAD`, adopting whatever policy that
    commit carries. It is manual, logged, and belongs on the Sprint-60 list of

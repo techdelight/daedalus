@@ -693,7 +693,7 @@ func TestRetry_RebaseOntoSelfAuthoredTip_Refused(t *testing.T) {
 	if _, err := store.SetTarget(repoKey(t, repo), jobCommit, EventMeta{Kind: EventGovernance}, "test: operator resync onto a job commit"); err != nil {
 		t.Fatalf("SetTarget: %v", err)
 	}
-	target, err := svc.TargetFor("app")
+	target, err := svc.Target("app")
 	if err != nil {
 		t.Fatalf("TargetFor: %v", err)
 	}

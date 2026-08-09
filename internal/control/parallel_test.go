@@ -372,7 +372,7 @@ func TestParallel_CompetingIntegrationsSerialize(t *testing.T) {
 		}
 		ids = append(ids, task.ID)
 	}
-	startTarget, err := svc.TargetFor("app")
+	startTarget, err := svc.Target("app")
 	if err != nil {
 		t.Fatalf("TargetFor: %v", err)
 	}
@@ -436,7 +436,7 @@ func TestParallel_CompetingIntegrationsSerialize(t *testing.T) {
 		t.Fatalf("neither integration landed: %v", results)
 	}
 
-	final, err := svc.TargetFor("app")
+	final, err := svc.Target("app")
 	if err != nil {
 		t.Fatalf("TargetFor after landing: %v", err)
 	}
@@ -597,7 +597,7 @@ func TestParallel_TwoIndependentChangesBothLand(t *testing.T) {
 		}
 		ids = append(ids, task.ID)
 	}
-	start, _ := svc.TargetFor("app")
+	start, _ := svc.Target("app")
 
 	// Dispatch and verify both against the same target.
 	for _, id := range ids {
@@ -619,7 +619,7 @@ func TestParallel_TwoIndependentChangesBothLand(t *testing.T) {
 			t.Fatalf("integrate %s: %v — independent changes must both land", id, err)
 		}
 	}
-	final, _ := svc.TargetFor("app")
+	final, _ := svc.Target("app")
 	if final.SHA == start.SHA {
 		t.Fatal("the target never moved")
 	}
@@ -667,7 +667,7 @@ func TestParallel_CollidingChangesConflictDeliberately(t *testing.T) {
 	if _, err := svc.IntegrateTask(ids[0]); err != nil {
 		t.Fatalf("the first landing should succeed: %v", err)
 	}
-	afterFirst, _ := svc.TargetFor("app")
+	afterFirst, _ := svc.Target("app")
 
 	_, err := svc.IntegrateTask(ids[1])
 	var rej *RejectionError
@@ -675,7 +675,7 @@ func TestParallel_CollidingChangesConflictDeliberately(t *testing.T) {
 		t.Fatalf("the colliding landing = %v, want a merge_conflict refusal", err)
 	}
 	// The target is untouched and the Task is back on the retry ladder.
-	final, _ := svc.TargetFor("app")
+	final, _ := svc.Target("app")
 	if final.SHA != afterFirst.SHA {
 		t.Errorf("target moved on a conflict: %s → %s", afterFirst.SHA, final.SHA)
 	}
