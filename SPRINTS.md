@@ -2,7 +2,24 @@
 
 ## Current Sprint
 
-### Sprint 61: Concurrent Jobs & the Scheduler
+### Sprint 62: Per-Job Liveness, the Cross-Project Task Graph & the M16 Close
+
+Goal: finish parallel programme execution. First **repair reconciliation** — Sprint 61's audit showed that lifting the one-Job-per-project invariant turned a benign stale-Job leak into a capacity denial-of-service, because liveness is observed per *project* and a ghost Job still consumes a scheduler slot. Then add the **cross-project task graph**: Tasks that depend on other Tasks, with `blocked`/`ready` scheduling composing with the existing `programmes` feature. Closes Milestone 16. Pure Go + git + SQLite; the coordinator seam stays injectable and host-testable. Design in `docs/guild-master-plan.md` (M16, V3).
+
+Milestone: 16
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | **Reconcile both entities, and give a Job real liveness.** Two defects from the Sprint-61 audit, one pass. (a) **F1:** a crashed Job among healthy siblings is never reaped — `HasSession(project)` cannot name a Job — so it stays `working`, keeps consuming a `PerProject` slot and holding its worktree, accumulating until the project can never dispatch again. Ship the **heuristic interim** (fail a `working` Job whose worktree is gone, or whose `updated_at` exceeds its wall-clock budget by a margin, independent of `HasSession`) **and label it a heuristic in code and docs** — it cannot distinguish a crashed Job from a slow one. Then add **per-Job liveness** properly: `HasSessionForJob(jobID)`; check first whether `CoordinatorRunner`'s existing `daedalus-job-<jobID>` registration already supplies the key. (b) **F4:** `Reconcile` iterates `ListActiveJobs` only, so a Task wedged in `working` with **zero** Jobs (crash between the transition and `CreateJob`) is invisible and only `cancel` escapes it. Reconcile active **Tasks** as well as active Jobs. |  |
+| 2 | **The cross-project task graph.** Task→Task dependencies spanning projects, held in the control-plane store; a Task whose dependencies are unmet is `blocked` and is not admitted; satisfying the last dependency makes it `ready`. Cycles must be **refused at creation**, not detected at dispatch. The dependency edge is plane-owned state like everything else — never read from an agent-writable file. New plane-only transitions must stay absent from `workerReachable`; extend the exhaustive transition test. |  |
+| 3 | **Dependency scheduling + composition with `programmes`.** The scheduler admits only `ready` Tasks, and a dependency completing must **wake** its dependents — Sprint 61's lesson applies directly: free capacity must become usable without human intervention, so the wake path needs the same liveness discipline as the queue lease. Compose with the existing `programmes` topology so a programme's dependency graph can drive Tasks rather than duplicating it. Tests for diamond dependencies, a failed dependency blocking its dependents, and a cancelled dependency not stranding them forever. |  |
+| 4 | **Derive the milestone test from the document; docs; close M16.** `core/milestone_test.go` hardcodes each milestone's status and has broken on **two consecutive milestone openings** — restating the document is the wrong shape. Derive the expectation (assert structural invariants: numbering is contiguous, titles and descriptions non-empty, at most one In Progress) rather than pinning statuses that must be hand-edited every close. Document the graph model and the reconcile heuristic honestly; note the Sprint-61 observation that a fair queue draining over successive passes **looks like a stall if you sample only one pass**. CHANGELOG; close Milestone 16. |  |
+
+Out of scope: typed steering (Milestone 17).
+
+## Sprint History
+
+### Sprint 61: Concurrent Jobs & the Scheduler (v0.51.0)
 
 Goal: lift the **one active Job per project** invariant that has held since M13, and make the M15 merge queue load-bearing instead of insurance. Multiple Jobs run concurrently — each already isolated in its own Git worktree, so this adds **only concurrency and scheduling**, not new execution machinery. A scheduler with per-project and global concurrency limits admits work; the existing budget `concurrency` axis becomes a real limiter; reconciliation, cancellation and the integration CAS must all stay correct with several Jobs genuinely in flight. Pure Go + git, host-testable with the existing `AgentRunner`/`VerifyRunner` fakes. Design in `docs/guild-master-plan.md` (M16, V3) + §5. Out of scope: the cross-project task graph and dependency scheduling (Sprint 62).
 
@@ -17,8 +34,6 @@ Milestone: 16
 
 Out of scope (Sprint 62): the cross-project task graph, dependency scheduling (blocked/ready transitions), and composition with `programmes`.
 
-
-## Sprint History
 
 ### Sprint 60: The Guild Master Joins — `guild-control-mcp`, Tiered Authority & the M15 Close (v0.50.0)
 
