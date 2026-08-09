@@ -237,14 +237,29 @@ Unset (zero) fields inherit: request → project override → policy default →
 built-in. The file lives under the Daedalus data dir and **never in a project
 checkout** — a budget read from an agent-writable repo would let an agent raise
 its own ceiling by committing a file, the exact authority inversion §5 forbids.
-It is re-read per lookup (an edit applies to the next task, no restart), and a
-missing or malformed file degrades to the built-in defaults rather than taking
-the plane down.
+
+It is re-read per lookup, so an operator's edit applies to the next task without
+a restart — and it **fails closed**. A file that cannot be read or parsed does
+not take the plane down, but it must not *widen* the envelope either: falling
+back to the built-in default would do exactly that whenever a project's policy is
+stricter than the default, and a non-atomic editor's partial write is a real
+widening window. So the last successfully-parsed policy is cached and reused;
+only when no good read has ever happened — the same state as a missing file —
+does the built-in default apply.
 
 `task create` flags (`--wall-clock`, `--max-attempts`, `--max-review-cycles`,
 `--concurrency`) may only ever **narrow** the project's ceiling. Asking for more
-is refused with `over_budget` — raising a ceiling is a host-side act, out of
-reach of anything that talks to `control.sock`.
+is refused with `over_budget`; raising a ceiling means editing the host-side
+policy file.
+
+**Zero means unbounded, so negative is invalid.** Every enforcement site guards
+`budget.X > 0`, which makes a negative value read as *unbounded* — wider than any
+number a caller could legitimately request. A negative axis is therefore rejected
+as malformed input (`invalid_budget`) at every door a value can come through: the
+create request **in the service, not the CLI** (the CLI is a convenience; the
+socket API is the security boundary, and an agent joins it in Sprint 60), the
+policy file at load, and the row scan as a backstop for a hand-edited
+`control.db`.
 
 **Honest limit on the wall-clock kill.** The plane guarantees its own verdict and
 cancels the Job's context; it cannot guarantee the death of a process it did not
@@ -266,9 +281,12 @@ Two shapes of "no" share one machine-readable vocabulary:
 | Reason | Kind | Meaning |
 |---|---|---|
 | `over_budget` | refusal | the requested budget widens the project's ceiling |
+| `invalid_budget` | refusal | a budget axis is negative — malformed input, never "unbounded" |
 | `attempts_exhausted` | refusal | the Task has used all its attempts |
 | `review_cycles_exhausted` | refusal | the Task has used all its review cycles (the candidate is left untouched — refusing to look is not a verdict) |
 | `concurrency_exceeded` | refusal | the project already has its budgeted running Jobs |
+| `unsafe_rebase` | refusal | the rebase target contains commits this Task's own Jobs authored |
+| `operation_in_flight` | refusal | the Task already has a dispatch or verify running |
 | `stale_base` | verdict | the candidate's `base_sha` is no longer the project's target tip |
 | `null_agent_floor` | verdict | `head_sha == base_sha` — an empty change |
 | `policy_drift` | verdict | the acceptance policy at `base_sha` no longer hashes to the frozen value |
@@ -279,8 +297,25 @@ Two shapes of "no" share one machine-readable vocabulary:
 something about a tree nobody will integrate, so it is rejected **before** the
 integrity gate or the verifier — a doomed artifact never costs a verifier
 container. The target tip is the project checkout's current `HEAD` (V1 has no
-separate target ref; that arrives with the integration transaction). The remedy
-is named in the rejection: `daedalus task retry <id> --rebase`.
+separate target ref; that arrives with the integration transaction).
+
+**A Job's worktree shares the parent repository's refs, not just its objects.**
+This is worth stating because the obvious assumption is wrong: a linked worktree
+can run `git update-ref refs/heads/<target> <its-own-commit>` and move the very
+tip the staleness check reads. In the real container path the worktree's `.git`
+file points outside the bind mount, so those refs are typically unreachable — but
+that is an accident of mounting, not a guarantee this codebase makes or checks.
+
+Two consequences, both implemented rather than assumed away:
+
+- the `stale_base` rejection **does not reflexively tell you to run `--rebase`**.
+  If the tip moved because a Job moved it, a copy-pasteable rebase command would
+  complete the attack for it. The message names the condition and says to inspect
+  the tip first;
+- `retry --rebase` **refuses** (`unsafe_rebase`) when the new tip is reachable
+  from any commit this Task's Jobs produced. Re-freezing the acceptance oracle
+  onto a commit the worker authored is exactly what §6 forbids, and a failure to
+  *check* is treated as unsafe rather than fine.
 
 Exit codes: `0` success, `1` failure, **`3` refused by policy**. That distinction
 is the whole point — a governed plane that only ever said "error" would be
@@ -300,7 +335,8 @@ rejected ──replan─→ planned                    (a revised objective, sam
   the project's current tip **and re-freezes the acceptance policy there** — the
   remedy for `stale_base`. It is opt-in precisely because re-freezing the oracle
   at a newer commit adopts whatever verify policy that commit carries, so a human
-  asks for it by name.
+  asks for it by name — and it is refused outright when that tip contains the
+  Task's own Job commits (see above).
 - `daedalus task replan <id> --objective <text>` — for when the *instruction* was
   wrong rather than the work. Objective and state change in one transaction (no
   window where `planned` carries the objective that was just rejected). It does
@@ -311,6 +347,48 @@ Neither added a state or an edge: retry reuses `rejected → queued`, replan reu
 `rejected → planned`. The two-transition-table invariant (`workerReachable` vs
 `legalTransitions`) is untouched, so nothing here brings a worker any closer to
 `verified`.
+
+### Long operations, cancellation, and interrupted verifications
+
+A dispatch and a verification are both long: a Job may legitimately run for its
+whole wall-clock budget, and a verifier is a container run. The service lock is
+therefore held only for **DB bookkeeping** — it is released across `runner.Run`
+and `verifier.Verify` — so `task cancel` and the reconcile loop stay responsive
+while work is in progress rather than being inert for up to an hour.
+
+What the lock used to provide by accident is now explicit:
+
+- an **in-flight set** (task id → dispatch/verify) means a second operation on the
+  same Task is *refused immediately* (`operation_in_flight`) rather than queued
+  behind an hour-long lock;
+- **reconcile skips in-flight work.** A Job this process is running right now is
+  live by definition; without the check, a 30s tick could "repair" a perfectly
+  healthy Job;
+- **cancellation wins.** If a Task is cancelled while its Job runs, the post-run
+  bookkeeping records the execution result and *keeps the terminal state* instead
+  of fighting the state machine.
+
+The concurrency budget is enforced from the Job rows, which now genuinely reflect
+reality for the duration of a run — previously the lock serialised everything so
+tightly that a second dispatch never saw the first one running.
+
+**An interrupted verification does not strand a Task.** `verifying` is a state
+only the plane can leave, so a crash (or an error) between the transition and the
+verdict used to wedge a Task permanently: verify, retry, replan and dispatch all
+refuse a `verifying` Task, and only `cancel` escaped. Now:
+
+- `VerifyTask` checks its configuration **before** anything moves, and rolls the
+  Task back to `candidate` on any abort;
+- `Reconcile` returns a Task stranded in `verifying` (with no verification in
+  flight) to `candidate` — the same level-triggered repair that already existed
+  for a crashed dispatch. This adds one plane-only edge, `verifying → candidate`;
+  it is deliberately absent from `workerReachable`, so it brings a worker no
+  closer to `verified`;
+- **a verification that never ran costs nothing.** Review cycles are counted as
+  entries into `verifying` *minus* recoveries back to `candidate`. Because the
+  log is append-only the entry can never be erased, so without the subtraction a
+  daemon crash would permanently spend a cycle of the budget for work that never
+  happened.
 
 ### The control-plane-managed event log
 

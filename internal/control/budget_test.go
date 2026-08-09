@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -102,16 +103,166 @@ func TestLoadBudgetPolicy(t *testing.T) {
 		t.Errorf("other budget = %+v, want the policy default maxAttempts 1", got)
 	}
 
-	// A malformed file must not take the plane down: FileBudgetPolicy degrades.
+	// A malformed file must not take the plane down.
 	if err := os.WriteFile(path, []byte("{not json"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := LoadBudgetPolicy(path); err == nil {
 		t.Error("LoadBudgetPolicy(malformed) should error")
 	}
-	if got := (FileBudgetPolicy{Path: path}).BudgetFor("app"); got != DefaultBudget() {
-		t.Errorf("malformed policy → %+v, want DefaultBudget", got)
+	// With no successful read ever — the same state as a missing file — the
+	// built-in default is all there is to fall back to.
+	if got := NewFileBudgetPolicy(path).BudgetFor("app"); got != DefaultBudget() {
+		t.Errorf("malformed policy with no known-good → %+v, want DefaultBudget", got)
 	}
+}
+
+// TestLoadBudgetPolicy_RejectsNegative: a negative axis in the policy file would
+// read as "unbounded" at every enforcement site, so a typo must not silently
+// disable a budget.
+func TestLoadBudgetPolicy_RejectsNegative(t *testing.T) {
+	dir := t.TempDir()
+	tests := []struct {
+		name string
+		body string
+	}{
+		{"negative in the default", `{"default":{"maxAttempts":-1}}`},
+		{"negative in a project override", `{"projects":{"app":{"wallClockSeconds":-1}}}`},
+		{"negative on a policy-only axis", `{"default":{"maxTokens":-5}}`},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(dir, strings.ReplaceAll(tc.name, " ", "_")+".json")
+			if err := os.WriteFile(path, []byte(tc.body), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := LoadBudgetPolicy(path); err == nil {
+				t.Errorf("LoadBudgetPolicy(%s) = nil error, want a rejection", tc.body)
+			}
+		})
+	}
+}
+
+// TestFileBudgetPolicy_FailsClosed is the regression for "a corrupt budgets.json
+// widens every budget". A partial write from a non-atomic editor must hold the
+// last known-good policy, never fall back to the (wider) built-in default.
+func TestFileBudgetPolicy_FailsClosed(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "budgets.json")
+	strict := `{"default":{"wallClockSeconds":30,"maxAttempts":1,"maxReviewCycles":1,"concurrency":1}}`
+	if err := os.WriteFile(path, []byte(strict), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	src := NewFileBudgetPolicy(path)
+	good := src.BudgetFor("app")
+	if good.WallClockSeconds != 30 || good.MaxAttempts != 1 {
+		t.Fatalf("precondition: strict policy = %+v", good)
+	}
+
+	// Now simulate a partial write mid-edit.
+	if err := os.WriteFile(path, []byte(`{"default":{"wallClockSec`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	degraded := src.BudgetFor("app")
+	if degraded != good {
+		t.Errorf("corrupt policy → %+v, want the last known-good %+v", degraded, good)
+	}
+	if degraded.WallClockSeconds > good.WallClockSeconds || degraded.MaxAttempts > good.MaxAttempts {
+		t.Errorf("corrupt policy WIDENED the budget: %+v → %+v", good, degraded)
+	}
+	// A negative slipped into the file is a parse error too, so it also holds.
+	if err := os.WriteFile(path, []byte(`{"default":{"maxAttempts":-1}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := src.BudgetFor("app"); got != good {
+		t.Errorf("negative policy → %+v, want the last known-good %+v", got, good)
+	}
+	// And a good write is picked up again without a restart.
+	looser := `{"default":{"wallClockSeconds":60,"maxAttempts":2,"maxReviewCycles":2,"concurrency":1}}`
+	if err := os.WriteFile(path, []byte(looser), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := src.BudgetFor("app"); got.WallClockSeconds != 60 || got.MaxAttempts != 2 {
+		t.Errorf("recovered policy = %+v, want the new values", got)
+	}
+}
+
+// TestBudget_NegativeIsNeverUnbounded is the regression for the audit's critical
+// finding: 0 means unbounded and every enforcement site guards `> 0`, so a
+// negative that reached a Task row would disable that axis entirely. It must be
+// impossible to get one in through any door.
+func TestBudget_NegativeIsNeverUnbounded(t *testing.T) {
+	t.Run("invalidAxis names every negative axis", func(t *testing.T) {
+		for i, b := range []Budget{
+			{WallClockSeconds: -1}, {MaxAttempts: -1}, {MaxReviewCycles: -1},
+			{Concurrency: -1}, {MaxTurns: -1}, {MaxTokens: -1}, {MaxCostCents: -1},
+		} {
+			if axis, bad := b.invalidAxis(); !bad {
+				t.Errorf("budget %d (%+v): invalidAxis = (%q, false), want a rejection", i, b, axis)
+			}
+		}
+		if _, bad := DefaultBudget().invalidAxis(); bad {
+			t.Error("DefaultBudget must be valid")
+		}
+	})
+
+	t.Run("exceededBy treats a negative as a widening", func(t *testing.T) {
+		ceiling := DefaultBudget()
+		if axis, over := ceiling.exceededBy(Budget{MaxAttempts: -1}); !over || axis != "maxAttempts" {
+			t.Errorf("exceededBy(-1) = (%q, %v), want (maxAttempts, true)", axis, over)
+		}
+	})
+
+	t.Run("sanitized replaces a negative with the fallback", func(t *testing.T) {
+		got := Budget{WallClockSeconds: -1, MaxAttempts: 2}.sanitized(DefaultBudget())
+		if got.WallClockSeconds != DefaultBudget().WallClockSeconds {
+			t.Errorf("wallClock = %d, want the default", got.WallClockSeconds)
+		}
+		if got.MaxAttempts != 2 {
+			t.Errorf("a valid axis must be left alone, got %d", got.MaxAttempts)
+		}
+	})
+
+	t.Run("a create request with a negative axis is refused server-side", func(t *testing.T) {
+		repo := gitRepo(t)
+		svc, _, store := newService(t, mapResolver{"app": repo}, StubRunner{}, nil)
+		// Straight at the Service — the CLI's own flag validation is bypassed,
+		// exactly as an HTTP client (or Sprint 60's agent) would bypass it.
+		_, err := svc.CreateTask(CreateTaskRequest{
+			Project: "app", Objective: "x", Budget: &Budget{MaxAttempts: -1},
+		})
+		var rej *RejectionError
+		if !errors.As(err, &rej) {
+			t.Fatalf("negative budget create err = %v, want *RejectionError", err)
+		}
+		if rej.Reason != ReasonInvalidBudget {
+			t.Errorf("reason = %q, want %q", rej.Reason, ReasonInvalidBudget)
+		}
+		if tasks, _ := store.ListTasks(); len(tasks) != 0 {
+			t.Errorf("a negative budget must not create a task, got %d", len(tasks))
+		}
+	})
+
+	t.Run("a negative already in the DB is sanitized on read", func(t *testing.T) {
+		s := openTestStore(t)
+		if _, err := s.CreateTask(NewTask{Project: "p", Objective: "o", BaseSHA: "sha",
+			Budget: DefaultBudget()}, StatePlanned); err != nil {
+			t.Fatalf("create: %v", err)
+		}
+		if _, err := s.db.Exec(`UPDATE tasks SET budget = ? WHERE id = 'T-1'`,
+			`{"wallClockSeconds":-1,"maxAttempts":-1,"maxReviewCycles":-1,"concurrency":-1}`); err != nil {
+			t.Fatalf("plant negative budget: %v", err)
+		}
+		got, err := s.GetTask("T-1")
+		if err != nil {
+			t.Fatalf("GetTask: %v", err)
+		}
+		if axis, bad := got.Budget.invalidAxis(); bad {
+			t.Errorf("a negative survived the row scan on %s: %+v", axis, got.Budget)
+		}
+		if got.Budget != DefaultBudget() {
+			t.Errorf("sanitized budget = %+v, want DefaultBudget", got.Budget)
+		}
+	})
 }
 
 // --- budget captured at create ------------------------------------------------

@@ -46,6 +46,57 @@ All notable changes to this project will be documented in this file.
   See `docs/control-plane.md`.
 
 ### Fixed
+- **Governance hardening after an adversarial audit of the Sprint 58 core.** Six
+  holes found by a hostile review of the governance implementation, each with a
+  permanent regression test:
+  - **A negative budget widened every enforceable axis (critical).** `0` means
+    "unbounded" and every enforcement site guards `> 0`, so a requested `-1`
+    sailed past the ceiling check and disabled that axis entirely — `maxAttempts:
+    50` was refused, `maxAttempts: -1` ran unbounded. The CLI rejected negatives,
+    but **the CLI is not the security boundary**: the socket API is, and an agent
+    client joins it in Sprint 60. Negative axes are now rejected as malformed
+    input (`invalid_budget`, HTTP 422) in the **service**, at policy-file load,
+    and on the row scan as a backstop against a hand-edited `control.db`.
+  - **A Task could wedge permanently in `verifying` (major).** The transition into
+    `verifying` was committed before the verifier ran, so any error, panic or
+    daemon restart in that window stranded the Task — verify/retry/replan/dispatch
+    all refuse a `verifying` Task, only `cancel` escaped, and the review cycle was
+    burned permanently because it was counted from the append-only log. Now:
+    configuration is checked before anything moves; an aborted verify rolls back;
+    `Reconcile` returns a stranded `verifying` to `candidate` (a new **plane-only**
+    `verifying → candidate` edge, deliberately not worker-reachable); and review
+    cycles are counted as entries into `verifying` **minus** recoveries, so a
+    verification that never ran costs nothing.
+  - **The service lock was held across `runner.Run` (major).** `task cancel` and
+    the reconcile loop were inert for the entire wall-clock budget — up to an hour
+    on the default. The lock is now held for DB bookkeeping only and released
+    across `runner.Run` and `verifier.Verify`, with an explicit **in-flight set**
+    replacing what the over-held lock provided by accident: a second operation on
+    a Task is refused immediately (`operation_in_flight`), reconcile skips work
+    this process is running, and a cancellation that lands mid-run is preserved
+    rather than fought. The concurrency axis now genuinely fires, where before the
+    serialisation meant a second dispatch never saw the first one running.
+  - **`--rebase` could adopt an agent-authored acceptance oracle (major).** A
+    linked worktree shares the parent repository's **refs**, not just its objects,
+    so a Job can point the target branch at its own commit — which makes the base
+    look stale, and the plane then recommended `--rebase`, the command that
+    re-freezes the acceptance policy at the attacker's commit. `retry --rebase` now
+    **refuses** (`unsafe_rebase`) when the new tip is reachable from any of the
+    Task's own Job commits (an unverifiable check is treated as unsafe), the
+    `stale_base` message no longer offers a copy-pasteable rebase, and the false
+    "a Job's worktree never moves this tip" claim is replaced with what actually
+    holds.
+  - **A corrupt `budgets.json` failed open (major).** A parse error fell back to
+    the built-in default, which is *wider* than any stricter operator policy — a
+    non-atomic editor's partial write was a live widening window. It now fails
+    closed onto the last known-good policy.
+  - **`ReadHeadSHA` could not resolve a branch in a linked worktree (minor).**
+    `refs/heads/*` lives in the git **common** dir, not `.git/worktrees/<id>`, so a
+    healthy worktree checkout was misreported as an unborn branch.
+- **Registry leak: one dead `daedalus-job-*` entry per Job.** The real
+  `CoordinatorRunner` registers a throwaway project to launch the agent headless
+  and never removed it, so the registry accumulated an entry per Job pointing at a
+  worktree that gets reclaimed. It is now deregistered on every exit path.
 - **`core` milestone test broke when M15 was opened.** `TestParseMilestonesAgainstRealRoadmap`
   hard-asserted M15–M17 were all `Planned`; opening Milestone 15 in `ROADMAP.md`
   turned that into a red suite. It now asserts M15 is `In Progress` and M16–M17

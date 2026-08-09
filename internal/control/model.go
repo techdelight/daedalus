@@ -103,6 +103,14 @@ var legalTransitions = map[State]map[State]bool{
 	},
 	StateVerifying: {
 		StateVerified: true, StateRejected: true,
+		// Back to candidate: the ONLY way out of `verifying` without a verdict.
+		// A verification that was interrupted (a daemon crash, an aborted verifier)
+		// left the artifact unexamined, so the plane returns it to `candidate` for
+		// another attempt rather than stranding it in a state nothing but cancel can
+		// leave. Reconcile and VerifyTask's abort path are the only users. This edge
+		// is plane-only — it is deliberately absent from workerReachable, so it
+		// brings a worker no closer to `verified`.
+		StateCandidate: true,
 		StateCancelled: true, StateExpired: true, StateFailed: true,
 	},
 	StateVerified: {

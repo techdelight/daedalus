@@ -4,8 +4,10 @@ package control
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 )
@@ -21,8 +23,8 @@ func (e *ErrNotGitRepo) Error() string {
 }
 
 // ReadHeadSHA resolves the current HEAD commit of the Git repository at dir,
-// reading the plumbing directly rather than shelling out (Sprint 54 does not
-// touch Docker/containers and must stay dependency-free). It handles:
+// reading the plumbing directly rather than shelling out (the one exception is
+// refSearchDirs' fallback for an unusual worktree layout). It handles:
 //   - a normal .git directory,
 //   - a .git *file* pointing elsewhere via "gitdir: <path>" (worktrees/submodules),
 //   - a symbolic HEAD ("ref: refs/heads/<b>") resolved via loose or packed refs,
@@ -52,16 +54,58 @@ func ReadHeadSHA(dir string) (string, error) {
 
 	ref := strings.TrimSpace(strings.TrimPrefix(head, "ref:"))
 
-	// Loose ref: .git/<ref> (e.g. .git/refs/heads/main).
-	if sha, ok := readLooseRef(gitDir, ref); ok {
-		return sha, nil
-	}
-	// Packed ref fallback.
-	if sha, ok := readPackedRef(gitDir, ref); ok {
-		return sha, nil
+	// Branch refs live in the COMMON dir, not the per-worktree dir. In a linked
+	// worktree, HEAD and the per-worktree refs sit in .git/worktrees/<id>/ while
+	// refs/heads/* stays in the parent .git — so both must be searched, or a
+	// worktree checkout is misreported as an unborn branch.
+	for _, d := range refSearchDirs(gitDir) {
+		if sha, ok := readLooseRef(d, ref); ok {
+			return sha, nil
+		}
+		if sha, ok := readPackedRef(d, ref); ok {
+			return sha, nil
+		}
 	}
 	return "", fmt.Errorf("repository at %q has no commit on %s yet (unborn branch); "+
 		"make an initial commit before creating a task", dir, ref)
+}
+
+// refSearchDirs returns the directories that may hold a ref for gitDir: the dir
+// itself, then the common dir when gitDir belongs to a linked worktree.
+//
+// The common dir is found from the `commondir` file git writes inside
+// .git/worktrees/<id> (a path, usually relative). That keeps the lookup a pure
+// file read, matching the rest of this file; `git rev-parse --git-common-dir` is
+// the fallback for a layout where that file is missing.
+func refSearchDirs(gitDir string) []string {
+	dirs := []string{gitDir}
+	data, err := os.ReadFile(filepath.Join(gitDir, "commondir"))
+	if err == nil {
+		common := strings.TrimSpace(string(data))
+		if common != "" {
+			if !filepath.IsAbs(common) {
+				common = filepath.Join(gitDir, common)
+			}
+			return append(dirs, filepath.Clean(common))
+		}
+	}
+	// Not a linked worktree (no commondir file), or it is unreadable: ask git,
+	// but only when it can tell us something new.
+	out, gitErr := runGit(gitDir, "rev-parse", "--git-common-dir")
+	if gitErr != nil {
+		return dirs
+	}
+	common := strings.TrimSpace(out)
+	if common == "" || common == "." {
+		return dirs
+	}
+	if !filepath.IsAbs(common) {
+		common = filepath.Join(gitDir, common)
+	}
+	if common = filepath.Clean(common); common != filepath.Clean(gitDir) {
+		dirs = append(dirs, common)
+	}
+	return dirs
 }
 
 // TargetTipSHA returns the commit an artifact would ultimately land on: the
@@ -69,10 +113,71 @@ func ReadHeadSHA(dir string) (string, error) {
 //
 // V1 assumption, stated plainly: the *target branch is whatever the developer's
 // project checkout has checked out*. The control plane has no separate notion of
-// a target ref yet (that arrives with the M15 integration transaction), and a
-// Job's own worktree is a detached side branch under the data dir, so it never
-// moves this tip.
+// a target ref yet (that arrives with the integration transaction).
+//
+// This tip is NOT beyond a Job's reach, and it would be wrong to claim it is. A
+// linked worktree shares the parent repository's **refs**, not merely its object
+// store: a process inside a Job worktree that can reach the common git dir can
+// run `git update-ref refs/heads/<target> <its-own-commit>` and move this tip. In
+// the real container path the worktree's `.git` file points outside the bind
+// mount, so the refs are typically not reachable — but that is an accident of
+// mounting, not a guarantee this package makes or checks. Everything downstream
+// of TargetTipSHA is therefore written to be safe when the tip is attacker-
+// controlled: see IsSelfAuthoredTip and Service.RetryTask's rebase guard.
 func TargetTipSHA(repoDir string) (string, error) { return ReadHeadSHA(repoDir) }
+
+// IsAncestor reports whether `ancestor` is reachable from `descendant` (i.e. it
+// is contained in that commit's history). A commit is its own ancestor. Shells
+// out to `git merge-base --is-ancestor`, whose exit status 1 means "no" rather
+// than a failure — anything else is a real error.
+func IsAncestor(repoDir, ancestor, descendant string) (bool, error) {
+	if ancestor == "" || descendant == "" {
+		return false, nil
+	}
+	cmd := exec.Command("git", "merge-base", "--is-ancestor", ancestor, descendant)
+	cmd.Dir = repoDir
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		return true, nil
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+		return false, nil
+	}
+	return false, wrapGit("git merge-base --is-ancestor", string(out), err)
+}
+
+// IsSelfAuthoredTip reports whether `tip` is reachable from any of the given
+// Job commits — that is, whether the project's target tip contains work the Jobs
+// themselves authored.
+//
+// This is the guard on `retry --rebase`. Rebasing re-freezes the acceptance
+// oracle at the new tip, so if a Job can move that tip onto its own commit it can
+// hand the plane an oracle it wrote (§6: "the acceptance oracle must live outside
+// the agent's write scope"). Detecting the condition costs one `merge-base` per
+// attempt and does not depend on *how* the tip came to be moved.
+//
+// The direction matters and is easy to get backwards: the question is whether a
+// job commit is CONTAINED IN the tip's history — IsAncestor(jobCommit, tip) —
+// not the reverse. Asking it the other way round would flag the perfectly
+// ordinary case of a tip the Job was built on top of.
+//
+// Returns (selfAuthored, theOffendingJobCommit, err).
+func IsSelfAuthoredTip(repoDir, tip string, jobCommits []string) (bool, string, error) {
+	for _, commit := range jobCommits {
+		if commit == "" {
+			continue
+		}
+		containedInTip, err := IsAncestor(repoDir, commit, tip)
+		if err != nil {
+			return false, "", err
+		}
+		if containedInTip {
+			return true, commit, nil
+		}
+	}
+	return false, "", nil
+}
 
 // IsStaleBase reports whether baseSHA is no longer the project's target tip —
 // §6's "artifact built from a stale base → REJECTED, must rebase + re-verify".

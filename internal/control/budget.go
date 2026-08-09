@@ -5,8 +5,10 @@ package control
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
+	"sync"
 )
 
 // Budget is the per-Task resource envelope the control plane governs
@@ -109,28 +111,99 @@ func (b Budget) String() string {
 		b.WallClockSeconds, b.MaxAttempts, b.MaxReviewCycles, b.Concurrency)
 }
 
+// axes enumerates a budget's fields as (name, value) pairs, in a fixed order, so
+// validation and ceiling comparison cannot drift out of sync by forgetting an
+// axis. A new field added to Budget must be added here too.
+func (b Budget) axes() []struct {
+	name  string
+	value int
+} {
+	return []struct {
+		name  string
+		value int
+	}{
+		{"wallClockSeconds", b.WallClockSeconds},
+		{"maxAttempts", b.MaxAttempts},
+		{"maxReviewCycles", b.MaxReviewCycles},
+		{"concurrency", b.Concurrency},
+		{"maxTurns", b.MaxTurns},
+		{"maxTokens", b.MaxTokens},
+		{"maxCostCents", b.MaxCostCents},
+	}
+}
+
+// invalidAxis names the first axis with a negative value, if any.
+//
+// Why this exists, stated plainly: 0 means "unbounded / inherit" everywhere in
+// this file, and every enforcement site guards `budget.X > 0`. A NEGATIVE value
+// therefore reads as unbounded at every one of them — so an unvalidated `-1`
+// would be a *wider* budget than any number a caller could legitimately ask for.
+// Negative is not a budget; it is invalid input, and it is rejected as such at
+// every boundary a value can enter through: a create request (Service.
+// resolveBudget), the host-side policy file (LoadBudgetPolicy), and — belt and
+// braces, for a hand-edited database — the row scan (Budget.sanitized).
+func (b Budget) invalidAxis() (string, bool) {
+	for _, a := range b.axes() {
+		if a.value < 0 {
+			return a.name, true
+		}
+	}
+	return "", false
+}
+
+// sanitized replaces any negative axis with fallback's value for that axis. It
+// is the last line of defence for a value that reached the store without passing
+// validation (a hand-edited control.db, a row from a future/older writer): a
+// negative must never silently become "unbounded".
+func (b Budget) sanitized(fallback Budget) Budget {
+	if _, bad := b.invalidAxis(); !bad {
+		return b
+	}
+	for i, a := range b.axes() {
+		if a.value >= 0 {
+			continue
+		}
+		switch i {
+		case 0:
+			b.WallClockSeconds = fallback.WallClockSeconds
+		case 1:
+			b.MaxAttempts = fallback.MaxAttempts
+		case 2:
+			b.MaxReviewCycles = fallback.MaxReviewCycles
+		case 3:
+			b.Concurrency = fallback.Concurrency
+		case 4:
+			b.MaxTurns = fallback.MaxTurns
+		case 5:
+			b.MaxTokens = fallback.MaxTokens
+		case 6:
+			b.MaxCostCents = fallback.MaxCostCents
+		}
+	}
+	return b
+}
+
 // exceededBy reports whether requested is a *widening* of b (the ceiling) on some axis,
 // naming the first offending axis. A ceiling of 0 means unbounded on that axis,
-// so nothing can widen it; a requested 0 means "inherit", never "unlimited".
+// so nothing can widen it; a requested 0 means "inherit", never "unlimited"; a
+// requested NEGATIVE is invalid and is reported as a widening here too, because
+// it reads as unbounded at every enforcement site (see invalidAxis) — callers
+// should reject it earlier with ReasonInvalidBudget, and this is the backstop if
+// one forgets.
+//
 // This is the mechanism behind §6's "budget too high → REJECTED": a request may
-// only ever narrow the project's envelope, never raise it. Raising it is a
-// host-side act (edit the budget policy file), deliberately outside the reach of
-// anything that talks to control.sock.
+// only ever narrow the project's envelope, never raise it. Raising it means
+// editing the host-side policy file — no request over control.sock can do it,
+// which is only true because Service.resolveBudget applies this check server-
+// side rather than trusting the CLI's own flag validation.
 func (b Budget) exceededBy(requested Budget) (string, bool) {
-	type axis struct {
-		name            string
-		want, permitted int
-	}
-	for _, a := range []axis{
-		{"wallClockSeconds", requested.WallClockSeconds, b.WallClockSeconds},
-		{"maxAttempts", requested.MaxAttempts, b.MaxAttempts},
-		{"maxReviewCycles", requested.MaxReviewCycles, b.MaxReviewCycles},
-		{"concurrency", requested.Concurrency, b.Concurrency},
-		{"maxTurns", requested.MaxTurns, b.MaxTurns},
-		{"maxTokens", requested.MaxTokens, b.MaxTokens},
-		{"maxCostCents", requested.MaxCostCents, b.MaxCostCents},
-	} {
-		if a.permitted > 0 && a.want > a.permitted {
+	ceiling := b.axes()
+	for i, a := range requested.axes() {
+		permitted := ceiling[i].value
+		if a.value < 0 {
+			return a.name, true
+		}
+		if permitted > 0 && a.value > permitted {
 			return a.name, true
 		}
 	}
@@ -167,17 +240,21 @@ type BudgetPolicy struct {
 }
 
 // BudgetFor implements BudgetSource: the project override layered over the
-// policy default layered over the built-in default.
+// policy default layered over the built-in default. Sanitized last, so a policy
+// that reached memory without passing LoadBudgetPolicy still cannot produce a
+// negative (= unbounded) axis.
 func (p BudgetPolicy) BudgetFor(project string) Budget {
 	base := p.Default.withDefaults(DefaultBudget())
 	if override, ok := p.Projects[project]; ok {
-		return override.withDefaults(base)
+		return override.withDefaults(base).sanitized(DefaultBudget())
 	}
-	return base
+	return base.sanitized(DefaultBudget())
 }
 
 // LoadBudgetPolicy reads a BudgetPolicy from path. A missing file is not an
-// error — it yields an empty policy, i.e. DefaultBudget() for every project.
+// error — it yields an empty policy, i.e. DefaultBudget() for every project. A
+// negative axis anywhere in the file IS an error: it would read as "unbounded"
+// at every enforcement site, so a typo must not silently disable a budget.
 func LoadBudgetPolicy(path string) (BudgetPolicy, error) {
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
@@ -190,23 +267,63 @@ func LoadBudgetPolicy(path string) (BudgetPolicy, error) {
 	if err := json.Unmarshal(data, &p); err != nil {
 		return BudgetPolicy{}, fmt.Errorf("parsing budget policy %s: %w", path, err)
 	}
+	if axis, bad := p.Default.invalidAxis(); bad {
+		return BudgetPolicy{}, fmt.Errorf("budget policy %s: default.%s is negative; 0 means unbounded, negative is invalid", path, axis)
+	}
+	for project, b := range p.Projects {
+		if axis, bad := b.invalidAxis(); bad {
+			return BudgetPolicy{}, fmt.Errorf("budget policy %s: projects.%s.%s is negative; 0 means unbounded, negative is invalid", path, project, axis)
+		}
+	}
 	return p, nil
 }
 
 // FileBudgetPolicy is the BudgetSource the daemon uses: it re-reads the policy
 // file on every lookup, so an operator's edit takes effect on the next task
-// without restarting the daemon. A missing or malformed file degrades to the
-// built-in defaults rather than failing a create — a governance file that cannot
-// be parsed must not be able to take the control plane down.
-type FileBudgetPolicy struct{ Path string }
+// without restarting the daemon.
+//
+// It FAILS CLOSED. A governance file that cannot be read or parsed must not take
+// the control plane down — but it must not *widen* the envelope either, and
+// falling back to the built-in default would do exactly that whenever an
+// operator's policy is stricter than the default (a non-atomic editor's partial
+// write is a real, live widening window). So the last successfully-parsed policy
+// is cached and reused; only when no good read has ever happened — the same
+// state as a missing file — does it fall back to the built-in default.
+type FileBudgetPolicy struct {
+	Path string
+
+	mu       sync.Mutex
+	last     BudgetPolicy
+	haveLast bool
+	warned   bool // log the degrade once, not on every lookup
+}
+
+// NewFileBudgetPolicy returns a FileBudgetPolicy for path. Use this rather than
+// a struct literal: the type carries a mutex and a last-known-good cache.
+func NewFileBudgetPolicy(path string) *FileBudgetPolicy { return &FileBudgetPolicy{Path: path} }
 
 // BudgetFor implements BudgetSource.
-func (f FileBudgetPolicy) BudgetFor(project string) Budget {
+func (f *FileBudgetPolicy) BudgetFor(project string) Budget {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
 	p, err := LoadBudgetPolicy(f.Path)
-	if err != nil {
-		return DefaultBudget()
+	if err == nil {
+		f.last, f.haveLast, f.warned = p, true, false
+		return p.BudgetFor(project)
 	}
-	return p.BudgetFor(project)
+	if f.haveLast {
+		if !f.warned {
+			log.Printf("control: budget policy %s unreadable (%v) — holding the last known-good policy", f.Path, err)
+			f.warned = true
+		}
+		return f.last.BudgetFor(project)
+	}
+	if !f.warned {
+		log.Printf("control: budget policy %s unreadable (%v) and never read successfully — using built-in defaults", f.Path, err)
+		f.warned = true
+	}
+	return DefaultBudget()
 }
 
 // StaticBudget is a BudgetSource returning one fixed ceiling for every project

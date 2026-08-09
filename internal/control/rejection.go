@@ -31,6 +31,11 @@ const (
 
 	// ReasonOverBudget: the requested budget widens the project's ceiling.
 	ReasonOverBudget RejectionReason = "over_budget"
+	// ReasonInvalidBudget: the requested budget is not a budget at all — a
+	// negative axis. Separated from over_budget because it is malformed input, not
+	// an ambitious ask; see Budget.invalidAxis for why it must never be treated as
+	// "unbounded".
+	ReasonInvalidBudget RejectionReason = "invalid_budget"
 	// ReasonAttemptsExhausted: the Task has already used its max-attempts.
 	ReasonAttemptsExhausted RejectionReason = "attempts_exhausted"
 	// ReasonReviewCyclesExhausted: the Task has already used its max-review-cycles.
@@ -38,6 +43,14 @@ const (
 	// ReasonConcurrencyExceeded: the project already has its budgeted number of
 	// running Jobs.
 	ReasonConcurrencyExceeded RejectionReason = "concurrency_exceeded"
+	// ReasonUnsafeRebase: the rebase target contains commits the Job itself
+	// authored, so re-freezing the acceptance oracle there would adopt an oracle
+	// the worker wrote. Refused (§6 — the oracle must live outside the agent's
+	// write scope).
+	ReasonUnsafeRebase RejectionReason = "unsafe_rebase"
+	// ReasonOperationInFlight: the same Task already has a dispatch or verify
+	// running in this process.
+	ReasonOperationInFlight RejectionReason = "operation_in_flight"
 
 	// --- verdicts (the plane acted; the artifact was rejected) ---
 
@@ -57,8 +70,9 @@ const (
 
 // allRejectionReasons is the closed set, for validation and tests.
 var allRejectionReasons = map[RejectionReason]bool{
-	ReasonOverBudget: true, ReasonAttemptsExhausted: true,
+	ReasonOverBudget: true, ReasonInvalidBudget: true, ReasonAttemptsExhausted: true,
 	ReasonReviewCyclesExhausted: true, ReasonConcurrencyExceeded: true,
+	ReasonUnsafeRebase: true, ReasonOperationInFlight: true,
 	ReasonStaleBase: true, ReasonNullAgentFloor: true,
 	ReasonPolicyDrift: true, ReasonIntegrityGate: true, ReasonVerifyFailed: true,
 }
@@ -71,8 +85,9 @@ func IsValidRejectionReason(r RejectionReason) bool { return allRejectionReasons
 // first, then verdicts). Used by the docs/CLI and by tests over the enum.
 func AllRejectionReasons() []RejectionReason {
 	return []RejectionReason{
-		ReasonOverBudget, ReasonAttemptsExhausted, ReasonReviewCyclesExhausted,
-		ReasonConcurrencyExceeded, ReasonStaleBase, ReasonNullAgentFloor,
+		ReasonOverBudget, ReasonInvalidBudget, ReasonAttemptsExhausted,
+		ReasonReviewCyclesExhausted, ReasonConcurrencyExceeded, ReasonUnsafeRebase,
+		ReasonOperationInFlight, ReasonStaleBase, ReasonNullAgentFloor,
 		ReasonPolicyDrift, ReasonIntegrityGate, ReasonVerifyFailed,
 	}
 }

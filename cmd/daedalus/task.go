@@ -290,7 +290,11 @@ func taskVerify(api control.TaskAPI, args []string) error {
 	fmt.Printf("%s task %s REJECTED by %s [%s] — job %s → %s (%s)\n",
 		color.Yellow("Reject:"), args[0], by, res.Reason, res.Job.ID, res.Job.State, res.Detail)
 	if res.Reason == control.ReasonStaleBase {
-		fmt.Printf("     rebase and retry with `daedalus task retry %s --rebase`\n", args[0])
+		// Deliberately not a one-liner to copy-paste: the tip may have moved because
+		// a Job moved it, and --rebase re-freezes the acceptance oracle there. Look
+		// before you leap. (The plane refuses the unsafe case regardless.)
+		fmt.Println("     the project tip moved. Inspect it first — `--rebase` re-freezes the acceptance policy at that commit:")
+		fmt.Printf("       git -C <project> log -1 ; then `daedalus task retry %s --rebase`\n", args[0])
 	} else {
 		fmt.Printf("     retry with `daedalus task retry %s`, or replan with `daedalus task replan %s --objective <text>`\n", args[0], args[0])
 	}

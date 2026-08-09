@@ -11,12 +11,14 @@ func TestCanTransition_Exhaustive(t *testing.T) {
 	// The complete set of legal plane transitions, spelled out independently of
 	// the implementation map so the test is a real cross-check.
 	legal := map[State][]State{
-		StatePlanned:          {StateQueued, StateCancelled, StateExpired, StateFailed},
-		StateQueued:           {StateWorking, StateCancelled, StateExpired, StateFailed},
-		StateWorking:          {StateCandidate, StateInputRequired, StateCancelled, StateExpired, StateFailed},
-		StateInputRequired:    {StateWorking, StateCancelled, StateExpired, StateFailed},
-		StateCandidate:        {StateVerifying, StateRejected, StateCancelled, StateExpired, StateFailed},
-		StateVerifying:        {StateVerified, StateRejected, StateCancelled, StateExpired, StateFailed},
+		StatePlanned:       {StateQueued, StateCancelled, StateExpired, StateFailed},
+		StateQueued:        {StateWorking, StateCancelled, StateExpired, StateFailed},
+		StateWorking:       {StateCandidate, StateInputRequired, StateCancelled, StateExpired, StateFailed},
+		StateInputRequired: {StateWorking, StateCancelled, StateExpired, StateFailed},
+		StateCandidate:     {StateVerifying, StateRejected, StateCancelled, StateExpired, StateFailed},
+		// verifying → candidate is the interrupted-verification recovery edge
+		// (Sprint 58 fix): plane-only, and deliberately NOT worker-reachable.
+		StateVerifying:        {StateVerified, StateRejected, StateCandidate, StateCancelled, StateExpired, StateFailed},
 		StateVerified:         {StateApprovalRequired, StateCancelled, StateExpired},
 		StateRejected:         {StateQueued, StatePlanned, StateCancelled, StateExpired},
 		StateApprovalRequired: {StateApproved, StateRejected, StateCancelled, StateExpired},

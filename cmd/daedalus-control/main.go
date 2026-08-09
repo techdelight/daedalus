@@ -128,7 +128,7 @@ func main() {
 	// edit applies to the next task without a daemon restart; a missing or
 	// malformed file degrades to the built-in defaults.
 	budgetPath := control.DefaultBudgetPolicyPath(cfg.dataDir)
-	svc.SetBudgetSource(control.FileBudgetPolicy{Path: budgetPath})
+	svc.SetBudgetSource(control.NewFileBudgetPolicy(budgetPath))
 	log.Printf("budget policy: %s (enforced: %v; policy-only, not enforced: %v)",
 		budgetPath, control.EnforcedAxes(), control.PolicyOnlyAxes())
 

@@ -4,6 +4,7 @@ package control
 
 import (
 	"context"
+	"log"
 	"os"
 	"path/filepath"
 
@@ -74,6 +75,11 @@ func (r StubRunner) Run(_ context.Context, spec JobSpec) RunOutcome {
 	return RunOutcome{Result: res, Detail: r.Detail}
 }
 
+// JobProjectName is the throwaway registry project name a Job's headless run is
+// launched under. Deterministic (keyed to the job id) so concurrent jobs never
+// collide and the deregistration cannot target the wrong entry.
+func JobProjectName(jobID string) string { return "daedalus-job-" + jobID }
+
 // CoordinatorRunner is the REAL, HOST-ONLY adapter. It runs the project agent
 // headless against the Job's isolated worktree via the standard daedalus launch
 // path (`daedalus <name> <worktree> -p <objective>` semantics — the worktree
@@ -91,7 +97,18 @@ type CoordinatorRunner struct {
 // here process exit is authoritative.
 func (r CoordinatorRunner) Run(ctx context.Context, spec JobSpec) RunOutcome {
 	// A throwaway project name keyed to the job so concurrent jobs never collide.
-	name := "daedalus-job-" + spec.JobID
+	name := JobProjectName(spec.JobID)
+	// The registration is a side-effect of launching, and the worktree it points
+	// at is reclaimed when the Job ends — so without this the registry accumulates
+	// one dead `daedalus-job-*` entry per Job forever. Deregistering here keeps the
+	// side-effect as short-lived as the thing it describes. Best-effort and
+	// deferred so it runs on every exit path; `--force` because there is no human
+	// to confirm.
+	defer func() {
+		if err := r.Exec.Run(r.BinPath, "remove", name, "--force"); err != nil {
+			log.Printf("control: deregistering throwaway project %s: %v", name, err)
+		}
+	}()
 	// `daedalus <name> <dir> -p <objective>` registers the worktree and runs a
 	// headless single-prompt task, exiting when the agent finishes.
 	err := r.Exec.Run(r.BinPath, name, spec.WorktreeDir, "-p", spec.Objective)

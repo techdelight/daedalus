@@ -55,9 +55,14 @@ func (e *ErrActiveTaskExists) Error() string {
 // the human `daedalus task` CLI, so ActorHuman marks the operations a person
 // explicitly asked for (cancel / retry / replan / rebase) as distinct from
 // decisions the plane made on its own. When an agent client joins (Sprint 60,
-// `guild-control-mcp`) the caller identity must be carried on the request and
+// `guild-control-mcp`) the caller identity must be carried from the transport and
 // checked — a label alone must never be read as proof of who acted, and it
 // grants no authority: transitions are gated by the two tables in model.go.
+//
+// The store never *decides* an actor: it records the one its caller supplies via
+// EventMeta, defaulting to plane/worker from the byWorker flag. Service.
+// callerActor is the single place the identity is chosen, so Sprint 60 has one
+// seam to thread rather than a hunt through the SQL layer.
 const (
 	ActorPlane  = "control-plane"
 	ActorWorker = "worker"
@@ -514,7 +519,7 @@ func (s *Store) TransitionTaskWith(id string, to State, byWorker bool, meta Even
 // change together in one transaction so a task can never rest in `planned` with
 // the stale objective that was just rejected. The Job chain is untouched:
 // attempt history is preserved, never overwritten.
-func (s *Store) ReplanTask(id, objective, note string) (Task, error) {
+func (s *Store) ReplanTask(id, objective string, meta EventMeta, note string) (Task, error) {
 	if objective == "" {
 		return Task{}, fmt.Errorf("control: replan requires a new objective")
 	}
@@ -544,8 +549,7 @@ func (s *Store) ReplanTask(id, objective, note string) (Task, error) {
 	} else if n != 1 {
 		return Task{}, fmt.Errorf("%w: task %s expected state %s", ErrConflict, id, cur.State)
 	}
-	if err := s.logEvent(tx, "task", id, cur.State, StatePlanned,
-		EventMeta{Kind: EventGovernance, Actor: ActorHuman}, ActorHuman, note); err != nil {
+	if err := s.logEvent(tx, "task", id, cur.State, StatePlanned, meta, ActorPlane, note); err != nil {
 		return Task{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -563,7 +567,7 @@ func (s *Store) ReplanTask(id, objective, note string) (Task, error) {
 // drives the retry. Recorded as a governance event because re-freezing the
 // acceptance oracle is a consequential act: the policy now comes from a *newer*
 // commit, so a human asks for it explicitly (`task retry --rebase`).
-func (s *Store) RebaseTask(id, baseSHA, acceptanceHash, note string) (Task, error) {
+func (s *Store) RebaseTask(id, baseSHA, acceptanceHash string, meta EventMeta, note string) (Task, error) {
 	if baseSHA == "" {
 		return Task{}, fmt.Errorf("control: rebase requires a base sha")
 	}
@@ -588,8 +592,7 @@ func (s *Store) RebaseTask(id, baseSHA, acceptanceHash, note string) (Task, erro
 	if n, _ := res.RowsAffected(); n != 1 {
 		return Task{}, fmt.Errorf("%w: task %s", ErrNotFound, id)
 	}
-	if err := s.logEvent(tx, "task", id, cur.State, cur.State,
-		EventMeta{Kind: EventGovernance, Actor: ActorHuman}, ActorHuman, note); err != nil {
+	if err := s.logEvent(tx, "task", id, cur.State, cur.State, meta, ActorPlane, note); err != nil {
 		return Task{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -627,16 +630,19 @@ func scanTask(sc rowScanner) (Task, error) {
 	if budget != "" {
 		var b Budget
 		if json.Unmarshal([]byte(budget), &b) == nil {
-			t.Budget = b
+			// sanitized is the backstop for a row that reached the DB without passing
+			// Service.resolveBudget (a hand-edited control.db, an older writer): a
+			// negative axis reads as "unbounded" at every enforcement site, so it is
+			// replaced with the built-in default rather than honoured.
+			t.Budget = b.sanitized(DefaultBudget())
 		}
 	}
 	return t, nil
 }
 
 // CountTaskTransitionsTo counts how many times a task has entered state `to`,
-// read from the append-only event log — the log is the authority for "how many
-// review cycles has this task consumed", so the counter cannot drift from the
-// history that justifies it.
+// read from the append-only event log — the log is the authority for a task's
+// history, so a derived counter cannot drift from the events that justify it.
 func (s *Store) CountTaskTransitionsTo(taskID string, to State) (int, error) {
 	var n int
 	err := s.db.QueryRow(
@@ -647,6 +653,35 @@ func (s *Store) CountTaskTransitionsTo(taskID string, to State) (int, error) {
 		return 0, fmt.Errorf("counting transitions of %s to %s: %w", taskID, to, err)
 	}
 	return n, nil
+}
+
+// CountReviewCycles returns how many review cycles a task has actually consumed:
+// entries into `verifying`, MINUS the ones that were recovered back to
+// `candidate` without a verdict.
+//
+// The subtraction is the point. Entering `verifying` is not the same as being
+// verified: a daemon crash or an aborted verifier leaves the artifact unexamined,
+// and because the event log is append-only that entry can never be erased. Left
+// uncorrected, a crash would permanently spend a cycle of a budget for work that
+// never happened.
+func (s *Store) CountReviewCycles(taskID string) (int, error) {
+	var entered, recovered int
+	err := s.db.QueryRow(
+		`SELECT
+		   (SELECT COUNT(*) FROM events
+		     WHERE entity_type = 'task' AND entity_id = ? AND to_state = ? AND from_state != ''),
+		   (SELECT COUNT(*) FROM events
+		     WHERE entity_type = 'task' AND entity_id = ? AND from_state = ? AND to_state = ?)`,
+		taskID, string(StateVerifying),
+		taskID, string(StateVerifying), string(StateCandidate),
+	).Scan(&entered, &recovered)
+	if err != nil {
+		return 0, fmt.Errorf("counting review cycles of %s: %w", taskID, err)
+	}
+	if n := entered - recovered; n > 0 {
+		return n, nil
+	}
+	return 0, nil
 }
 
 // ---- Jobs --------------------------------------------------------------------

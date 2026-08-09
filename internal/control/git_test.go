@@ -128,3 +128,50 @@ func TestReadHeadSHA_PackedRef(t *testing.T) {
 		t.Errorf("ReadHeadSHA = %q, want %q", got, sha)
 	}
 }
+
+// TestReadHeadSHA_LinkedWorktree is the regression for "ReadHeadSHA can't resolve
+// a branch in a linked worktree". A linked worktree's .git file points at
+// .git/worktrees/<id>, which holds HEAD but NOT refs/heads/* — those live in the
+// common dir. Searching only the per-worktree dir reported a perfectly healthy
+// checkout as an unborn branch.
+func TestReadHeadSHA_LinkedWorktree(t *testing.T) {
+	dir, want := initGitRepo(t)
+	wtPath := filepath.Join(t.TempDir(), "linked")
+	if out, err := runGit(dir, "worktree", "add", "-b", "daedalus/T-1/J-1", wtPath, want); err != nil {
+		t.Fatalf("git worktree add: %v\n%s", err, out)
+	}
+	// Precondition: it really is a linked worktree (.git is a file, not a dir).
+	info, err := os.Stat(filepath.Join(wtPath, ".git"))
+	if err != nil || info.IsDir() {
+		t.Fatalf("precondition: %s/.git should be a gitdir file (err=%v)", wtPath, err)
+	}
+
+	got, err := ReadHeadSHA(wtPath)
+	if err != nil {
+		t.Fatalf("ReadHeadSHA(linked worktree): %v", err)
+	}
+	if got != want {
+		t.Errorf("ReadHeadSHA = %q, want %q", got, want)
+	}
+
+	// And it tracks the worktree's own branch, not the parent's.
+	if out, err := runGit(wtPath, "-c", "user.email=t@t", "-c", "user.name=t",
+		"commit", "--allow-empty", "-m", "work"); err != nil {
+		t.Fatalf("commit in worktree: %v\n%s", err, out)
+	}
+	moved, err := ReadHeadSHA(wtPath)
+	if err != nil {
+		t.Fatalf("ReadHeadSHA after commit: %v", err)
+	}
+	if moved == want {
+		t.Error("ReadHeadSHA did not follow the worktree's branch")
+	}
+	// The parent checkout is unaffected.
+	parent, err := ReadHeadSHA(dir)
+	if err != nil {
+		t.Fatalf("ReadHeadSHA(parent): %v", err)
+	}
+	if parent != want {
+		t.Errorf("parent HEAD = %q, want %q — a worktree commit must not move it", parent, want)
+	}
+}

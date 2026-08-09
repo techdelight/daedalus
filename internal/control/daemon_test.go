@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -243,5 +244,46 @@ func TestDaemon_RejectionSurvivesTheWire(t *testing.T) {
 	// whole point.
 	if errors.Is(err, ErrNotFound) {
 		t.Error("a policy refusal must not masquerade as ErrNotFound")
+	}
+}
+
+// TestDaemon_NegativeBudgetRefusedOverTheWire is the regression for the audit's
+// critical finding. The CLI rejects negative budget flags, but the CLI is not the
+// security boundary — the socket API is, and Sprint 60 puts an agent on it. This
+// posts the raw JSON a non-CLI client would send.
+func TestDaemon_NegativeBudgetRefusedOverTheWire(t *testing.T) {
+	repo := gitRepo(t)
+	svc, _, store := newService(t, mapResolver{"app": repo}, StubRunner{Result: ExecSuccess, WriteFile: true}, nil)
+	svc.SetBudgetSource(StaticBudget(Budget{WallClockSeconds: 60, MaxAttempts: 2, MaxReviewCycles: 2, Concurrency: 1}))
+	handler := NewServer(svc).Handler()
+
+	for _, body := range []string{
+		`{"project":"app","objective":"x","budget":{"maxAttempts":-1}}`,
+		`{"project":"app","objective":"x","budget":{"wallClockSeconds":-1}}`,
+		`{"project":"app","objective":"x","budget":{"concurrency":-1}}`,
+		`{"project":"app","objective":"x","budget":{"maxReviewCycles":-1}}`,
+	} {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/tasks", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusUnprocessableEntity {
+			t.Errorf("POST %s = %d, want 422 (refused by policy)\n%s", body, rec.Code, rec.Body.String())
+		}
+		if !strings.Contains(rec.Body.String(), string(ReasonInvalidBudget)) {
+			t.Errorf("POST %s body = %s, want reason %q", body, rec.Body.String(), ReasonInvalidBudget)
+		}
+	}
+	if tasks, _ := store.ListTasks(); len(tasks) != 0 {
+		t.Fatalf("a negative budget created %d task(s) — it must create none", len(tasks))
+	}
+
+	// And the client rebuilds the typed refusal on the far side.
+	client := serveUDS(t, svc)
+	_, err := client.CreateTask(CreateTaskRequest{Project: "app", Objective: "x", Budget: &Budget{MaxAttempts: -1}})
+	var rej *RejectionError
+	if !errors.As(err, &rej) || rej.Reason != ReasonInvalidBudget {
+		t.Fatalf("client CreateTask(negative) = %v, want an invalid_budget rejection", err)
 	}
 }
