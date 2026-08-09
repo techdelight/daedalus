@@ -2,7 +2,21 @@
 
 ## Current Sprint
 
-_No active sprint, and no active milestone. Milestone 15 shipped in **v0.50.0** (Sprints 58–60, in the history below) — governance, the race-safe integration transaction, and the Guild Master as a tiered, injection-safe client. A between-milestones state; the arc continues with **M16 (Parallel Programme Execution)** when opened — see `ROADMAP.md`._
+### Sprint 61: Concurrent Jobs & the Scheduler
+
+Goal: lift the **one active Job per project** invariant that has held since M13, and make the M15 merge queue load-bearing instead of insurance. Multiple Jobs run concurrently — each already isolated in its own Git worktree, so this adds **only concurrency and scheduling**, not new execution machinery. A scheduler with per-project and global concurrency limits admits work; the existing budget `concurrency` axis becomes a real limiter; reconciliation, cancellation and the integration CAS must all stay correct with several Jobs genuinely in flight. Pure Go + git, host-testable with the existing `AgentRunner`/`VerifyRunner` fakes. Design in `docs/guild-master-plan.md` (M16, V3) + §5. Out of scope: the cross-project task graph and dependency scheduling (Sprint 62).
+
+Milestone: 16
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | **Lift one-active-Job-per-project.** Remove the single-active invariant from the Task/Job admission path and replace it with the scheduler's limits. Every place that assumed it must be found and re-examined — `Reconcile`'s census, the `inflight` claim set, worktree naming, the `candidateJob`/`firstArtifact` lookups, and the CLI's status views. **Audit note:** `withClaim` is currently per-Task; concurrency is per-*project*, so the two are no longer the same question. Tests must cover several Jobs live on one project and several on different projects. |  |
+| 2 | **The scheduler.** A queue admitting Jobs subject to a **per-project limit**, a **global limit**, and the existing per-Task budget `concurrency` axis (which until now could effectively never fire — Sprint 58 audit finding 11). Deterministic, fair admission (no starvation of an older Task by a newer one), with the decision recorded as a typed event. Refusals reuse the Sprint-58 typed rejection, never a silent drop. Tests must include saturation, release-and-admit, and a fairness assertion. |  |
+| 3 | **Concurrency correctness across the existing machinery.** With N Jobs genuinely in flight: `Reconcile` must not adopt or settle another Job's work; cancellation must target exactly one Job; the integration CAS must serialize real competing landings on one queue (M15 proved the CAS serializes — this proves the *system* does); and worktree create/remove must not race. Run these under `-race` with real concurrency, not simulated interleaving. |  |
+| 4 | **Observability + docs.** `daedalus task list`/`status` and the Web/TUI must show what is actually running, per project and globally, and make a queued-but-not-admitted Job visibly distinct from a working one. `docs/control-plane.md`: the scheduler's limits and fairness rule, and — now that it is true — the merge queue described as load-bearing rather than insurance. CHANGELOG. |  |
+
+Out of scope (Sprint 62): the cross-project task graph, dependency scheduling (blocked/ready transitions), and composition with `programmes`.
+
 
 ## Sprint History
 
