@@ -222,13 +222,13 @@ func registerLifecycleTools(server *mcp.Server, projectDir string) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "add_sprint",
-		Description: "Add a new sprint at the top of the Current Sprint section of SPRINTS.md, numbered automatically, linked to a milestone, with an item table built from the given item descriptions (all starting Pending). Only one sprint should be current at a time.",
+		Description: "Add a new sprint at the top of the Current Sprint section of SPRINTS.md, numbered automatically, linked to a milestone, with an optional goal and an item table built from the given item descriptions (each row starts with an empty status cell, which is how this format spells Pending). If the section currently holds only placeholder prose — the note left behind when the last sprint rolled to history — that prose is replaced rather than pushed down. Only one sprint should be current at a time.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, input AddSprintInput) (*mcp.CallToolResult, SprintsOutput, error) {
 		roadmap, sprints, err := readBoth(projectDir)
 		if err != nil {
 			return errResult(err), SprintsOutput{}, nil
 		}
-		newSprints, number, err := core.AddSprint(sprints, input.Title, input.Milestone, input.Items)
+		newSprints, number, err := core.AddSprint(sprints, input.Title, input.Goal, input.Milestone, input.Items)
 		if err != nil {
 			return errResult(err), SprintsOutput{}, nil
 		}
@@ -327,8 +327,9 @@ type MilestoneNumberInput struct {
 // AddSprintInput is the input for add_sprint.
 type AddSprintInput struct {
 	Title     string   `json:"title" jsonschema:"The sprint title"`
+	Goal      string   `json:"goal,omitempty" jsonschema:"What the sprint is for — written as the sprint's Goal: line, above the item table"`
 	Milestone int      `json:"milestone,omitempty" jsonschema:"The number of the milestone this sprint advances"`
-	Items     []string `json:"items,omitempty" jsonschema:"Item descriptions; each becomes a Pending row in the sprint's table"`
+	Items     []string `json:"items,omitempty" jsonschema:"Item descriptions; each becomes a row with an empty (Pending) status cell"`
 }
 
 // SprintNumberInput is the input for the by-number sprint tools.

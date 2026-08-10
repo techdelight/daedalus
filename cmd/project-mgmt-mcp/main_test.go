@@ -397,6 +397,49 @@ func TestAddSprint(t *testing.T) {
 	}
 }
 
+// Backlog #66, end to end through the tool where it was actually observed —
+// twice, opening Sprint 58 and again opening Sprint 64. The unit test in `core`
+// covers the splice; this one proves the tool a caller reaches writes the file
+// without the contradiction.
+func TestAddSprint_ClearsThePlaceholderAndWritesTheGoal(t *testing.T) {
+	const withPlaceholder = `# Sprints
+
+## Current Sprint
+
+_No active sprint, and no active milestone._
+
+## Sprint History
+
+### Sprint 43: Old (v0.1.0)
+
+Milestone: 1
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | x | Done |
+`
+	cs, dir := setup(t)
+	seed(t, dir, roadmapFixture, withPlaceholder)
+
+	callTool(t, cs, "add_sprint", map[string]any{
+		"title":     "Fresh Work",
+		"goal":      "close the writer bugs",
+		"milestone": 1,
+		"items":     []any{"first"},
+	})
+
+	written, err := os.ReadFile(filepath.Join(dir, "SPRINTS.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(written), "_No active sprint") {
+		t.Errorf("placeholder survived on disk:\n%s", written)
+	}
+	if !strings.Contains(string(written), "Goal: close the writer bugs") {
+		t.Errorf("Goal: line missing on disk:\n%s", written)
+	}
+}
+
 func TestAddSprint_RejectsSecondCurrent(t *testing.T) {
 	cs, dir := setup(t)
 	seed(t, dir, roadmapFixture, sprintsFixture) // already has a current sprint

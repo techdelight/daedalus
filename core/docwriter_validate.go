@@ -2,7 +2,16 @@
 
 package core
 
-import "fmt"
+import (
+	"fmt"
+	"regexp"
+)
+
+// doubledStatusRe matches a milestone TITLE that still ends in a status
+// parenthetical. The parser consumes the last marker on a heading as the
+// status, so a second one can only be left behind in the title — which makes
+// this the signature of a heading carrying two markers.
+var doubledStatusRe = regexp.MustCompile(`\((?:Done|In Progress|Paused|Planned)\)\s*$`)
 
 // This file guards the docwriter mutations against edits that would leave the
 // documents inconsistent. The writers themselves stay pure (text in, text out)
@@ -36,6 +45,19 @@ func (e *InvariantError) Error() string { return e.Message }
 func ValidateWrite(roadmap, sprints string) error {
 	ms := ParseMilestones(roadmap)
 	sp := ParseSprints(sprints)
+
+	// A heading carrying two status markers parses cleanly — the parser takes the
+	// last one — so nothing downstream would ever complain, and the milestone's
+	// title silently accumulates markers. That is why this is checked on the way
+	// in rather than reported by ValidateDocs: it is not a contradiction between
+	// documents, it is corruption that reads as valid.
+	for _, m := range ms {
+		if doubledStatusRe.MatchString(m.Title) {
+			return &InvariantError{Message: fmt.Sprintf(
+				"write rejected: milestone %d's heading carries two status markers (title ends %q); a heading may carry at most one",
+				m.Number, m.Title)}
+		}
+	}
 
 	var inProgress []int
 	for _, m := range ms {

@@ -31,7 +31,18 @@ import (
 // parenthetical is ever rewritten. The title group is lazy and the status
 // group pinned to the known statuses, mirroring milestoneHeaderRe, so an
 // unrecognised parenthetical in a title ("… (Phase 2)") stays part of it.
-var milestoneHeadingRewriteRe = regexp.MustCompile(`^(\s*###\s+Milestone\s+(\d+):\s+.+?)(?:\s+\((?:Done|In Progress|Paused)\))?\s*$`)
+//
+// THE STATUS LIST MUST MATCH milestoneHeaderRe's, and for a long time it did
+// not: `Planned` was missing here after it was added there, so a heading
+// carrying "(Planned)" had nothing stripped and the new status was APPENDED —
+// "### Milestone 15: … (V2) (Planned) (In Progress)" (backlog #65, observed
+// live opening M15). Silent corruption rather than a failure, because the
+// parser takes the LAST marker and reads such a heading correctly while the
+// title quietly grows a marker each time. A reader who forgets this can bring
+// it back by adding a status to one regex and not the other, so: the two lists
+// are one fact, written twice. ValidateWrite now refuses a heading that carries
+// two markers, which is the backstop for that mistake.
+var milestoneHeadingRewriteRe = regexp.MustCompile(`^(\s*###\s+Milestone\s+(\d+):\s+.+?)(?:\s+\((?:Done|In Progress|Paused|Planned)\))?\s*$`)
 
 // sprintHeadingRewriteRe is the sprint-heading analogue: group 1 is the prefix
 // up to and including the title, and an optional trailing "(vX)" is dropped so
@@ -51,12 +62,36 @@ func SetMilestoneStatus(roadmap string, number int, status Status) (string, erro
 	if i < 0 {
 		return "", fmt.Errorf("milestone %d not found in ROADMAP.md", number)
 	}
-	sub := milestoneHeadingRewriteRe.FindStringSubmatch(lines[i])
-	if sub == nil {
+	stem, ok := milestoneHeadingStem(lines[i])
+	if !ok {
 		return "", fmt.Errorf("milestone %d heading %q could not be parsed for rewrite", number, lines[i])
 	}
-	lines[i] = sub[1] + milestoneStatusSuffix(status)
+	lines[i] = stem + milestoneStatusSuffix(status)
 	return strings.Join(lines, "\n"), nil
+}
+
+// milestoneHeadingStem returns a milestone heading with every trailing status
+// parenthetical removed, ready for a fresh suffix to be appended.
+//
+// It strips REPEATEDLY, not once, so a heading already corrupted by the #65 bug
+// ("… (Planned) (In Progress)") is repaired by the next status write rather than
+// growing another marker. One pass would leave the older marker embedded in the
+// title forever, since nothing else ever rewrites that text.
+func milestoneHeadingStem(heading string) (string, bool) {
+	sub := milestoneHeadingRewriteRe.FindStringSubmatch(heading)
+	if sub == nil {
+		return "", false
+	}
+	stem := sub[1]
+	for {
+		next := milestoneHeadingRewriteRe.FindStringSubmatch(stem)
+		// A stem that no longer ends in a status parenthetical matches itself
+		// unchanged, which is the fixed point this loop is looking for.
+		if next == nil || next[1] == stem {
+			return stem, true
+		}
+		stem = next[1]
+	}
 }
 
 // AddMilestone appends a new milestone, numbered one past the highest existing
@@ -145,11 +180,22 @@ func SetSprintStatus(sprints string, number int, status Status) (string, error) 
 }
 
 // AddSprint inserts a new sprint at the top of the "## Current Sprint" section,
-// numbered one past the highest existing sprint, with a "Milestone: <n>" line
-// (when milestone > 0) and an item table whose rows all start Pending (empty
-// status cell). Returns the new text and the assigned number. Errors if there
-// is no "## Current Sprint" section.
-func AddSprint(sprints, title string, milestone int, items []string) (string, int, error) {
+// numbered one past the highest existing sprint, with a "Goal: <goal>" line
+// (when goal is non-empty), a "Milestone: <n>" line (when milestone > 0) and an
+// item table whose rows all start with an EMPTY status cell — which is what
+// Pending means in this format; the literal word "Pending" is not a status
+// `docs lint` recognises. Returns the new text and the assigned number. Errors
+// if there is no "## Current Sprint" section.
+//
+// When the section holds no sprint, its body is REPLACED rather than pushed
+// down. That body is the placeholder prose left behind when the previous sprint
+// rolled to history ("_No active sprint…_"), and inserting above it produced a
+// Current Sprint section containing both a real sprint and a note saying there
+// was not one (backlog #66, observed live opening Sprint 58 and again at 64).
+// The rule is deliberately narrow: prose is only dropped when there is no sprint
+// heading in the section, so a note an author wrote to sit ALONGSIDE a live
+// sprint is never touched.
+func AddSprint(sprints, title, goal string, milestone int, items []string) (string, int, error) {
 	lines := strings.Split(sprints, "\n")
 	number := nextSprintNumber(lines)
 
@@ -157,12 +203,11 @@ func AddSprint(sprints, title string, milestone int, items []string) (string, in
 	if cur < 0 {
 		return "", 0, fmt.Errorf("no \"## Current Sprint\" section found in SPRINTS.md")
 	}
-	insert := cur + 1
-	if insert < len(lines) && strings.TrimSpace(lines[insert]) == "" {
-		insert++ // keep the blank line right under the section heading
-	}
 
 	block := []string{fmt.Sprintf("### Sprint %d: %s", number, title), ""}
+	if goal != "" {
+		block = append(block, "Goal: "+goal, "")
+	}
 	if milestone > 0 {
 		block = append(block, fmt.Sprintf("Milestone: %d", milestone), "")
 	}
@@ -172,7 +217,39 @@ func AddSprint(sprints, title string, milestone int, items []string) (string, in
 	}
 	block = append(block, "")
 
+	insert := cur + 1
+	if insert < len(lines) && strings.TrimSpace(lines[insert]) == "" {
+		insert++ // keep the blank line right under the section heading
+	}
+	if end, empty := currentSprintPlaceholder(lines, cur); empty {
+		// Splice the block in place of the placeholder prose, keeping the blank
+		// line under the section heading and whatever follows the section.
+		return strings.Join(append(append(append([]string{}, lines[:insert]...), block...), lines[end:]...), "\n"), number, nil
+	}
 	return strings.Join(insertLines(lines, insert, block), "\n"), number, nil
+}
+
+// currentSprintPlaceholder reports whether the "## Current Sprint" section at
+// cur holds no sprint, and where its body ends. When it does, everything from
+// just under the heading to that end is placeholder prose an incoming sprint
+// replaces.
+//
+// The section ends at the next "## " section heading; a "### " sprint heading
+// inside it is part of the section, and is exactly what makes it non-empty.
+func currentSprintPlaceholder(lines []string, cur int) (end int, empty bool) {
+	end = len(lines)
+	empty = true
+	for i := cur + 1; i < len(lines); i++ {
+		t := strings.TrimSpace(lines[i])
+		if strings.HasPrefix(t, "## ") {
+			end = i
+			break
+		}
+		if sprintHeaderRe.MatchString(t) {
+			empty = false
+		}
+	}
+	return end, empty
 }
 
 // RemoveSprint deletes sprint number's section — heading through the line

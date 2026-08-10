@@ -167,6 +167,42 @@ func TestSetMilestoneStatus_KeepsUnrecognisedParentheticalTitle(t *testing.T) {
 	}
 }
 
+// Backlog #65: the writer's status list was missing `Planned` after the parser
+// gained it, so "(Planned)" was not stripped and the new marker was appended —
+// "… (V2) (Planned) (In Progress)". Table-driven over every status a heading can
+// carry, because the bug was one absent alternative and a test pinning only the
+// statuses that happened to work would have passed throughout.
+func TestSetMilestoneStatus_ReplacesEveryStatusMarker(t *testing.T) {
+	for _, from := range []Status{StatusDone, StatusInProgress, StatusPaused, StatusPlanned} {
+		in := "### Milestone 15: Governance (V2) (" + string(from) + ")\n"
+		got, err := SetMilestoneStatus(in, 15, StatusInProgress)
+		if err != nil {
+			t.Fatalf("SetMilestoneStatus from %q: %v", from, err)
+		}
+		if want := "### Milestone 15: Governance (V2) (In Progress)\n"; got != want {
+			t.Errorf("from %q: got %q, want %q", from, got, want)
+		}
+		m, ok := milestoneByNumber(ParseMilestones(got), 15)
+		if !ok || m.Title != "Governance (V2)" {
+			t.Errorf("from %q: parsed title = %q, want the marker out of the title", from, m.Title)
+		}
+	}
+}
+
+// A heading already corrupted by #65 is repaired by the next status write rather
+// than growing a third marker — otherwise the older marker stays welded into the
+// title, since nothing else ever rewrites it.
+func TestSetMilestoneStatus_RepairsAnAlreadyDoubledHeading(t *testing.T) {
+	in := "### Milestone 15: Governance (V2) (Planned) (In Progress)\n"
+	got, err := SetMilestoneStatus(in, 15, StatusDone)
+	if err != nil {
+		t.Fatalf("SetMilestoneStatus: %v", err)
+	}
+	if want := "### Milestone 15: Governance (V2) (Done)\n"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
 func TestSetMilestoneStatus_NotFound(t *testing.T) {
 	if _, err := SetMilestoneStatus(readRepoDoc(t, "ROADMAP.md"), 99, StatusDone); err == nil {
 		t.Error("want error for a missing milestone")
@@ -348,7 +384,7 @@ Milestone: 6
 `
 
 func TestAddSprint_RoundTripIntoEmptySection(t *testing.T) {
-	got, number, err := AddSprint(emptyCurrentSprints, "Fresh Work", 7, []string{"first thing", "second thing"})
+	got, number, err := AddSprint(emptyCurrentSprints, "Fresh Work", "", 7, []string{"first thing", "second thing"})
 	if err != nil {
 		t.Fatalf("AddSprint: %v", err)
 	}
@@ -385,7 +421,7 @@ func TestAddSprint_RoundTripIntoEmptySection(t *testing.T) {
 
 func TestAddSprint_PreservesHistoryOnRealDoc(t *testing.T) {
 	sprints := readRepoDoc(t, "SPRINTS.md")
-	got, _, err := AddSprint(sprints, "Extra", 7, []string{"x"})
+	got, _, err := AddSprint(sprints, "Extra", "", 7, []string{"x"})
 	if err != nil {
 		t.Fatalf("AddSprint: %v", err)
 	}
@@ -396,8 +432,103 @@ func TestAddSprint_PreservesHistoryOnRealDoc(t *testing.T) {
 }
 
 func TestAddSprint_NoCurrentSection(t *testing.T) {
-	if _, _, err := AddSprint("# Sprints\n\n## Sprint History\n", "X", 1, nil); err == nil {
+	if _, _, err := AddSprint("# Sprints\n\n## Sprint History\n", "X", "", 1, nil); err == nil {
 		t.Error("want error when there is no ## Current Sprint section")
+	}
+}
+
+// placeholderCurrentSprints is the shape SPRINTS.md takes between sprints: the
+// last one has rolled to history and a human has written a note in the empty
+// slot saying so.
+const placeholderCurrentSprints = `# Sprints
+
+## Current Sprint
+
+_No active sprint, and no active milestone. Milestone 6 shipped in **v0.41.0**._
+
+## Sprint History
+
+### Sprint 44: Old (v0.41.0)
+
+Milestone: 6
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | Did it | Done |
+`
+
+// Backlog #66: the placeholder is prose asserting there is no current sprint, so
+// leaving it in place while inserting one above produced a section that both had
+// a sprint and said it had none. It has to go.
+func TestAddSprint_ReplacesTheBetweenSprintsPlaceholder(t *testing.T) {
+	got, number, err := AddSprint(placeholderCurrentSprints, "Fresh Work", "get it done", 7, []string{"first thing"})
+	if err != nil {
+		t.Fatalf("AddSprint: %v", err)
+	}
+	if strings.Contains(got, "_No active sprint") {
+		t.Errorf("placeholder prose survived alongside the new sprint:\n%s", got)
+	}
+	s, ok := sprintByNumber(ParseSprints(got), number)
+	if !ok || !s.IsCurrent {
+		t.Fatalf("sprint %d not current after add", number)
+	}
+	// Only the placeholder goes: the history below it is untouched.
+	tail := placeholderCurrentSprints[indexOf(t, placeholderCurrentSprints, "## Sprint History"):]
+	if !strings.HasSuffix(got, tail) {
+		t.Errorf("Sprint History section changed:\n%s", got)
+	}
+}
+
+// The counterpart guard: prose sitting beside a REAL sprint is an author's note,
+// not a placeholder, and must survive. Without this the fix above would be a
+// licence to delete arbitrary text from the section.
+func TestAddSprint_KeepsProseWhenASprintIsAlreadyCurrent(t *testing.T) {
+	const withSprint = `# Sprints
+
+## Current Sprint
+
+_A note the author wants kept._
+
+### Sprint 44: Live
+
+Milestone: 6
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | Doing it |  |
+
+## Sprint History
+`
+	got, _, err := AddSprint(withSprint, "Second", "", 6, []string{"x"})
+	if err != nil {
+		t.Fatalf("AddSprint: %v", err)
+	}
+	if !strings.Contains(got, "_A note the author wants kept._") {
+		t.Errorf("author's note was deleted:\n%s", got)
+	}
+	if !strings.Contains(got, "### Sprint 44: Live") {
+		t.Errorf("existing sprint was deleted:\n%s", got)
+	}
+}
+
+func TestAddSprint_WritesTheGoalLine(t *testing.T) {
+	got, number, err := AddSprint(emptyCurrentSprints, "Fresh Work", "prove the writer emits a goal", 7, nil)
+	if err != nil {
+		t.Fatalf("AddSprint: %v", err)
+	}
+	if !strings.Contains(got, "Goal: prove the writer emits a goal") {
+		t.Errorf("Goal: line missing:\n%s", got)
+	}
+	s, ok := sprintByNumber(ParseSprints(got), number)
+	if !ok {
+		t.Fatalf("sprint %d not parsed back", number)
+	}
+	if s.Goal != "prove the writer emits a goal" {
+		t.Errorf("parsed goal = %q", s.Goal)
+	}
+	// The goal must not displace the milestone link.
+	if s.Milestone != 7 {
+		t.Errorf("milestone = %d, want 7", s.Milestone)
 	}
 }
 

@@ -67,6 +67,35 @@ func TestValidateWrite_PausedMilestoneAllowed(t *testing.T) {
 	}
 }
 
+// Backlog #65's backstop. The corruption is invisible to every other check —
+// the parser takes the LAST marker, so a doubled heading parses to a perfectly
+// valid milestone — which is exactly why it went unnoticed until someone read
+// the heading. ValidateWrite is the only layer positioned to refuse it.
+func TestValidateWrite_RejectsDoubledStatusMarker(t *testing.T) {
+	roadmap := "## Milestones\n\n### Milestone 1: Governance (V2) (Planned) (In Progress)\n\nBody.\n"
+
+	// Guard the premise: if this ever stops parsing cleanly, the check below is
+	// testing something other than what it claims to.
+	ms := ParseMilestones(roadmap)
+	if len(ms) != 1 || ms[0].Status != StatusInProgress {
+		t.Fatalf("premise broken: a doubled heading no longer parses as one In Progress milestone (%+v)", ms)
+	}
+
+	if ie := asInvariant(t, ValidateWrite(roadmap, "")); ie == nil {
+		t.Fatal("expected a rejection for a heading carrying two status markers")
+	}
+}
+
+// The complement: a title whose trailing parenthetical is NOT a status is
+// ordinary prose and must still write cleanly, or the check above would make
+// "Milestone 4: Layered Runner/Coordinator Architecture (V1)" unwritable.
+func TestValidateWrite_AllowsNonStatusParentheticalTitle(t *testing.T) {
+	roadmap := "## Milestones\n\n### Milestone 1: Rework (Phase 2) (In Progress)\n\nBody.\n"
+	if err := ValidateWrite(roadmap, ""); err != nil {
+		t.Errorf("ValidateWrite = %v, want nil for a non-status parenthetical in the title", err)
+	}
+}
+
 // --- FinishSprint ------------------------------------------------------------
 
 const finishFixture = `# Sprints

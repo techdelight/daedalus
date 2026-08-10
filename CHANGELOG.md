@@ -4,6 +4,37 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+- **The milestone status marker is replaced rather than appended (#65).** The doc
+  writer's heading regex listed `Done|In Progress|Paused` while the parser's listed
+  those plus `Planned`, so a heading already carrying `(Planned)` had nothing
+  stripped and the new status was appended — `### Milestone 15: … (V2) (Planned)
+  (In Progress)`. This was silent corruption, not a failure: the parser reads the
+  *last* marker, so a doubled heading parses to a perfectly valid milestone while
+  its title quietly accumulates markers. The two lists are now the same list, and
+  the stripping is iterative, so a heading already corrupted is repaired by the next
+  status write instead of growing a third marker.
+- **`ValidateWrite` refuses a heading carrying two status markers (#65).** The
+  backstop for the above, and the only layer positioned to catch it — no other check
+  can see the corruption, because the document parses cleanly. A title whose trailing
+  parenthetical is *not* a status ("Rework (Phase 2)") is untouched.
+- **`add_sprint` no longer leaves the between-sprints placeholder behind (#66).**
+  Opening a sprint inserted it *above* the `_No active sprint…_` note, so
+  `## Current Sprint` held both a real sprint and a paragraph saying there was not
+  one — hand-deleted when opening Sprint 58, and again at Sprint 64. The section's
+  body is now replaced when it holds no sprint. The rule is deliberately narrow:
+  prose is only dropped when there is no sprint heading in the section, so a note
+  written to sit *alongside* a live sprint survives.
+- **`add_sprint`'s description no longer claims items start `Pending` (#66).** It
+  writes an empty status cell, which is what Pending means in this format — the
+  literal word is a status `docs lint` rejects. The docstring was the wrong half.
+
+### Added
+- **`add_sprint` writes a `Goal:` line** when given one. Every sprint in `SPRINTS.md`
+  carries a goal above its item table, but the writer emitted none, so each opening
+  needed a hand-edit — the same class of gap as #66 and found the same way, by
+  opening a sprint with the tool and reading what it produced.
+
 ### Changed
 - **`Service.TargetFor` is split into a query and a command (CQS).** It was named
   and typed as a query — it returned a `Target` — but on first call it also wrote a
