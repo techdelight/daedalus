@@ -665,3 +665,143 @@ func TestArtifactIsLanded(t *testing.T) {
 		})
 	}
 }
+
+// --- the dependency gate ---------------------------------------------------------
+
+// dependencyPair sets up one project with two tasks and returns the service, its
+// store, and (downstream, upstream). The downstream task is dispatched and
+// verified BEFORE the edge is declared, which is the case the graph used to
+// record and then ignore.
+func dependencyPair(t *testing.T) (*Service, *Store, Task, Task) {
+	t.Helper()
+	repo := gitRepo(t)
+	svc, _, store := newService(t, mapResolver{"app": repo},
+		// No MarkerName: each Job writes a job-scoped file, so the two artifacts are
+		// genuinely independent and a clean rebase — not a conflict — is what the
+		// gate is being tested against.
+		StubRunner{Result: ExecSuccess, WriteFile: true}, nil, StubVerifyRunner{Pass: true})
+
+	upstream, err := svc.CreateTask(CreateTaskRequest{Project: "app", Objective: "upstream"})
+	if err != nil {
+		t.Fatalf("CreateTask upstream: %v", err)
+	}
+	downstream, err := svc.CreateTask(CreateTaskRequest{Project: "app", Objective: "downstream"})
+	if err != nil {
+		t.Fatalf("CreateTask downstream: %v", err)
+	}
+	if _, err := svc.DispatchTask(downstream.ID); err != nil {
+		t.Fatalf("Dispatch downstream: %v", err)
+	}
+	// The edge lands while the downstream task is well past `planned`.
+	if _, err := svc.AddDependency(downstream.ID, upstream.ID); err != nil {
+		t.Fatalf("AddDependency: %v", err)
+	}
+	return svc, store, downstream, upstream
+}
+
+// The review's exact scenario: an edge declared after dispatch used to be
+// recorded, displayed, and completely inert — the task verified and landed with
+// its dependency still sitting in `planned`.
+func TestIntegrate_RefusesWhileADependencyHasNotLanded(t *testing.T) {
+	svc, store, downstream, upstream := dependencyPair(t)
+
+	// Verification is deliberately NOT gated: grading an artifact against its own
+	// frozen oracle says nothing about what else must land first, and refusing
+	// here would spend a review cycle to learn nothing.
+	res, err := svc.VerifyTask(downstream.ID)
+	if err != nil {
+		t.Fatalf("VerifyTask: %v", err)
+	}
+	if !res.Verified {
+		t.Fatalf("the artifact should still verify with a dependency outstanding, got %q", res.Reason)
+	}
+
+	before, err := svc.Target("app")
+	if err != nil {
+		t.Fatalf("Target: %v", err)
+	}
+	_, err = svc.IntegrateTask(downstream.ID)
+	if err == nil {
+		t.Fatal("integration succeeded with an unlanded dependency")
+	}
+	var rej *RejectionError
+	if !errors.As(err, &rej) {
+		t.Fatalf("want a typed rejection, got %T: %v", err, err)
+	}
+	if rej.Reason != ReasonDependenciesUnmet {
+		t.Errorf("reason = %q, want %q", rej.Reason, ReasonDependenciesUnmet)
+	}
+	if !strings.Contains(rej.Message, upstream.ID) {
+		t.Errorf("the refusal should name what it is waiting on, got %q", rej.Message)
+	}
+
+	// Nothing moved: not the trunk, not the task.
+	after, err := svc.Target("app")
+	if err != nil {
+		t.Fatalf("Target after: %v", err)
+	}
+	if after.SHA != before.SHA {
+		t.Errorf("target advanced despite the refusal: %s → %s", before.SHA, after.SHA)
+	}
+	got, _ := store.GetTask(downstream.ID)
+	if got.State == StateIntegrated {
+		t.Error("task reached integrated with an unlanded dependency")
+	}
+}
+
+// The gate opens when the dependency actually lands — and only then. Landing is
+// also where the two pieces of work are genuinely combined: the downstream
+// artifact is rebased onto a trunk that now contains the upstream one.
+func TestIntegrate_ProceedsOnceTheDependencyLands(t *testing.T) {
+	svc, store, downstream, upstream := dependencyPair(t)
+	if _, err := svc.VerifyTask(downstream.ID); err != nil {
+		t.Fatalf("VerifyTask downstream: %v", err)
+	}
+	if _, err := svc.IntegrateTask(downstream.ID); err == nil {
+		t.Fatal("precondition: integration should be refused before the dependency lands")
+	}
+
+	// Land the upstream task.
+	if _, err := svc.DispatchTask(upstream.ID); err != nil {
+		t.Fatalf("Dispatch upstream: %v", err)
+	}
+	if _, err := svc.VerifyTask(upstream.ID); err != nil {
+		t.Fatalf("VerifyTask upstream: %v", err)
+	}
+	if _, err := svc.IntegrateTask(upstream.ID); err != nil {
+		t.Fatalf("IntegrateTask upstream: %v", err)
+	}
+
+	res, err := svc.IntegrateTask(downstream.ID)
+	if err != nil {
+		t.Fatalf("IntegrateTask downstream after the dependency landed: %v", err)
+	}
+	if res.Task.State != StateIntegrated {
+		t.Errorf("task state = %q, want integrated", res.Task.State)
+	}
+	got, _ := store.GetTask(upstream.ID)
+	if got.State != StateIntegrated {
+		t.Fatalf("precondition: upstream state = %q, want integrated", got.State)
+	}
+}
+
+// A dependency that can never be satisfied must say so, rather than reading as
+// "wait a bit longer" — the two need different actions from an operator.
+func TestIntegrate_NamesAnUnsatisfiableDependency(t *testing.T) {
+	svc, _, downstream, upstream := dependencyPair(t)
+	if _, err := svc.VerifyTask(downstream.ID); err != nil {
+		t.Fatalf("VerifyTask: %v", err)
+	}
+	if _, err := svc.CancelTask(upstream.ID); err != nil {
+		t.Fatalf("CancelTask upstream: %v", err)
+	}
+
+	_, err := svc.IntegrateTask(downstream.ID)
+	var rej *RejectionError
+	if !errors.As(err, &rej) {
+		t.Fatalf("want a typed rejection, got %T: %v", err, err)
+	}
+	if !strings.Contains(rej.Message, "never be satisfied") {
+		t.Errorf("refusal should distinguish unsatisfiable from merely unmet, got %q", rej.Message)
+	}
+}

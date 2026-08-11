@@ -818,8 +818,13 @@ vocabulary as for every other failure.
 
 ## The cross-project task graph (Sprint 62 / M16 — built)
 
-A Task may depend on other Tasks, in any project. A Task with unmet dependencies
-is **`blocked`**, and the scheduler never admits it.
+A Task may depend on other Tasks, in any project. A dependency gates the
+dependent at **two** points, and both are needed:
+
+- **Admission.** A `planned` Task with unmet dependencies is **`blocked`**, and
+  the scheduler never admits it.
+- **Landing.** The integration transaction refuses a Task whose dependencies have
+  not landed, with the typed `dependencies_unmet` rejection.
 
 ```text
 planned ⇄ blocked        (plane-only, both directions)
@@ -827,8 +832,32 @@ planned ⇄ blocked        (plane-only, both directions)
 
 **A dependency is satisfied only when the upstream Task reaches `integrated`** —
 the point at which its work is actually in the trunk. Verified or approved is not
-enough: the work exists but has not landed, and a dependent running against it
-would be building on something that may still be rejected.
+enough: the work exists but has not landed, and a dependent built on it would be
+building on something that may still be rejected.
+
+**Why landing is gated and not just admission** (Sprint 64). A Task's `base_sha`
+is frozen at *creation* and only `retry --rebase` ever moves it, so a dependent
+that merely *starts* after its dependency landed still runs against a tree that
+predates it — admission ordering alone does not put B's work under A's. The place
+the two are genuinely combined is the integration rebase-and-re-verify, which
+makes landing the point where "B before A" has content. Until Sprint 64 only
+admission was enforced, so an edge declared once a Task had left `planned` was
+recorded, shown in `task depends` and on the board, and gated nothing whatsoever.
+
+**Grading is deliberately not gated.** A dependent is still verified against its
+own frozen oracle with dependencies outstanding: that verdict is about the
+artifact, not about what else must land first, and refusing it would spend a
+review cycle to learn nothing.
+
+**An in-flight Task with an unmet dependency is not `blocked`.** That pair of
+transitions connects `planned` and `blocked` only; a Task whose worker is
+mid-flight claiming to be waiting would be a worse misstatement than the one this
+fixes. It carries the unmet edge instead, and meets it at the landing gate.
+
+**A terminal Task cannot acquire a dependency at all.** Once a Task is
+`integrated`, `failed`, `cancelled` or `expired` there is no dispatch left to
+block and no landing left to gate, and no later event can give the edge force —
+so declaring one is refused rather than recorded as decoration.
 
 **Cycles are refused at creation, never detected at dispatch.** A cycle found at
 dispatch time is a wedged graph somebody has to unpick; refused at declaration it
@@ -838,7 +867,7 @@ refuses anything that would close a loop, naming the path.
 
 **The edge is plane-owned state**, held in `control.db` and never read from a file
 in a project checkout. An agent that could declare its own dependencies could
-declare them satisfied — and "what must happen before this is graded" is exactly
+declare them satisfied — and "what must happen before this lands" is exactly
 as load-bearing as "what grades it", so a repo-side dependency file would re-open
 M15's whole acceptance-oracle argument through a side door. Declaring an edge is
 correspondingly a **proposal** for an agent caller, not a direct action.
@@ -868,6 +897,16 @@ Nothing is silently stranded: the state says `blocked`, the status says
 new Task. But an operator should know that "retry the failed work and keep the
 dependents" is not available. (Removing a dependency edge is tracked as backlog;
 it is deliberately not part of this milestone.)
+
+**The landing gate makes this cost more, and that is stated rather than hidden**
+(Sprint 64). A dependent that acquired its edge while already in flight can now be
+*verified and approved* and still unable to land — and if its upstream then fails,
+the only route out is still cancel-and-recreate, discarding work that has already
+been graded and signed off. The refusal names the unsatisfiable upstream
+specifically, rather than reporting it as "wait a bit longer", because the two need
+different actions from an operator. This raises the value of a `RemoveDependency`
+operation from convenience to something closer to a missing escape hatch; it stays
+in the backlog, now with a sharper reason.
 
 ### Waking, and why reconcile does it too
 

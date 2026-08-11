@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Fixed
+- **A dependency declared after a Task left `planned` is no longer inert.** The
+  graph's enforcement lived only in the `planned ⇄ blocked` refresh, so an edge
+  added to a `working`, `candidate`, `verified` or `approved` Task was recorded,
+  rendered in `task depends` and on the programme board, and gated nothing — the
+  Task verified and landed with its dependency still sitting unstarted. The
+  integration transaction now refuses to land a Task whose dependencies have not
+  landed, with the typed `dependencies_unmet` rejection naming what it is waiting
+  on, and distinguishing *unmet* from *can never be satisfied* because those need
+  different actions from an operator.
+  - **Landing is gated, not grading.** `base_sha` is frozen at task creation and
+    only `retry --rebase` moves it, so a dependent that merely *starts* after its
+    dependency landed still runs against a tree that predates it — admission
+    ordering alone never puts B's work under A's. The integration
+    rebase-and-re-verify is where the two are genuinely combined. Verification is
+    deliberately untouched: that verdict is about the artifact against its own
+    frozen oracle, and blocking it would spend a review cycle to learn nothing.
+  - **A terminal Task cannot acquire a dependency**, refused in the same store
+    transaction as the insert: once a Task is `integrated`/`failed`/`cancelled`/
+    `expired` there is no dispatch left to block and no landing left to gate, so
+    the edge could only ever be decoration.
+  - An in-flight Task with an unmet dependency is **not** moved to `blocked` —
+    that pair of transitions connects `planned` and `blocked` only, and a Task
+    whose worker is mid-flight claiming to be waiting would be a worse
+    misstatement than the one being fixed. It carries the edge and meets it at the
+    landing gate.
+  - Honest cost, now documented: a dependent can be verified *and approved* and
+    still unable to land, and if its upstream fails the only route out remains
+    cancel-and-recreate — discarding work already graded and signed off. That
+    raises `RemoveDependency` (backlog #68) from a convenience to something closer
+    to a missing escape hatch.
 - **The milestone status marker is replaced rather than appended (#65).** The doc
   writer's heading regex listed `Done|In Progress|Paused` while the parser's listed
   those plus `Planned`, so a heading already carrying `(Planned)` had nothing

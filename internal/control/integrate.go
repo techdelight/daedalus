@@ -98,6 +98,32 @@ func (s *Service) integrateOnce(id string, attempt int) (IntegrationResult, bool
 	if err != nil {
 		return IntegrationResult{}, false, err
 	}
+	// The graph gates LANDING, and this is the gate (Sprint 64). Three things are
+	// worth saying about why it is here and not somewhere else.
+	//
+	// NOT AT VERIFICATION. Grading an artifact against its own frozen oracle is
+	// independent of what else is in flight, and refusing to verify would burn a
+	// review cycle to learn nothing. What a dependency actually constrains is the
+	// order in which work enters the trunk.
+	//
+	// NOT ONLY AT ADMISSION. Blocking dispatch is what the scheduler already does
+	// for a `planned` Task, but on its own it would not deliver what the graph
+	// claims: `base_sha` is frozen at task CREATION and only `retry --rebase` ever
+	// moves it, so a dependent that merely STARTS after its dependency landed still
+	// runs against a tree that predates it. The place the two pieces of work are
+	// genuinely combined is the rebase-and-re-verify below — which makes this, not
+	// dispatch, the point where "B before A" has content.
+	//
+	// SAFE THIS EARLY, before the approval walk and before the already-landed
+	// recovery path, because satisfaction is MONOTONIC: `integrated` is terminal
+	// (no outgoing edge) and no operation deletes a Task, so a dependency that was
+	// satisfied cannot become unsatisfied. A Task that got past this gate to the
+	// compare-and-swap therefore cannot be refused here on a retry — which matters
+	// enormously, since refusing the idempotent settle would strand a Task in
+	// `approved` forever while its commits were already live in the trunk.
+	if err := s.requireDependenciesLanded(task); err != nil {
+		return IntegrationResult{}, false, err
+	}
 	// Walk the approval gate. For a project that requires human approval this
 	// refuses (and parks the Task in `approval_required` where an operator can see
 	// it); for one that does not, it walks the same edges automatically and records

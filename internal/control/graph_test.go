@@ -320,3 +320,70 @@ func TestGraph_DependencyEdgesArePlaneOwned(t *testing.T) {
 		t.Error("the plane should be able to move planned ↔ blocked")
 	}
 }
+
+// --- an edge must still be able to gate something --------------------------------
+
+// A terminal Task is the one state where a dependency could never mean anything:
+// there is no dispatch left to block and no landing left to gate, and no later
+// event can give the edge force. Recording it would produce exactly the
+// inert-but-displayed edge the landing gate exists to remove.
+func TestAddDependency_RefusedOnATerminalTask(t *testing.T) {
+	svc, store, _ := graphPlane(t, "alpha", "beta")
+	upstream, _ := svc.CreateTask(CreateTaskRequest{Project: "beta", Objective: "up"})
+
+	for _, tc := range []struct {
+		name  string
+		drive func(id string)
+	}{
+		{"integrated", func(id string) { land(t, svc, id) }},
+		{"cancelled", func(id string) {
+			if _, err := svc.CancelTask(id); err != nil {
+				t.Fatalf("cancel: %v", err)
+			}
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dependent, _ := svc.CreateTask(CreateTaskRequest{Project: "alpha", Objective: tc.name})
+			tc.drive(dependent.ID)
+
+			got, _ := store.GetTask(dependent.ID)
+			if !IsTerminal(got.State) {
+				t.Fatalf("precondition: state = %q, want terminal", got.State)
+			}
+			_, err := svc.AddDependency(dependent.ID, upstream.ID)
+			if !errors.Is(err, ErrDependencyInvalid) {
+				t.Fatalf("AddDependency on a %s task = %v, want ErrDependencyInvalid", got.State, err)
+			}
+			// Refused means NOT recorded — a rejected edge that still showed up in
+			// `task depends` would be the same lie by a different route.
+			deps, err := store.DependenciesOf(dependent.ID)
+			if err != nil {
+				t.Fatalf("DependenciesOf: %v", err)
+			}
+			if len(deps) != 0 {
+				t.Errorf("refused edge was recorded anyway: %v", deps)
+			}
+		})
+	}
+}
+
+// The complement: an in-flight Task may still acquire a dependency, because the
+// landing gate can act on it. This is the case the old code recorded and ignored.
+func TestAddDependency_AllowedOnAnInFlightTask(t *testing.T) {
+	svc, store, _ := graphPlane(t, "alpha", "beta")
+	upstream, _ := svc.CreateTask(CreateTaskRequest{Project: "beta", Objective: "up"})
+	dependent, _ := svc.CreateTask(CreateTaskRequest{Project: "alpha", Objective: "down"})
+	if _, err := svc.DispatchTask(dependent.ID); err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+	if _, err := svc.AddDependency(dependent.ID, upstream.ID); err != nil {
+		t.Fatalf("AddDependency on an in-flight task: %v", err)
+	}
+	// It does NOT become `blocked`: that pair of transitions connects planned and
+	// blocked only, and a Task whose worker is mid-flight claiming to be waiting
+	// would be a worse lie than the one being fixed.
+	got, _ := store.GetTask(dependent.ID)
+	if got.State == StateBlocked {
+		t.Errorf("an in-flight task was moved to blocked; state = %q", got.State)
+	}
+}

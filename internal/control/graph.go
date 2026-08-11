@@ -74,10 +74,24 @@ func (s *Store) AddDependency(taskID, dependsOn string) (DependencyEdge, error) 
 	}
 	defer tx.Rollback()
 
-	for _, id := range []string{taskID, dependsOn} {
-		if _, err := scanTask(tx.QueryRow(taskSelect+` WHERE id = ?`, id)); err != nil {
-			return DependencyEdge{}, fmt.Errorf("dependency references %s: %w", id, err)
-		}
+	dependent, err := scanTask(tx.QueryRow(taskSelect+` WHERE id = ?`, taskID))
+	if err != nil {
+		return DependencyEdge{}, fmt.Errorf("dependency references %s: %w", taskID, err)
+	}
+	if _, err := scanTask(tx.QueryRow(taskSelect+` WHERE id = ?`, dependsOn)); err != nil {
+		return DependencyEdge{}, fmt.Errorf("dependency references %s: %w", dependsOn, err)
+	}
+	// A terminal Task is the one case where an edge could never mean anything: it
+	// has already landed (or failed, or been cancelled), so there is no dispatch
+	// left to block and no landing left to gate. Recording it would produce exactly
+	// the inert-but-displayed edge this sprint exists to remove — and unlike a Task
+	// that is merely in flight, no later event can give it force. Refused in the
+	// SAME transaction as the insert, so the state cannot change underneath the
+	// check.
+	if IsTerminal(dependent.State) {
+		return DependencyEdge{}, fmt.Errorf(
+			"%w: task %s is %s; a terminal task cannot acquire a dependency, because nothing remains that the edge could gate",
+			ErrDependencyInvalid, taskID, dependent.State)
 	}
 	// Cycle check BEFORE the insert: walk from `dependsOn` and see whether we can
 	// reach `taskID`. If we can, adding this edge would close a loop.
@@ -250,11 +264,43 @@ func (s *Service) AddDependency(taskID, dependsOn string) (DependencyEdge, error
 	return edge, nil
 }
 
+// requireDependenciesLanded refuses to land a Task whose dependencies have not
+// themselves landed. s.mu must be held.
+//
+// This is the enforcement half of the graph, and for a while it did not exist:
+// `blocked` gated admission and nothing gated landing, so an edge declared once a
+// Task had left `planned` was recorded, rendered in `task depends` and on the
+// board, and changed nothing at all. A dependency that is displayed but inert is
+// worse than one that was refused, because the board reads as a promise. See the
+// long note at the call site in integrateOnce for why landing is the right gate.
+func (s *Service) requireDependenciesLanded(task Task) error {
+	status, err := s.store.DependencyStatusFor(task.ID)
+	if err != nil {
+		return err
+	}
+	if status.Ready() {
+		return nil
+	}
+	// Unsatisfiable is named separately because the two need different actions
+	// from an operator: waiting helps in one case and never helps in the other.
+	detail := fmt.Sprintf("task %s cannot land yet: waiting on %v", task.ID, status.Unmet)
+	if len(status.Unsatisfiable) > 0 {
+		detail = fmt.Sprintf("task %s cannot land: %v can never be satisfied (unmet: %v)",
+			task.ID, status.Unsatisfiable, status.Unmet)
+	}
+	return s.refuse("task", task.ID, EventGraph, ReasonDependenciesUnmet, detail)
+}
+
 // refreshBlockedState moves a Task between `planned` and `blocked` to match its
 // dependencies. s.mu must be held. Returns whether it changed anything.
 //
-// Only `planned` and `blocked` are touched: a Task that is already running, or
-// finished, is past the point where its dependencies decide anything.
+// Only `planned` and `blocked` are touched, because those are the only two states
+// this pair of transitions connects. That is NOT the same as saying dependencies
+// stop mattering once a Task is running: they gate landing too, which is enforced
+// at the integration transaction by requireDependenciesLanded. A Task past
+// `planned` simply carries its unmet dependencies rather than wearing them as a
+// state — there is no `working`-and-blocked to move it to, and inventing one would
+// mean a Task whose worker is mid-flight claiming to be waiting.
 func (s *Service) refreshBlockedState(taskID string) (bool, error) {
 	task, err := s.store.GetTask(taskID)
 	if err != nil {
