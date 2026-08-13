@@ -223,14 +223,11 @@ func (s *Service) steerJob(caller Caller, jobID, instruction string) (SteeringEv
 		return SteeringEvent{}, err
 	}
 
-	// A newer instruction replaces an older undelivered one. Doing this BEFORE the
-	// insert means there is never a window in which two instructions are both
-	// pending for one Job, which would leave "what is this worker being told" with
-	// two answers.
-	if err := s.store.SupersedePendingSteering(jobID); err != nil {
-		return SteeringEvent{}, err
-	}
-	steer, err := s.store.CreateSteering(task.ID, jobID, instruction, CallerClass(caller.String()))
+	// A newer instruction replaces an older undelivered one, in one transaction:
+	// never two pending instructions for a Job ("what is this worker being told"
+	// must not have two answers), and never zero because the replacement failed
+	// after the supersede had already committed.
+	steer, err := s.store.ReplacePendingSteering(task.ID, jobID, instruction, CallerClass(caller.String()))
 	if err != nil {
 		return SteeringEvent{}, err
 	}
@@ -266,7 +263,27 @@ func (s *Service) deliverSteering(steer SteeringEvent, task Task, job Job) Steer
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
-		err = deliverer.DeliverSteering(ctx, target, steer.Instruction)
+		// RACED against the deadline, not merely handed it. A context is a request;
+		// an adapter that ignores it would otherwise block this goroutine forever
+		// and steeringDeliveryTimeout would bound nothing it claims to bound. This
+		// is the same shape runUnderWallClock uses for the wall-clock budget, and
+		// for the same reason: the plane's verdict must not depend on the runner
+		// cooperating. The channel is buffered so an adapter that answers after the
+		// deadline neither blocks nor leaks.
+		//
+		// The honest limit is identical too, and worth stating rather than implying:
+		// this bounds how long the PLANE waits, not how long the adapter runs. A
+		// deliverer that never returns keeps its goroutine until the process exits.
+		// What the timeout guarantees is that the caller gets an answer and the row
+		// is settled — and `undeliverable` is the truthful record of an adapter that
+		// told us nothing in time.
+		done := make(chan error, 1)
+		go func() { done <- deliverer.DeliverSteering(ctx, target, steer.Instruction) }()
+		select {
+		case err = <-done:
+		case <-ctx.Done():
+			err = fmt.Errorf("the runner did not answer within %s: %w", timeout, ctx.Err())
+		}
 	})
 
 	switch {
@@ -386,13 +403,27 @@ func steeringDeliverer(runner AgentRunner) (SteeringDeliverer, bool) {
 
 // --- store -----------------------------------------------------------------------
 
-// CreateSteering records a pending instruction and logs it, atomically.
-func (s *Store) CreateSteering(taskID, jobID, instruction string, by CallerClass) (SteeringEvent, error) {
+// ReplacePendingSteering supersedes every pending instruction for a Job and
+// records the replacement, in ONE transaction.
+//
+// It is one operation because the two halves are one fact. They used to be two
+// calls — supersede, then create — and the comment on the first promised that
+// there is never a window in which two instructions are pending for one Job. It
+// bought that property by permitting the opposite window: a failure after the
+// supersede committed and before the insert did left the Job with ZERO pending
+// instructions, having silently discarded a valid one the operator believed was
+// still standing. Both windows are gone here; the invariant is now a property of
+// the transaction rather than of the order of two writes.
+func (s *Store) ReplacePendingSteering(taskID, jobID, instruction string, by CallerClass) (SteeringEvent, error) {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return SteeringEvent{}, err
 	}
 	defer tx.Rollback()
+
+	if err := s.supersedePendingTx(tx, jobID); err != nil {
+		return SteeringEvent{}, err
+	}
 
 	id, err := nextID(tx, "steering", "S")
 	if err != nil {
@@ -436,18 +467,31 @@ func (s *Store) CreateSteering(taskID, jobID, instruction string, by CallerClass
 // instruction cannot later be recorded undeliverable, and a cancelled one cannot
 // be resurrected by a late runner callback.
 func (s *Store) SettleSteering(id string, to DeliveryState, meta EventMeta, detail string) (SteeringEvent, error) {
-	if to == SteerPending {
-		return SteeringEvent{}, fmt.Errorf("control: cannot settle steering %s back to pending", id)
-	}
-	if !IsValidDeliveryState(to) {
-		return SteeringEvent{}, fmt.Errorf("control: %q is not a delivery state", to)
-	}
 	tx, err := s.db.Begin()
 	if err != nil {
 		return SteeringEvent{}, err
 	}
 	defer tx.Rollback()
 
+	cur, err := s.settleSteeringTx(tx, id, to, meta, detail)
+	if err != nil {
+		return SteeringEvent{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return SteeringEvent{}, err
+	}
+	return cur, nil
+}
+
+// settleSteeringTx is SettleSteering's body on an existing transaction, so a
+// supersede can share one with the insert that replaces it.
+func (s *Store) settleSteeringTx(tx *sql.Tx, id string, to DeliveryState, meta EventMeta, detail string) (SteeringEvent, error) {
+	if to == SteerPending {
+		return SteeringEvent{}, fmt.Errorf("control: cannot settle steering %s back to pending", id)
+	}
+	if !IsValidDeliveryState(to) {
+		return SteeringEvent{}, fmt.Errorf("control: %q is not a delivery state", to)
+	}
 	cur, err := scanSteering(tx.QueryRow(steeringSelect+` WHERE id = ?`, id))
 	if err != nil {
 		return SteeringEvent{}, err
@@ -473,21 +517,15 @@ func (s *Store) SettleSteering(id string, to DeliveryState, meta EventMeta, deta
 		fmt.Sprintf("steering %s %s: %s", id, to, detail)); err != nil {
 		return SteeringEvent{}, err
 	}
-	if err := tx.Commit(); err != nil {
-		return SteeringEvent{}, err
-	}
 	cur.State, cur.Detail, cur.UpdatedAt, cur.DeliveredAt = to, detail, now, delivered
 	return cur, nil
 }
 
-// SupersedePendingSteering marks every pending instruction for a Job as
-// superseded.
-//
-// Called BEFORE the replacement row is inserted, so there is never a window in
-// which two instructions are pending for one Job — "what is this worker being
-// told" must not have two answers.
-func (s *Store) SupersedePendingSteering(jobID string) error {
-	rows, err := s.db.Query(
+// supersedePendingTx marks every pending instruction for a Job as superseded,
+// on the caller's transaction — so the supersede and the replacement that
+// justifies it commit together or not at all.
+func (s *Store) supersedePendingTx(tx *sql.Tx, jobID string) error {
+	rows, err := tx.Query(
 		`SELECT id FROM steering WHERE job_id = ? AND state = ? ORDER BY seq ASC`,
 		jobID, string(SteerPending))
 	if err != nil {
@@ -507,7 +545,7 @@ func (s *Store) SupersedePendingSteering(jobID string) error {
 		return err
 	}
 	for _, id := range ids {
-		if _, err := s.SettleSteering(id, SteerSuperseded, EventMeta{Kind: EventSteering},
+		if _, err := s.settleSteeringTx(tx, id, SteerSuperseded, EventMeta{Kind: EventSteering},
 			"replaced by a newer instruction before it was delivered"); err != nil {
 			return err
 		}

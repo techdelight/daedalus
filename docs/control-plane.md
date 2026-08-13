@@ -1086,6 +1086,27 @@ narrow on purpose: return `nil` **only** when the instruction reached the Job â€
 never for "I wrote it somewhere the agent may or may not read", which is the
 failure mode the whole design exists to prevent.
 
+**The plane does not trust the adapter to honour its deadline** (Sprint 64). The
+delivery call is *raced* against the timeout on a buffered channel, not merely
+handed a context â€” the same shape `runUnderWallClock` uses for the wall-clock
+budget, and for the same reason: a context is a request, and an adapter is
+runner-specific code the plane cannot vouch for. An adapter that ignores
+cancellation would otherwise block its caller forever and the timeout would bound
+nothing it claims to bound. The honest limit is the same one the wall-clock budget
+carries, and is worth stating rather than implying: this bounds how long the
+**plane waits**, not how long the adapter runs. A deliverer that never returns
+keeps its goroutine until the process exits. What is guaranteed is that the caller
+gets an answer, the row is settled, and `undeliverable` is the truthful record of
+an adapter that told us nothing in time. The service lock is not held across the
+call, so one wedged adapter costs its own caller and never the whole plane.
+
+**Replacing an instruction is one transaction.** Superseding the pending
+instruction and inserting its replacement commit together or not at all. As two
+calls it guaranteed there were never *two* pending instructions for a Job by
+permitting the opposite: a failure between them left **zero**, silently discarding
+a valid instruction the operator believed was still standing. The invariant is now
+a property of the transaction rather than of the order of two writes.
+
 ### Honest assessment: what steering actually bought
 
 The plan demoted M17 and said live steering should prove its value in real use

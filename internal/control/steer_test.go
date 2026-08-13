@@ -574,3 +574,134 @@ func TestSteering_SurvivesAnExistingDatabase(t *testing.T) {
 		t.Fatalf("steering table missing after migration: %v", err)
 	}
 }
+
+// --- Sprint 64: the delivery bound and the replacement transaction ---------------
+
+// uncooperativeDeliverer ignores its context entirely. This is the case the
+// timeout claimed to bound and did not: steerableRunner selects on ctx.Done(),
+// so every existing test here exercises a COOPERATIVE adapter, and a synchronous
+// call to a cooperative adapter returns on its own. The contract cannot assume
+// cooperation — an adapter is runner-specific code, and the plane's verdict must
+// not depend on it behaving.
+type uncooperativeDeliverer struct {
+	StubRunner
+	release chan struct{}
+	entered chan struct{}
+}
+
+func (r *uncooperativeDeliverer) DeliverSteering(context.Context, SteerTarget, string) error {
+	close(r.entered)
+	<-r.release // deliberately never selects on ctx.Done()
+	return nil
+}
+
+func TestSteering_AnAdapterThatIgnoresItsContextIsStillBounded(t *testing.T) {
+	repo := gitRepo(t)
+	runner := &uncooperativeDeliverer{
+		release: make(chan struct{}),
+		entered: make(chan struct{}),
+	}
+	// Let the parked goroutine finish when the test does, so it neither leaks into
+	// other tests nor keeps the binary alive.
+	t.Cleanup(func() { close(runner.release) })
+
+	svc, _, store := newService(t, mapResolver{"app": repo}, runner, nil)
+	svc.steerTimeout = 50 * time.Millisecond
+	_, job := stageSteerableJob(t, svc, store, "app")
+
+	done := make(chan SteeringEvent, 1)
+	go func() {
+		steer, err := svc.SteerJob(job.ID, "are you listening?")
+		if err != nil {
+			t.Errorf("SteerJob: %v", err)
+		}
+		done <- steer
+	}()
+
+	select {
+	case steer := <-done:
+		if steer.State != SteerUndeliverable {
+			t.Errorf("state = %q, want undeliverable — nothing reached the worker", steer.State)
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("SteerJob never returned: the deadline did not bound an adapter that ignores its context")
+	}
+
+	// The adapter really was entered — otherwise this would pass for the wrong
+	// reason (e.g. the deliverer never being found at all).
+	select {
+	case <-runner.entered:
+	default:
+		t.Error("the deliverer was never called; the test proved nothing about bounding it")
+	}
+}
+
+// The service lock must not be held across a hung delivery either: one wedged
+// adapter may cost its own caller, never the whole plane.
+func TestSteering_AHungDeliveryDoesNotHoldTheServiceLock(t *testing.T) {
+	repo := gitRepo(t)
+	runner := &uncooperativeDeliverer{
+		release: make(chan struct{}),
+		entered: make(chan struct{}),
+	}
+	t.Cleanup(func() { close(runner.release) })
+
+	svc, _, store := newService(t, mapResolver{"app": repo}, runner, nil)
+	svc.steerTimeout = 10 * time.Second // long: the lock, not the deadline, is under test
+	task, job := stageSteerableJob(t, svc, store, "app")
+
+	go func() { _, _ = svc.SteerJob(job.ID, "hello?") }()
+	<-runner.entered // the delivery is now in flight and parked
+
+	reads := make(chan error, 1)
+	go func() {
+		_, err := svc.TaskStatus(task.ID)
+		reads <- err
+	}()
+	select {
+	case err := <-reads:
+		if err != nil {
+			t.Errorf("TaskStatus during a hung delivery: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the service lock was held across the delivery: an unrelated read blocked")
+	}
+}
+
+// The replacement is one transaction, so a failure cannot leave the Job with ZERO
+// pending instructions — the old code's failure mode, which discarded a valid
+// instruction the operator believed was still standing.
+func TestSteering_ReplaceIsAtomic_AFailedInsertKeepsThePredecessor(t *testing.T) {
+	repo := gitRepo(t)
+	runner := &steerableRunner{answer: ErrSteeringDeferred} // custody taken → stays pending
+	svc, _, store := newService(t, mapResolver{"app": repo}, runner, nil)
+	task, job := stageSteerableJob(t, svc, store, "app")
+
+	first, err := svc.SteerJob(job.ID, "first instruction")
+	if err != nil {
+		t.Fatalf("SteerJob: %v", err)
+	}
+	if first.State != SteerPending {
+		t.Fatalf("precondition: state = %q, want pending", first.State)
+	}
+
+	// Force the replacement's INSERT to fail. Rewinding the AUTOINCREMENT counter
+	// makes nextID hand back an id that already exists, so the UNIQUE constraint on
+	// steering.id rejects the row. The particular error does not matter — it stands
+	// in for any failure after the supersede and before the insert, which is
+	// precisely the window that used to be open.
+	if _, err := store.db.Exec(`UPDATE sqlite_sequence SET seq = 0 WHERE name = 'steering'`); err != nil {
+		t.Fatalf("rewinding the id counter: %v", err)
+	}
+	if _, err := store.ReplacePendingSteering(task.ID, job.ID, "second instruction", CallerHuman); err == nil {
+		t.Fatal("expected the replacement insert to fail; the test cannot prove rollback otherwise")
+	}
+
+	got, err := store.GetSteering(first.ID)
+	if err != nil {
+		t.Fatalf("GetSteering: %v", err)
+	}
+	if got.State != SteerPending {
+		t.Errorf("the predecessor was settled as %q by a replacement that never existed; the job now has no pending instruction at all", got.State)
+	}
+}

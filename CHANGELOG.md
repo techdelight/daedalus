@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Fixed
+- **A steering handoff is bounded even when the adapter ignores its context.** The
+  delivery call was handed a deadline context but invoked synchronously, so an
+  adapter that never checks cancellation would block its caller forever and
+  `steerTimeout` bounded nothing it claimed to bound. It is now *raced* against the
+  deadline on a buffered channel — the shape `runUnderWallClock` already uses for
+  the wall-clock budget, for the same reason: a context is a request, and an
+  adapter is runner-specific code the plane cannot vouch for. The honest limit is
+  unchanged and now stated: this bounds how long the **plane waits**, not how long
+  the adapter runs. Dormant in the shipped runner, which still has no steering
+  boundary — fixed before the first real adapter could inherit it.
+- **Replacing a steering instruction is atomic.** Superseding the pending
+  instruction and inserting its replacement were two transactions; a failure
+  between them left the Job with **zero** pending instructions, silently discarding
+  a valid one the operator believed was still standing. The comment promised there
+  would never be *two* — it bought that by permitting the opposite. `Store`
+  gains `ReplacePendingSteering`, which does both in one transaction and replaces
+  `SupersedePendingSteering`/`CreateSteering` (each had exactly one caller).
 - **A dependency declared after a Task left `planned` is no longer inert.** The
   graph's enforcement lived only in the `planned ⇄ blocked` refresh, so an edge
   added to a `working`, `candidate`, `verified` or `approved` Task was recorded,
