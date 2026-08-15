@@ -142,6 +142,9 @@ daedalus runners [list | show <name>]
 daedalus personas [list | show <name> | create <name> | remove <name>]
 daedalus programmes [list | show <name> | create <name> | add-project <prog> <proj> | add-dep <prog> <up> <down> | remove <name>]
 daedalus coordinator [start | stop | status]
+daedalus task [create | list | status <id> | dispatch <id> | verify <id> | approve <id> |
+               integrate <id> | board | approvals | proposals | depends <id> | steer <job-id>]
+daedalus guild-master
 daedalus tui
 daedalus web [--port PORT] [--host HOST] [--auth|--no-auth]
 daedalus completion <bash|zsh|fish>
@@ -164,6 +167,8 @@ daedalus --help
 | `personas` | List, show, create, or remove named persona configurations |
 | `programmes` | List, show, create, or remove multi-project programmes with dependencies |
 | `coordinator` | Manage the host-side runner daemon (`start`, `stop`, `status`) — see [Runner Path](#runner-path) |
+| `task` | Host-side control-plane work: create, dispatch, verify, approve and land Tasks — see [Control Plane](#control-plane) |
+| `guild-master` | Open the built-in cross-project overseer — see [Guild Master](#guild-master) |
 | `tui` | Interactive dashboard for managing projects |
 | `web` | Web UI dashboard (default: `localhost:3000`) |
 | `completion <shell>` | Print shell completion script (bash, zsh, fish) |
@@ -278,6 +283,41 @@ project:
 ```bash
 daedalus guild-master
 ```
+
+It is an overseer by **visibility**, not by command: it advises and plans, and it
+does not dispatch other agents. The separate machinery that *does* have authority
+is the control plane below — and the two are not yet joined, which
+[the usage guide](docs/using-daedalus-control.md#the-guild-master-as-a-control-plane-client)
+explains precisely.
+
+## Control Plane
+
+A host-side daemon (`daedalus-control`) that runs agent work as governed **Tasks**
+and decides for itself whether the result is done. An agent's ceiling is
+"candidate"; only the plane marks something verified, and only a human approves it.
+
+```bash
+# Describe the work (freezes base commit, acceptance policy and budget)
+daedalus task create --project my-app --objective "Add cursor pagination to GET /items"
+
+daedalus task dispatch T-7     # one attempt, isolated Git worktree, headless
+daedalus task verify   T-7     # graded in a clean container against a frozen policy
+daedalus task approve  T-7     # human authority — the agent cannot do this
+daedalus task integrate T-7    # rebase → re-verify the merged result → CAS the target ref
+
+daedalus task board            # everything, across every project
+```
+
+What it gives you: **independent verification** (the acceptance policy is committed
+as `.daedalus/verify.json` and frozen at the task's base commit, so it cannot be
+edited by the work being graded), **budgets** enforced host-side, **typed
+refusals** you can act on, a **cross-project dependency graph** that gates landing,
+concurrent Jobs with a fair scheduler, and an append-only event log.
+
+Full walkthrough — acceptance policies, budgets, dependencies, steering, approving
+from the TUI/Web, and the limits worth knowing — in
+**[docs/using-daedalus-control.md](docs/using-daedalus-control.md)**; the as-built
+reference is [docs/control-plane.md](docs/control-plane.md).
 
 ## TUI Dashboard
 

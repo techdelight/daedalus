@@ -969,7 +969,7 @@ either socket — the boundary is the container, not the file mode.
 |---|---|---|
 | Read | `list_tasks`, `get_task`, `task_events`, pending approvals, queues | executes |
 | Bounded write | `create_task`, `request_verification`, `request_review` | executes |
-| Consequential | dispatch, retry, replan, cancel, integrate, approve/reject, target resync | **recorded as a proposal** |
+| Consequential | dispatch, retry, replan, cancel, integrate, approve/reject, target resync, declare a dependency (M16), steer / withdraw a steer (M17) | **recorded as a proposal** |
 | Human-only | confirming or denying a proposal | **refused outright** |
 
 Reads and creation execute because they cannot exceed policy: a created task is

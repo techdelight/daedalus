@@ -352,13 +352,59 @@ MCP server on, so only the Guild Master's agent gets the cross-project read tool
 project and never write another's files; it cannot control or dispatch other
 agents — visibility only.
 
+The container also carries `/usr/local/bin/guild-control-mcp`, the **gated**
+control-plane client, which `entrypoint.sh` wires only when the restricted
+`control-agent.sock` is present in the container — no socket, no tool, because
+that socket *is* the caller's authority. **Nothing mounts it today**: `GuildMounts`
+supplies the read-only doc mounts and nothing else, so the client is dormant and
+the Guild Master remains read-only in practice (BACKLOG #72). When it is wired,
+only the *agent* socket may ever be mounted there; mounting `control.sock` would
+silently promote the container to human authority.
+
+## Control plane (`daedalus-control`)
+
+A **second** host-side daemon, independent of the coordinator and layered above
+it. The coordinator answers "run this project's agent"; the control plane decides
+*what* may run, *whether the result is done*, and *what may land*. It is the
+subsystem built over Milestones 13–18; the as-built reference is
+[docs/control-plane.md](docs/control-plane.md) and the usage guide is
+[docs/using-daedalus-control.md](docs/using-daedalus-control.md).
+
+```
+daedalus task … ──► control.sock ───────┐
+                                        ├──► daedalus-control ──► control.db (SQLite)
+guild-control-mcp ──► control-agent.sock┘          │
+   (agent class, see below)                        ├──► git worktree per Job (isolated, at base_sha)
+                                                   ├──► coordinator ──► agent container   (execute)
+                                                   └──► docker run (pinned digest)        (verify)
+```
+
+- **Two sockets, one daemon.** Caller class is derived from *which socket a
+  request arrived on* — `control.sock` is human (CLI/TUI/Web),
+  `control-agent.sock` is agent. Not a request field (a client could claim to be
+  human) and not peer credentials (both run as the same uid). The socket split is
+  the mechanism; the container boundary is what makes it hold.
+- **Single writer.** `control.db` is owned by the daemon; every client is thin.
+  `control.EnsureRunning` auto-spawns it and reuses a live one.
+- **Injectable seams**, so the logic is host-testable without Docker:
+  `AgentRunner` (execute), `VerifyRunner` (grade), `SteeringDeliverer` (steer,
+  currently no shipped implementation), `ImageDigester` (pin).
+- **Execution is worktree-per-Job**, checked out clean at the Task's frozen
+  `base_sha` under `<DataDir>/control/worktrees/`, so an Artifact's commit holds
+  only that Job's changes.
+- **Verification is a separate container** built from the project image pinned by
+  `sha256:` digest, `--network none`, nothing mounted but a fresh checkout of the
+  artifact — never the Job's own worktree, and never the developer environment.
+
 ## Protocols and ports
 
 | Protocol | Endpoint | Description |
 |---|---|---|
-| HTTP | Web UI port (default 3000) | REST + login. `/api/projects/*`, `/api/programmes/*`, `/sprints`, `/backlog`, `/strategic-roadmap` |
+| HTTP | Web UI port (default 3000) | REST + login. `/api/projects/*`, `/api/programmes/*`, `/api/approvals*`, `/sprints`, `/backlog`, `/strategic-roadmap` |
 | WebSocket | Web UI port | Terminal relay at `/api/projects/{name}/terminal` |
 | HTTP over UDS | `<DataDir>/.daedalus/coordinator.sock` | Coordinator daemon API (Start/List/Get/Stop) |
+| HTTP over UDS | `<DataDir>/.daedalus/control.sock` | Control-plane API, **human** caller class |
+| HTTP over UDS | `<DataDir>/.daedalus/control-agent.sock` | Control-plane API, **agent** caller class (restricted: consequential ops become proposals) |
 | Unix stream | `<DataDir>/<project>/.daedalus/runner.sock` | daedalus-runner PTY relay |
 | Docker API | `/var/run/docker.sock` | Container lifecycle via `docker` CLI |
 
@@ -371,10 +417,18 @@ agents — visibility only.
 ├── skills/                             # shared skill catalog
 ├── personas/                           # persona configs
 ├── programmes/                         # programme definitions
+├── control.db                          # control plane: tasks/jobs/artifacts/events (SQLite)
+├── control/
+│   ├── budgets.json                    # host-side budget policy (never in a repo)
+│   └── worktrees/                      # one isolated Git worktree per Job
 ├── .daedalus/
 │   ├── coordinator.sock                # daemon HTTP-over-UDS listener
 │   ├── coordinator.pid                 # daemon pidfile (for start/stop/status)
 │   ├── coordinator.log                 # daemon stdout+stderr
+│   ├── control.sock                    # control plane, human caller class
+│   ├── control-agent.sock              # control plane, agent caller class (restricted)
+│   ├── control.pid                     # control daemon pidfile
+│   ├── control.log                     # control daemon stdout+stderr
 │   └── sessions.json                   # persistent runner-session map
 └── <project>/                          # per-project cache (= /home/claude in-container)
     ├── .cache/                         # agent's persistent home

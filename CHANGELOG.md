@@ -82,6 +82,24 @@ milestone-sized findings written into the backlog rather than quietly absorbed.
   literal word is a status `docs lint` rejects. The docstring was the wrong half.
 
 ### Added
+- **`docs/using-daedalus-control.md` — a usage guide for the Guild Master and the
+  control plane.** The two subsystems had extensive design documentation and no
+  page that said what to type: an end-to-end walkthrough (create → dispatch →
+  verify → approve → integrate), how to write a `.daedalus/verify.json`
+  acceptance policy and how to change tests without tripping the integrity gate,
+  budgets and the host-side policy file, the typed refusals and which of
+  retry/`--rebase`/replan answers each, cross-project dependencies, steering,
+  approving from the TUI (`A`) and Web, and where state lives. README gains a
+  Control Plane section and `task`/`guild-master` entries in the command table;
+  `ARCHITECTURE.md` gains the control-plane component, its two sockets and its
+  data files, none of which it had described.
+  - It also documents two capabilities as **dormant rather than available**,
+    which is the point of writing it: steering delivers nothing on the shipped
+    runner, and the Guild Master's control client is never wired because nothing
+    mounts `control-agent.sock` into its container (new **BACKLOG #72** — the
+    env gate and the MCP server both exist and are correct; the host-side mount
+    does not). Found while writing the guide, by trying to describe the workflow
+    end to end.
 - **`add_sprint` writes a `Goal:` line** when given one. Every sprint in `SPRINTS.md`
   carries a goal above its item table, but the writer emitted none, so each opening
   needed a hand-edit — the same class of gap as #66 and found the same way, by
