@@ -2,7 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [0.53.0] - 2026-08-15
+
+Milestone 18 (Control-Plane Hardening): the post-arc external review of the
+M13–M17 control plane, acted on. Three correctness defects fixed, one claim the
+code contradicted two lines below itself corrected, and the review's two
+milestone-sized findings written into the backlog rather than quietly absorbed.
 
 ### Fixed
 - **A steering handoff is bounded even when the adapter ignores its context.** The
@@ -107,6 +112,28 @@ All notable changes to this project will be documented in this file.
     `errors.Is(err, ErrNotFound)` discipline (only a genuine "no target yet" may
     adopt; any other read failure surfaces) moved intact to the command. The
     `TestAttack_*` suite passes with **no assertion changed**.
+- **The wall-clock budget is described as what it is: not a kill.** The comment on
+  `runUnderWallClock` called it the first "strongly enforceable" axis and said the
+  Job "is terminated" — two lines above the honest paragraph explaining that the
+  plane cannot guarantee the death of a process it did not fork and that the
+  container may outlive the verdict. Both could not be true; the honest one was.
+  The comment and `docs/control-plane.md`'s budget table now say the Job and Task
+  **rows** go terminal on time whether or not the runner cooperates, and that what
+  is enforced is the plane's own bookkeeping plus a cancellation *request*. No
+  behaviour changed — the budget did exactly this before, and only the description
+  of it was wrong, which is the point: the same defect class the M15 audit found
+  five times and the M17 close corrected once. Real termination is now backlog #69
+  rather than an implied property.
+- **The two findings this release deliberately does not fix are written down.**
+  BACKLOG **#69** (real execution termination: a persisted execution handle,
+  idempotent `Stop`/`Kill`, capacity released only on confirmed death) and **#70**
+  (a durable scheduler: persisted queue entries plus a dispatch loop, replacing
+  retry-driven admission — today the `waiting` map is in-memory and a restart
+  erases queue order). Both are milestone-sized execution-substrate work, and the
+  external review's verdict is that they are the real remaining gap: the control
+  plane is more trustworthy than the machinery it controls. **#71** records the
+  hostile black-box scenarios the review asked for, minus the three now covered by
+  tests, so the list is a to-do rather than a critique.
 
 ## [0.52.0] - 2026-08-09
 

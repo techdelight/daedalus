@@ -149,7 +149,7 @@ Built in Sprint 63 — and the demotion was right. The shipped `CoordinatorRunne
 - Typed `steer_job` with provenance / delivery-state / cancellation, delivered at a supported boundary
 - Coordination polish: cross-project task-board views over control-plane state; uniform provenance across tasks, jobs, steering, and approvals
 
-### Milestone 18: Control-Plane Hardening (In Progress)
+### Milestone 18: Control-Plane Hardening (Done)
 
 Close the correctness gaps the post-arc external review of `development` @ `e2139df` found in the shipped M13–M17 control plane (`daedalus-development-branch-review.md`), and make the prose match the code where it drifted. Small and contained by design: three defects with cheap, local fixes, plus the wall-clock claim that overstates what the code does. The review's two large findings — real execution termination, and a durable scheduler in place of retry-driven admission — are deliberately NOT in scope; they are milestone-sized and stay in the backlog until they are chosen.
 
@@ -161,21 +161,24 @@ Close the correctness gaps the post-arc external review of `development` @ `e213
 
 ```
 M1..M16 (Done, except M10) ─► M17 Typed Steering (the arc's last milestone)
-                            ─► M18 Control-Plane Hardening (the arc's review, acted on)
+                            ─► M18 Control-Plane Hardening (Done — the arc's review, acted on)
+                            ─► (no milestone in progress; next focus undecided)
 
 The "controlling Guild Master" control-plane arc
 (design: docs/guild-master-plan.md; evidence: docs/guild-master-control.md):
   V1  M13 Control-Plane Foundation + CLI path (worktrees · reconcile) ─► M14 Independent Verification
   V2  M15 Governance · Integration txn · Guild Master (gated) client
   V3  M16 Parallel Execution (dependency graph) ─► M17 Typed Steering (demoted; built, delivers nothing on the shipped runner)
-Then M18 Control-Plane Hardening — the correctable findings of the post-arc
-external review; NOT the two milestone-sized ones (real termination, a durable
-scheduler), which stay in the backlog until they are chosen.
+Then M18 Control-Plane Hardening (Done) — the correctable findings of the post-arc
+external review; NOT the two milestone-sized ones (real termination #69, a durable
+scheduler #70), which stay in the backlog until they are chosen.
 Still Planned: M10 Homebrew Distribution.
 ```
 
 ## Current Focus
 
-**Milestone 18 (Control-Plane Hardening) is in progress, in Sprint 64** — the M13–M17 arc is complete and shipped, and this is its review being acted on rather than filed. An external review of `development` @ `e2139df` (`daedalus-development-branch-review.md`) found five things; every one was re-verified against the source before being scheduled, and none was a false positive. Three are correctable in place and are this sprint: a **dependency edge declared late is silently inert** (recorded, displayed on the board, and gating nothing, because enforcement lives only in the `planned`/`blocked` refresh); **steering delivery is not actually bounded** against an adapter that ignores its context, though the guarding pattern already exists in the same package for wall-clock; and **supersede-and-replace is non-atomic**, so a failure between the two transactions leaves zero pending instructions where the comment promises one. The fourth is a **claim the code contradicts two lines below itself** — the wall-clock budget is called "strongly enforceable" and the Job "terminated", directly above an honest paragraph saying the container may outlive the verdict. Deliberately **out of scope**, and recorded in the backlog instead of quietly absorbed: real execution termination, and a durable scheduler to replace retry-driven admission. Those are the review's own verdict — that the control plane is more trustworthy than the execution machinery it controls — and they are milestone-sized, so they will be chosen rather than drifted into. Also Planned: M10 (Homebrew), the one milestone that cannot be verified in this environment.
+**No milestone is in progress.** **Milestone 18 (Control-Plane Hardening) closed in v0.53.0** (Sprint 64) — the M13–M17 arc's external review acted on rather than filed. The review of `development` @ `e2139df` (`daedalus-development-branch-review.md`) found five things; every one was re-verified against the source before being scheduled, and none was a false positive. Three were correctable in place and are now fixed: a **dependency edge declared late was silently inert** — recorded, shown on the board, gating nothing — and **landing is now gated on the graph** (deliberately not grading: `base_sha` is frozen at creation, so the integration rebase is the only place the two Tasks' work is genuinely combined); **steering delivery is now raced against its deadline** rather than trusting an adapter to honour a context, and **supersede-and-replace is one transaction**, so a failure can no longer leave zero pending instructions where the comment promised one. The fourth was a **claim the code contradicted two lines below itself** — the wall-clock budget called "strongly enforceable" and the Job "terminated", directly above an honest paragraph saying the container may outlive the verdict; the honest one won, in the comment and in `docs/control-plane.md`.
+
+**What the review left standing is the next real question, and it is deliberately unchosen.** Its two milestone-sized findings went to the backlog rather than being smuggled into a hardening sprint: **#69 real execution termination** (a persisted execution handle with an idempotent `Stop`/`Kill`, capacity released only on *confirmed* death — the prerequisite for the wall-clock budget ever being a kill) and **#70 a durable scheduler** (persisted queue entries plus a dispatch loop, replacing retry-driven admission and an in-memory `waiting` map that a restart erases). Together they are the review's verdict in one line: *the control plane is more trustworthy than the execution substrate it controls.* **#71** carries the hostile black-box test list. Also Planned: M10 (Homebrew), the one milestone that cannot be verified in this environment.
 
 **The M13–M17 control-plane arc is complete.** **M17 shipped in v0.52.0** (Sprint 63): typed `steer_job` recorded as a `SteeringEvent` with issuer, timestamp and an explicit delivery state, delivered only at a boundary the runner actually supports and recorded **`undeliverable`** when it cannot be — because a steering op that reports success without delivering is worse than one that refuses. Steering changes *what the worker is told*, never *what counts as done*: a steered Job still reaches `candidate` and is still independently verified against the frozen oracle, an invariant that held under injected oracle-corrupting mutations. Plus the **programme board**, a cross-project view over control-plane state reusing the approvals surface, the dependency graph and the agent-facing opaque queue ids. **M17 also validated its own demotion**: the runner Daedalus ships has no steering boundary, so every steer is `undeliverable` today, and the milestone's honest verdict — that it should have stayed in the backlog until a runner with a boundary existed — is recorded in the docs rather than justified retroactively. That verdict, tested with working code, is the milestone's largest deliverable. Also Planned: M10 (Homebrew), the one milestone that cannot be verified in this environment. The arc's guarantees and its standing limits are collected in `docs/control-plane.md`.
