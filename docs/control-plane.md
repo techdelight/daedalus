@@ -222,7 +222,7 @@ honestly, and so does the code:
 
 | Axis | Status | How |
 |---|---|---|
-| **wall-clock** (per Job) | **Enforced** | the plane races the runner against a deadline context; an overrun is `execution_result=timeout` and the Job/Task go terminal |
+| **wall-clock** (per Job) | **Enforced plane-side — it is not a kill** | the plane races the runner against a deadline context; an overrun is `execution_result=timeout` and the Job/Task **rows** go terminal, on time, whether or not the runner cooperates. What is enforced is the plane's own bookkeeping plus a cancellation *request*; the process keeps running if it ignores that request. See the honest limit below |
 | **max-attempts** (per Task) | **Enforced** | Jobs are counted; a dispatch/retry beyond the count is refused |
 | **max-review-cycles** (per Task) | **Enforced** | transitions into `verifying` are counted **from the event log**; a further verify is refused |
 | **concurrency** (per project) | **Enforced** | running Jobs (`queued`/`working`/`input_required`) are counted; a further dispatch is refused |
@@ -267,12 +267,24 @@ socket API is the security boundary, and an agent joins it in Sprint 60), the
 policy file at load, and the row scan as a backstop for a hand-edited
 `control.db`.
 
-**Honest limit on the wall-clock kill.** The plane guarantees its own verdict and
-cancels the Job's context; it cannot guarantee the death of a process it did not
-fork. A runner that ignores its context keeps running in the background until it
-exits. Killing the underlying container needs a context-honouring runner — the
-real `CoordinatorRunner` is `exec`-based and does not abort a command mid-flight
-today.
+**Honest limit: the wall-clock budget is not a kill.** The plane guarantees its
+own verdict and cancels the Job's context; it cannot guarantee the death of a
+process it did not fork. A runner that ignores its context keeps running in the
+background until it exits, so the budget bounds *how long the plane waits and
+what it records*, never *how long the work runs*. Killing the underlying
+container needs a context-honouring runner — the real `CoordinatorRunner` is
+`exec`-based and does not abort a command mid-flight today.
+
+This is stated twice, in the table and here, because it was previously stated
+*inconsistently*: the code comment above `runUnderWallClock` called this the
+first "strongly enforceable" axis and said the Job "is terminated" two lines
+above the paragraph explaining that nothing is terminated (corrected in Sprint
+64). The design note the phrase came from
+([`guild-master-plan.md`](guild-master-plan.md) §6) is intent; this document is
+as-built, and where they differ this one is right. Real termination — a persisted
+execution handle with an idempotent `Stop`/`Kill`, with capacity released only on
+*confirmed* death — is [BACKLOG #69](../BACKLOG.md), not a property to imply
+before it exists.
 
 ### Typed rejection
 

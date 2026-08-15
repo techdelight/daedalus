@@ -885,19 +885,23 @@ func (s *Service) admitDispatch(task Task) error {
 	return nil
 }
 
-// runUnderWallClock runs one attempt bounded by the Job's wall-clock budget, the
-// first of §6's "strongly enforceable" axes. The runner is handed a deadline
-// context AND raced against it, so the plane's verdict does not depend on the
-// runner cooperating: an overrun is classified execution_result=timeout on the
-// spot and the Job is terminated.
+// runUnderWallClock runs one attempt bounded by the Job's wall-clock budget.
+// What that bound actually is, stated precisely because the budget is easy to
+// oversell: the runner is handed a deadline context AND raced against it, so the
+// plane reaches its own verdict on time whether or not the runner cooperates —
+// an overrun is classified execution_result=timeout on the spot and the Job ROW
+// goes terminal. That is bookkeeping plus a cancellation request. It is not the
+// death of a process the plane did not fork.
 //
-// Honest limit, worth stating: the plane can guarantee its own bookkeeping and
-// the context cancellation, not the death of a process it did not fork. A runner
-// that ignores its context keeps running in the background until it exits (the
-// goroutine below is parked on a buffered channel, so nothing here blocks or
-// leaks a lock, but the container may outlive the verdict). Killing the
-// underlying container needs a runner that honours the context — the real
-// CoordinatorRunner is exec-based and does not abort a command mid-flight today.
+// So a runner that ignores its context keeps running in the background until it
+// exits (the goroutine below is parked on a buffered channel, so nothing here
+// blocks or leaks a lock, but the container may outlive the verdict, and the
+// budget cannot be described as terminating it). Killing the underlying container
+// needs a runner that honours the context — the real CoordinatorRunner is
+// exec-based and does not abort a command mid-flight today; real termination
+// wants a persisted execution handle with an idempotent Stop/Kill, which is a
+// backlog item, not something this function can fake. `steer.go`'s delivery race
+// carries the same limit for the same reason.
 // A budget of 0 means unbounded and skips all of this.
 func runUnderWallClock(runner AgentRunner, spec JobSpec) RunOutcome {
 	if spec.Budget <= 0 {
