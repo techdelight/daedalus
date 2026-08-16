@@ -56,6 +56,58 @@ func GuildMounts(current string, projects []ProjectInfo) []string {
 	return args
 }
 
+// GuildControlSocketTarget is where the RESTRICTED control-plane socket appears
+// inside the Guild Master's container. entrypoint.sh wires the guild-control MCP
+// server only when a socket exists at this path (overridable in-container via
+// DAEDALUS_CONTROL_AGENT_SOCKET), and guild-control-mcp defaults to it — so the
+// three agree on one string.
+const GuildControlSocketTarget = "/var/run/daedalus/control-agent.sock"
+
+// guildControlSocketName is the only basename this mount will ever accept. See
+// GuildControlSocketMount for why a name check is worth its weight.
+const guildControlSocketName = "control-agent.sock"
+
+// GuildControlSocketMount returns the bind-mount arguments that give the Guild
+// Master's container the control plane's RESTRICTED agent socket — the client
+// half of Sprint 60's tiered authority. It returns nil for every other project,
+// and nil when there is nothing safe to mount.
+//
+// Why this exists as its own function rather than a line in GuildMounts: those
+// mounts grant *visibility* and this one grants *the ability to act*, under a
+// caller class the plane derives from which socket a request arrives on. The
+// rules are therefore stricter, and all three of them are refusals:
+//
+//  1. Not the Guild Master → nil. No ordinary project's agent may reach the
+//     control plane at all.
+//  2. hostSocket is not an existing SOCKET → nil. If the plane is not running
+//     there is nothing to mount, and mounting a missing path would have Docker
+//     create a *directory* there — after which the in-container `[ -S ]` gate
+//     stays false but a confusing artefact exists inside the container. A plain
+//     file is refused for the same reason: only a real socket is the daemon's.
+//  3. The basename is not exactly "control-agent.sock" → nil. This is the one
+//     mistake the design cannot absorb: mounting the HUMAN control.sock here
+//     would silently promote the agent to full authority, since the class comes
+//     from the file, not from the request. A caller that computes the wrong path
+//     gets no tool rather than an unlimited one — and the failure is loud in the
+//     logs at the call site rather than silent at the plane.
+//
+// It is deliberately fail-closed in all three: every refusal yields *less*
+// authority, and a Guild Master that starts without the control client is
+// exactly the read-only overseer M12 shipped.
+func GuildControlSocketMount(current, hostSocket string) []string {
+	if !IsGuildMaster(current) || hostSocket == "" {
+		return nil
+	}
+	if filepath.Base(hostSocket) != guildControlSocketName {
+		return nil
+	}
+	fi, err := os.Stat(hostSocket)
+	if err != nil || fi.Mode()&os.ModeSocket == 0 {
+		return nil
+	}
+	return []string{"-v", hostSocket + ":" + GuildControlSocketTarget}
+}
+
 // sanitiseGuildMountName returns name if it is safe to use as a single path
 // segment under /guild, or "" if it is not. Project names are already validated
 // slugs (ValidateProjectName forbids path separators), so this is defence in

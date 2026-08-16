@@ -285,10 +285,16 @@ daedalus guild-master
 ```
 
 It is an overseer by **visibility**, not by command: it advises and plans, and it
-does not dispatch other agents. The separate machinery that *does* have authority
-is the control plane below — and the two are not yet joined, which
-[the usage guide](docs/using-daedalus-control.md#the-guild-master-as-a-control-plane-client)
-explains precisely.
+does not dispatch other agents.
+
+It can also *act* on the control plane below — as a **gated** caller. Its
+container (and no other) receives the plane's restricted agent socket, so it may
+read, and create budgeted tasks, and ask the plane to verify one; anything
+consequential (cancel, integrate, approve, steer) is recorded as a **proposal** a
+human confirms, and it can never confirm its own. That is the concrete defence
+against prompt injection: the Guild Master reads untrusted project documents, so
+a poisoned README may propose, never execute. See
+[the usage guide](docs/using-daedalus-control.md#the-guild-master-as-a-control-plane-client).
 
 ## Control Plane
 

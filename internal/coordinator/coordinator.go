@@ -36,6 +36,7 @@ import (
 	"time"
 
 	"github.com/techdelight/daedalus/core"
+	"github.com/techdelight/daedalus/internal/control"
 	"github.com/techdelight/daedalus/internal/executor"
 	"github.com/techdelight/daedalus/internal/registry"
 )
@@ -218,6 +219,14 @@ func (c *Coordinator) Start(cfg *core.Config) (*Session, error) {
 	// Master's next launch. Normal projects get no /guild mounts.
 	if core.IsGuildMaster(name) {
 		args = append(args, guildMountArgs(cfg)...)
+		// …and, when the control plane is up, the RESTRICTED agent socket, which
+		// is what lets the Guild Master act at all (as a proposal-tier caller).
+		// The env var is set only alongside a real mount so the in-container gate
+		// and the mount can never disagree.
+		if mount := guildControlMountArgs(cfg); len(mount) > 0 {
+			args = append(args, mount...)
+			args = append(args, "-e", "DAEDALUS_CONTROL_AGENT_SOCKET="+core.GuildControlSocketTarget)
+		}
 	}
 	args = append(args, "--name", containerName, "claude")
 	log.Printf("coordinator: starting runner for %q (container %s, image %s)", name, containerName, cfg.Image())
@@ -409,6 +418,26 @@ func guildMountArgs(cfg *core.Config) []string {
 		return nil
 	}
 	return core.GuildMounts(cfg.ProjectName, projects)
+}
+
+// guildControlMountArgs returns the bind mount for the control plane's
+// restricted agent socket, or nil with a logged explanation.
+//
+// The absence is worth a log line rather than silence: without it the Guild
+// Master starts as a read-only overseer, the guild-control tools are simply
+// missing from its agent's config, and the difference is otherwise invisible
+// until someone asks the Guild Master to create a task and it says it cannot.
+// The usual cause is that the control plane is not running — `daedalus
+// guild-master` starts it first, but a direct coordinator call need not have.
+func guildControlMountArgs(cfg *core.Config) []string {
+	sock := control.AgentSocketPath(cfg.DataDir)
+	mount := core.GuildControlSocketMount(cfg.ProjectName, sock)
+	if len(mount) == 0 {
+		log.Printf("coordinator: no control-plane agent socket at %s — the Guild Master "+
+			"starts WITHOUT the guild-control tools (read-only overseer). Start the plane "+
+			"with `daedalus task list` and relaunch to give it the client.", sock)
+	}
+	return mount
 }
 
 // waitForSocket polls for path to appear on disk. The runner-detached

@@ -375,19 +375,43 @@ true in practice rather than by convention, and it is the concrete defence
 against prompt injection: the Guild Master reads untrusted project documents, so
 a poisoned `README.md` may *propose*, never *execute*.
 
-**Not yet wired, as of v0.53.0.** The container-side gate is in place — the
-entrypoint adds the `guild-control` MCP server only when the restricted socket is
-actually present, because that socket *is* the authority — but **nothing on the
-host bind-mounts `control-agent.sock` into the Guild Master's container**, and
-`DAEDALUS_CONTROL_AGENT_SOCKET` is never set for it. `core.GuildMounts` supplies
-the read-only `/guild/<name>` mounts and nothing else. So the socket never
-appears, the tool is never wired, and the Guild Master today is exactly what M12
-made it: a read-only overseer. Recorded as **BACKLOG #72**; until it closes, drive
-the control plane from the CLI.
+**Wiring it up (BACKLOG #72, fixed after v0.53.0).** The container half of this
+had always been in place — the entrypoint adds the `guild-control` MCP server
+only when the restricted socket is actually present, because that socket *is* the
+authority — but nothing on the host ever mounted it, so the tool was never wired
+and the Guild Master stayed read-only in practice. It is now mounted, under rules
+that are all refusals:
 
-This is the same shape as the steering gap above, and is documented for the same
-reason: an unwired capability that a document claims is live is worse than one it
-admits is dormant.
+```bash
+daedalus guild-master     # starts the control plane first, then the container
+```
+
+- The launch starts `daedalus-control` if it is not already listening, because a
+  bind-mount source must exist before `docker run`. If the plane cannot be
+  started you get a warning and a **read-only** Guild Master — never a failed
+  launch.
+- Only `<data-dir>/.daedalus/control-agent.sock` is ever mounted, at
+  `/var/run/daedalus/control-agent.sock`. `core.GuildControlSocketMount` refuses
+  anything whose basename is not `control-agent.sock`: mounting the human
+  `control.sock` there would silently promote the agent to full authority, since
+  the class comes from the file rather than the request.
+- The mount is refused unless the path is a **real socket**, so a stopped plane
+  yields no mount rather than a directory Docker would helpfully create.
+- `DAEDALUS_CONTROL_AGENT_SOCKET` is set **only** alongside a real mount, so the
+  in-container gate and the host mount can never disagree.
+- No ordinary project gets any of this, at either end.
+
+**Verifying it on your host:** `bash scripts/verify-guild-control.sh static`
+proves the host half without Docker (15 assertions — including an agent caller
+creating a task, having a cancel turned into a proposal, and being refused when
+it tries to confirm that proposal itself), and `… real` inspects a running Guild
+Master container for the mount, the socket, and the wired tool. The runbook, with
+the failure modes and what each one means, is
+[`guild-control-verification.md`](guild-control-verification.md).
+
+The steering gap above is unchanged and still dormant — a different subsystem,
+and documented the same way for the same reason: an unwired capability a document
+claims is live is worse than one it admits is dormant.
 
 ---
 

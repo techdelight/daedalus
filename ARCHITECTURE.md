@@ -355,11 +355,24 @@ agents — visibility only.
 The container also carries `/usr/local/bin/guild-control-mcp`, the **gated**
 control-plane client, which `entrypoint.sh` wires only when the restricted
 `control-agent.sock` is present in the container — no socket, no tool, because
-that socket *is* the caller's authority. **Nothing mounts it today**: `GuildMounts`
-supplies the read-only doc mounts and nothing else, so the client is dormant and
-the Guild Master remains read-only in practice (BACKLOG #72). When it is wired,
-only the *agent* socket may ever be mounted there; mounting `control.sock` would
-silently promote the container to human authority.
+that socket *is* the caller's authority:
+
+```
+<DataDir>/.daedalus/control-agent.sock ──(rw)──► /var/run/daedalus/control-agent.sock
+```
+
+`core.GuildControlSocketMount` builds it and is fail-closed three ways: not the
+Guild Master → nil; not an existing **socket** → nil (a stopped plane must not
+have Docker create a directory there); basename not exactly `control-agent.sock`
+→ nil. That last one is the guard that matters — mounting the human
+`control.sock` at this path would silently promote the container to human
+authority, because the class comes from the file and not from the request. The
+`DAEDALUS_CONTROL_AGENT_SOCKET` env var is set only alongside a real mount, so
+the host mount and the in-container gate cannot disagree. `daedalus guild-master`
+starts the control plane before the launch, since a bind-mount source must exist
+at `docker run`; if it cannot, the Guild Master starts as the read-only overseer
+with a warning rather than failing. Verification runbook:
+[docs/guild-control-verification.md](docs/guild-control-verification.md).
 
 ## Control plane (`daedalus-control`)
 

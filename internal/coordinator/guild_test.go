@@ -3,12 +3,14 @@
 package coordinator
 
 import (
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/techdelight/daedalus/core"
+	"github.com/techdelight/daedalus/internal/control"
 	"github.com/techdelight/daedalus/internal/registry"
 )
 
@@ -85,4 +87,80 @@ func hasEnvFlag(args []string, kv string) bool {
 		}
 	}
 	return false
+}
+
+// listenAgentSocket binds a real Unix socket where the control plane's agent
+// listener would be, so Start sees the same thing it sees on a host with the
+// plane running.
+func listenAgentSocket(t *testing.T, cfg *core.Config) string {
+	t.Helper()
+	path := control.AgentSocketPath(cfg.DataDir)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	l, err := net.Listen("unix", path)
+	if err != nil {
+		t.Fatalf("listen on %s: %v", path, err)
+	}
+	t.Cleanup(func() { _ = l.Close() })
+	return path
+}
+
+func TestStart_GuildMaster_MountsTheRestrictedControlSocket(t *testing.T) {
+	cfg := configFor(t, core.GuildMasterName)
+	seedRegistry(t, cfg)
+	sock := listenAgentSocket(t, cfg)
+
+	args := capturedRunArgs(t, cfg)
+	joined := strings.Join(args, " ")
+
+	wantMount := sock + ":" + core.GuildControlSocketTarget
+	if !strings.Contains(joined, wantMount) {
+		t.Errorf("guild master run missing the agent-socket mount %q; args = %v", wantMount, args)
+	}
+	if !hasEnvFlag(args, "DAEDALUS_CONTROL_AGENT_SOCKET="+core.GuildControlSocketTarget) {
+		t.Errorf("guild master run missing -e DAEDALUS_CONTROL_AGENT_SOCKET; args = %v", args)
+	}
+	// The HUMAN socket must never be mounted: caller class is decided by the file.
+	if strings.Contains(joined, "control.sock:") {
+		t.Errorf("the human control socket was mounted into the Guild Master; args = %v", args)
+	}
+}
+
+// Without a running plane there is no socket, and the launch must proceed as the
+// read-only overseer rather than fail — and, critically, must NOT set the env var
+// that tells the entrypoint where to look. The mount and the gate move together.
+func TestStart_GuildMaster_NoControlPlane_NoMountAndNoEnv(t *testing.T) {
+	cfg := configFor(t, core.GuildMasterName)
+	seedRegistry(t, cfg)
+
+	args := capturedRunArgs(t, cfg)
+	joined := strings.Join(args, " ")
+
+	if strings.Contains(joined, "control-agent.sock") {
+		t.Errorf("mounted an agent socket that does not exist; args = %v", args)
+	}
+	if hasEnvFlag(args, "DAEDALUS_CONTROL_AGENT_SOCKET="+core.GuildControlSocketTarget) {
+		t.Errorf("set DAEDALUS_CONTROL_AGENT_SOCKET with no socket mounted; args = %v", args)
+	}
+	// Still a Guild Master: the read-only visibility is unaffected.
+	if !hasEnvFlag(args, "DAEDALUS_GUILD_MASTER=1") {
+		t.Errorf("guild master lost its own env when the plane was absent; args = %v", args)
+	}
+}
+
+func TestStart_NormalProject_NeverGetsTheControlSocket(t *testing.T) {
+	cfg := configFor(t, "my-app")
+	seedRegistry(t, cfg)
+	listenAgentSocket(t, cfg) // present, and still must not be mounted
+
+	args := capturedRunArgs(t, cfg)
+	joined := strings.Join(args, " ")
+
+	if strings.Contains(joined, "control-agent.sock") {
+		t.Errorf("an ordinary project got the control-plane agent socket; args = %v", args)
+	}
+	if hasEnvFlag(args, "DAEDALUS_CONTROL_AGENT_SOCKET="+core.GuildControlSocketTarget) {
+		t.Errorf("an ordinary project got DAEDALUS_CONTROL_AGENT_SOCKET; args = %v", args)
+	}
 }

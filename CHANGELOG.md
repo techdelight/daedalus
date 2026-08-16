@@ -2,6 +2,43 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Fixed
+- **The Guild Master can finally act — the restricted control-plane socket is
+  mounted into its container (#72).** `cmd/guild-control-mcp` has shipped since
+  M15 and `entrypoint.sh` gated it correctly on the socket being present, but
+  nothing on the host ever mounted it, so the gate was always false, the tool was
+  never wired, and "the Guild Master joins as a gated client" had never once been
+  reachable. `core.GuildControlSocketMount` now supplies it, and every rule in it
+  is a refusal:
+  - not the Guild Master → no mount; no ordinary project's agent reaches the
+    control plane at all;
+  - not an existing **socket** → no mount, so a stopped plane cannot have Docker
+    create a directory at the target;
+  - basename not exactly `control-agent.sock` → no mount. This is the guard that
+    matters: caller class comes from *which file* is mounted, so mounting the
+    human `control.sock` there would silently promote the agent to full
+    authority. A caller that computes the wrong path gets **no tool** rather than
+    an unlimited one.
+  `DAEDALUS_CONTROL_AGENT_SOCKET` is set only alongside a real mount, so the host
+  mount and the in-container gate cannot disagree. `daedalus guild-master` starts
+  `daedalus-control` first — a bind-mount source must exist at `docker run` — and
+  a plane that will not start is a warning plus the read-only overseer, never a
+  failed launch.
+
+### Added
+- **`scripts/verify-guild-control.sh` + `docs/guild-control-verification.md`.**
+  The `static` phase proves the host half with no Docker (15 assertions) by
+  driving the **real** sockets rather than a fake: an agent caller creates a task
+  (allowed — creation cannot exceed policy), has its cancel turned into a 422
+  proposal with the task still alive afterwards, and is refused when it tries to
+  confirm that proposal itself; the same confirm on the human socket executes.
+  The `real` phase inspects a running Guild Master container for the mount, the
+  socket, the connectability (a uid mismatch is the likely failure and the
+  runbook says so), and the wired tool — plus the negative check that an ordinary
+  project's container gets none of it.
+
 ## [0.53.0] - 2026-08-15
 
 Milestone 18 (Control-Plane Hardening): the post-arc external review of the

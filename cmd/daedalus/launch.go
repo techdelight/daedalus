@@ -10,6 +10,7 @@ import (
 	"github.com/techdelight/daedalus/core"
 	"github.com/techdelight/daedalus/internal/attach"
 	"github.com/techdelight/daedalus/internal/color"
+	"github.com/techdelight/daedalus/internal/control"
 	"github.com/techdelight/daedalus/internal/coordinator"
 	"github.com/techdelight/daedalus/internal/registry"
 )
@@ -28,6 +29,18 @@ func launchProject(cfg *core.Config, reg *registry.Registry) error {
 	sessionID, sessionErr := reg.StartSession(cfg.ProjectName, cfg.Resume)
 	if sessionErr != nil {
 		fmt.Fprintf(os.Stderr, "%s session tracking: %v\n", color.Yellow("Warning:"), sessionErr)
+	}
+
+	// The Guild Master is the one project whose container may hold a control-plane
+	// client, and the socket it connects through has to EXIST before the container
+	// starts — a bind-mount source is resolved at `docker run`, not later. So the
+	// plane is started here, on the human's launch command, rather than by the
+	// coordinator: the coordinator is a daemon that manages containers, and giving
+	// it the job of spawning a second daemon would put that decision somewhere the
+	// operator cannot see it. Non-fatal by design — a Guild Master that cannot
+	// reach the plane is still the read-only overseer it was in M12.
+	if core.IsGuildMaster(cfg.ProjectName) {
+		ensureControlPlane(cfg)
 	}
 
 	client, err := ensureCoordinatorClient(cfg)
@@ -68,4 +81,21 @@ func launchProject(cfg *core.Config, reg *registry.Registry) error {
 		return fmt.Errorf("runner exit code %d", code)
 	}
 	return nil
+}
+
+// ensureControlPlane starts daedalus-control if it is not already listening, so
+// the restricted agent socket exists for the Guild Master's launch to mount.
+//
+// Failure is reported and swallowed. The alternative — refusing to launch the
+// Guild Master because a *second* subsystem is unavailable — would trade a
+// working read-only overseer for no overseer at all, and the operator would be
+// stuck with a project they cannot open. What they get instead is the warning
+// plus a Guild Master with no guild-control tools, which is a state the
+// entrypoint's socket gate already handles correctly.
+func ensureControlPlane(cfg *core.Config) {
+	if _, err := control.EnsureRunning(control.DefaultLayout(cfg.DataDir, cfg.ScriptDir)); err != nil {
+		fmt.Fprintf(os.Stderr,
+			"%s control plane not started (%v)\n         the Guild Master will launch as a READ-ONLY overseer, without the guild-control tools\n",
+			color.Yellow("Warning:"), err)
+	}
 }
