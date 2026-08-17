@@ -314,6 +314,20 @@ func TestMigrate_FromV0_49_0Schema(t *testing.T) {
 	if events[1].Reason != ReasonNone {
 		t.Errorf("legacy event should have no reason, got %q", events[1].Reason)
 	}
+	// 4b. The legacy job survives the log_path addition (#77) and reads back
+	//     claiming no log — which for a Job that ran before there were any is not
+	//     a default standing in for the truth, it IS the truth.
+	legacyJob, err := s.GetJob("J-1")
+	if err != nil {
+		t.Fatalf("GetJob on migrated db: %v", err)
+	}
+	if legacyJob.OutputSnapshot != "def456" || legacyJob.ExecutionResult != ExecSuccess {
+		t.Errorf("legacy job lost data: %+v", legacyJob)
+	}
+	if legacyJob.LogPath != "" {
+		t.Errorf("legacy job log path = %q, want \"\" (it never had one)", legacyJob.LogPath)
+	}
+
 	// 5. The migrated database still works for new writes, and ids continue from
 	//    the existing high-water mark rather than colliding.
 	if _, err := s.TransitionTaskWith("T-1", StateRejected, false,

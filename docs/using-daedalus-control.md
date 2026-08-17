@@ -64,8 +64,8 @@ task create ──► planned
   project's credentials into it** at dispatch — so a project that has never
   logged in produces Jobs that die in about two seconds on
   `Not logged in · Please run /login`, recorded honestly as
-  `execution_result=failed`. If you see that, `control.log` will carry the
-  seeding warning naming the project to log into.
+  `execution_result=failed`. If you see that, the Job's own log carries the
+  agent's account of it — see [When a Job fails](#when-a-job-fails).
 - **A verify policy**, ideally. Without one you get a built-in default that only
   runs `daedalus docs lint --ci`, which is a weak oracle for most projects. And
   whatever the project declares, it cannot know what any one task promised — see
@@ -320,6 +320,33 @@ starting it behind your back.
 > live, an unauthenticated Web UI is an unauthenticated *approval* surface. Do not
 > expose it.
 
+### When a Job fails
+
+What the database keeps about a failed run is the exit status — `exit status 1`
+and little else. The readable account is the **per-job log**: every Job's output
+is tee'd to a file of its own while it runs, and the path is recorded on the Job
+row, so `task status` can point you straight at it.
+
+```bash
+daedalus task status T-7
+#   J-7  state=failed  runner=claude  result=failed  snapshot=—
+#     log: /path/to/data-dir/.daedalus/jobs/J-7.log
+```
+
+One file per Job, keyed by job id. That matters when several Jobs run at once:
+their output used to land interleaved in the daemon's shared `control.log`, keyed
+by nothing, which is present-but-unreadable. The log is mode `0600` because it
+holds raw agent output — which is exactly where a leaked token would appear.
+
+Two limits worth knowing, both still open:
+
+- **The agent's own session transcript is still deleted.** It lives in the Job's
+  throwaway home, which is removed on every exit path including failure. The
+  per-job log captures what the agent printed, not what it thought.
+- **Nothing prunes these logs yet.** They accumulate one file per Job. Deleting
+  old ones by hand is safe — the row then points at a path that no longer
+  resolves, which reads as "the log is gone", not as a broken Job.
+
 ### Where state lives
 
 | Thing | Where |
@@ -329,6 +356,7 @@ starting it behind your back.
 | Agent socket | `<data-dir>/.daedalus/control-agent.sock` |
 | Budget policy | `<data-dir>/control/budgets.json` |
 | Job worktrees | under `<data-dir>/control/` |
+| Per-job logs | `<data-dir>/.daedalus/jobs/<job-id>.log` (mode `0600`) |
 | Integration target | a plane-owned ref, keyed by canonical repo path |
 
 `<data-dir>` defaults to `<install-prefix>/.cache`. **Do not hand-edit

@@ -5,6 +5,41 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- **Every Job now has a log of its own, so a failed Job can be diagnosed (#77).**
+  What the database kept about a failed run was `err.Error()` — "exit status 1" —
+  while the agent's actual output went to the daemon's stdout and from there to
+  the single shared `control.log`, interleaved with every concurrent Job's and
+  with the plane's own logging, keyed by nothing. Present, and unreadable. A Job's
+  output is now tee'd to `<data-dir>/.daedalus/jobs/<job-id>.log` as it runs, and
+  the path is recorded on the Job row, so `task status` prints it under the Job.
+  - **The service chooses the path, the runner writes the file.** One place
+    decides where a log lives, so every runner writes where the plane will later
+    look. `StubRunner` honours it too, which is what keeps the whole chain
+    exercised on the only path this environment can run — no Docker required.
+  - **The path is recorded only once the file exists**, and existence rather than
+    the run's outcome is deliberately the test: it is the one signal that survives
+    every exit path. A wall-clock timeout abandons the runner goroutine mid-write,
+    a cancellation returns before the runner does, and an open failure is reported
+    by log line only — in all three the file on disk still answers "is there
+    something to read" correctly. A row pointing at a path that resolves to
+    nothing would be worse than an empty one, because it sends a reader looking.
+  - **stdout and stderr share one writer, on purpose.** os/exec special-cases the
+    two being the same value by handing the child a single pipe, which preserves
+    the child's own interleaving and leaves exactly one copying goroutine — two
+    separate `MultiWriter`s would have lost the ordering and raced on the file.
+    The child's stderr therefore arrives on the daemon's stdout, which is a
+    non-event: the daemon sends both to the same place.
+  - **Mode `0600`, in a `0700` directory**, rather than the `0644`/`0755` the
+    daemon's own logs use. This file holds raw agent output, which is exactly
+    where a leaked token or credential would show up.
+  - `jobs.log_path` is an additive, idempotent migration. A Job that ran before
+    this reads back with no log — which is not a default standing in for the
+    truth, it *is* the truth.
+  - **Two limits remain open and are not claimed as fixed.** The agent's own
+    session transcript still lives in the throwaway job home and is still deleted
+    on every exit path including failure, so the log captures what the agent
+    printed rather than what it thought; and nothing prunes these logs yet, so
+    they accumulate one file per Job.
 - **Per-task acceptance checks: `task create --check <cmd>` (repeatable).** The
   project's `.daedalus/verify.json` is task-independent — it answers "does this
   artifact still meet the standing bar", and cannot answer "did this task deliver

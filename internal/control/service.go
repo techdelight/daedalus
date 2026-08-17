@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
 	"reflect"
 	"sort"
 	"strings"
@@ -229,6 +230,11 @@ type Service struct {
 	// adding the real timeout to every suite run.
 	steerTimeout time.Duration
 
+	// dataDir is the host directory the plane's own files live under. Needed only
+	// to site per-job logs (#77); optional, and an empty one simply means Jobs run
+	// without a log of their own, exactly as they did before.
+	dataDir string
+
 	// now is the clock the reconcile heuristic measures against. Injected so a
 	// test can make "long past its budget" deterministic rather than slow.
 	now func() time.Time
@@ -318,6 +324,11 @@ func (s *Service) Store() *Store { return s.store }
 // SetImageDigester installs the image-digest seam (Docker-dependent) after
 // construction, so NewService callers that don't pin images (host tests) stay
 // unchanged. Nil disables digest pinning.
+// SetDataDir tells the service where the plane's host-side files live, which is
+// what lets it give each Job a log of its own (#77). Unset, Jobs run exactly as
+// before — output to the daemon's stdout only, and no log_path on the row.
+func (s *Service) SetDataDir(dir string) { s.dataDir = dir }
+
 func (s *Service) SetImageDigester(d ImageDigester) { s.digester = d }
 
 // governanceMetaFor is the event annotation for an explicitly-requested
@@ -824,14 +835,28 @@ func (s *Service) prepareDispatch(id string) (dispatchPrep, error) {
 func (s *Service) runDispatch(prep dispatchPrep) (DispatchResult, error) {
 	task, job := prep.task, prep.job
 
+	logPath := JobLogPath(s.dataDir, job.ID)
+
 	var outcome RunOutcome
 	s.unlockedDuring(func() {
 		outcome = runUnderWallClock(s.runner, JobSpec{
 			TaskID: task.ID, JobID: job.ID, Project: task.Project, Objective: task.Objective,
 			Runner: "claude", Budget: task.Budget.WallClockSeconds, BaseSHA: task.BaseSHA,
-			WorktreeDir: prep.worktree,
+			WorktreeDir: prep.worktree, LogPath: logPath,
 		})
 	})
+
+	// Record the log BEFORE anything can return early, and only if the runner
+	// actually left a file there — a row pointing at a path that resolves to
+	// nothing is worse than an empty one, because it sends a reader looking.
+	//
+	// Existence rather than the outcome is the test on purpose: it is the one
+	// signal that survives every exit path. A timeout abandons the runner
+	// goroutine mid-write (runUnderWallClock returns without it), a cancellation
+	// returns before the runner does, and an open failure inside the runner is
+	// reported by log line only — in all three the file on disk still answers
+	// "is there something to read" correctly.
+	s.recordJobLog(job.ID, logPath)
 
 	// Capture the tree (salvage snapshot even on failure). Best-effort: a capture
 	// failure leaves output_snapshot empty but does not lose the outcome.
@@ -1500,6 +1525,22 @@ func (s *Service) failJobAndTask(taskID, jobID string, result ExecutionResult, h
 	}
 	if _, err := s.store.TransitionTask(taskID, StateFailed, false, note); err != nil {
 		log.Printf("control: fail task %s: %v", taskID, err)
+	}
+}
+
+// recordJobLog stores the Job's log path if, and only if, the runner left a file
+// there. Best-effort throughout: losing the pointer to a log is a worse outcome
+// than the one it describes only if it also loses the outcome, so nothing here
+// is allowed to fail a dispatch.
+func (s *Service) recordJobLog(jobID, logPath string) {
+	if logPath == "" {
+		return
+	}
+	if _, err := os.Stat(logPath); err != nil {
+		return
+	}
+	if _, err := s.store.SetJobLogPath(jobID, logPath); err != nil {
+		log.Printf("control: recording log path for %s: %v", jobID, err)
 	}
 }
 

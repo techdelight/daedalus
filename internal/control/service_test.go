@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -89,7 +90,11 @@ func newService(t *testing.T, resolver ProjectResolver, runner AgentRunner, sess
 	if len(verifier) > 0 {
 		v = verifier[0]
 	}
-	return NewService(store, resolver, wt, runner, v, sessions), wt, store
+	svc := NewService(store, resolver, wt, runner, v, sessions)
+	// Mirror the daemon, which always knows its data dir — so per-job logs (#77)
+	// are exercised by every dispatch test rather than only the one that asks.
+	svc.SetDataDir(dataDir)
+	return svc, wt, store
 }
 
 // --- dispatch: success → candidate -------------------------------------------
@@ -357,4 +362,97 @@ func trim(s string) string {
 		s = s[:len(s)-1]
 	}
 	return s
+}
+
+// --- per-job logs (#77) -------------------------------------------------------
+
+// TestDispatch_RecordsThePerJobLogPath closes the loop the fix exists for: it is
+// not enough for the runner to write a log, the plane has to be able to POINT at
+// it afterwards. The row is what `task status` reads.
+func TestDispatch_RecordsThePerJobLogPath(t *testing.T) {
+	repo := gitRepo(t)
+	svc, _, store := newService(t, mapResolver{"app": repo}, StubRunner{Result: ExecFailed}, nil)
+
+	task, err := svc.CreateTask(CreateTaskRequest{Project: "app", Objective: "do work"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	res, err := svc.DispatchTask(task.ID)
+	if err != nil {
+		t.Fatalf("Dispatch: %v", err)
+	}
+
+	job, err := store.GetJob(res.Job.ID)
+	if err != nil {
+		t.Fatalf("GetJob: %v", err)
+	}
+	if job.LogPath == "" {
+		t.Fatal("a dispatched job recorded no log path — a failed Job is undiagnosable again (#77)")
+	}
+	// The path must resolve. A row pointing at nothing is worse than an empty one,
+	// because it sends a reader looking for a file that was never there.
+	body, err := os.ReadFile(job.LogPath)
+	if err != nil {
+		t.Fatalf("recorded log path %q does not resolve: %v", job.LogPath, err)
+	}
+	if len(body) == 0 {
+		t.Error("the per-job log is empty — a log that records nothing is the bug, not the fix")
+	}
+	// Keyed by Job, not by Task: a retry must not overwrite the failed attempt's
+	// account of itself.
+	if !strings.Contains(job.LogPath, res.Job.ID) {
+		t.Errorf("log path %q is not keyed by job id %q", job.LogPath, res.Job.ID)
+	}
+}
+
+// TestDispatch_NoDataDirNoLogPath: the log is optional wiring. A service that was
+// never told a data dir runs Jobs exactly as it did before the fix, and records
+// no path rather than a made-up one.
+func TestDispatch_NoDataDirNoLogPath(t *testing.T) {
+	repo := gitRepo(t)
+	svc, _, store := newService(t, mapResolver{"app": repo}, StubRunner{Result: ExecSuccess}, nil)
+	svc.SetDataDir("")
+
+	task, err := svc.CreateTask(CreateTaskRequest{Project: "app", Objective: "do work"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	res, err := svc.DispatchTask(task.ID)
+	if err != nil {
+		t.Fatalf("Dispatch: %v", err)
+	}
+	job, err := store.GetJob(res.Job.ID)
+	if err != nil {
+		t.Fatalf("GetJob: %v", err)
+	}
+	if job.LogPath != "" {
+		t.Errorf("log path = %q with no data dir, want \"\"", job.LogPath)
+	}
+}
+
+// TestRecordJobLog_IgnoresAPathThatWasNeverWritten pins the existence check that
+// makes a non-empty log_path a promise rather than a guess. The runner may fail
+// to open the file (a read-only or full data dir); the row must then stay empty.
+func TestRecordJobLog_IgnoresAPathThatWasNeverWritten(t *testing.T) {
+	repo := gitRepo(t)
+	svc, _, store := newService(t, mapResolver{"app": repo}, StubRunner{Result: ExecSuccess}, nil)
+
+	task, err := svc.CreateTask(CreateTaskRequest{Project: "app", Objective: "do work"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	res, err := svc.DispatchTask(task.ID)
+	if err != nil {
+		t.Fatalf("Dispatch: %v", err)
+	}
+
+	svc.recordJobLog(res.Job.ID, filepath.Join(t.TempDir(), "never-written.log"))
+
+	job, err := store.GetJob(res.Job.ID)
+	if err != nil {
+		t.Fatalf("GetJob: %v", err)
+	}
+	if strings.Contains(job.LogPath, "never-written") {
+		t.Errorf("log path = %q — a path with no file behind it must not be recorded", job.LogPath)
+	}
 }

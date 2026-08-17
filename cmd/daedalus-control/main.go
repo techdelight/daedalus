@@ -126,6 +126,11 @@ func main() {
 
 	svc := control.NewService(store, resolver, worktrees, runner, verifier, sessions)
 
+	// Per-job logs (#77) live under the data dir, so the service needs to know it.
+	// Without this every Job's output reaches only the shared control.log, keyed by
+	// nothing, which is the state that made a failed Job undiagnosable.
+	svc.SetDataDir(cfg.dataDir)
+
 	// Governance budgets (M15): per-project ceilings from a HOST-SIDE policy file
 	// under the data dir — never from a project checkout, so an agent cannot raise
 	// the envelope that bounds its own work. Re-read per lookup, so an operator's

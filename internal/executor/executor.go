@@ -3,6 +3,7 @@
 package executor
 
 import (
+	"io"
 	"os"
 	"os/exec"
 	"syscall"
@@ -15,6 +16,11 @@ type Executor interface {
 	// RunWithEnv executes a command with extra environment variables,
 	// without polluting the parent process environment.
 	RunWithEnv(env []string, name string, args ...string) error
+	// RunWithEnvTee is RunWithEnv with the child's output additionally copied to
+	// w. A nil w is exactly RunWithEnv, so a caller with nowhere to tee does not
+	// have to branch. See RealExecutor.RunWithEnvTee for why stdout and stderr
+	// are merged into one stream.
+	RunWithEnvTee(env []string, w io.Writer, name string, args ...string) error
 	// Output executes and captures stdout.
 	Output(name string, args ...string) (string, error)
 	// Exec replaces the current process (syscall.Exec).
@@ -40,6 +46,33 @@ func (r *RealExecutor) RunWithEnv(env []string, name string, args ...string) err
 	cmd := exec.Command(name, args...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+	cmd.Stdin = os.Stdin
+	cmd.Env = append(os.Environ(), env...)
+	return cmd.Run()
+}
+
+// RunWithEnvTee runs the child with its output copied to w as well as to this
+// process's stdout, so a caller can keep a private record of a run whose output
+// also has to keep flowing to wherever it always went.
+//
+// The SAME io.Writer value is assigned to both cmd.Stdout and cmd.Stderr, and
+// that is deliberate rather than incidental. os/exec special-cases the two being
+// equal (`interfaceEqual(c.Stderr, c.Stdout)`) by handing the child ONE pipe for
+// both, which buys two things: the child's interleaving is preserved in the
+// order it actually happened, and there is exactly one copying goroutine, so no
+// two writers race on w. Building two separate MultiWriters would lose both.
+//
+// The cost is that the child's stderr arrives on this process's stdout rather
+// than its stderr. For the control plane that is a non-event — the daemon sends
+// both to the same control.log — and a merged log is what a reader wants anyway.
+func (r *RealExecutor) RunWithEnvTee(env []string, w io.Writer, name string, args ...string) error {
+	if w == nil {
+		return r.RunWithEnv(env, name, args...)
+	}
+	cmd := exec.Command(name, args...)
+	merged := io.MultiWriter(os.Stdout, w)
+	cmd.Stdout = merged
+	cmd.Stderr = merged
 	cmd.Stdin = os.Stdin
 	cmd.Env = append(os.Environ(), env...)
 	return cmd.Run()
@@ -112,6 +145,22 @@ func (m *MockExecutor) Run(name string, args ...string) error {
 func (m *MockExecutor) RunWithEnv(env []string, name string, args ...string) error {
 	m.Calls = append(m.Calls, Call{Name: name, Args: args, Env: env})
 	if r, ok := m.Results[name]; ok {
+		return r.Err
+	}
+	return nil
+}
+
+// RunWithEnvTee records the call and writes the canned MockResult.Output to w,
+// standing in for the child's output. Without that a test could assert only that
+// a tee was requested, not that anything ever reached it — and "the log file is
+// created but always empty" is precisely the failure worth catching.
+func (m *MockExecutor) RunWithEnvTee(env []string, w io.Writer, name string, args ...string) error {
+	m.Calls = append(m.Calls, Call{Name: name, Args: args, Env: env})
+	r, ok := m.Results[name]
+	if ok && w != nil && r.Output != "" {
+		_, _ = io.WriteString(w, r.Output)
+	}
+	if ok {
 		return r.Err
 	}
 	return nil

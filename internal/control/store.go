@@ -171,6 +171,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     budget           INTEGER NOT NULL DEFAULT 0,
     execution_result TEXT NOT NULL DEFAULT '',
     output_snapshot  TEXT NOT NULL DEFAULT '',
+    log_path         TEXT NOT NULL DEFAULT '',
     state            TEXT NOT NULL,
     created_at       TEXT NOT NULL,
     updated_at       TEXT NOT NULL
@@ -333,6 +334,12 @@ DROP TABLE IF EXISTS targets;
 		return err
 	}
 	if err := s.backfillQueueIDs(); err != nil {
+		return err
+	}
+	// #77: where a Job's own output was recorded. Additive with an empty default,
+	// which reads correctly for every Job that ran before there was one — those
+	// genuinely have no log, and "" is exactly that claim.
+	if err := s.addColumnIfMissing("jobs", "log_path", "log_path TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
 	}
 	return nil
@@ -1011,6 +1018,25 @@ func (s *Store) SetJobExecutionResult(id string, result ExecutionResult, outputS
 	return s.GetJob(id)
 }
 
+// SetJobLogPath records where this Job's own output was written (#77). Separate
+// from SetJobExecutionResult because the two answer different questions and are
+// not always both knowable: a Job that timed out has a log but no outcome its
+// runner ever reported, and a Job the reconcile loop fails posthumously has an
+// outcome but no log this process wrote. Like SetJobExecutionResult it does not
+// touch state.
+func (s *Store) SetJobLogPath(id, logPath string) (Job, error) {
+	now := s.now()
+	res, err := s.db.Exec(
+		`UPDATE jobs SET log_path = ?, updated_at = ? WHERE id = ?`, logPath, now, id)
+	if err != nil {
+		return Job{}, err
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		return Job{}, fmt.Errorf("%w: job %s", ErrNotFound, id)
+	}
+	return s.GetJob(id)
+}
+
 // TransitionJob atomically moves a job's state, mirroring TransitionTask.
 func (s *Store) TransitionJob(id string, to State, byWorker bool, note string) (Job, error) {
 	return s.TransitionJobWith(id, to, byWorker, EventMeta{}, note)
@@ -1060,12 +1086,12 @@ func (s *Store) TransitionJobWith(id string, to State, byWorker bool, meta Event
 	return cur, nil
 }
 
-const jobSelect = `SELECT id, task_id, base_sha, runner, budget, execution_result, output_snapshot, state, created_at, updated_at FROM jobs`
+const jobSelect = `SELECT id, task_id, base_sha, runner, budget, execution_result, output_snapshot, log_path, state, created_at, updated_at FROM jobs`
 
 func scanJob(sc rowScanner) (Job, error) {
 	var j Job
 	var state, execResult string
-	err := sc.Scan(&j.ID, &j.TaskID, &j.BaseSHA, &j.Runner, &j.Budget, &execResult, &j.OutputSnapshot, &state, &j.CreatedAt, &j.UpdatedAt)
+	err := sc.Scan(&j.ID, &j.TaskID, &j.BaseSHA, &j.Runner, &j.Budget, &execResult, &j.OutputSnapshot, &j.LogPath, &state, &j.CreatedAt, &j.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Job{}, ErrNotFound
 	}

@@ -321,9 +321,13 @@ type Job struct {
 	Budget          int             `json:"budget"`          // wall-clock seconds; 0 = unset
 	ExecutionResult ExecutionResult `json:"executionResult"` // how the run ended
 	OutputSnapshot  string          `json:"outputSnapshot"`  // committed head_sha, if any
-	State           State           `json:"state"`
-	CreatedAt       string          `json:"createdAt"`
-	UpdatedAt       string          `json:"updatedAt"`
+	// LogPath is this Job's own log on the HOST, or "" when none was written.
+	// Recorded only once the file exists, so a non-empty value is a promise that
+	// there is something to read there (Backlog #77).
+	LogPath   string `json:"logPath,omitempty"`
+	State     State  `json:"state"`
+	CreatedAt string `json:"createdAt"`
+	UpdatedAt string `json:"updatedAt"`
 }
 
 // Artifact is the durable result of a successful Job (§5): a committed tree on a

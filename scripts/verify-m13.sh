@@ -210,6 +210,15 @@ phase_fake() {
     [[ "$(db "SELECT count(*) FROM artifacts WHERE job_id='J-2';")" == 0 ]] && pass "failed job produced NO artifact" || fail "artifact from failed job"
     [[ ! -d "$DATA_DIR/control/worktrees/J-2" ]] && pass "failed job's worktree cleaned" || fail "worktree not cleaned"
 
+    # 4b. the failed job left a log of its own, and the plane can point at it (#77).
+    #     Asserted on the FAILURE path deliberately: this is the case the log exists
+    #     for, and the one where the DB keeps nothing but an exit status.
+    local jlog; jlog="$(db "SELECT log_path FROM jobs WHERE id='J-2';")"
+    [[ -n "$jlog" ]] && pass "failed job recorded a log path" || fail "no log_path on J-2 (#77)"
+    [[ -s "$jlog" ]] && pass "the per-job log exists and is not empty" || fail "log_path points at nothing readable: $jlog"
+    [[ "$jlog" == "$DATA_DIR/.daedalus/jobs/J-2.log" ]] && pass "log is keyed by job id" || fail "unexpected log path: $jlog"
+    dae task status T-2 2>&1 | grep -q "$jlog" && pass "task status points at the job log" || fail "task status does not surface the log"
+
     # 5. guardrails
     dae task cancel T-2 >/dev/null 2>&1
     dae task create --project demo --objective a >/dev/null 2>&1

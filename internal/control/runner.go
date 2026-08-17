@@ -4,6 +4,7 @@ package control
 
 import (
 	"context"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -24,6 +25,12 @@ type JobSpec struct {
 	Budget      int    // wall-clock seconds; 0 = unbounded
 	BaseSHA     string
 	WorktreeDir string // the isolated checkout, mounted as /workspace in the real path
+	// LogPath is where this Job's own output is to be recorded, or "" for
+	// nowhere. Chosen by the caller rather than the runner so that every runner
+	// writes to the one place the plane will later point a reader at; a runner
+	// that cannot honour it simply leaves no file, which is how the caller tells
+	// that there is nothing to point at. See JobLogPath.
+	LogPath string
 }
 
 // RunOutcome is how a headless Job ended — the "how it ended" axis (§5), distinct
@@ -79,6 +86,16 @@ func (r StubRunner) Run(_ context.Context, spec JobSpec) RunOutcome {
 	if res == "" {
 		res = ExecSuccess
 	}
+	// Honour LogPath too, so the no-Docker smoke exercises the SAME chain the real
+	// adapter does — path chosen by the service, file written by the runner, path
+	// recorded on the Job row because the file is there. A stub that skipped this
+	// would leave the wiring untested on the only path this environment can run.
+	if spec.LogPath != "" {
+		if f, err := openJobLog(spec.LogPath); err == nil {
+			_, _ = io.WriteString(f, "stub runner for "+spec.JobID+": "+string(res)+"\n")
+			f.Close()
+		}
+	}
 	return RunOutcome{Result: res, Detail: r.Detail}
 }
 
@@ -86,6 +103,39 @@ func (r StubRunner) Run(_ context.Context, spec JobSpec) RunOutcome {
 // launched under. Deterministic (keyed to the job id) so concurrent jobs never
 // collide and the deregistration cannot target the wrong entry.
 func JobProjectName(jobID string) string { return "daedalus-job-" + jobID }
+
+// JobLogPath is where a Job's own output is recorded: one file per Job under the
+// data dir. Empty dataDir yields "", meaning "nowhere" — the same degradation
+// dataDirEnv and seedJobHomeOrWarn make when there is no data dir to work from.
+//
+// A file PER JOB is the whole point. The agent's output already reached the
+// daemon's stdout and from there the single shared control.log, where it was
+// interleaved with every concurrent Job's and with the plane's own logging,
+// keyed by nothing — present, and unreadable. Keying by job id is what turns it
+// back into an account of one attempt (Backlog #77).
+func JobLogPath(dataDir, jobID string) string {
+	if dataDir == "" {
+		return ""
+	}
+	return filepath.Join(dataDir, ".daedalus", "jobs", jobID+".log")
+}
+
+// openJobLog creates the per-job log and returns it ready to be written.
+//
+// O_APPEND, not O_TRUNC: a job id is never reused, so in practice this always
+// creates, but appending means the one case that could surprise (a re-run
+// against an existing id) adds to the record instead of destroying it.
+//
+// 0o700/0o600 rather than the 0o755/0o644 the daemon's own logs use, because
+// this file holds RAW AGENT OUTPUT — which is exactly where a leaked token or
+// credential would show up. The directory is new, so tightening it costs no
+// compatibility.
+func openJobLog(path string) (*os.File, error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return nil, err
+	}
+	return os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+}
 
 // CoordinatorRunner is the REAL, HOST-ONLY adapter. It runs the project agent
 // headless against the Job's isolated worktree via the standard daedalus launch
@@ -138,6 +188,21 @@ func (r CoordinatorRunner) Run(ctx context.Context, spec JobSpec) RunOutcome {
 	// Job exits 1 within seconds on "Not logged in", which is precisely what
 	// happened on the first real host to run one. See jobhome.go.
 	seedJobHomeOrWarn(r.DataDir, spec.Project, name)
+	// This Job's own log, opened BEFORE the run and closed after it. Opening it
+	// eagerly is what makes the file's existence mean "the tee was wired": the
+	// caller records the path only when the file is there, so an open failure
+	// leaves nothing to point a reader at rather than a path that resolves to
+	// nothing. A failure here is degradation, never a reason not to run the Job.
+	var tee io.Writer
+	if spec.LogPath != "" {
+		f, err := openJobLog(spec.LogPath)
+		if err != nil {
+			log.Printf("control: opening job log %s: %v (job %s runs without one)", spec.LogPath, err, spec.JobID)
+		} else {
+			defer f.Close()
+			tee = f
+		}
+	}
 	// `daedalus <name> <dir> -p <objective>` registers the worktree and runs a
 	// headless single-prompt task, exiting when the agent finishes.
 	//
@@ -150,7 +215,7 @@ func (r CoordinatorRunner) Run(ctx context.Context, spec JobSpec) RunOutcome {
 	// seeded credentials sit in a home nobody mounts, and the Job dies on
 	// `Not logged in` with the seeding step having reported success. Pinning removes
 	// the divergence rather than detecting it.
-	err := r.Exec.RunWithEnv(r.dataDirEnv(), r.BinPath, name, spec.WorktreeDir, "-p", spec.Objective)
+	err := r.Exec.RunWithEnvTee(r.dataDirEnv(), tee, r.BinPath, name, spec.WorktreeDir, "-p", spec.Objective)
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
 			return RunOutcome{Result: ExecTimeout, Detail: "context deadline exceeded"}

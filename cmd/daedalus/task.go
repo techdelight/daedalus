@@ -328,6 +328,12 @@ func taskStatus(api control.TaskAPI, args []string) error {
 		}
 		fmt.Printf("  %s  state=%s  runner=%s  result=%s  snapshot=%s\n",
 			j.ID, j.State, orDash(j.Runner), result, shortSHA(j.OutputSnapshot))
+		// The Job's own log, when it has one (#77). Its own line rather than another
+		// field on the one above, because a path is long and this is the thing a
+		// person reading `task status` after a failure has actually come for.
+		if j.LogPath != "" {
+			fmt.Printf("    %s %s\n", color.Bold("log:"), j.LogPath)
+		}
 		for _, a := range jv.Artifacts {
 			fmt.Printf("    %s  head=%s  branch=%s  verify=%s  review=%s\n",
 				a.ID, shortSHA(a.HeadSHA), orDash(a.Branch), a.Verify, a.Review)

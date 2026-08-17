@@ -3,7 +3,9 @@
 package executor
 
 import (
+	"bytes"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -350,11 +352,11 @@ func TestMockExecutor_ExecWithEnv(t *testing.T) {
 
 func TestMockExecutor_LookPath(t *testing.T) {
 	tests := []struct {
-		name       string
-		binary     string
-		result     *MockResult
-		wantPath   string
-		wantErr    bool
+		name     string
+		binary   string
+		result   *MockResult
+		wantPath string
+		wantErr  bool
 	}{
 		{
 			name:     "returns /usr/bin/<name> by default",
@@ -607,5 +609,53 @@ func TestMockExecutor_FindCalls(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// --- RealExecutor.RunWithEnvTee ----------------------------------------------
+
+// TestRealExecutor_RunWithEnvTee_CapturesBothStreams is the test the per-job log
+// (#77) rests on. A tee that captured only stdout would produce a log that looks
+// healthy and omits exactly the output a failing agent writes — so BOTH streams
+// reaching the writer is the property under test, not an implementation detail.
+func TestRealExecutor_RunWithEnvTee_CapturesBothStreams(t *testing.T) {
+	var buf bytes.Buffer
+	r := &RealExecutor{}
+
+	err := r.RunWithEnvTee([]string{"TEE_TEST_VAR=pinned"}, &buf,
+		"sh", "-c", `echo "to stdout"; echo "to stderr" >&2; echo "env=$TEE_TEST_VAR"`)
+	if err != nil {
+		t.Fatalf("RunWithEnvTee: %v", err)
+	}
+
+	got := buf.String()
+	for _, want := range []string{"to stdout", "to stderr", "env=pinned"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("tee missing %q; got:\n%s", want, got)
+		}
+	}
+}
+
+// TestRealExecutor_RunWithEnvTee_ReturnsChildError: a non-zero exit must still be
+// reported. The tee changes where the output goes, never what the run means.
+func TestRealExecutor_RunWithEnvTee_ReturnsChildError(t *testing.T) {
+	var buf bytes.Buffer
+	r := &RealExecutor{}
+
+	err := r.RunWithEnvTee(nil, &buf, "sh", "-c", `echo "dying now" >&2; exit 3`)
+	if err == nil {
+		t.Fatal("RunWithEnvTee returned nil for a command that exited 3")
+	}
+	if !strings.Contains(buf.String(), "dying now") {
+		t.Errorf("the failing child's output did not reach the tee; got %q", buf.String())
+	}
+}
+
+// TestRealExecutor_RunWithEnvTee_NilWriter degrades to RunWithEnv rather than
+// panicking, so a caller with nowhere to tee does not have to branch.
+func TestRealExecutor_RunWithEnvTee_NilWriter(t *testing.T) {
+	r := &RealExecutor{}
+	if err := r.RunWithEnvTee(nil, nil, "sh", "-c", "exit 0"); err != nil {
+		t.Errorf("RunWithEnvTee with a nil writer: %v", err)
 	}
 }

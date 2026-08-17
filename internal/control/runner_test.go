@@ -5,6 +5,8 @@ package control
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -119,5 +121,101 @@ func TestJobProjectName(t *testing.T) {
 	}
 	if got := JobProjectName("J-1"); got != "daedalus-job-J-1" {
 		t.Errorf("JobProjectName = %q, want daedalus-job-J-1", got)
+	}
+}
+
+// --- per-job logs (#77) -------------------------------------------------------
+
+// TestCoordinatorRunner_TeesAgentOutputToAPerJobLog is the regression for the
+// gap that made a failed Job undiagnosable: the agent's output went to the
+// daemon's stdout and from there to the single shared control.log, interleaved
+// with every other Job's and keyed by nothing.
+//
+// The container run is host-only, but the TEE is pure command execution, so it
+// is asserted here through the injected Executor — whose RunWithEnvTee writes
+// the canned output to whatever writer it was handed.
+func TestCoordinatorRunner_TeesAgentOutputToAPerJobLog(t *testing.T) {
+	dataDir := t.TempDir()
+	exec := executor.NewMockExecutor()
+	exec.Results["/bin/daedalus"] = executor.MockResult{
+		Output: "Not logged in · authentication_failed\n",
+		Err:    errors.New("exit status 1"),
+	}
+
+	logPath := JobLogPath(dataDir, "J-7")
+	r := CoordinatorRunner{Exec: exec, BinPath: "/bin/daedalus", DataDir: dataDir}
+	out := r.Run(context.Background(), JobSpec{
+		JobID: "J-7", Project: "app", Objective: "do work", WorktreeDir: "/wt",
+		LogPath: logPath,
+	})
+
+	if out.Result != ExecFailed {
+		t.Fatalf("result = %q, want failed", out.Result)
+	}
+	// The outcome the DB keeps is still just the exit status — that is precisely
+	// why the log has to carry the rest.
+	if out.Detail != "exit status 1" {
+		t.Errorf("detail = %q, want %q", out.Detail, "exit status 1")
+	}
+
+	body, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("reading per-job log: %v", err)
+	}
+	if !strings.Contains(string(body), "authentication_failed") {
+		t.Errorf("per-job log = %q, want the agent's own account of the failure", body)
+	}
+}
+
+// TestJobLogPath_IsKeyedByJob pins the two properties the whole fix rests on:
+// one file per Job (so concurrent Jobs cannot interleave), and no data dir means
+// no path — the same degradation dataDirEnv makes.
+func TestJobLogPath_IsKeyedByJob(t *testing.T) {
+	a := JobLogPath("/data", "J-7")
+	b := JobLogPath("/data", "J-8")
+	if a == b {
+		t.Fatalf("J-7 and J-8 share a log path (%q) — concurrent Jobs would interleave", a)
+	}
+	if want := filepath.Join("/data", ".daedalus", "jobs", "J-7.log"); a != want {
+		t.Errorf("JobLogPath = %q, want %q", a, want)
+	}
+	if got := JobLogPath("", "J-7"); got != "" {
+		t.Errorf("JobLogPath with no data dir = %q, want \"\"", got)
+	}
+}
+
+// TestCoordinatorRunner_NoLogPathWritesNothing: an adapter with nowhere to write
+// still runs the Job. The log is a diagnostic, never a precondition.
+func TestCoordinatorRunner_NoLogPathWritesNothing(t *testing.T) {
+	dataDir := t.TempDir()
+	exec := executor.NewMockExecutor()
+	r := CoordinatorRunner{Exec: exec, BinPath: "/bin/daedalus"}
+
+	out := r.Run(context.Background(), JobSpec{
+		JobID: "J-7", Project: "app", Objective: "do work", WorktreeDir: "/wt",
+	})
+	if out.Result != ExecSuccess {
+		t.Errorf("result = %q, want success", out.Result)
+	}
+	if _, err := os.Stat(filepath.Join(dataDir, ".daedalus", "jobs")); !os.IsNotExist(err) {
+		t.Errorf("a jobs dir was created with no LogPath asked for (err=%v)", err)
+	}
+}
+
+// TestOpenJobLog_IsNotWorldReadable: the file holds raw agent output, which is
+// exactly where a leaked token would appear.
+func TestOpenJobLog_IsNotWorldReadable(t *testing.T) {
+	path := JobLogPath(t.TempDir(), "J-7")
+	f, err := openJobLog(path)
+	if err != nil {
+		t.Fatalf("openJobLog: %v", err)
+	}
+	f.Close()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o600 {
+		t.Errorf("job log mode = %#o, want 0600 — agent output must not be world-readable", perm)
 	}
 }
