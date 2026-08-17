@@ -5,6 +5,7 @@ package control
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -173,5 +174,34 @@ func TestDiffTouchesAcceptanceFiles_Rename(t *testing.T) {
 	}
 	if !touched {
 		t.Errorf("renaming a _test.go should be caught, matched=%v", files)
+	}
+}
+
+// The built-in policy is only as good as the container it runs in. A project
+// that declares no `.daedalus/verify.json` is graded by `daedalus docs lint
+// --ci` inside the CLEAN VERIFIER — which mounts nothing but the checkout, so
+// every command must come from the image. The CLI was missing from the image
+// until 2026-08-17, which meant the default oracle could only ever exit 127 and
+// reject an artifact for a reason that had nothing to do with it.
+//
+// This pins the two together: every buildable leaf stage that receives
+// daedalus-runner must also receive the binary the default policy invokes.
+func TestDefaultPolicyCommandShipsInTheImage(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "Dockerfile"))
+	if err != nil {
+		t.Skipf("Dockerfile not readable from here: %v", err)
+	}
+	dockerfile := string(data)
+
+	cmd := strings.Fields(DefaultAcceptancePolicy().Checks[0])[0]
+	if cmd != "daedalus" {
+		t.Fatalf("default policy now runs %q — this test pins the wrong binary", cmd)
+	}
+
+	runners := strings.Count(dockerfile, "/usr/local/bin/daedalus-runner")
+	clis := strings.Count(dockerfile, "COPY --chown=claude:claude daedalus /usr/local/bin/daedalus\n")
+	if clis != runners {
+		t.Errorf("%d stage(s) COPY daedalus-runner but %d COPY the daedalus CLI; "+
+			"a stage without it cannot run the built-in acceptance policy", runners, clis)
 	}
 }

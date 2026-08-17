@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Fixed
+- **The `daedalus` CLI ships in the image, so the built-in acceptance policy can
+  actually run.** A project that declares no `.daedalus/verify.json` is graded by
+  the default policy, whose only check is `daedalus docs lint --ci` — run inside
+  the clean verifier, which mounts nothing but the checkout, so every command has
+  to come from the image. The image received `daedalus-runner` and the three MCP
+  servers but never the CLI itself, so that check could only ever exit 127 and
+  reject the artifact for a reason that had nothing to do with it. Added to all
+  six buildable stages, in the same thin final layer as the other binaries so the
+  toolchain layers stay cached. `TestDefaultPolicyCommandShipsInTheImage` fails if
+  a stage that takes `daedalus-runner` does not also take the CLI — verified by
+  deleting one COPY, where it reports `6 stage(s) COPY daedalus-runner but 5 COPY
+  the daedalus CLI`.
+  - Note for existing tasks: a Task pins its image digest **once**, so a task
+    created before this change keeps grading against the old image. Rebuild
+    (`daedalus --build`), then create a new task.
 - **A Job's container inherits its project's Claude credentials — before this, no
   Job could ever run.** Every Job launches as a throwaway project
   (`daedalus-job-<id>`), and the container's home is `<DataDir>/<project>/`, so

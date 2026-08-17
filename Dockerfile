@@ -1,7 +1,8 @@
 # Daedalus runner image — multi-stage build.
 #
 # Layer strategy (#51): the frequently-rebuilt Daedalus Go binaries
-# (skill-catalog-mcp, project-mgmt-mcp, guild-mcp, guild-control-mcp, daedalus-runner) are COPY'd LAST,
+# (daedalus, skill-catalog-mcp, project-mgmt-mcp, guild-mcp, guild-control-mcp,
+# daedalus-runner) are COPY'd LAST,
 # in a thin per-target leaf stage, so a Daedalus version bump invalidates
 # only that final layer and leaves the expensive toolchain download layers
 # (Go, SDKMAN, Godot, Copilot) cached. The *-base stages below are the
@@ -190,6 +191,7 @@ COPY --chown=claude:claude project-mgmt-mcp /usr/local/bin/project-mgmt-mcp
 COPY --chown=claude:claude guild-mcp /usr/local/bin/guild-mcp
 COPY --chown=claude:claude guild-control-mcp /usr/local/bin/guild-control-mcp
 COPY --chown=claude:claude daedalus-runner /usr/local/bin/daedalus-runner
+COPY --chown=claude:claude daedalus /usr/local/bin/daedalus
 
 FROM utils-base AS utils
 COPY --chown=claude:claude skill-catalog-mcp /usr/local/bin/skill-catalog-mcp
@@ -197,6 +199,7 @@ COPY --chown=claude:claude project-mgmt-mcp /usr/local/bin/project-mgmt-mcp
 COPY --chown=claude:claude guild-mcp /usr/local/bin/guild-mcp
 COPY --chown=claude:claude guild-control-mcp /usr/local/bin/guild-control-mcp
 COPY --chown=claude:claude daedalus-runner /usr/local/bin/daedalus-runner
+COPY --chown=claude:claude daedalus /usr/local/bin/daedalus
 
 FROM dev-base AS dev
 COPY --chown=claude:claude skill-catalog-mcp /usr/local/bin/skill-catalog-mcp
@@ -204,6 +207,7 @@ COPY --chown=claude:claude project-mgmt-mcp /usr/local/bin/project-mgmt-mcp
 COPY --chown=claude:claude guild-mcp /usr/local/bin/guild-mcp
 COPY --chown=claude:claude guild-control-mcp /usr/local/bin/guild-control-mcp
 COPY --chown=claude:claude daedalus-runner /usr/local/bin/daedalus-runner
+COPY --chown=claude:claude daedalus /usr/local/bin/daedalus
 
 FROM godot-base AS godot
 COPY --chown=claude:claude skill-catalog-mcp /usr/local/bin/skill-catalog-mcp
@@ -211,6 +215,7 @@ COPY --chown=claude:claude project-mgmt-mcp /usr/local/bin/project-mgmt-mcp
 COPY --chown=claude:claude guild-mcp /usr/local/bin/guild-mcp
 COPY --chown=claude:claude guild-control-mcp /usr/local/bin/guild-control-mcp
 COPY --chown=claude:claude daedalus-runner /usr/local/bin/daedalus-runner
+COPY --chown=claude:claude daedalus /usr/local/bin/daedalus
 
 FROM copilot-base-base AS copilot-base
 COPY --chown=claude:claude skill-catalog-mcp /usr/local/bin/skill-catalog-mcp
@@ -218,6 +223,7 @@ COPY --chown=claude:claude project-mgmt-mcp /usr/local/bin/project-mgmt-mcp
 COPY --chown=claude:claude guild-mcp /usr/local/bin/guild-mcp
 COPY --chown=claude:claude guild-control-mcp /usr/local/bin/guild-control-mcp
 COPY --chown=claude:claude daedalus-runner /usr/local/bin/daedalus-runner
+COPY --chown=claude:claude daedalus /usr/local/bin/daedalus
 
 FROM copilot-dev-base AS copilot-dev
 COPY --chown=claude:claude skill-catalog-mcp /usr/local/bin/skill-catalog-mcp
@@ -225,3 +231,4 @@ COPY --chown=claude:claude project-mgmt-mcp /usr/local/bin/project-mgmt-mcp
 COPY --chown=claude:claude guild-mcp /usr/local/bin/guild-mcp
 COPY --chown=claude:claude guild-control-mcp /usr/local/bin/guild-control-mcp
 COPY --chown=claude:claude daedalus-runner /usr/local/bin/daedalus-runner
+COPY --chown=claude:claude daedalus /usr/local/bin/daedalus
