@@ -5,6 +5,8 @@ package control
 import (
 	"context"
 	"errors"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/techdelight/daedalus/internal/executor"
@@ -56,6 +58,56 @@ func TestCoordinatorRunner_DeregistersThrowawayProject(t *testing.T) {
 				t.Errorf("throwaway project %s was never deregistered — the registry leaks one entry per Job. Calls: %+v", name, exec.Calls)
 			}
 		})
+	}
+}
+
+// TestCoordinatorRunner_PinsTheSpawnedCLIToTheDaemonsDataDir is the regression
+// for a Job inheriting no login even though seeding "succeeded".
+//
+// SeedJobHome writes the owning project's credentials to <DataDir>/<jobProject>/,
+// but the spawned CLI resolves its own data dir (DAEDALUS_DATA_DIR → config.json →
+// <its scriptDir>/.cache) and has no --data-dir flag, while the daemon has one and
+// is normally spawned with it. Diverge them and the CLI mounts a different
+// /home/claude, so the Job dies on `Not logged in` while every log line above it
+// says the home was seeded — the failure and its cause end up in different
+// directories. Both spawns must carry the pin: the launch so the seeded home is
+// the mounted one, and the deregistration so it edits the registry the launch
+// actually wrote to.
+func TestCoordinatorRunner_PinsTheSpawnedCLIToTheDaemonsDataDir(t *testing.T) {
+	exec := executor.NewMockExecutor()
+	r := CoordinatorRunner{Exec: exec, BinPath: "/bin/daedalus", DataDir: "/var/lib/daedalus"}
+	r.Run(context.Background(), JobSpec{
+		JobID: "J-6", Project: "app", Objective: "do work", WorktreeDir: "/wt",
+	})
+
+	const want = "DAEDALUS_DATA_DIR=/var/lib/daedalus"
+	if len(exec.Calls) == 0 {
+		t.Fatal("no commands were run at all")
+	}
+	for _, c := range exec.Calls {
+		if !slices.Contains(c.Env, want) {
+			t.Errorf("spawn %v carries env %v, want it to include %q — an unpinned spawn "+
+				"resolves its own data dir and may mount a home the plane never seeded",
+				c.Args, c.Env, want)
+		}
+	}
+}
+
+// An adapter built without a DataDir has nothing to pin to. It must still launch
+// rather than exporting an empty DAEDALUS_DATA_DIR, which the CLI would take as
+// an explicit "" and, being highest-precedence, would beat config.json — turning
+// a missing setting into a wrong one.
+func TestCoordinatorRunner_NoDataDirPinsNothing(t *testing.T) {
+	exec := executor.NewMockExecutor()
+	r := CoordinatorRunner{Exec: exec, BinPath: "/bin/daedalus"}
+	r.Run(context.Background(), JobSpec{JobID: "J-8", WorktreeDir: "/wt"})
+
+	for _, c := range exec.Calls {
+		for _, e := range c.Env {
+			if strings.HasPrefix(e, "DAEDALUS_DATA_DIR=") {
+				t.Errorf("spawn %v exported %q with no DataDir configured", c.Args, e)
+			}
+		}
 	}
 }
 

@@ -33,6 +33,33 @@ All notable changes to this project will be documented in this file.
     flag called "acceptance" to have.
 
 ### Fixed
+- **A Job inherits its project's login even when the daemon's data dir is not the
+  CLI's default.** Seeding a Job's home was already the fix for `Not logged in`,
+  but it wrote to `<daemon's DataDir>/daedalus-job-<id>/` while the CLI the daemon
+  spawns to launch the agent resolved its OWN data dir from scratch —
+  `DAEDALUS_DATA_DIR`, then `config.json`, then `<its own scriptDir>/.cache`
+  (`internal/config/config.go:196-207`) — and, unlike `daedalus-control`, has no
+  `--data-dir` flag to be told otherwise. The daemon is *always* spawned with an
+  explicit `--data-dir` (`internal/control/bootstrap.go:114`), so the two agreed
+  only by coincidence. Where they diverged, the credentials landed in a home
+  nothing mounted: the container got a different `/home/claude`, the Job died in
+  about two seconds on `Not logged in`, and the seeding step above it in
+  `control.log` reported success — the failure and its cause in different
+  directories, which is the hardest shape of this bug to read.
+  - Both spawns are now pinned via `DAEDALUS_DATA_DIR`: the launch, so the seeded
+    home is the mounted one, and the deregistration, so cleanup edits the registry
+    the launch actually wrote to rather than a different one (where it would find
+    no such project and leak the entry it exists to remove).
+  - `DAEDALUS_DATA_DIR` is the correct lever because it is the CLI's
+    highest-precedence source — read before `config.json` loads, and
+    `ApplyAppConfig` only fills a still-empty value (`core/appconfig.go:24`) — so a
+    project-local `config.json` cannot quietly win against the plane's own choice.
+  - An adapter with no `DataDir` pins nothing rather than exporting an empty value,
+    which the CLI would take as an explicit `""` and, being highest-precedence,
+    would beat `config.json` — turning a missing setting into a wrong one.
+  - `executor.Call` now records the extra environment a `RunWithEnv` carried; the
+    `MockExecutor` discarded it, so no test could tell a pinned spawn from an
+    unpinned one.
 - **`--help` reaches the subcommand's own help, and stops warning about a log
   file.** `ParseArgs` returned from inside its flag loop the moment it saw
   `--help`, before resolving any paths and before any subcommand routing. Two

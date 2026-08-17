@@ -82,6 +82,12 @@ type MockExecutor struct {
 type Call struct {
 	Name string
 	Args []string
+	// Env is the extra environment a RunWithEnv/ExecWithEnv call passed, nil for
+	// the plain forms. Recorded because for some callers the environment IS the
+	// contract — the control plane pins a spawned CLI's data dir through it, and
+	// a test that could not see it could not tell a pinned launch from an
+	// unpinned one.
+	Env []string
 }
 
 type MockResult struct {
@@ -104,7 +110,7 @@ func (m *MockExecutor) Run(name string, args ...string) error {
 }
 
 func (m *MockExecutor) RunWithEnv(env []string, name string, args ...string) error {
-	m.Calls = append(m.Calls, Call{Name: name, Args: args})
+	m.Calls = append(m.Calls, Call{Name: name, Args: args, Env: env})
 	if r, ok := m.Results[name]; ok {
 		return r.Err
 	}

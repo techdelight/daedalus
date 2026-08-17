@@ -99,6 +99,22 @@ type CoordinatorRunner struct {
 	DataDir string            // where project homes live; needed to seed the Job's
 }
 
+// dataDirEnv is the environment that pins a spawned daedalus CLI to the daemon's
+// data dir, so the home the plane seeds is the home the container mounts and the
+// registry the cleanup edits is the registry the launch wrote to.
+//
+// DAEDALUS_DATA_DIR is the right lever because it is the CLI's HIGHEST-precedence
+// source: it is read before config.json is loaded and ApplyAppConfig only fills a
+// still-empty value (core/appconfig.go:24), so a project-local config.json cannot
+// silently win. Empty DataDir yields nil — an adapter built without one has
+// nothing to pin to, matching seedJobHomeOrWarn's "nothing to copy from".
+func (r CoordinatorRunner) dataDirEnv() []string {
+	if r.DataDir == "" {
+		return nil
+	}
+	return []string{"DAEDALUS_DATA_DIR=" + r.DataDir}
+}
+
 // Run implements AgentRunner by invoking the daedalus CLI headless. Exit status
 // classifies the outcome: nil error → success; any error → failed. Timeout and
 // cancellation are surfaced by the caller's context in a future refinement;
@@ -113,7 +129,7 @@ func (r CoordinatorRunner) Run(ctx context.Context, spec JobSpec) RunOutcome {
 	// deferred so it runs on every exit path; `--force` because there is no human
 	// to confirm.
 	defer func() {
-		if err := r.Exec.Run(r.BinPath, "remove", name, "--force"); err != nil {
+		if err := r.Exec.RunWithEnv(r.dataDirEnv(), r.BinPath, "remove", name, "--force"); err != nil {
 			log.Printf("control: deregistering throwaway project %s: %v", name, err)
 		}
 	}()
@@ -124,7 +140,17 @@ func (r CoordinatorRunner) Run(ctx context.Context, spec JobSpec) RunOutcome {
 	seedJobHomeOrWarn(r.DataDir, spec.Project, name)
 	// `daedalus <name> <dir> -p <objective>` registers the worktree and runs a
 	// headless single-prompt task, exiting when the agent finishes.
-	err := r.Exec.Run(r.BinPath, name, spec.WorktreeDir, "-p", spec.Objective)
+	//
+	// The data dir is PINNED to the daemon's, and that is load-bearing rather than
+	// tidiness. Seeding writes to <r.DataDir>/<name>/, but the spawned CLI resolves
+	// its own data dir independently — DAEDALUS_DATA_DIR, then config.json, then
+	// <its own scriptDir>/.cache (internal/config/config.go:196-207) — and it has no
+	// --data-dir flag, while the daemon does and is normally spawned with one. Any
+	// divergence means the CLI mounts a DIFFERENT directory as /home/claude, the
+	// seeded credentials sit in a home nobody mounts, and the Job dies on
+	// `Not logged in` with the seeding step having reported success. Pinning removes
+	// the divergence rather than detecting it.
+	err := r.Exec.RunWithEnv(r.dataDirEnv(), r.BinPath, name, spec.WorktreeDir, "-p", spec.Objective)
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
 			return RunOutcome{Result: ExecTimeout, Detail: "context deadline exceeded"}
