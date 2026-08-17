@@ -296,10 +296,18 @@ type Task struct {
 	// against the project ceiling) and stored authoritatively here, so the bounds
 	// on a Task cannot drift and no agent can widen its own (§6). Legacy rows
 	// written before Sprint 58 carry no budget and read back as DefaultBudget().
-	Budget    Budget `json:"budget"`
-	State     State  `json:"state"`
-	CreatedAt string `json:"createdAt"` // ISO 8601 UTC
-	UpdatedAt string `json:"updatedAt"` // ISO 8601 UTC
+	Budget Budget `json:"budget"`
+	// Checks are PER-TASK acceptance commands, supplied by a human at create and
+	// APPENDED to the project's frozen policy at verify — never replacing it, so a
+	// task can only ever raise the bar it is graded against. They exist because
+	// `.daedalus/verify.json` is project-level and task-independent: it answers
+	// "does this artifact still meet the project's standing bar", and cannot answer
+	// "did this task deliver what it promised". These are where the second question
+	// gets a machine-checkable answer.
+	Checks    []string `json:"checks,omitempty"`
+	State     State    `json:"state"`
+	CreatedAt string   `json:"createdAt"` // ISO 8601 UTC
+	UpdatedAt string   `json:"updatedAt"` // ISO 8601 UTC
 }
 
 // Job is one attempt at a Task (§5): a headless runner invocation pinned to a

@@ -249,3 +249,30 @@ func wrapGit(what, out string, err error) error {
 	}
 	return fmt.Errorf("%s: %v\n%s", what, err, msg)
 }
+
+// withTaskChecks returns the policy with a Task's own acceptance commands
+// APPENDED. Two properties are load-bearing, and both are about what a per-task
+// check may not do:
+//
+//   - **Append, never replace.** The project's checks always run; a Task can only
+//     add to the bar it is graded against. There is no request shape that lowers
+//     it, so "this task was graded more leniently" is not a state that exists.
+//   - **Project checks run FIRST.** The verifier mounts the checkout read-write
+//     and runs the checks in sequence, so a command could in principle mutate the
+//     tree a later command sees. Ordering makes that harmless: by the time a
+//     task-supplied check runs, the project's own checks have already passed
+//     against an unmutated checkout. A task check can therefore only ever
+//     sabotage itself, which is nobody else's problem.
+//
+// The receiver is untouched (Checks is copied), because the caller still needs
+// the frozen policy for the drift comparison and the integrity gate.
+func (p AcceptancePolicy) withTaskChecks(checks []string) AcceptancePolicy {
+	if len(checks) == 0 {
+		return p
+	}
+	combined := make([]string, 0, len(p.Checks)+len(checks))
+	combined = append(combined, p.Checks...)
+	combined = append(combined, checks...)
+	p.Checks = combined
+	return p
+}

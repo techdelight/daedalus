@@ -161,6 +161,29 @@ daedalus is language-agnostic and cannot know a project's build/test command, so
 those are declared per-project — plus the conventional test/fixture globs and the
 verify config itself).
 
+**Per-task checks (post-v0.53.0).** The policy above is project-level and
+task-independent: it answers *"does this artifact still meet the project's
+standing bar"*, and cannot answer *"did this task deliver what it promised"* —
+it was committed before the task existed. `task create --check <cmd>` (repeatable)
+records commands on the Task row that are **appended** to the frozen policy at
+verify, never substituted for it, and run **after** it. Three properties, each
+chosen so a per-task check cannot become a loophole:
+
+- *Append-only* means a Task can only ever raise its own bar; there is no request
+  shape that lowers it.
+- *Project checks run first* matters because the verifier's checkout is writable
+  and checks run in sequence — so by the time a task check runs, the project's own
+  checks have already passed against an unmutated tree. A task check can only
+  sabotage itself.
+- *Human callers only* (`resolveTaskChecks`): a check is a command executed inside
+  the verifier, and the party being graded does not choose those. An agent is
+  refused with a typed `forbidden`. This is stricter than the append-only property
+  strictly requires, and deliberately so — every consequential capability here
+  starts human-only until something earns otherwise.
+
+They sit **outside** `acceptance_hash`, which covers the project's policy alone,
+so a Task carrying checks does not read as policy drift.
+
 **Frozen acceptance oracle.** At `task create` the policy is read **as committed
 at `base_sha`** (`git show <base>:.daedalus/verify.json`, immutable to later
 working-tree edits) and a stable hash of the normalized (commands + globs) is

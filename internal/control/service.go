@@ -75,6 +75,12 @@ type CreateTaskRequest struct {
 	Project    string `json:"project"`
 	Objective  string `json:"objective"`
 	Acceptance string `json:"acceptance,omitempty"`
+	// Checks are per-task acceptance commands, APPENDED to the project's frozen
+	// policy at verify — they can only raise the bar, never lower it. Human
+	// callers only (resolveTaskChecks). This is where "did this task deliver what
+	// it promised" gets a machine-checkable answer, since `.daedalus/verify.json`
+	// is project-level and cannot know what any one Task set out to do.
+	Checks []string `json:"checks,omitempty"`
 	// Budget optionally narrows the project's ceiling for this task. Unset axes
 	// inherit the ceiling; an axis that *widens* it is refused with
 	// ReasonOverBudget (§6 — "budget too high → REJECTED"), and a NEGATIVE axis is
@@ -387,6 +393,10 @@ func (s *Service) createTask(caller Caller, req CreateTaskRequest) (Task, error)
 	if req.Objective == "" {
 		return Task{}, fmt.Errorf("control: objective is required")
 	}
+	checks, err := resolveTaskChecks(caller, req.Checks)
+	if err != nil {
+		return Task{}, err
+	}
 	dir, err := s.projects.ProjectDir(req.Project)
 	if err != nil {
 		return Task{}, err
@@ -433,7 +443,7 @@ func (s *Service) createTask(caller Caller, req CreateTaskRequest) (Task, error)
 	}
 	t, err := s.store.CreateTask(NewTask{
 		Project: req.Project, Objective: req.Objective, AcceptanceRef: req.Acceptance,
-		BaseSHA: baseSHA, AcceptanceHash: policy.Hash(), Budget: budget,
+		BaseSHA: baseSHA, AcceptanceHash: policy.Hash(), Checks: checks, Budget: budget,
 	}, StatePlanned)
 	if err != nil {
 		return Task{}, err
@@ -445,6 +455,56 @@ func (s *Service) createTask(caller Caller, req CreateTaskRequest) (Task, error)
 		t = t2
 	}
 	return t, nil
+}
+
+// maxTaskChecks bounds how many per-task commands one Task may carry. Not a
+// security boundary — the human-only rule is — just a guard against a pasted
+// script arriving as a thousand one-line checks.
+const maxTaskChecks = 16
+
+// resolveTaskChecks validates the per-task acceptance commands and decides who
+// may supply them.
+//
+// HUMAN CALLERS ONLY, and the reasoning is worth stating because the rule looks
+// stricter than it needs to be. Per-task checks are APPENDED to the project's
+// frozen policy and run AFTER it, so an agent-supplied check could never weaken
+// the oracle — the worst it could do is add a command that passes trivially. But
+// a check is a command executed inside the verifier, and the verifier is the one
+// environment in this system whose contents are supposed to be decided entirely
+// before the work begins. Letting the party being graded put commands in there is
+// a door worth leaving shut until someone has a use for opening it; every other
+// consequential capability in this design started human-only and stayed that way
+// unless it earned otherwise (§6, tiered authority).
+//
+// An agent that wants a task graded a particular way can say so in the objective
+// and let a human write the check — which is the same shape as every other
+// proposal in the system.
+func resolveTaskChecks(caller Caller, raw []string) ([]string, error) {
+	var checks []string
+	for _, c := range raw {
+		c = strings.TrimSpace(c)
+		if c == "" {
+			continue // a stray empty --check is a typo, not an instruction
+		}
+		checks = append(checks, c)
+	}
+	if len(checks) == 0 {
+		return nil, nil
+	}
+	if caller.IsAgent() {
+		return nil, &RejectionError{
+			Reason: ReasonForbidden,
+			Message: "per-task acceptance checks may only be set by a human caller: " +
+				"they are commands run inside the verifier, and the party being graded does not choose them",
+		}
+	}
+	if len(checks) > maxTaskChecks {
+		return nil, &RejectionError{
+			Reason:  ReasonInvalidCheck,
+			Message: fmt.Sprintf("%d checks requested, limit is %d", len(checks), maxTaskChecks),
+		}
+	}
+	return checks, nil
 }
 
 // resolveBudget layers a create request's budget over the project's ceiling. A
@@ -1017,6 +1077,11 @@ func (s *Service) VerifyTask(id string) (VerifyResult, error) {
 	if err != nil {
 		return VerifyResult{}, err
 	}
+	// NOTE the ordering here matters: the drift check compares the REPO policy
+	// alone against the hash frozen at create. Per-task checks are deliberately
+	// outside that hash — they are the Task's own addition, not the project's
+	// policy, and folding them in would make every task with a check look like
+	// drift. They are appended to the policy further down, after this gate.
 	if task.AcceptanceHash != "" && policy.Hash() != task.AcceptanceHash {
 		note := "acceptance policy hash drift since base_sha — rejected"
 		res := s.doReject(task, job, art, repoDir, ReasonPolicyDrift, note)
@@ -1076,7 +1141,7 @@ func (s *Service) VerifyTask(id string) (VerifyResult, error) {
 	spec := VerifySpec{
 		TaskID: id, JobID: job.ID, Project: task.Project, RepoDir: repoDir,
 		BaseSHA: task.BaseSHA, HeadSHA: job.OutputSnapshot,
-		Branch: BranchName(id, job.ID), Policy: policy, ImageDigest: task.ImageDigest,
+		Branch: BranchName(id, job.ID), Policy: policy.withTaskChecks(task.Checks), ImageDigest: task.ImageDigest,
 	}
 	// The claim and the unlock are both scoped helpers (claim.go): the claim is
 	// released on every exit including a panic, and the mutex is re-taken the same

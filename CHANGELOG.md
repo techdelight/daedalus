@@ -4,6 +4,34 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- **Per-task acceptance checks: `task create --check <cmd>` (repeatable).** The
+  project's `.daedalus/verify.json` is task-independent — it answers "does this
+  artifact still meet the standing bar", and cannot answer "did this task deliver
+  what it promised", having been committed before the task existed. Until now the
+  only answer to the second question was a human reading the diff at the approval
+  gate. A `--check` is recorded on the Task and run by the verifier, so the
+  objective gets a machine-checkable definition of done, stated at the same moment
+  as the objective itself.
+  - **Appended, never substituted, and run after the project's checks.** A Task
+    can only raise its own bar. The ordering is load-bearing rather than tidy: the
+    verifier's checkout is writable and checks run in sequence, so running the
+    project's checks first means a task-supplied command can only sabotage itself.
+  - **Human callers only.** A check is a command executed inside the verifier, and
+    the party being graded does not choose those; an agent asking is refused with
+    a typed `forbidden`. Task creation *without* checks stays a bounded write the
+    Guild Master may perform.
+  - **Outside the frozen `acceptance_hash`**, which covers the project's policy
+    alone — so a Task with its own checks does not read as policy drift.
+  - Stored via an idempotent `task_checks` migration; a task written before this
+    reads back with none. Shown by `task create` and `task status`, and a task
+    created *without* any now says so, because "graded by the project policy
+    alone" is a thing worth knowing at the moment you create the work.
+  - Related clarification: `--acceptance <note>` is free text and is **not**
+    executed. `task status` and `--help` now say so — it had the shape of this
+    feature with none of the mechanism, which is exactly the wrong thing for a
+    flag called "acceptance" to have.
+
 ### Fixed
 - **The `daedalus` CLI ships in the image, so the built-in acceptance policy can
   actually run.** A project that declares no `.daedalus/verify.json` is graded by

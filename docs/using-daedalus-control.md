@@ -24,11 +24,11 @@ be disappointed by either.
 | Can it approve its own work? | It has no work to approve | No — approval is human-only, structurally |
 | Talk to it with | `daedalus guild-master` | `daedalus task …` |
 
-The intended end state is the two combined: the Guild Master proposes, the plane
-adjudicates and executes. **That link is not live yet** — see
-[The Guild Master as a control-plane client](#the-guild-master-as-a-control-plane-client),
-which says exactly what is missing. Today you drive the control plane yourself,
-from the CLI, and that is the deterministic reference path it was built around.
+The two are joined: the Guild Master proposes, the plane adjudicates and
+executes — see
+[The Guild Master as a control-plane client](#the-guild-master-as-a-control-plane-client).
+Driving the plane yourself from the CLI remains the deterministic reference path
+it was built around, and everything consequential still comes back to you.
 
 ---
 
@@ -67,7 +67,9 @@ task create ──► planned
   `execution_result=failed`. If you see that, `control.log` will carry the
   seeding warning naming the project to log into.
 - **A verify policy**, ideally. Without one you get a built-in default that only
-  runs `daedalus docs lint --ci`, which is a weak oracle for most projects.
+  runs `daedalus docs lint --ci`, which is a weak oracle for most projects. And
+  whatever the project declares, it cannot know what any one task promised — see
+  [What `verify.json` cannot tell you](#what-verifyjson-cannot-tell-you).
 - **The daemon.** You do not have to start it: the CLI auto-spawns
   `daedalus-control` and reuses it (single writer over
   `<data-dir>/.daedalus/control.sock`).
@@ -79,6 +81,7 @@ task create ──► planned
 #    frozen right here — later edits to any of them do not change this task.
 daedalus task create --project my-app \
   --objective "Add cursor pagination to GET /items" \
+  --check "go test ./internal/api -run TestPagination" \
   --wall-clock 1800 --max-attempts 2
 
 # 2. Run one attempt. Isolated worktree at base_sha, headless agent, process exit
@@ -135,6 +138,46 @@ Commit `.daedalus/verify.json` to the project:
   edits any of them, the Task is **rejected before the verifier is ever called** —
   you cannot grade your own exam. Frontier agents edit tests to pass in a large
   fraction of adversarial runs; this is the gate for that.
+
+### What `verify.json` cannot tell you
+
+`verify.json` is **project-level and task-independent**. It answers *"does this
+artifact still meet the project's standing bar, without having tampered with the
+bar"* — a regression-and-integrity gate. It cannot answer *"did this task deliver
+what it promised"*, because it was committed before your task existed and knows
+nothing about its objective.
+
+That second question is answered by **per-task checks**, given at create:
+
+```bash
+daedalus task create --project my-app \
+  --objective "Add cursor pagination to GET /items" \
+  --check "go test ./internal/api -run TestPagination" \
+  --check "test -f docs/pagination.md"
+```
+
+- **Appended, never substituted.** The project's checks always run, and run
+  **first**; a task's checks are added after. There is no request shape that
+  lowers the bar, so "this one was graded leniently" is not a state that exists.
+  The ordering also matters because the verifier's checkout is writable: by the
+  time a task check runs, the project's own checks have already passed against an
+  unmutated tree, so a task check can only sabotage itself.
+- **Human callers only.** A per-task check is a command executed inside the
+  verifier, and the party being graded does not choose those. An agent that asks
+  is refused with a typed `forbidden` rejection; it can put the intent in the
+  objective and let a human write the check.
+- **Outside the frozen hash.** They are the task's addition, not the project's
+  policy, so they do not read as policy drift at verify time.
+- They are stored on the task, shown by `task status`, and — like everything else
+  about a task — fixed once it is created.
+
+A useful discipline falls out of this: writing the `--check` at the same moment
+you write the objective forces you to say what "done" means in a form something
+other than a human can evaluate. If you can't express it, that's worth knowing
+before an agent spends an hour on it.
+
+Note that `--acceptance <note>` is **not** this. It is a free-text label stored on
+the task and printed in `status`; nothing executes it.
 
 **The policy is frozen at `base_sha`**, read with `git show <base>:.daedalus/verify.json`.
 Editing it in the working tree does not affect a task already created.

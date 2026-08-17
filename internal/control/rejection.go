@@ -69,6 +69,11 @@ const (
 	// ReasonForbidden: the caller class may not perform this operation at all, and
 	// may not propose it either.
 	ReasonForbidden RejectionReason = "forbidden"
+
+	// ReasonInvalidCheck is malformed per-task acceptance input (too many checks).
+	// Separated from forbidden because it is a request shape problem, not an
+	// authority one — the caller may set checks, just not these.
+	ReasonInvalidCheck RejectionReason = "invalid_check"
 	// ReasonNotSteerable: the Job is not in a state where an instruction could
 	// reach a worker (it has finished, or has not started). Refused rather than
 	// recorded-and-dropped: recording an undeliverable steer against a Job that

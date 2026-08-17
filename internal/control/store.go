@@ -310,6 +310,9 @@ DROP TABLE IF EXISTS targets;
 	// type + machine-readable rejection reason. Additive and idempotent, so a
 	// v0.49.0 control.db opens, migrates, and keeps every existing row (legacy
 	// tasks read back with DefaultBudget(); legacy events with a derived kind).
+	if err := s.addColumnIfMissing("tasks", "task_checks", "task_checks TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
 	if err := s.addColumnIfMissing("tasks", "budget", "budget TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
 	}
@@ -464,9 +467,10 @@ type NewTask struct {
 	Project        string
 	Objective      string
 	AcceptanceRef  string
-	BaseSHA        string // git HEAD captured by the caller
-	AcceptanceHash string // frozen verify policy at BaseSHA (may be "")
-	Budget         Budget // the resolved governance envelope (§6)
+	BaseSHA        string   // git HEAD captured by the caller
+	AcceptanceHash string   // frozen verify policy at BaseSHA (may be "")
+	Checks         []string // per-task acceptance commands, appended to the frozen policy
+	Budget         Budget   // the resolved governance envelope (§6)
 }
 
 // CreateTask inserts a new task in the given initial state (planned or queued)
@@ -496,6 +500,7 @@ func (s *Store) CreateTask(spec NewTask, initial State) (Task, error) {
 	t := Task{
 		ID: id, Project: spec.Project, Objective: spec.Objective,
 		AcceptanceRef: spec.AcceptanceRef, AcceptanceHash: spec.AcceptanceHash,
+		Checks: spec.Checks,
 		Budget: spec.Budget, BaseSHA: spec.BaseSHA, State: initial,
 		CreatedAt: now, UpdatedAt: now,
 	}
@@ -503,10 +508,18 @@ func (s *Store) CreateTask(spec NewTask, initial State) (Task, error) {
 	if err != nil {
 		return Task{}, fmt.Errorf("encoding budget: %w", err)
 	}
+	checksJSON := ""
+	if len(t.Checks) > 0 {
+		b, err := json.Marshal(t.Checks)
+		if err != nil {
+			return Task{}, fmt.Errorf("encoding task checks: %w", err)
+		}
+		checksJSON = string(b)
+	}
 	_, err = tx.Exec(
-		`INSERT INTO tasks (id, project, objective, acceptance_ref, acceptance_hash, budget, base_sha, state, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		t.ID, t.Project, t.Objective, t.AcceptanceRef, t.AcceptanceHash, string(budgetJSON), t.BaseSHA, string(t.State), t.CreatedAt, t.UpdatedAt,
+		`INSERT INTO tasks (id, project, objective, acceptance_ref, acceptance_hash, task_checks, budget, base_sha, state, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		t.ID, t.Project, t.Objective, t.AcceptanceRef, t.AcceptanceHash, checksJSON, string(budgetJSON), t.BaseSHA, string(t.State), t.CreatedAt, t.UpdatedAt,
 	)
 	if err != nil {
 		return Task{}, fmt.Errorf("inserting task: %w", err)
@@ -739,7 +752,7 @@ func (s *Store) RebaseTask(id, baseSHA, acceptanceHash string, meta EventMeta, n
 	return cur, nil
 }
 
-const taskSelect = `SELECT id, project, objective, acceptance_ref, acceptance_hash, image_digest, budget, base_sha, state, created_at, updated_at FROM tasks`
+const taskSelect = `SELECT id, project, objective, acceptance_ref, acceptance_hash, image_digest, task_checks, budget, base_sha, state, created_at, updated_at FROM tasks`
 
 // rowScanner is satisfied by both *sql.Row and *sql.Rows.
 type rowScanner interface {
@@ -748,8 +761,8 @@ type rowScanner interface {
 
 func scanTask(sc rowScanner) (Task, error) {
 	var t Task
-	var state, budget string
-	err := sc.Scan(&t.ID, &t.Project, &t.Objective, &t.AcceptanceRef, &t.AcceptanceHash, &t.ImageDigest, &budget, &t.BaseSHA, &state, &t.CreatedAt, &t.UpdatedAt)
+	var state, budget, checks string
+	err := sc.Scan(&t.ID, &t.Project, &t.Objective, &t.AcceptanceRef, &t.AcceptanceHash, &t.ImageDigest, &checks, &budget, &t.BaseSHA, &state, &t.CreatedAt, &t.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Task{}, ErrNotFound
 	}
@@ -757,6 +770,14 @@ func scanTask(sc rowScanner) (Task, error) {
 		return Task{}, err
 	}
 	t.State = State(state)
+	// Per-task checks: absent on every row written before this existed, which reads
+	// back as no extra checks — the project policy alone, exactly as before.
+	if checks != "" {
+		var c []string
+		if json.Unmarshal([]byte(checks), &c) == nil {
+			t.Checks = c
+		}
+	}
 	// A task written before Sprint 58 (or by a migration default) carries no
 	// budget; the built-in default is the only honest answer for it. Unparseable
 	// JSON degrades the same way rather than making the row unreadable — a

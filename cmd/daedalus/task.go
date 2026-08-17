@@ -147,6 +147,14 @@ func taskCreate(api control.TaskAPI, args []string) error {
 			}
 			i++
 			req.Acceptance = args[i]
+		case "--check", "-c":
+			// Repeatable. This is the per-task half of the oracle: verify.json says
+			// what the PROJECT requires, --check says what THIS task must deliver.
+			if i+1 >= len(args) {
+				return fmt.Errorf("--check requires a command, e.g. --check 'go test ./internal/api -run TestPagination'")
+			}
+			i++
+			req.Checks = append(req.Checks, args[i])
 		case "--wall-clock":
 			if err := intFlag(&i, "--wall-clock", &budget.WallClockSeconds); err != nil {
 				return err
@@ -164,7 +172,7 @@ func taskCreate(api control.TaskAPI, args []string) error {
 				return err
 			}
 		default:
-			return fmt.Errorf("task create: unknown flag %q\n%s usage: daedalus task create --project <name> --objective <text> [--acceptance <ref>] [--wall-clock <s>] [--max-attempts <n>] [--max-review-cycles <n>] [--concurrency <n>]", args[i], color.Cyan("Hint:"))
+			return fmt.Errorf("task create: unknown flag %q\n%s usage: daedalus task create --project <name> --objective <text> [--check <cmd>]... [--acceptance <note>] [--wall-clock <s>] [--max-attempts <n>] [--max-review-cycles <n>] [--concurrency <n>]", args[i], color.Cyan("Hint:"))
 		}
 	}
 	if req.Project == "" {
@@ -183,6 +191,15 @@ func taskCreate(api control.TaskAPI, args []string) error {
 	fmt.Printf("%s created task %s for project %s (base %s, state %s)\n",
 		color.Green("OK:"), color.Bold(t.ID), t.Project, shortSHA(t.BaseSHA), t.State)
 	fmt.Printf("     budget: %s\n", t.Budget)
+	if len(t.Checks) > 0 {
+		fmt.Printf("     %s (run after the project's frozen policy, in the verifier):\n", color.Bold("task checks"))
+		for _, c := range t.Checks {
+			fmt.Printf("       - %s\n", c)
+		}
+	} else {
+		fmt.Printf("     %s no task checks — it will be graded by the project policy alone,\n", color.Dim("note:"))
+		fmt.Printf("           which cannot tell whether THIS objective was delivered. Add one with --check.\n")
+	}
 	return nil
 }
 
@@ -265,8 +282,14 @@ func taskStatus(api control.TaskAPI, args []string) error {
 	fmt.Printf("%s   %s\n", color.Bold("Project:"), t.Project)
 	fmt.Printf("%s     %s\n", color.Bold("State:"), t.State)
 	fmt.Printf("%s %s\n", color.Bold("Objective:"), t.Objective)
+	if len(t.Checks) > 0 {
+		fmt.Printf("%s %d, appended to the project policy at verify\n", color.Bold("Task checks:"), len(t.Checks))
+		for _, c := range t.Checks {
+			fmt.Printf("  - %s\n", c)
+		}
+	}
 	if t.AcceptanceRef != "" {
-		fmt.Printf("%s %s\n", color.Bold("Acceptance:"), t.AcceptanceRef)
+		fmt.Printf("%s %s (note only — not executed; see --check)\n", color.Bold("Acceptance:"), t.AcceptanceRef)
 	}
 	fmt.Printf("%s  %s\n", color.Bold("Base SHA:"), t.BaseSHA)
 	fmt.Printf("%s    %s\n", color.Bold("Budget:"), t.Budget)
@@ -1067,10 +1090,13 @@ func printTaskUsage() {
 	fmt.Printf("%s daedalus task <command>\n", color.Bold("Usage:"))
 	fmt.Println()
 	fmt.Println(color.Bold("Commands:"))
-	fmt.Println("  create --project <name> --objective <text> [--acceptance <ref>]")
+	fmt.Println("  create --project <name> --objective <text> [--check <cmd>]... [--acceptance <note>]")
 	fmt.Println("         [--wall-clock <s>] [--max-attempts <n>] [--max-review-cycles <n>] [--concurrency <n>]")
 	fmt.Println("                       Create a task for a registered Git project (captures base_sha,")
 	fmt.Println("                       freezes the acceptance policy, and pins the budget)")
+	fmt.Println("                       --check adds a PER-TASK command the verifier must also pass —")
+	fmt.Println("                       repeatable, human-only, appended to the project policy (never")
+	fmt.Println("                       replacing it). --acceptance is a free-text note and is NOT run")
 	fmt.Println("  list                 List all tasks (id, project, state, objective)")
 	fmt.Println("  status <id>          Show a task with its budget, jobs and artifacts")
 	fmt.Println("  dispatch <id>        Run one headless Job attempt (isolated worktree; success → candidate)")
@@ -1109,6 +1135,12 @@ func printTaskUsage() {
 	fmt.Println("  Each project has a plane-owned target commit that ONLY a completed integration")
 	fmt.Println("  advances. Tasks are based on it and their acceptance policy is frozen at it, so")
 	fmt.Println("  rewriting the repository's branches cannot influence how work is graded.")
+	fmt.Println()
+	fmt.Println(color.Bold("Verification:"))
+	fmt.Println("  `.daedalus/verify.json` is the PROJECT's bar, frozen at base_sha: it answers")
+	fmt.Println("  \"does this artifact still meet the standing bar\", not \"did this task deliver")
+	fmt.Println("  what it promised\" — it was written before the task existed. `--check` at create")
+	fmt.Println("  is where the second question gets a machine-checkable answer.")
 	fmt.Println()
 	fmt.Println(color.Bold("Steering:"))
 	fmt.Println("  Steering changes what a worker is TOLD; it never changes what counts as done.")
