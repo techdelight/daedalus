@@ -31,7 +31,10 @@ func IsHeadless(cfg *core.Config) bool {
 // Flags can appear in any position; 0/1/2 positional args are accepted.
 //
 // Subcommand detection:
-//   - --help / -h or 0 positional args → Subcommand = "help"
+//   - --help / -h → HelpRequested, and Subcommand names WHOSE help to print:
+//     the subcommand's own when it has one (see helpAwareSubcommands), else
+//     "help" for the global usage
+//   - 0 positional args → Subcommand = "help"
 //   - "list" as first positional → Subcommand = "list"
 //   - 1 positional arg → ProjectName set, ProjectDir left empty (resolved later)
 //   - 2 positional args → ProjectName and ProjectDir set
@@ -46,12 +49,18 @@ func ParseArgs(args []string) (*core.Config, error) {
 	webPort := "3000"
 	hostOverride := false
 	noAuthExplicit := false
+	helpRequested := false
 
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--help", "-h":
-			cfg.Subcommand = "help"
-			return cfg, nil
+			// Recorded, NOT returned on. Returning here used to skip the path
+			// resolution below (leaving LogFile empty, which every --help then
+			// warned about) and, worse, skip subcommand routing entirely — so
+			// `daedalus task --help` printed the global usage and the per-command
+			// help at task.go/version.go/docs.go was unreachable by the flag form
+			// people actually type.
+			helpRequested = true
 		case "--build":
 			cfg.Build = true
 		case "--target":
@@ -151,17 +160,37 @@ func ParseArgs(args []string) (*core.Config, error) {
 
 	// Resolve script directory (follow symlinks so runtime files are found
 	// when the binary is invoked via a symlink, e.g. ~/.local/bin/daedalus)
-	exe, err := os.Executable()
-	if err != nil {
-		return nil, fmt.Errorf("cannot determine executable path: %w", err)
+	// A help request must survive a broken installation: printing usage needs no
+	// script dir, and a user whose exe path cannot be resolved is exactly the one
+	// who needs to read the help. On error under --help the script dir is left
+	// empty (logging.Init treats the resulting empty LogFile as "no log").
+	exe, err := resolveExecutable()
+	if err != nil && !helpRequested {
+		return nil, err
 	}
-	exe, err = filepath.EvalSymlinks(exe)
-	if err != nil {
-		return nil, fmt.Errorf("cannot resolve executable symlink: %w", err)
+	if err == nil {
+		cfg.ScriptDir, err = filepath.Abs(filepath.Dir(exe))
+		if err != nil && !helpRequested {
+			return nil, fmt.Errorf("cannot resolve script directory: %w", err)
+		}
 	}
-	cfg.ScriptDir, err = filepath.Abs(filepath.Dir(exe))
-	if err != nil {
-		return nil, fmt.Errorf("cannot resolve script directory: %w", err)
+
+	// Help wins over everything below it: no data dir, no log file, no flag
+	// validation. `daedalus --runner bogus --help` should print help rather than
+	// an error, and a usage print must not create a log directory — that is what
+	// made --help warn inside the project image, where the exe dir is not
+	// writable by the container user. LogFile stays empty and logging.Init
+	// disables itself, so help remains a pure print with no side effects.
+	if helpRequested {
+		cfg.HelpRequested = true
+		cfg.Subcommand = "help"
+		if len(positional) > 0 && helpAwareSubcommands[positional[0]] {
+			if handler, ok := collectorSubcommands[positional[0]]; ok {
+				cfg.Subcommand = positional[0]
+				handler(cfg, []string{positional[0], "help"})
+			}
+		}
+		return cfg, nil
 	}
 
 	// Resolve data directory: env var > config file > default
@@ -232,6 +261,33 @@ func ParseArgs(args []string) (*core.Config, error) {
 
 	core.NormalizeRunnerTarget(cfg)
 	return cfg, nil
+}
+
+// resolveExecutable returns the real path of the running binary, following
+// symlinks so runtime files are found when invoked via one (e.g.
+// ~/.local/bin/daedalus).
+func resolveExecutable() (string, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", fmt.Errorf("cannot determine executable path: %w", err)
+	}
+	exe, err = filepath.EvalSymlinks(exe)
+	if err != nil {
+		return "", fmt.Errorf("cannot resolve executable symlink: %w", err)
+	}
+	return exe, nil
+}
+
+// helpAwareSubcommands lists the subcommands that implement their own `help`
+// action, so --help can be routed to them instead of printing the global usage.
+// The allow-list is deliberate rather than injecting "help" into every
+// subcommand: one without a help action would read the word as an ordinary
+// argument, and `daedalus remove --help` turning into "remove the project named
+// help" is exactly the destructive surprise a help flag must never produce.
+var helpAwareSubcommands = map[string]bool{
+	"docs":    true,
+	"task":    true,
+	"version": true,
 }
 
 // collectorSubcommands maps each "daedalus <name> [args...]" subcommand to a

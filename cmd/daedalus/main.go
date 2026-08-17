@@ -66,6 +66,12 @@ func run(args []string) error {
 		return err
 	}
 
+	// Before anything can print: a warning emitted above this line would carry
+	// ANSI codes the user explicitly asked not to see.
+	if cfg.NoColor {
+		color.Disable()
+	}
+
 	// Initialize file logging
 	if err := logging.Init(cfg.LogFile, cfg.Debug); err != nil {
 		fmt.Fprintf(os.Stderr, "%s could not initialize log file: %v\n", color.Yellow("Warning:"), err)
@@ -74,17 +80,16 @@ func run(args []string) error {
 
 	logging.Info("starting daedalus version " + core.Version)
 
-	if cfg.NoColor {
-		color.Disable()
-	}
-
 	// Ensure the built-in Guild Master exists before any command that enumerates
 	// or launches projects runs (list/tui/web/prune/remove and the normal launch
 	// flow all fall through this single point). Skipped for the purely
 	// informational, registry-free commands so `help`/`completion` stay fast and
-	// side-effect-free. Best-effort: never crashes the CLI (logs + continues).
-	switch cfg.Subcommand {
-	case "help", "completion":
+	// side-effect-free — including a --help routed to a subcommand, where
+	// Subcommand names the command whose usage to print but nothing will run.
+	switch {
+	case cfg.HelpRequested:
+		// printing usage only
+	case cfg.Subcommand == "help", cfg.Subcommand == "completion":
 		// no registry work
 	default:
 		ensureGuildMaster(cfg)

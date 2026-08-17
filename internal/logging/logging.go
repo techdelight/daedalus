@@ -20,9 +20,22 @@ var (
 // Init opens or creates the log file at path in append mode.
 // Parent directories are created if they do not exist.
 // When debugMode is true, Debug() writes to the log; otherwise Debug() is silent.
+//
+// An empty path means "no log file configured" and disables logging rather than
+// failing. Without this the empty path splits confusingly — filepath.Dir("") is
+// ".", so MkdirAll succeeds on the cwd and only the OpenFile fails, producing
+// `opening log file "": open : no such file or directory` with nothing between
+// the colon and the message. Callers treat an Init error as a warning and carry
+// on, so the only effect was noise on stderr for a config that never asked for a
+// log in the first place.
 func Init(path string, debugMode bool) error {
 	mu.Lock()
 	defer mu.Unlock()
+
+	if path == "" {
+		enabled = false
+		return nil
+	}
 
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0755); err != nil {

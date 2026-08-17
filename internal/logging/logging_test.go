@@ -155,3 +155,26 @@ func TestClose_FlushesAndCloses(t *testing.T) {
 		t.Errorf("line 2 = %q, want [ERROR] third", lines[2])
 	}
 }
+
+// TestInit_EmptyPathDisablesLoggingWithoutError pins the floor. An empty path
+// means "no log file configured", which is not an error condition: callers warn
+// on an Init failure and continue, so the old behaviour spent a line of stderr
+// complaining about a log nobody asked for. The empty path also failed in a
+// confusing shape — filepath.Dir("") is ".", so MkdirAll succeeded on the cwd
+// and only OpenFile failed, yielding `open : no such file or directory` with an
+// empty filename.
+func TestInit_EmptyPathDisablesLoggingWithoutError(t *testing.T) {
+	if err := Init("", false); err != nil {
+		t.Fatalf("Init(\"\") = %v, want nil (logging disabled, not an error)", err)
+	}
+	defer Close()
+
+	// Writing must be a silent no-op rather than a panic on the nil file.
+	Info("must not panic")
+	Error("must not panic")
+	Debug("must not panic")
+
+	if enabled {
+		t.Error("logging should be disabled when no path is configured")
+	}
+}

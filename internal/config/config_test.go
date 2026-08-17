@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/techdelight/daedalus/core"
 	"github.com/techdelight/daedalus/internal/platform"
 )
 
@@ -40,6 +41,91 @@ func TestParseArgs_HelpFlagWithOtherArgs(t *testing.T) {
 	}
 	if cfg.Subcommand != "help" {
 		t.Errorf("Subcommand = %q, want %q", cfg.Subcommand, "help")
+	}
+}
+
+// TestParseArgs_HelpFlagRoutesToSubcommandHelp covers the flag form people
+// actually type. --help used to return from inside the flag loop before any
+// subcommand routing happened, so the per-command usage in task.go, version.go
+// and docs.go was reachable only by the bare word `help` — the documented help
+// was the help nobody found.
+func TestParseArgs_HelpFlagRoutesToSubcommandHelp(t *testing.T) {
+	cases := []struct {
+		args    []string
+		want    string
+		subArgs func(*core.Config) []string
+	}{
+		{[]string{"task", "--help"}, "task", func(c *core.Config) []string { return c.TaskArgs }},
+		{[]string{"version", "--help"}, "version", func(c *core.Config) []string { return c.VersionArgs }},
+		{[]string{"docs", "--help"}, "docs", func(c *core.Config) []string { return c.DocsArgs }},
+		// A deeper action still lands on that subcommand's usage rather than the
+		// global one — closer to the question asked.
+		{[]string{"docs", "lint", "--help"}, "docs", func(c *core.Config) []string { return c.DocsArgs }},
+		{[]string{"task", "create", "-h"}, "task", func(c *core.Config) []string { return c.TaskArgs }},
+	}
+	for _, tc := range cases {
+		cfg, err := ParseArgs(tc.args)
+		if err != nil {
+			t.Fatalf("ParseArgs(%v) failed: %v", tc.args, err)
+		}
+		if !cfg.HelpRequested {
+			t.Errorf("ParseArgs(%v): HelpRequested = false, want true", tc.args)
+		}
+		if cfg.Subcommand != tc.want {
+			t.Errorf("ParseArgs(%v): Subcommand = %q, want %q", tc.args, cfg.Subcommand, tc.want)
+		}
+		if got := tc.subArgs(cfg); len(got) != 1 || got[0] != "help" {
+			t.Errorf("ParseArgs(%v): subcommand args = %v, want [help]", tc.args, got)
+		}
+	}
+}
+
+// TestParseArgs_HelpFlagOnNonHelpAwareSubcommandIsGlobal is the safety half of
+// the routing. "help" is injected only for subcommands that implement a help
+// action; one that does not would read the word as an ordinary argument, and
+// `daedalus remove --help` must never be understood as "remove the project
+// named help".
+func TestParseArgs_HelpFlagOnNonHelpAwareSubcommandIsGlobal(t *testing.T) {
+	cfg, err := ParseArgs([]string{"remove", "--help"})
+	if err != nil {
+		t.Fatalf("ParseArgs failed: %v", err)
+	}
+	if cfg.Subcommand != "help" {
+		t.Errorf("Subcommand = %q, want %q (global usage)", cfg.Subcommand, "help")
+	}
+	if len(cfg.RemoveTargets) != 0 {
+		t.Errorf("a help request must name no removal targets, got %v", cfg.RemoveTargets)
+	}
+}
+
+// TestParseArgs_HelpLeavesNoLogFile keeps help a pure print. A non-empty LogFile
+// makes logging.Init create the directory, and the exe dir is not writable by
+// the container user — which is how every --help inside the project image came
+// to warn about a log file it never needed.
+func TestParseArgs_HelpLeavesNoLogFile(t *testing.T) {
+	cfg, err := ParseArgs([]string{"--help"})
+	if err != nil {
+		t.Fatalf("ParseArgs failed: %v", err)
+	}
+	if cfg.LogFile != "" {
+		t.Errorf("LogFile = %q, want empty so logging stays disabled for a usage print", cfg.LogFile)
+	}
+}
+
+// TestParseArgs_HelpBeatsFlagValidation — the person typing --help alongside a
+// bad flag is asking what the valid values are. Answering with the error they
+// are trying to look up is the wrong order.
+func TestParseArgs_HelpBeatsFlagValidation(t *testing.T) {
+	cfg, err := ParseArgs([]string{"--runner", "definitely-not-a-runner", "--help"})
+	if err != nil {
+		t.Fatalf("--help should win over runner validation, got error: %v", err)
+	}
+	if cfg.Subcommand != "help" {
+		t.Errorf("Subcommand = %q, want %q", cfg.Subcommand, "help")
+	}
+	// The validation itself must still bite without --help.
+	if _, err := ParseArgs([]string{"--runner", "definitely-not-a-runner", "list"}); err == nil {
+		t.Error("an invalid runner must still be rejected when no help was asked for")
 	}
 }
 

@@ -33,6 +33,37 @@ All notable changes to this project will be documented in this file.
     flag called "acceptance" to have.
 
 ### Fixed
+- **`--help` reaches the subcommand's own help, and stops warning about a log
+  file.** `ParseArgs` returned from inside its flag loop the moment it saw
+  `--help`, before resolving any paths and before any subcommand routing. Two
+  consequences, one cosmetic and one not. The cosmetic one: `LogFile` was never
+  defaulted, so every `--help` called `logging.Init("")` and printed `opening log
+  file "": open : no such file or directory` — a confusing shape, since
+  `filepath.Dir("")` is `"."` and so only the `OpenFile` failed. The real one:
+  `--help` is matched anywhere in argv, so no subcommand could ever see it, and
+  the dedicated usage in `task.go`, `version.go` and `docs.go` was reachable only
+  by the bare word `help`. `daedalus task --help` printed the global usage, and
+  the `"--help"` branches in those files were dead code from the CLI — the
+  documented help was the help nobody found.
+  - `--help` is now recorded rather than returned on, and routed to the
+    subcommand's own help via an **allow-list of the commands that implement
+    one**. Injecting `help` everywhere would be worse than the bug: a subcommand
+    without a help action reads it as an ordinary argument, and `daedalus remove
+    --help` must never be understood as "remove the project named `help`". That
+    case is pinned by a test.
+  - **Help still wins over flag validation** — someone typing `--runner bogus
+    --help` is asking what the valid runners are, and answering with the error
+    they are looking up has the order backwards. It also survives an unresolvable
+    executable path, since that user especially needs the usage.
+  - **A usage print stays a pure print**: no data dir, no log file, and no Guild
+    Master bootstrap. `logging.Init` now treats an empty path as "no log
+    configured" rather than an error, which also matters inside the image, where
+    the exe dir is not writable by the container user — defaulting a log path for
+    `--help` would have traded this warning for a different one.
+  - `daedalus version help` no longer needs a resolvable install layout: it
+    answered before, only after `ResolvePrefix` had already failed for the person
+    asking. And `--no-color` is applied before any warning can print, instead of
+    eight lines after.
 - **The clean verifier overrides the image entrypoint, so a check command is
   actually executed.** The verifier ran `docker run <image> sh -c '<check>'` with
   no `--entrypoint`, but the project image's `ENTRYPOINT` is `entrypoint.sh`,

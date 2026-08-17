@@ -26,6 +26,14 @@ func manageVersions(cfg *core.Config) error {
 		action = args[0]
 	}
 
+	// Answered before the install layout is resolved: usage is the right output
+	// for someone whose layout cannot be resolved, so needing a valid prefix in
+	// order to explain the command would fail exactly the person asking.
+	if action == "help" || action == "--help" || action == "-h" {
+		printVersionUsage()
+		return nil
+	}
+
 	exe, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("cannot determine executable path: %w", err)

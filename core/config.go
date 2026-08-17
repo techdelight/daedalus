@@ -25,6 +25,7 @@ type Config struct {
 	ImagePrefix     string
 	ContainerPrefix string   // docker container name prefix; default DefaultContainerPrefix
 	Subcommand      string   // "list", "help", "build", "web", "remove", "rename", "config", "completion", or "" for normal mode
+	HelpRequested   bool     // --help/-h was given; Subcommand names WHOSE help to print, so this stays a separate signal
 	RemoveTargets   []string // project names for "remove" subcommand
 	ConfigTarget    string   // project name for "config" subcommand
 	ConfigSet       []string // "key=value" pairs for --set
