@@ -3,6 +3,8 @@
 package control
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -158,6 +160,71 @@ func TestVerifierEnvPolicy_DockerRunArgs(t *testing.T) {
 			t.Errorf("verifier args must not leak %q: %v", leak, joined)
 		}
 	}
+}
+
+// TestVerifierBypassesTheImageEntrypoint pins the override itself. The project
+// image's ENTRYPOINT is a launcher, not a shell: handing it `sh -c <check>` runs
+// the AGENT with those words as argv and never runs the check. A verifier that
+// grades a container which never executed the check reports a verdict about
+// nothing, so the shape of the argv is a correctness property.
+func TestVerifierBypassesTheImageEntrypoint(t *testing.T) {
+	args := DefaultVerifierEnvPolicy().DockerRunArgs("sha256:abc", "/host/checkout", "go test ./...")
+
+	if !containsPair(args, "--entrypoint", "sh") {
+		t.Errorf("verifier must override the image entrypoint with sh: %v", args)
+	}
+
+	// The image must be followed by exactly `-c <check>`. A stray "sh" positional
+	// here (the pre-override argv) would make the entrypoint run a script NAMED
+	// "sh" instead of the check.
+	i := indexOf(args, "sha256:abc")
+	if i < 0 {
+		t.Fatalf("pinned image digest missing from args: %v", args)
+	}
+	rest := args[i+1:]
+	want := []string{"-c", "go test ./..."}
+	if len(rest) != len(want) || rest[0] != want[0] || rest[1] != want[1] {
+		t.Errorf("after the image, args should be exactly %v, got %v", want, rest)
+	}
+}
+
+// TestVerifierOverrideIsRequiredByTheImageEntrypoint ties the override to the
+// reason for it. entrypoint.sh ends by exec'ing the agent with "$@" rather than
+// exec'ing "$@" itself, so a check passed through it is swallowed. If the
+// entrypoint ever grows a real `exec "$@"` passthrough this test stops demanding
+// the override — the requirement is derived, not hardcoded.
+func TestVerifierOverrideIsRequiredByTheImageEntrypoint(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "entrypoint.sh"))
+	if err != nil {
+		t.Skipf("entrypoint.sh not readable from here: %v", err)
+	}
+	script := string(data)
+
+	passesThrough := strings.Contains(script, `exec "$@"`)
+	execsAgentWithArgs := strings.Contains(script, `--dangerously-skip-permissions "$@"`)
+
+	if passesThrough {
+		return // a check handed to the entrypoint would run; the override is optional
+	}
+	if !execsAgentWithArgs {
+		t.Skip("entrypoint.sh no longer matches either known shape; re-derive this test")
+	}
+
+	args := DefaultVerifierEnvPolicy().DockerRunArgs("sha256:abc", "/host/checkout", "true")
+	if !containsPair(args, "--entrypoint", "sh") {
+		t.Error("entrypoint.sh execs the agent with \"$@\" and has no `exec \"$@\"` " +
+			"passthrough, so the verifier MUST override the entrypoint — otherwise " +
+			"every check command is passed to the agent as argv and never runs")
+	}
+}
+
+func indexOf(ss []string, want string) int {
+	for i, s := range ss {
+		if s == want {
+			return i
+		}
+	}
+	return -1
 }
 
 func contains(ss []string, want string) bool {

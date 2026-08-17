@@ -43,13 +43,23 @@ func (p VerifierEnvPolicy) DockerRunArgs(image, hostCheckoutDir, shellCmd string
 	}
 	// Only the clean checkout is mounted. No -v for creds, no -v for /opt/tools,
 	// no --env-file, no host home. `--rm` so nothing persists between checks.
+	//
+	// --entrypoint sh is load-bearing, not stylistic. The project image's
+	// ENTRYPOINT is entrypoint.sh, which has no `exec "$@"` branch: it seeds
+	// runner config, patches trust keys, injects MCP servers, and then execs the
+	// AGENT with whatever arguments it was given. Without this override the check
+	// command is not executed at all — it arrives as argv to `claude`, and the
+	// verifier grades a container that never ran the check. The clean room wants
+	// none of that startup work anyway: verification is a decision about a
+	// checkout, not a session.
 	return []string{
 		"run", "--rm",
 		"--network", net,
+		"--entrypoint", "sh",
 		"-v", hostCheckoutDir + ":" + ws,
 		"-w", ws,
 		image,
-		"sh", "-c", shellCmd,
+		"-c", shellCmd,
 	}
 }
 

@@ -33,13 +33,33 @@ All notable changes to this project will be documented in this file.
     flag called "acceptance" to have.
 
 ### Fixed
+- **The clean verifier overrides the image entrypoint, so a check command is
+  actually executed.** The verifier ran `docker run <image> sh -c '<check>'` with
+  no `--entrypoint`, but the project image's `ENTRYPOINT` is `entrypoint.sh`,
+  which has no `exec "$@"` passthrough — it seeds runner config, patches the
+  trust keys, injects MCP servers, and then execs the *agent* with whatever
+  arguments it was handed. So every check arrived as argv to `claude`, in a
+  container with no network and no credentials, and no check command has ever
+  run. The verdict was a statement about a container that never did the work.
+  Now `--entrypoint sh` with the command as `-c <check>`; the clean room wanted
+  none of that startup anyway, since verification is a decision about a checkout
+  rather than a session. Two regression tests, both verified by reverting the
+  fix: one pins the argv shape (override present, and exactly `-c <check>` after
+  the image, so the pre-fix stray `sh` positional cannot come back), the other
+  *derives* the requirement by reading `entrypoint.sh` — it demands the override
+  only while the script still execs the agent with `"$@"`, and stands down if a
+  real `exec "$@"` passthrough is ever added.
 - **The `daedalus` CLI ships in the image, so the built-in acceptance policy can
   actually run.** A project that declares no `.daedalus/verify.json` is graded by
   the default policy, whose only check is `daedalus docs lint --ci` — run inside
   the clean verifier, which mounts nothing but the checkout, so every command has
   to come from the image. The image received `daedalus-runner` and the three MCP
-  servers but never the CLI itself, so that check could only ever exit 127 and
-  reject the artifact for a reason that had nothing to do with it. Added to all
+  servers but never the CLI itself, so that check could not have run even once
+  the container reached a shell. (Correction: this entry first said the check
+  "could only ever exit 127". That was inference, not observation — the
+  entrypoint defect fixed above means the check never reached a shell at all, so
+  a `command not found` from inside `sh -c` is not where that came from. Both
+  defects had to be fixed before the built-in policy could run.) Added to all
   six buildable stages, in the same thin final layer as the other binaries so the
   toolchain layers stay cached. `TestDefaultPolicyCommandShipsInTheImage` fails if
   a stage that takes `daedalus-runner` does not also take the CLI — verified by
