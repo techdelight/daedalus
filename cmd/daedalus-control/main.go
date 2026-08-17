@@ -109,7 +109,7 @@ func main() {
 	// Runner: real coordinator/Docker adapter by default; a Docker-free stub when
 	// DAEDALUS_CONTROL_FAKE_RUNNER is set (=fail forces a failed outcome) so the
 	// end-to-end flow is exercisable without a container runtime.
-	runner := selectRunner(filepath.Join(scriptDir, "daedalus"))
+	runner := selectRunner(filepath.Join(scriptDir, "daedalus"), cfg.dataDir)
 
 	// Verifier: the REAL clean-verifier container (M14, Sprint 57) by default — it
 	// checks out the artifact's head_sha into a fresh clean worktree and runs the
@@ -256,7 +256,7 @@ func main() {
 
 // selectRunner returns the real coordinator/Docker runner, or a Docker-free stub
 // when DAEDALUS_CONTROL_FAKE_RUNNER is set (test/dev only).
-func selectRunner(daedalusBin string) control.AgentRunner {
+func selectRunner(daedalusBin, dataDir string) control.AgentRunner {
 	if v := os.Getenv("DAEDALUS_CONTROL_FAKE_RUNNER"); v != "" {
 		res := control.ExecSuccess
 		if v == "fail" {
@@ -271,7 +271,7 @@ func selectRunner(daedalusBin string) control.AgentRunner {
 		log.Printf("WARNING using fake runner (DAEDALUS_CONTROL_FAKE_RUNNER=%s) — no real agent runs", v)
 		return control.StubRunner{Result: res, WriteFile: write, MarkerName: marker}
 	}
-	return control.CoordinatorRunner{Exec: &executor.RealExecutor{}, BinPath: daedalusBin}
+	return control.CoordinatorRunner{Exec: &executor.RealExecutor{}, BinPath: daedalusBin, DataDir: dataDir}
 }
 
 // defaultImagePrefix mirrors config.ParseArgs' default; the digester needs it to

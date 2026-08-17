@@ -96,6 +96,7 @@ func JobProjectName(jobID string) string { return "daedalus-job-" + jobID }
 type CoordinatorRunner struct {
 	Exec    executor.Executor // real command execution
 	BinPath string            // path to the `daedalus` binary
+	DataDir string            // where project homes live; needed to seed the Job's
 }
 
 // Run implements AgentRunner by invoking the daedalus CLI headless. Exit status
@@ -116,6 +117,11 @@ func (r CoordinatorRunner) Run(ctx context.Context, spec JobSpec) RunOutcome {
 			log.Printf("control: deregistering throwaway project %s: %v", name, err)
 		}
 	}()
+	// The throwaway project gets a throwaway HOME, so the agent inside it has no
+	// login — copy the owning project's credentials in first. Without this every
+	// Job exits 1 within seconds on "Not logged in", which is precisely what
+	// happened on the first real host to run one. See jobhome.go.
+	seedJobHomeOrWarn(r.DataDir, spec.Project, name)
 	// `daedalus <name> <dir> -p <objective>` registers the worktree and runs a
 	// headless single-prompt task, exiting when the agent finishes.
 	err := r.Exec.Run(r.BinPath, name, spec.WorktreeDir, "-p", spec.Objective)

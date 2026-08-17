@@ -58,6 +58,14 @@ task create ──► planned
   Git-native; `task create` captures a `base_sha`.
 - **Docker**, for real Jobs and real verification. Without it you can still
   exercise the whole plane with the stubs — see [Without Docker](#without-docker).
+- **The project's agent must have logged in once.** Launch it normally
+  (`daedalus my-app`) and complete `/login` if prompted. Each Job runs as a
+  throwaway project with its own fresh home, and the plane **copies that
+  project's credentials into it** at dispatch — so a project that has never
+  logged in produces Jobs that die in about two seconds on
+  `Not logged in · Please run /login`, recorded honestly as
+  `execution_result=failed`. If you see that, `control.log` will carry the
+  seeding warning naming the project to log into.
 - **A verify policy**, ideally. Without one you get a built-in default that only
   runs `daedalus docs lint --ci`, which is a weak oracle for most projects.
 - **The daemon.** You do not have to start it: the CLI auto-spawns

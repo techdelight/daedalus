@@ -1611,3 +1611,75 @@ func TestIsValidTarget(t *testing.T) {
 		t.Error("IsValidTarget(\"invalid\") = true, want false")
 	}
 }
+
+// withStdinFromDevNull points os.Stdin at /dev/null for the duration of a test,
+// reproducing EXACTLY how daedalus-control spawns its children (Stdin = nil).
+// This matters more than it looks: /dev/null is a CHARACTER DEVICE, so the
+// IsHeadless heuristic calls it interactive, prompts, and then reads EOF.
+func withStdinFromDevNull(t *testing.T) {
+	t.Helper()
+	f, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stdin
+	os.Stdin = f
+	t.Cleanup(func() { os.Stdin = old; f.Close() })
+}
+
+// Regression: the control plane's own cleanup — `daedalus remove <job> --force`
+// from the daemon — used to abort on the confirmation prompt, stranding one
+// registry entry per Job. --force must win without reading stdin at all.
+func TestRemoveProjects_ForceNeverPromptsEvenWithATTYLikeStdin(t *testing.T) {
+	dir := t.TempDir()
+	cacheDir := filepath.Join(dir, ".cache")
+	os.MkdirAll(cacheDir, 0755)
+	reg := registry.NewRegistry(filepath.Join(cacheDir, "projects.json"))
+	reg.Init()
+	reg.AddProject("daedalus-job-J-7", "/tmp/worktree", "dev")
+
+	withStdinFromDevNull(t)
+
+	cfg := &core.Config{
+		ScriptDir:     dir,
+		DataDir:       cacheDir,
+		Force:         true, // and NO Prompt: this is not the headless path
+		RemoveTargets: []string{"daedalus-job-J-7"},
+	}
+	if err := removeProjects(cfg); err != nil {
+		t.Fatalf("forced remove aborted: %v", err)
+	}
+	has, err := reg.HasProject("daedalus-job-J-7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if has {
+		t.Error("throwaway project survived a forced remove — the registry churn is back")
+	}
+}
+
+// The other half of the contract: without --force, a caller that cannot answer
+// must NOT have its project removed on the strength of an EOF.
+func TestRemoveProjects_NoForceWithUnanswerableStdinRemovesNothing(t *testing.T) {
+	dir := t.TempDir()
+	cacheDir := filepath.Join(dir, ".cache")
+	os.MkdirAll(cacheDir, 0755)
+	reg := registry.NewRegistry(filepath.Join(cacheDir, "projects.json"))
+	reg.Init()
+	reg.AddProject("keep-me", "/tmp/keep", "dev")
+
+	withStdinFromDevNull(t)
+
+	cfg := &core.Config{
+		ScriptDir:     dir,
+		DataDir:       cacheDir,
+		RemoveTargets: []string{"keep-me"},
+	}
+	if err := removeProjects(cfg); err == nil {
+		t.Error("an unanswerable prompt should abort, not proceed")
+	}
+	has, _ := reg.HasProject("keep-me")
+	if !has {
+		t.Error("project removed without confirmation")
+	}
+}

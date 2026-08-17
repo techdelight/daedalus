@@ -5,6 +5,46 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Fixed
+- **A Job's container inherits its project's Claude credentials — before this, no
+  Job could ever run.** Every Job launches as a throwaway project
+  (`daedalus-job-<id>`), and the container's home is `<DataDir>/<project>/`, so
+  each Job got a brand-new home seeded from the image defaults with **no
+  login**. Headless `claude -p` therefore exited 1 within two seconds on
+  `Not logged in · Please run /login`, every time, and the plane recorded it
+  faithfully as `execution_result=failed`. Found on a real host on 2026-08-16,
+  in `control.log`, after three consecutive Tasks failed identically.
+  - **`SeedJobHome` copies an allow-list** — `.claude.json`, `settings.json` and
+    `.credentials.json` under the container's `CLAUDE_CONFIG_DIR`, plus a
+    `~/.claude/.credentials.json` fallback — from the owning project's home into
+    the Job's, at 0600. A copy rather than a shared mount, so concurrent Jobs on
+    one project cannot race each other's config writes and the Job's home dies
+    with the Job. Nothing outside the allow-list travels: a fresh attempt does
+    not inherit session transcripts or caches.
+  - Seeding failure never blocks a dispatch (a project may authenticate by API
+    key), but it logs the symptom and the human fix — "log in once with
+    `daedalus <project>`" — because the alternative is an operator staring at
+    `exit status 1`.
+  - `TestJobHomeSeedPathsMatchTheDockerfile` pins the host-side path to the
+    Dockerfile's `ENV CLAUDE_CONFIG_DIR`; if they drift, seeding would write
+    where the agent never looks and this failure would return silently.
+  - **Worth stating plainly: `CoordinatorRunner` had never successfully executed
+    a Job on a real host.** It is the seam M13 marked HOST-ONLY, and every green
+    run — the suite, the M13/M14 verify scripts, CI — uses `StubRunner` or
+    `DAEDALUS_CONTROL_FAKE_RUNNER`, none of which needs credentials. The control
+    plane around it was sound; the substrate had never been exercised.
+- **`--force` is honoured by `remove` and `prune` (it was ignored precisely where
+  it was needed).** `--force` was consulted only in the *headless* branch, and
+  headlessness is guessed from stdin being a non-character device. The control
+  plane's own cleanup runs `daedalus remove daedalus-job-<id> --force` from the
+  daemon, whose children get stdin on `/dev/null` — **which is a character
+  device** — so the CLI decided a human was present, printed a prompt into a log
+  file, read EOF and aborted. Every Job stranded a `daedalus-job-*` registry
+  entry, defeating the deferred remove written to prevent exactly that. `--force`
+  now wins outright and never reads stdin; a single `confirmDestructive` helper
+  answers for both commands. The regression test reproduces the daemon's exact
+  conditions (stdin on `/dev/null`, no `--prompt`) and was **verified by
+  reverting the fix**, where it reproduces the production line
+  `Remove project 'daedalus-job-J-7'? [Y/n]: … aborted`.
 - **The Guild Master can finally act — the restricted control-plane socket is
   mounted into its container (#72).** `cmd/guild-control-mcp` has shipped since
   M15 and `entrypoint.sh` gated it correctly on the socket being present, but

@@ -98,18 +98,11 @@ func pruneProjects(cfg *core.Config) error {
 		fmt.Printf("  - %s\n", name)
 	}
 
-	if !config.IsHeadless(cfg) {
-		scanner := bufio.NewScanner(os.Stdin)
-		fmt.Print("\nRemove these entries? [Y/n]: ")
-		if !scanner.Scan() {
-			return fmt.Errorf("aborted")
-		}
-		reply := strings.TrimSpace(strings.ToLower(scanner.Text()))
-		if reply == "n" || reply == "no" {
-			return fmt.Errorf("aborted")
-		}
-	} else if !cfg.Force {
-		fmt.Println("Run with --force to remove in non-interactive mode.")
+	proceed, err := confirmDestructive(cfg, "\nRemove these entries? [Y/n]: ")
+	if err != nil {
+		return err
+	}
+	if !proceed {
 		return nil
 	}
 
@@ -166,6 +159,42 @@ func renameProject(cfg *core.Config) error {
 	return nil
 }
 
+// confirmDestructive decides whether a destructive registry edit may proceed,
+// and is the single place that answers the question for `prune` and `remove`.
+//
+// --force WINS OUTRIGHT and never touches stdin. That ordering is the whole fix:
+// --force used to be consulted only in the headless branch, which made it
+// useless in exactly the case it exists for. The control plane runs
+// `daedalus remove daedalus-job-<id> --force` from the daemon, whose children
+// get stdin on /dev/null — and /dev/null IS a character device, so IsHeadless
+// reported "interactive", the prompt was printed to a log file, Scan() hit EOF
+// and the removal aborted. Every Job therefore stranded a `daedalus-job-*`
+// registry entry, which is the exact churn that deferred remove exists to
+// prevent. A flag that says "no human is present" must not be overridden by a
+// heuristic guess about whether one is.
+//
+// Returns (proceed, err): (false, nil) is a considered decline that already
+// printed its reason; an error is an abort the caller surfaces.
+func confirmDestructive(cfg *core.Config, prompt string) (bool, error) {
+	if cfg.Force {
+		return true, nil
+	}
+	if config.IsHeadless(cfg) {
+		fmt.Println("Run with --force to remove in non-interactive mode.")
+		return false, nil
+	}
+	scanner := bufio.NewScanner(os.Stdin)
+	fmt.Print(prompt)
+	if !scanner.Scan() {
+		return false, fmt.Errorf("aborted")
+	}
+	switch strings.TrimSpace(strings.ToLower(scanner.Text())) {
+	case "n", "no":
+		return false, fmt.Errorf("aborted")
+	}
+	return true, nil
+}
+
 // removeProjects removes named projects from the registry.
 func removeProjects(cfg *core.Config) error {
 	if len(cfg.RemoveTargets) == 0 {
@@ -203,22 +232,15 @@ func removeProjects(cfg *core.Config) error {
 	}
 
 	// Confirm removal
-	if !config.IsHeadless(cfg) {
-		scanner := bufio.NewScanner(os.Stdin)
-		if len(targets) == 1 {
-			fmt.Printf("Remove project '%s'? [Y/n]: ", targets[0])
-		} else {
-			fmt.Printf("Remove %d projects? [Y/n]: ", len(targets))
-		}
-		if !scanner.Scan() {
-			return fmt.Errorf("aborted")
-		}
-		reply := strings.TrimSpace(strings.ToLower(scanner.Text()))
-		if reply == "n" || reply == "no" {
-			return fmt.Errorf("aborted")
-		}
-	} else if !cfg.Force {
-		fmt.Println("Run with --force to remove in non-interactive mode.")
+	prompt := fmt.Sprintf("Remove %d projects? [Y/n]: ", len(targets))
+	if len(targets) == 1 {
+		prompt = fmt.Sprintf("Remove project '%s'? [Y/n]: ", targets[0])
+	}
+	proceed, err := confirmDestructive(cfg, prompt)
+	if err != nil {
+		return err
+	}
+	if !proceed {
 		return nil
 	}
 
