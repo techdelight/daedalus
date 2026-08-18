@@ -497,10 +497,17 @@ const maxTaskChecks = 16
 // proposal in the system.
 func resolveTaskChecks(caller Caller, raw []string) ([]string, error) {
 	var checks []string
+	var multiline string
 	for _, c := range raw {
 		c = strings.TrimSpace(c)
 		if c == "" {
 			continue // a stray empty --check is a typo, not an instruction
+		}
+		// Recorded, not refused yet: the agent refusal below must answer first, so
+		// that a caller who may not set checks at all learns nothing about their
+		// shape from the order of the error messages.
+		if multiline == "" && strings.ContainsAny(c, "\n\r") {
+			multiline = c
 		}
 		checks = append(checks, c)
 	}
@@ -512,6 +519,38 @@ func resolveTaskChecks(caller Caller, raw []string) ([]string, error) {
 			Reason: ReasonForbidden,
 			Message: "per-task acceptance checks may only be set by a human caller: " +
 				"they are commands run inside the verifier, and the party being graded does not choose them",
+		}
+	}
+	// A check containing a newline is TWO commands, and only the last one's exit
+	// status becomes the verdict.
+	//
+	// Measured, 2026-08-18: a check pasted with a line break between the pattern
+	// and the path became `grep -qE '<pattern>'` (no file, so it read empty stdin
+	// and matched nothing) followed by `internal/web/static/style.css`, which the
+	// shell tried to EXECUTE — exit 126, "Permission denied". The task was rejected
+	// without grep ever reading the file it named, and the artifact was correct.
+	//
+	// The paste accident is the cheap half. The expensive half is that multi-line
+	// checks are silently wrong even when nobody makes a mistake:
+	//
+	//	grep -q FORBIDDEN file
+	//	! grep -q REQUIRED file
+	//
+	// reads as two assertions and enforces one, because the first line's failure is
+	// discarded. A check that appears to assert more than it does is worse than no
+	// check, since it produces a confident pass. Nothing needs multi-line checks —
+	// `--check` is repeatable and bounded at maxTaskChecks — so the whole class is
+	// refused rather than made to work.
+	//
+	// Note the trim above already removes a trailing newline from a paste, so only
+	// an INTERIOR break reaches here: this refuses the dangerous case without
+	// rejecting a check somebody simply copied with a stray line ending.
+	if multiline != "" {
+		return nil, &RejectionError{
+			Reason: ReasonInvalidCheck,
+			Message: fmt.Sprintf("a check may not contain a line break — %q would run as two commands, "+
+				"and only the last one's exit status would be the verdict. Pass separate --check flags "+
+				"instead (up to %d)", multiline, maxTaskChecks),
 		}
 	}
 	if len(checks) > maxTaskChecks {

@@ -122,3 +122,76 @@ func TestAmendChecks_WithdrawsTheFreeReplay(t *testing.T) {
 			"against a changed oracle and must be charged", after)
 	}
 }
+
+// TestChecks_RejectMultilineCommands. A check containing a line break is two
+// commands, and `sh -c` makes only the last one's exit status the verdict — so
+// the check silently asserts less than it appears to.
+//
+// The case that produced it: a check pasted with a break between the pattern and
+// the path became `grep -qE '<pattern>'` (no file, reading empty stdin, matching
+// nothing) followed by the path itself, which the shell tried to EXECUTE — exit
+// 126. The task was rejected without grep ever reading the file it named.
+func TestChecks_RejectMultilineCommands(t *testing.T) {
+	repo := gitRepo(t)
+	svc, _, _ := newService(t, mapResolver{"app": repo}, StubRunner{}, nil)
+
+	pasted := "! grep -qE '#(fbe9b0|fff3c4)'\n  internal/web/static/style.css"
+
+	// At create…
+	_, err := svc.CreateTask(CreateTaskRequest{
+		Project: "app", Objective: "work", Checks: []string{pasted},
+	})
+	if err == nil {
+		t.Fatal("a multi-line check must be refused at create")
+	}
+	var rej *RejectionError
+	if !asRejection(err, &rej) || rej.Reason != ReasonInvalidCheck {
+		t.Fatalf("want invalid_check, got %T %v", err, err)
+	}
+	if !strings.Contains(rej.Message, "--check") {
+		t.Errorf("the refusal should say how to do it properly, got %q", rej.Message)
+	}
+
+	// …and at amend, because the same function guards both.
+	task, err := svc.CreateTask(CreateTaskRequest{Project: "app", Objective: "work"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.AmendTaskChecks(task.ID, AmendChecksRequest{Checks: []string{pasted}}); err == nil {
+		t.Error("a multi-line check must be refused at amend too")
+	}
+
+	// A trailing line ending is a stray paste, not the dangerous case: the trim
+	// removes it, so the check is accepted and stored clean.
+	ok, err := svc.CreateTask(CreateTaskRequest{
+		Project: "app", Objective: "work", Checks: []string{"test -f README.md\n"},
+	})
+	if err != nil {
+		t.Fatalf("a trailing newline should be trimmed, not refused: %v", err)
+	}
+	if len(ok.Checks) != 1 || ok.Checks[0] != "test -f README.md" {
+		t.Errorf("checks = %q, want the trimmed command", ok.Checks)
+	}
+}
+
+// TestChecks_AgentRefusalAnswersFirst: a caller who may not set checks at all
+// must not learn anything about their shape from which error comes back.
+func TestChecks_AgentRefusalAnswersFirst(t *testing.T) {
+	repo := gitRepo(t)
+	svc, _, _ := newService(t, mapResolver{"app": repo}, StubRunner{}, nil)
+
+	agent := svc.WithCaller(Agent())
+	_, err := agent.CreateTask(CreateTaskRequest{
+		Project: "app", Objective: "work", Checks: []string{"a\nb"},
+	})
+	if err == nil {
+		t.Fatal("an agent must not set checks")
+	}
+	var rej *RejectionError
+	if !asRejection(err, &rej) {
+		t.Fatalf("want a typed rejection, got %T: %v", err, err)
+	}
+	if rej.Reason != ReasonForbidden {
+		t.Errorf("reason = %q, want %q — authority answers before shape", rej.Reason, ReasonForbidden)
+	}
+}

@@ -4,6 +4,28 @@ All notable changes to this project will be documented in this file.
 
 ## [0.54.0] - 2026-08-18
 
+### Fixed
+- **A per-task check may no longer contain a line break.** `sh -c` reads a
+  multi-line check as several commands and makes only the LAST one's exit status
+  the verdict, so such a check silently asserts less than it appears to.
+  Measured: a check pasted with a break between the pattern and the path became
+  `grep -qE '<pattern>'` — no file argument, so it read empty stdin and matched
+  nothing — followed by `internal/web/static/style.css`, which the shell tried to
+  *execute*: exit 126, "Permission denied". The task was rejected without grep
+  ever reading the file it named, and the artifact was correct.
+  - The paste accident is the cheap half. The expensive half is that multi-line
+    checks are wrong even when nobody makes a mistake: `grep -q FORBIDDEN file`
+    followed by `! grep -q REQUIRED file` reads as two assertions and enforces
+    one, and produces a confident pass. A check that appears to assert more than
+    it does is worse than no check at all.
+  - Refused in `resolveTaskChecks`, so it covers `task create --check` and
+    `task checks --set` alike, and the message names the offending string and
+    says to pass separate `--check` flags. The existing trim still removes a
+    *trailing* line ending, so a stray paste newline is cleaned rather than
+    rejected — only an interior break is refused. The agent refusal still answers
+    first, so a caller who may not set checks at all learns nothing about their
+    shape from which error comes back.
+
 ### Added
 - **`daedalus task checks <id> --set '<cmd>'` — amendable per-task checks.** A
   check is written by a human before the work exists, and a wrong one — aimed at

@@ -276,7 +276,9 @@ Recovery verbs, and they mean different things. The first question to ask is
   verdict from a verifier that never ran its check judged nothing. Use it when
   the harness was broken — a verifier that could not execute the check, a stale
   daemon, a policy that failed on an advisory warning.
-- **`checks <id> --set '<cmd>'`** — the CHECK was wrong. A check is written
+- **`checks <id> --set '<cmd>'`** — the CHECK was wrong. (One command per flag:
+  a check containing a line break is refused, because `sh -c` would read it as
+  several commands and only the last one's exit status would be the verdict.) A check is written
   before the work exists, and a wrong one — aimed at the wrong file, or asserting
   something the objective never asked for — can never pass however good the
   artifact is. Amending is human-only and recorded with its before→after. It
