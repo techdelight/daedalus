@@ -1,7 +1,14 @@
 .env
 .cache/
 .claude/
-.daedalus/
+# Contents, not the directory itself: git does not descend into an excluded
+# directory, so `.daedalus/` would make the negation below silently inert.
+.daedalus/*
+# ...except the committed verify policy. The control plane freezes it by reading
+# `git show <base_sha>:.daedalus/verify.json`, so a file that is only ever in the
+# working tree is a file the verifier will never see — it would silently fall
+# back to the built-in default with no sign anything was declared.
+!.daedalus/verify.json
 # build.sh outputs — keep in step with its REQUIRED_BINARIES list
 /daedalus
 /daedalus-coordinator

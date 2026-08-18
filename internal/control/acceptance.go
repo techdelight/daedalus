@@ -21,7 +21,7 @@ import (
 // Example .daedalus/verify.json:
 //
 //	{
-//	  "checks": ["go build ./...", "go test ./...", "daedalus docs lint --ci"],
+//	  "checks": ["go build ./...", "go test ./...", "daedalus docs lint"],
 //	  "acceptanceGlobs": ["**/*_test.go", "testdata/**", ".daedalus/verify.json"]
 //	}
 const acceptanceFile = ".daedalus/verify.json"
@@ -42,16 +42,31 @@ type AcceptancePolicy struct {
 // .daedalus/verify.json.
 //
 // Checks: daedalus is language-agnostic, so it cannot know a project's build/test
-// command generically — `daedalus docs lint --ci` is the one universally
-// meaningful check, and projects are expected to declare build+tests in
-// .daedalus/verify.json. (The check strings are inert until the Sprint-57
-// verifier container runs them; only the globs are load-bearing this sprint.)
+// command generically — `daedalus docs lint` is the one universally meaningful
+// check, and projects are expected to declare build+tests in .daedalus/verify.json.
+//
+// It runs WITHOUT `--ci`, and the distinction is the whole point of this comment.
+// The linter grades on two severities: an error means a document is malformed,
+// a warning means it is well-formed but says something worth noticing. `--ci`
+// collapses that distinction and fails on either. As the acceptance oracle for
+// every project that has declared nothing, this policy must gate on what is
+// broken, not on what is merely remarked upon — otherwise a Task is rejected for
+// the state of the repository it was handed rather than for the work it did.
+//
+// Measured, 2026-08-18: with `--ci` this rejected T-8 on "no milestone is marked
+// (In Progress)" — 0 errors, 1 warning — a supported, deliberate roadmap state
+// that `docs lint` itself exits 0 on. The Task had changed only CSS. Every Task
+// in the repository would have been rejected identically, and the verdict said
+// nothing whatever about any of them.
+//
+// A project that genuinely wants warnings fatal can still say so: `--ci` in its
+// own .daedalus/verify.json is one line. The default must not assume it.
 //
 // AcceptanceGlobs: the conventional test/fixture locations plus the verify config
 // itself — editing any of these in a Job is a self-grading attempt and rejects it.
 func DefaultAcceptancePolicy() AcceptancePolicy {
 	return AcceptancePolicy{
-		Checks: []string{"daedalus docs lint --ci"},
+		Checks: []string{"daedalus docs lint"},
 		AcceptanceGlobs: []string{
 			"**/*_test.go",
 			"**/test/**",

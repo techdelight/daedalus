@@ -1,0 +1,5 @@
+{
+  "checks": [
+    "daedalus docs lint"
+  ]
+}

@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/techdelight/daedalus/core"
 )
 
 func TestReadAcceptancePolicy_DefaultWhenAbsent(t *testing.T) {
@@ -178,8 +180,8 @@ func TestDiffTouchesAcceptanceFiles_Rename(t *testing.T) {
 }
 
 // The built-in policy is only as good as the container it runs in. A project
-// that declares no `.daedalus/verify.json` is graded by `daedalus docs lint
-// --ci` inside the CLEAN VERIFIER — which mounts nothing but the checkout, so
+// that declares no `.daedalus/verify.json` is graded by `daedalus docs lint`
+// inside the CLEAN VERIFIER — which mounts nothing but the checkout, so
 // every command must come from the image. The CLI was missing from the image
 // until 2026-08-17, which meant the default oracle could only ever exit 127 and
 // reject an artifact for a reason that had nothing to do with it.
@@ -203,5 +205,67 @@ func TestDefaultPolicyCommandShipsInTheImage(t *testing.T) {
 	if clis != runners {
 		t.Errorf("%d stage(s) COPY daedalus-runner but %d COPY the daedalus CLI; "+
 			"a stage without it cannot run the built-in acceptance policy", runners, clis)
+	}
+}
+
+// TestDefaultPolicyDoesNotGateOnAdvisoryFindings derives, from this repository's
+// own documents, that the built-in acceptance policy must not treat a linter
+// warning as a failure.
+//
+// The reasoning is deliberately not a comparison against a remembered string. It
+// reads the real ROADMAP/SPRINTS, asks the linter what it actually finds, and
+// only then makes a claim — so it says something true about the policy as an
+// ORACLE rather than about the spelling of a constant. If the repository's docs
+// ever carry a genuine error the premise no longer holds and the test stands
+// down on its own, because a default policy SHOULD reject that.
+//
+// The defect this pins, measured 2026-08-18: the default check was `daedalus
+// docs lint --ci`, `--ci` fails on warnings, and a roadmap between milestones —
+// a supported state — emits exactly one warning and zero errors. Task T-8 was
+// rejected by it having changed nothing but CSS, and every other Task in this
+// repository would have been rejected identically.
+func TestDefaultPolicyDoesNotGateOnAdvisoryFindings(t *testing.T) {
+	roadmap, err := os.ReadFile(filepath.Join("..", "..", "ROADMAP.md"))
+	if err != nil {
+		t.Skipf("ROADMAP.md not readable from here: %v", err)
+	}
+	sprints, err := os.ReadFile(filepath.Join("..", "..", "SPRINTS.md"))
+	if err != nil {
+		t.Skipf("SPRINTS.md not readable from here: %v", err)
+	}
+
+	var errs, warns int
+	for _, f := range core.ValidateDocs(
+		core.ParseMilestones(string(roadmap)),
+		core.ParseSprints(string(sprints)),
+	) {
+		switch f.Severity {
+		case core.SeverityError:
+			errs++
+		case core.SeverityWarning:
+			warns++
+		}
+	}
+	if errs > 0 {
+		t.Skipf("repo documents carry %d error(s) — a default policy is meant to fail on those", errs)
+	}
+	if warns == 0 {
+		t.Skip("repo documents are warning-free right now — the premise cannot be observed")
+	}
+
+	// Premise established: this repository lints clean apart from advisory
+	// findings, so the built-in oracle must verify it.
+	for _, check := range DefaultAcceptancePolicy().Checks {
+		if !strings.Contains(check, "docs lint") {
+			continue
+		}
+		for _, fatal := range []string{"--ci", "--strict"} {
+			if strings.Contains(check, fatal) {
+				t.Errorf("default policy check %q carries %s, which fails on warnings; "+
+					"this repository lints to %d warning(s) and %d error(s), so the "+
+					"built-in oracle would reject every Task in it regardless of the "+
+					"work the Task did", check, fatal, warns, errs)
+			}
+		}
 	}
 }

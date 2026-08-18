@@ -68,6 +68,42 @@ All notable changes to this project will be documented in this file.
     flag called "acceptance" to have.
 
 ### Fixed
+- **The built-in acceptance policy no longer rejects a Task for a warning about
+  the repository it was handed.** `DefaultAcceptancePolicy` ran `daedalus docs
+  lint --ci`, and `--ci` treats a warning as a failure. A roadmap between
+  milestones — a deliberate, supported state the linter itself exits 0 on —
+  emits exactly one warning and no errors, so the built-in oracle returned
+  `verify_failed` on every artifact from every project that had declared no
+  `.daedalus/verify.json`, whatever the work had been. Measured on a real host:
+  T-8 ("restyle the Web UI sidebar") was rejected on `no milestone is marked (In
+  Progress)` having touched nothing outside `internal/web`.
+  - **This was the first verify in the project's history to actually execute a
+    check command**, the entrypoint bypass having landed hours earlier — and the
+    first genuine verdict the plane ever produced was a statement about the
+    repository rather than about the change it was asked to judge. Worth
+    recording rather than quietly fixing: the defect was invisible for as long as
+    the checks were not running, and became visible the moment they did.
+  - The default now gates on what is **broken**, not on what is merely remarked
+    upon. A project that wants warnings fatal declares `--ci` in its own
+    `verify.json` — one line, and an explicit choice rather than an inherited
+    one.
+  - Pinned by a test that **derives** the requirement instead of asserting a
+    remembered string: it lints the real `ROADMAP.md`/`SPRINTS.md`, and only if
+    they carry warnings and no errors does it assert the default check has no
+    warnings-fatal flag. If this repository's documents ever acquire a genuine
+    error the premise fails and the test stands down on its own, because the
+    default policy *should* reject that.
+- **A project can now commit a verify policy at all.** `.gitignore` excluded
+  `.daedalus/` as a directory, and git does not descend into an excluded
+  directory, so `!.daedalus/verify.json` would have been inert — the ignore had
+  to become `.daedalus/*` plus the negation. Until now a project could write a
+  policy, see it sitting in the working tree, and have the plane freeze the
+  built-in default instead with nothing to indicate it: the freeze reads `git
+  show <base_sha>:.daedalus/verify.json`, and a file that was never committed
+  does not exist at any sha. daedalus now declares its own policy — a single
+  `daedalus docs lint`, because the hermetic verifier ships no Go toolchain and
+  the module cache problem (backlog #74) is still open, so the docs linter
+  remains the only check it can genuinely run.
 - **A Job inherits its project's login even when the daemon's data dir is not the
   CLI's default.** Seeding a Job's home was already the fix for `Not logged in`,
   but it wrote to `<daemon's DataDir>/daedalus-job-<id>/` while the CLI the daemon
