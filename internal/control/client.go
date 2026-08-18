@@ -128,6 +128,12 @@ func (c *Client) RetryTask(id string, req RetryRequest) (RetryResult, error) {
 	return res, c.postJSON("/tasks/"+url.PathEscape(id)+"/retry", req, &res)
 }
 
+// ReverifyTask implements TaskAPI.
+func (c *Client) ReverifyTask(id string, req ReverifyRequest) (ReverifyResult, error) {
+	var res ReverifyResult
+	return res, c.postJSON("/tasks/"+url.PathEscape(id)+"/reverify", req, &res)
+}
+
 // ReplanTask implements TaskAPI.
 func (c *Client) ReplanTask(id string, req ReplanRequest) (Task, error) {
 	var t Task

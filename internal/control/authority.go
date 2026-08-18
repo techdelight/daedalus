@@ -48,6 +48,7 @@ const (
 	OpVerify        = "request_verification"
 	OpReview        = "request_review"
 	OpRetry         = "retry_task"
+	OpReverify      = "reverify_task"
 	OpReplan        = "replan_task"
 	OpCancel        = "cancel_task"
 	OpApprove       = "approve_task"
@@ -102,8 +103,18 @@ var agentAuthority = map[string]Tier{
 	// Guild Master cannot approve its own work" false. sync_target re-points the
 	// acceptance oracle, which is the one operation that could undo the Sprint-59
 	// structural fix.
-	OpDispatch:   TierProposal,
-	OpRetry:      TierProposal,
+	OpDispatch: TierProposal,
+	OpRetry:    TierProposal,
+	// Re-verification looks like a read — it asks the plane to apply its own oracle
+	// again — and OpVerify is TierAllowed for exactly that reason. It is tiered
+	// anyway, because the two are not the same request. Verifying a candidate is
+	// asking for a verdict that has not been given; re-verifying is asking the plane
+	// to SET ASIDE a verdict it already reached. An agent that could do that at will
+	// would have an unbounded oracle: not one that changes any single verdict, but
+	// one it may re-roll until a flaky check happens to pass. The `--amended` mode
+	// is more consequential still — it re-freezes the acceptance policy, which is
+	// the same authority as OpSyncTarget and tiered the same way.
+	OpReverify:   TierProposal,
 	OpReplan:     TierProposal,
 	OpCancel:     TierProposal,
 	OpIntegrate:  TierProposal,
@@ -137,7 +148,7 @@ var agentAuthority = map[string]Tier{
 // mutatingOps is every operation that changes state. The authority table must
 // have an explicit entry for each — see TestAuthority_EveryMutatingOpIsTiered.
 var mutatingOps = []string{
-	OpCreateTask, OpDispatch, OpVerify, OpReview, OpRetry, OpReplan,
+	OpCreateTask, OpDispatch, OpVerify, OpReview, OpRetry, OpReverify, OpReplan,
 	OpCancel, OpApprove, OpRejectAppr, OpIntegrate, OpSyncTarget, OpProposalAct,
 	OpAddDependency, OpSteer, OpCancelSteer,
 }

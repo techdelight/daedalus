@@ -30,7 +30,7 @@ func manageTasks(cfg *core.Config) error {
 	args := cfg.TaskArgs
 	if len(args) == 0 {
 		printTaskUsage()
-		return fmt.Errorf("task: subcommand required (create|list|status|dispatch|verify|review|approve|reject|integrate|approvals|proposals|depends|steer|board|target|retry|replan|events|cancel)")
+		return fmt.Errorf("task: subcommand required (create|list|status|dispatch|verify|review|approve|reject|integrate|approvals|proposals|depends|steer|board|target|retry|reverify|replan|events|cancel)")
 	}
 	if args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
 		printTaskUsage()
@@ -60,6 +60,8 @@ func runTaskCommand(api control.TaskAPI, args []string) error {
 		return taskVerify(api, args[1:])
 	case "retry":
 		return taskRetry(api, args[1:])
+	case "reverify", "regrade":
+		return taskReverify(api, args[1:])
 	case "replan":
 		return taskReplan(api, args[1:])
 	case "events", "log":
@@ -87,7 +89,7 @@ func runTaskCommand(api control.TaskAPI, args []string) error {
 	case "cancel":
 		return taskCancel(api, args[1:])
 	default:
-		return fmt.Errorf("task: unknown subcommand %q\n%s daedalus task <create|list|status|dispatch|verify|review|approve|reject|integrate|approvals|proposals|depends|steer|board|target|retry|replan|events|cancel>", args[0], color.Cyan("Hint:"))
+		return fmt.Errorf("task: unknown subcommand %q\n%s daedalus task <create|list|status|dispatch|verify|review|approve|reject|integrate|approvals|proposals|depends|steer|board|target|retry|reverify|replan|events|cancel>", args[0], color.Cyan("Hint:"))
 	}
 }
 
@@ -411,7 +413,55 @@ func taskVerify(api control.TaskAPI, args []string) error {
 		fmt.Printf("       git -C <project> log -1 ; then `daedalus task retry %s --rebase`\n", args[0])
 	} else {
 		fmt.Printf("     retry with `daedalus task retry %s`, or replan with `daedalus task replan %s --objective <text>`\n", args[0], args[0])
+		// Named only where it can actually apply. The integrity gate and the
+		// null-agent floor are findings about the artifact, and re-verification
+		// refuses them — offering it there would advertise a door that is locked.
+		if res.Reason != control.ReasonIntegrityGate && res.Reason != control.ReasonNullAgentFloor {
+			fmt.Printf("     if the VERDICT was wrong rather than the work, re-grade this same artifact with `daedalus task reverify %s`\n", args[0])
+		}
 	}
+	return nil
+}
+
+// taskReverify implements `task reverify <id> [--amended]`: re-grade a rejected
+// Task's EXISTING artifact, with no new Job and no attempt spent.
+func taskReverify(api control.TaskAPI, args []string) error {
+	const usage = "usage: daedalus task reverify <id> [--amended]"
+	if len(args) < 1 {
+		return fmt.Errorf("%s", usage)
+	}
+	id := args[0]
+	var req control.ReverifyRequest
+	for _, a := range args[1:] {
+		switch a {
+		case "--amended":
+			req.Amended = true
+		default:
+			return fmt.Errorf("task reverify: unknown flag %q\n%s %s", a, color.Cyan("Hint:"), usage)
+		}
+	}
+	res, err := api.ReverifyTask(id, req)
+	if err != nil {
+		if errors.Is(err, control.ErrNotFound) {
+			return fmt.Errorf("task %q not found", id)
+		}
+		return err
+	}
+	fmt.Printf("%s task %s: setting aside the %s verdict and re-grading the same artifact\n",
+		color.Cyan("Re-verify:"), id, res.PreviousReason)
+	if res.Rebased {
+		fmt.Printf("     rebased onto %s — the acceptance policy was re-frozen there, so this verdict is\n", shortSHA(res.BaseSHA))
+		fmt.Println("     under a policy the artifact did not originally face (recorded in `task events`)")
+	}
+	v := res.Verify
+	if v.Verified {
+		fmt.Printf("%s task %s VERIFIED — job %s → %s\n", color.Green("OK:"), id, v.Job.ID, v.Job.State)
+		if v.Artifact != nil {
+			fmt.Printf("     artifact %s verify=%s\n", v.Artifact.ID, v.Artifact.Verify)
+		}
+		return nil
+	}
+	fmt.Printf("%s task %s REJECTED again [%s] — %s\n", color.Yellow("Reject:"), id, v.Reason, v.Detail)
 	return nil
 }
 
@@ -1110,6 +1160,14 @@ func printTaskUsage() {
 	fmt.Println("  retry <id> [--rebase]")
 	fmt.Println("                       Retry a rejected task as a fresh Job (attempt counter advanced;")
 	fmt.Println("                       --rebase re-pins it to the project tip after a stale-base rejection)")
+	fmt.Println("  reverify <id> [--amended]")
+	fmt.Println("                       Re-grade a rejected task's EXISTING artifact — no new Job, no attempt")
+	fmt.Println("                       spent. For when the VERDICT was wrong rather than the work: a verifier")
+	fmt.Println("                       that never ran its check, or a policy that failed on an advisory")
+	fmt.Println("                       finding. --amended re-pins to the project tip first, re-freezing the")
+	fmt.Println("                       acceptance policy, for when the ORACLE was what needed fixing.")
+	fmt.Println("                       Refused for the integrity gate and the null-agent floor: those are")
+	fmt.Println("                       findings about the artifact, and re-grading them would be an appeal")
 	fmt.Println("  replan <id> --objective <text>")
 	fmt.Println("                       Return a rejected task to planned with a revised objective")
 	fmt.Println("  events <id>          Show the control-plane-managed event log for a task")

@@ -159,6 +159,26 @@ var legalTransitions = map[State]map[State]bool{
 	StateRejected: {
 		// retry (re-queue) or replan (back to planned).
 		StateQueued: true, StatePlanned: true,
+		// Back to candidate: RE-VERIFICATION. The artifact is unchanged and still
+		// reachable; what is being redone is the GRADING of it, not the work. A
+		// verdict can be wrong for reasons that have nothing to do with the artifact
+		// — a verifier that never ran the check, an oracle that failed on an
+		// advisory finding — and before this edge existed the only remedy was
+		// `retry`, which dispatches a fresh Job and discards work that was never in
+		// question.
+		//
+		// Symmetry with the `verifying → candidate` edge above is the argument for
+		// it: the plane already treats a verification that produced NO verdict as
+		// recoverable, and a verdict produced by a broken harness examined the
+		// artifact no more than a crashed one did. Treating the wrong verdict as
+		// more final than no verdict was backwards.
+		//
+		// Plane-only, and a DOWNGRADE: absent from workerReachable, it brings
+		// nothing closer to `verified` — it returns an artifact to the queue to be
+		// judged again, by the same verification path. What it must never become is
+		// an appeal against the artifact itself; that guard lives in ReverifyTask,
+		// which refuses the reasons that were statements about the diff.
+		StateCandidate: true,
 		StateCancelled: true, StateExpired: true,
 	},
 	StateApprovalRequired: {

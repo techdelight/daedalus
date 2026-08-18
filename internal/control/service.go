@@ -186,6 +186,7 @@ type TaskAPI interface {
 	DispatchTask(id string) (DispatchResult, error)
 	VerifyTask(id string) (VerifyResult, error)
 	RetryTask(id string, req RetryRequest) (RetryResult, error)
+	ReverifyTask(id string, req ReverifyRequest) (ReverifyResult, error)
 	ReplanTask(id string, req ReplanRequest) (Task, error)
 	ReviewTask(id string) (ReviewResult, error)
 	ApproveTask(id, note string) (Task, error)
@@ -1062,10 +1063,32 @@ func (s *Service) VerifyTask(id string) (VerifyResult, error) {
 		}
 	}
 
-	// Null-agent floor (§6): an artifact identical to base_sha is no change at all
+	// The Job's OWN base, not the Task's, is what the next two checks measure
+	// against — and the distinction only became visible with re-verification.
+	//
+	// Both questions below are about what THIS JOB DID, and a Job's diff is defined
+	// relative to the commit it was checked out at. The two bases are normally the
+	// same value: a Job is created at the Task's base, and `retry --rebase` moves
+	// the Task and then dispatches a fresh Job at the new base. `reverify --amended`
+	// is the first operation that re-pins a Task while keeping an EXISTING artifact,
+	// so it is the first time they can differ — and against the Task's base the
+	// diff would no longer describe the Job at all. It would describe the divergence
+	// between two trees, and every file the new base added would read as a file the
+	// Job deleted. An amended re-grade whose corrected policy was itself an
+	// acceptance file (`.daedalus/verify.json` is in the default globs) would then
+	// trip the integrity gate on the very commit that fixed the oracle.
+	//
+	// Using the Job's base weakens nothing: the gate still catches every acceptance
+	// file the Job touched, measured from where the Job actually started.
+	jobBase := job.BaseSHA
+	if jobBase == "" {
+		jobBase = task.BaseSHA
+	}
+
+	// Null-agent floor (§6): an artifact identical to its base is no change at all
 	// — it must never verify as "done". Reject before any gate/verifier work so a
 	// do-nothing (or capture-failed) job can't earn a vacuous pass.
-	if job.OutputSnapshot == "" || job.OutputSnapshot == task.BaseSHA {
+	if job.OutputSnapshot == "" || job.OutputSnapshot == jobBase {
 		note := "null-agent floor: empty change (head == base) — nothing to verify"
 		res := s.doReject(task, job, art, repoDir, ReasonNullAgentFloor, note)
 		res.Detail = note
@@ -1115,7 +1138,7 @@ func (s *Service) VerifyTask(id string) (VerifyResult, error) {
 	}
 
 	// INTEGRITY GATE FIRST — before any VerifyRunner call.
-	touched, files, err := DiffTouchesAcceptanceFiles(repoDir, task.BaseSHA, job.OutputSnapshot, policy.AcceptanceGlobs)
+	touched, files, err := DiffTouchesAcceptanceFiles(repoDir, jobBase, job.OutputSnapshot, policy.AcceptanceGlobs)
 	if err != nil {
 		return VerifyResult{}, err
 	}
@@ -1342,39 +1365,13 @@ func (s *Service) prepareRetry(caller Caller, id string, req RetryRequest) (Retr
 		if err != nil {
 			return RetryResult{}, dispatchPrep{}, err
 		}
-		// A pure read. The Task exists, so CreateTask adopted a target for its
-		// repository already; a miss here is a fault, and adopting one would be
-		// actively dangerous — `--rebase` RE-FREEZES the acceptance policy at the
-		// tip, so a target invented from the checkout HEAD would re-open oracle
-		// laundering on precisely the path Sprint 59 closed it on.
-		target, err := s.Target(task.Project)
+		// Shared with `reverify --amended` (reverify.go): both adopt a newer oracle,
+		// so both must refuse a self-authored tip and record the same lineage.
+		updated, rebased, err := s.rebaseTaskToTip(caller, task, repoDir)
 		if err != nil {
 			return RetryResult{}, dispatchPrep{}, err
 		}
-		tip := target.SHA
-		if tip != task.BaseSHA {
-			// DEFENCE IN DEPTH, no longer the mechanism. The rebase target is now the
-			// plane-owned integration ref, which a worker cannot write, so the attack
-			// this guard was built for is closed structurally (target.go). The check
-			// stays because it costs one merge-base and would catch a target that
-			// became self-authored some other way — e.g. an operator resyncing onto a
-			// commit a Job had planted on the branch.
-			if err := s.refuseSelfAuthoredRebase(task, repoDir, tip); err != nil {
-				return RetryResult{}, dispatchPrep{}, err
-			}
-			policy, err := ReadAcceptancePolicyAt(repoDir, tip)
-			if err != nil {
-				return RetryResult{}, dispatchPrep{}, err
-			}
-			note := fmt.Sprintf("rebase: %s → %s (acceptance policy re-frozen at the new base)",
-				shortSHA(task.BaseSHA), shortSHA(tip))
-			updated, err := s.store.RebaseTask(id, tip, policy.Hash(), governanceMetaFor(caller), note)
-			if err != nil {
-				return RetryResult{}, dispatchPrep{}, err
-			}
-			task = updated
-			res.Rebased = true
-		}
+		task, res.Rebased = updated, rebased
 	}
 	res.BaseSHA = task.BaseSHA
 

@@ -81,6 +81,7 @@ const (
 	EventSchedule     = "schedule"     // a scheduler admission decision
 	EventGraph        = "graph"        // a dependency edge or blocked/ready move
 	EventSteering     = "steering"     // a typed instruction issued at a running Job
+	EventReverify     = "reverify"     // an artifact was returned for re-grading
 )
 
 // EventMeta annotates an event row. Kind defaults to EventTransition, Reason is
@@ -835,32 +836,85 @@ func (s *Store) CountReviewRuns(taskID string) (int, error) {
 }
 
 // CountReviewCycles returns how many review cycles a task has actually consumed:
-// entries into `verifying`, MINUS the ones that were recovered back to
-// `candidate` without a verdict.
+// entries into `verifying`, MINUS the ones that did not judge the artifact.
 //
 // The subtraction is the point. Entering `verifying` is not the same as being
 // verified: a daemon crash or an aborted verifier leaves the artifact unexamined,
 // and because the event log is append-only that entry can never be erased. Left
 // uncorrected, a crash would permanently spend a cycle of a budget for work that
 // never happened.
+//
+// Two kinds of entry are discounted, for the same reason:
+//
+//   - `verifying → candidate`: a verification interrupted before a verdict.
+//   - a HARNESS-FAULT re-verification (an `EventReverify` DECISION row carrying
+//     ReasonVerifyFailed, i.e. the replay mode): the previous verdict came from a
+//     verifier that never ran the check it claimed to run, so it examined the
+//     artifact no more than the crashed one did. Charging for it would make a
+//     defect in our own harness consume the operator's budget — and the budget
+//     exists to bound how many times an ARTIFACT may be graded, not how many
+//     times we may get the grading wrong.
+//
+// An AMENDED re-verification is deliberately NOT discounted: the oracle changed,
+// a real grading happened against a real policy, and the cycle was genuinely
+// spent. That asymmetry is the whole accounting argument, so it is asserted in
+// both directions by TestReverify_BudgetAccounting.
+//
+// `from_state = ”` restricts the last subquery to DECISION rows, and it is
+// load-bearing rather than decorative: a re-verification writes its reason onto
+// the state transitions it performs as well as onto the decision that ordered
+// them, so counting every matching row would discount one replay two or three
+// times over and hand back cycles that were genuinely spent. The same
+// distinction is already what makes `entered` count transitions and not
+// decisions, one subquery above.
 func (s *Store) CountReviewCycles(taskID string) (int, error) {
-	var entered, recovered int
+	var entered, recovered, harnessReplays int
 	err := s.db.QueryRow(
 		`SELECT
 		   (SELECT COUNT(*) FROM events
 		     WHERE entity_type = 'task' AND entity_id = ? AND to_state = ? AND from_state != ''),
 		   (SELECT COUNT(*) FROM events
-		     WHERE entity_type = 'task' AND entity_id = ? AND from_state = ? AND to_state = ?)`,
+		     WHERE entity_type = 'task' AND entity_id = ? AND from_state = ? AND to_state = ?),
+		   (SELECT COUNT(*) FROM events
+		     WHERE entity_type = 'task' AND entity_id = ? AND kind = ? AND reason = ?
+		       AND from_state = '')`,
 		taskID, string(StateVerifying),
 		taskID, string(StateVerifying), string(StateCandidate),
-	).Scan(&entered, &recovered)
+		taskID, EventReverify, string(ReasonVerifyFailed),
+	).Scan(&entered, &recovered, &harnessReplays)
 	if err != nil {
 		return 0, fmt.Errorf("counting review cycles of %s: %w", taskID, err)
 	}
-	if n := entered - recovered; n > 0 {
+	if n := entered - recovered - harnessReplays; n > 0 {
 		return n, nil
 	}
 	return 0, nil
+}
+
+// LastRejectionReason returns the typed reason of the most recent rejection
+// recorded against a task, or ReasonNone if it has never been rejected.
+//
+// Read from the append-only event log rather than a column on the task, because
+// the reason is a property of a PARTICULAR rejection and a task can be rejected
+// more than once for different reasons. A column would answer "why was this task
+// rejected" with whichever answer happened to be written last, which is the same
+// answer this query gives — but a column would also have to be kept in step with
+// the log, and the log is already the record of record.
+func (s *Store) LastRejectionReason(taskID string) (RejectionReason, error) {
+	var reason string
+	err := s.db.QueryRow(
+		`SELECT reason FROM events
+		  WHERE entity_type = 'task' AND entity_id = ? AND kind = ? AND reason != ''
+		  ORDER BY seq DESC LIMIT 1`,
+		taskID, EventRejection,
+	).Scan(&reason)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ReasonNone, nil
+	}
+	if err != nil {
+		return ReasonNone, fmt.Errorf("reading last rejection reason of %s: %w", taskID, err)
+	}
+	return RejectionReason(reason), nil
 }
 
 // ---- Jobs --------------------------------------------------------------------

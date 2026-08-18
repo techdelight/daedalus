@@ -5,9 +5,11 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/techdelight/daedalus/core"
+	"github.com/techdelight/daedalus/internal/control"
 )
 
 func TestReportFindings_Gate(t *testing.T) {
@@ -135,5 +137,51 @@ func TestManageDocs_UnknownCommand(t *testing.T) {
 	cfg := &core.Config{DocsArgs: []string{"frobnicate"}}
 	if err := manageDocs(cfg); err == nil {
 		t.Error("manageDocs(frobnicate) = nil, want an error")
+	}
+}
+
+// TestDefaultAcceptancePolicyDoesNotFailOnWarnings runs the built-in acceptance
+// policy's own docs-lint check through the REAL gate function, against a
+// warnings-only finding set, and asserts it passes.
+//
+// This is the unconditional half of the guard whose other half lives in
+// internal/control. That one derives its premise from this repository's current
+// documents, which makes it concrete but also makes it stand down whenever the
+// roadmap happens to be warning-free — precisely the state a maintainer is in
+// after opening a milestone, and no time to lose a guard. This one depends on
+// nothing transient: it takes the shipped policy, parses its flags exactly as
+// lintDocs does, and asks reportFindings — the function that actually decides
+// pass or fail — what verdict a warning would get.
+//
+// The defect it pins: `daedalus docs lint --ci` was the default check, `--ci`
+// makes a warning fatal, and a roadmap between milestones (a supported state the
+// linter exits 0 on) emits exactly one warning and no errors. Every Task in every
+// project that had declared no verify.json was rejected by it, whatever it did.
+func TestDefaultAcceptancePolicyDoesNotFailOnWarnings(t *testing.T) {
+	warn := core.Finding{Severity: core.SeverityWarning, Doc: "ROADMAP.md", Message: "advisory"}
+
+	var checked int
+	for _, check := range control.DefaultAcceptancePolicy().Checks {
+		fields := strings.Fields(check)
+		if len(fields) < 3 || fields[0] != "daedalus" || fields[1] != "docs" || fields[2] != "lint" {
+			continue
+		}
+		checked++
+		// Parse the flags the way lintDocs does, rather than looking for a literal
+		// "--ci": a future spelling that means the same thing must fail this test too.
+		ci := false
+		for _, a := range fields[3:] {
+			if a == "--ci" || a == "--strict" {
+				ci = true
+			}
+		}
+		if err := reportFindings([]core.Finding{warn}, ci); err != nil {
+			t.Errorf("the built-in acceptance policy check %q fails on an advisory warning (%v); "+
+				"as the oracle for every project that declares no .daedalus/verify.json, it must gate "+
+				"on what is broken, not on what is merely remarked upon", check, err)
+		}
+	}
+	if checked == 0 {
+		t.Fatal("the default policy no longer runs `daedalus docs lint` — this test pins the wrong check")
 	}
 }

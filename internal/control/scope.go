@@ -182,6 +182,16 @@ func (c *callerScope) RetryTask(id string, req RetryRequest) (RetryResult, error
 	return c.svc.retryTask(c.caller, id, req)
 }
 
+// ReverifyTask sets aside a verdict the plane already reached. Tiered with the
+// consequential operations rather than with VerifyTask, because an agent that
+// could re-roll a grading at will has an oracle bounded only by patience.
+func (c *callerScope) ReverifyTask(id string, req ReverifyRequest) (ReverifyResult, error) {
+	if !c.allowed(OpReverify) {
+		return ReverifyResult{}, c.propose(OpReverify, id, fmt.Sprintf("amended=%v", req.Amended))
+	}
+	return c.svc.reverifyTask(c.caller, id, req)
+}
+
 func (c *callerScope) ReplanTask(id string, req ReplanRequest) (Task, error) {
 	if !c.allowed(OpReplan) {
 		return Task{}, c.propose(OpReplan, id, req.Objective)

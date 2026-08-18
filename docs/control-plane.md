@@ -374,6 +374,65 @@ Neither added a state or an edge: retry reuses `rejected → queued`, replan reu
 `legalTransitions`) is untouched, so nothing here brings a worker any closer to
 `verified`.
 
+### Re-verification — when the verdict was wrong, not the work (Sprint 65 / M19 — built)
+
+```text
+rejected ──reverify──→ candidate → verifying → …   (the SAME artifact, no new Job)
+```
+
+Retry and replan both answer "the artifact was wrong". Neither answers "the
+*grading* was wrong", and that gap used to cost an attempt: an operator whose
+verifier never ran its check, or whose acceptance policy failed on an advisory
+finding, had to dispatch a fresh Job and discard an artifact that was never in
+question.
+
+Verification is a function of `(artifact, policy, environment)`, and the artifact
+is immutable and content-addressed — rejection removes a Job's worktree but never
+its branch, so the commit stays reachable. Re-grading it is therefore cheap and
+repeatable. `daedalus task reverify <id>` returns the Task to `candidate` and
+lets the **one** verification path grade it again, with every gate intact. There
+is deliberately no second grading path: two would drift, and the weaker one would
+become the oracle.
+
+Two modes, because they have different trust properties:
+
+| Mode | What changed | Review cycle | Trust |
+|---|---|---|---|
+| `reverify <id>` (replay) | nothing — same artifact, same frozen policy | **not charged** | none at stake: the policy is the one the artifact already faced |
+| `reverify <id> --amended` | the Task is re-pinned to the project tip and the policy re-frozen there | **charged** | a real grading under an oracle the artifact did *not* face |
+
+The discount is the same principle `CountReviewCycles` already applied to an
+interrupted verification: entering `verifying` is not being verified, and a
+verdict from a verifier that never ran its check examined the artifact no more
+than a crashed one did. A defect in our own harness must not spend the operator's
+budget. Re-verification creates no Job, so it can consume no *attempt* either —
+that falls out of `Attempt = CountJobsForTask + 1` rather than being enforced.
+
+**What it must never become is an appeal.** Two rejections are refused outright
+(`unappealable`): the **integrity gate** and the **null-agent floor**. Both are
+findings about the artifact rather than about the way it was graded — and
+allowing "grade that again" against the integrity gate would let a self-grading
+diff through on the second ask, which is the entire failure that gate exists to
+prevent. `verify_failed` *is* appealable, because from outside it cannot be told
+apart from a broken oracle; the answer to that ambiguity is that the operation is
+tiered (agents propose, humans confirm) and every re-grading is recorded with the
+verdict it set aside.
+
+Under `--amended` the policy lineage (old hash → new hash) is written to the
+event log, because a verdict produced under a policy amended *after* the artifact
+existed is weaker than one produced under the policy the artifact faced, and the
+log is the only place that difference survives.
+
+One subtlety worth stating, because it was a latent bug the feature exposed: the
+integrity gate and the null-agent floor measure against the **Job's** base, not
+the Task's. They ask what *this Job did*, and a Job's diff is defined relative to
+the commit it was checked out at. The two are normally the same value — only
+`--amended` re-pins a Task while keeping an existing artifact — but against the
+Task's base the diff would describe the divergence between two trees rather than
+the Job, and every file the new base added would read as a file the Job deleted.
+An amended re-grade whose corrected policy was itself `.daedalus/verify.json`
+would then trip the gate on the very commit that fixed the oracle.
+
 ### Long operations, cancellation, and interrupted verifications
 
 A dispatch and a verification are both long: a Job may legitimately run for its

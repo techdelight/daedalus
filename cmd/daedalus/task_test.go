@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/techdelight/daedalus/core"
@@ -651,5 +652,37 @@ func TestCLI_TaskBoard(t *testing.T) {
 	}
 	if err := runTaskCommand(svc, []string{"board", "extra"}); err == nil {
 		t.Error("board with an unexpected argument = nil, want an error")
+	}
+}
+
+// TestCLI_TaskReverify_FlagsAndRouting covers the surface the operator actually
+// types: the subcommand routes, the flag parses, and an unknown flag is refused
+// with the usage rather than being silently ignored — a `--amend` typo that
+// quietly ran a plain replay would re-grade under the wrong policy and report
+// success.
+func TestCLI_TaskReverify_FlagsAndRouting(t *testing.T) {
+	repo := makeGitRepo(t)
+	svc := newTestService(t, mapResolver{"app": repo})
+
+	if err := runTaskCommand(svc, []string{"reverify"}); err == nil {
+		t.Error("reverify with no id should be a usage error")
+	}
+	err := runTaskCommand(svc, []string{"reverify", "T-1", "--amend"})
+	if err == nil {
+		t.Fatal("an unknown flag must be refused")
+	}
+	if !strings.Contains(err.Error(), "--amend") || !strings.Contains(err.Error(), "reverify <id>") {
+		t.Errorf("error should name the bad flag and the usage, got %q", err)
+	}
+
+	// A task that was never rejected cannot be re-graded: there is no verdict to
+	// set aside. Routed through the real service, so this also proves the CLI
+	// reaches ReverifyTask rather than falling through to `unknown subcommand`.
+	if err := runTaskCommand(svc, []string{"create", "--project", "app", "--objective", "work"}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	err = runTaskCommand(svc, []string{"reverify", "T-1"})
+	if err == nil || !errors.Is(err, control.ErrWrongState) {
+		t.Errorf("reverify of a planned task: err = %v, want ErrWrongState", err)
 	}
 }

@@ -157,6 +157,18 @@ Close the correctness gaps the post-arc external review of `development` @ `e213
 - Steering delivery is bounded against an uncooperative adapter, and supersede-and-replace is atomic
 - The wall-clock budget is described as what it is: bookkeeping plus context cancellation, not process death
 
+### Milestone 19: Verification Independence (In Progress)
+
+Grading an artifact must be separable from producing it. Today a verdict is welded to the Task's lifecycle: `legalTransitions[StateRejected]` offers only `queued`/`planned`/`cancelled`/`expired`, and `VerifyTask` demands `candidate` — so the only way to re-grade an artifact is `retry`, which dispatches a **new Job** and throws the existing work away. When a verdict is wrong for a reason that has nothing to do with the artifact — a broken harness, or a broken oracle — the operator's only remedy is to re-run work that was never in question.
+
+Verification is a pure function of (artifact, policy, environment). The artifact is immutable and content-addressed, and `doReject` already leaves it durable: it removes the worktree directory but never the branch, so `head_sha` stays reachable. `VerifySpec` is fully reconstructible from persisted rows. Everything needed to re-grade is already on disk; only the door is missing.
+
+The milestone is small and deliberately bounded, because the interesting part is not the mechanism but the **trust boundary**. "Let me fix the verifier and re-run" is structurally oracle laundering — precisely what `acceptance_hash` exists to prevent. So re-verification must split on *why* the verdict was wrong: a harness fault (nothing was examined; same policy; a free replay) is categorically different from an amended oracle (a real re-grading under a policy the artifact did not face; a recorded, human-only governance act that must remain visible on the Task forever). A rejection that was a statement about the artifact itself — the integrity gate, the null-agent floor — must stay unappealable.
+
+Prior art surveyed: SWE-bench grades a saved `model_patch` from a prediction file and re-grades via a separate command, never reading the trajectory; Dagster's `FROM_FAILURE` loads a prior run's outputs for downstream steps; Argo's `argo retry --restart-successful` re-runs chosen nodes of the same workflow object; LangGraph names *replay* and *fork* as distinct first-class operations. The common shape is a durable addressable artifact plus a separately invocable grading step. We have the first and not the second.
+
+Measured motivation (2026-08-18): Task T-8 produced a good artifact, was rejected twice by a policy defect (`daedalus docs lint --ci` failing on an advisory warning about the roadmap), and the only offered remedies were to re-run the Job or discard it — having spent 2 of 3 attempts and 2 of 3 review cycles on verdicts that examined the repository rather than the change.
+
 ## Phasing
 
 ```

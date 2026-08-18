@@ -5,6 +5,48 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- **`daedalus task reverify <id>` — re-grade an artifact without re-running the
+  Job (M19, Sprint 65).** A verdict can be wrong for reasons that say nothing
+  about the work: a verifier that never ran the check it reported on, or an
+  acceptance policy that fails on an advisory finding. Until now the only remedy
+  was `retry`, which dispatches a fresh Job and discards an artifact that was
+  never in question — so a defect in the *grading* cost an attempt and the work
+  along with it. Verification is a function of `(artifact, policy, environment)`
+  and the artifact is immutable and content-addressed, so re-grading it should be
+  cheap; the only thing missing was the door.
+  - **The same verification path grades it.** `reverify` returns the Task to
+    `candidate` and calls the one `VerifyTask`, with every gate intact. A second
+    grading path was the obvious implementation and the wrong one: two paths
+    drift, and the weaker becomes the oracle.
+  - **A harness fault is not charged a review cycle**, on the same principle
+    `CountReviewCycles` already applied to an interrupted verification — entering
+    `verifying` is not being verified. An `--amended` re-grade *is* charged,
+    because the oracle changed and a real grading happened. No mode can spend an
+    attempt: re-verification creates no Job, and attempts are counted from Jobs.
+  - **It must never become an appeal.** The integrity gate and the null-agent
+    floor are refused outright (`unappealable`) — both are findings about the
+    artifact, and re-grading an integrity-gate rejection would let a self-grading
+    diff through on the second ask. `verify_failed` is appealable, because from
+    outside it cannot be distinguished from a broken oracle; that ambiguity is
+    answered by tiering the operation (agents propose, humans confirm) and
+    recording every re-grading against the verdict it set aside.
+  - **`--amended` re-freezes the policy and records the lineage** (old hash → new
+    hash), for the case that motivated the milestone: correcting a bad oracle
+    means committing to the repo, which moves the target and makes the artifact's
+    base stale, so a plain replay cannot help. A verdict produced under a policy
+    amended after the artifact existed is weaker than one produced under the
+    policy the artifact faced, and the event log is the only place that survives.
+  - **An unreachable artifact is refused, not failed** (`artifact_gone`). Without
+    the check the operator got `git diff --name-only: exit status 128`; recording
+    a verification *failure* for work that was never examined would put a false
+    verdict in an append-only log.
+  - Prior art this follows: SWE-bench grades a saved patch from a prediction file
+    and re-grades via a separate command, never reading the trajectory; Argo's
+    `retry --restart-successful` re-runs chosen nodes of the same workflow
+    object; LangGraph names *replay* and *fork* as distinct operations. The common
+    shape is a durable addressable artifact plus a separately invocable grading
+    step.
+
 - **Every Job now has a log of its own, so a failed Job can be diagnosed (#77).**
   What the database kept about a failed run was `err.Error()` — "exit status 1" —
   while the agent's actual output went to the daemon's stdout and from there to
@@ -68,6 +110,20 @@ All notable changes to this project will be documented in this file.
     flag called "acceptance" to have.
 
 ### Fixed
+- **The integrity gate and the null-agent floor now measure against the Job's own
+  base, not the Task's.** Both ask what *this Job did*, and a Job's diff is
+  defined relative to the commit it was checked out at. The two values are
+  normally identical — a Job is created at the Task's base, and `retry --rebase`
+  moves the Task and then dispatches a fresh Job — so the difference was latent
+  until `reverify --amended` became the first operation to re-pin a Task while
+  keeping an existing artifact. Measured against the Task's base the diff no
+  longer describes the Job at all: it describes the divergence between two trees,
+  and every file the new base added reads as a file the Job deleted. An amended
+  re-grade whose corrected policy was itself `.daedalus/verify.json` would trip
+  the integrity gate on the very commit that fixed the oracle. Using the Job's
+  base weakens nothing — the gate still catches every acceptance file the Job
+  touched, measured from where the Job actually started.
+
 - **The built-in acceptance policy no longer rejects a Task for a warning about
   the repository it was handed.** `DefaultAcceptancePolicy` ran `daedalus docs
   lint --ci`, and `--ci` treats a warning as a failure. A roadmap between

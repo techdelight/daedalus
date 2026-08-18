@@ -80,6 +80,20 @@ const (
 	// exited last week would bury a caller mistake in the log instead of answering
 	// it.
 	ReasonNotSteerable RejectionReason = "not_steerable"
+	// ReasonUnappealable: a re-verification was asked for against a rejection that
+	// was a statement about the ARTIFACT rather than about the harness or the
+	// oracle — the integrity gate, or the null-agent floor. Re-grading those is not
+	// a correction, it is an appeal, and an appeal against the integrity gate is
+	// precisely the self-grading the gate exists to refuse. The remedy is retry or
+	// replan: produce a different artifact.
+	ReasonUnappealable RejectionReason = "unappealable"
+	// ReasonArtifactGone: the artifact's commit is no longer reachable in the
+	// repository, so there is nothing left to re-grade. Rejection removes a Job's
+	// worktree but never its branch, so this means someone deleted the branch (or
+	// the repository was rewritten) — refused with the branch named, rather than
+	// reported as a verification failure, because the artifact was not examined and
+	// saying it failed would be a lie about work that may have been fine.
+	ReasonArtifactGone RejectionReason = "artifact_gone"
 	// ReasonApprovalRequired: the project's policy requires a human approval that
 	// has not been given.
 	ReasonApprovalRequired RejectionReason = "approval_required"
@@ -125,6 +139,7 @@ var allRejectionReasons = map[RejectionReason]bool{
 	ReasonUnsafeRebase:      true, ReasonOperationInFlight: true,
 	ReasonApprovalRequired: true, ReasonReviewRequired: true, ReasonIntegrationRaced: true,
 	ReasonProposalRecorded: true, ReasonForbidden: true, ReasonNotSteerable: true,
+	ReasonUnappealable: true, ReasonArtifactGone: true,
 	ReasonStaleBase: true, ReasonNullAgentFloor: true,
 	ReasonPolicyDrift: true, ReasonIntegrityGate: true, ReasonVerifyFailed: true,
 	ReasonReviewFailed: true, ReasonApprovalRejected: true,

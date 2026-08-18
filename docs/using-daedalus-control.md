@@ -230,18 +230,42 @@ Refusals are typed, so you can act on them without reading prose:
 |---|---|---|
 | `over_budget` | You asked to widen a ceiling | Edit `budgets.json`, or ask for less |
 | stale base | The target moved under you | `task retry <id> --rebase` |
-| integrity gate | The diff touched a frozen acceptance file | Land the test change separately |
-| empty change | `head_sha == base_sha` — the Job did nothing | `retry`, or `replan` with a clearer objective |
+| integrity gate | The diff touched a frozen acceptance file | Land the test change separately (**not** re-gradable) |
+| empty change | `head_sha == base_sha` — the Job did nothing | `retry`, or `replan` with a clearer objective (**not** re-gradable) |
+| `unappealable` | You asked to re-grade a finding about the artifact itself | Produce a different artifact — `retry` or `replan` |
+| `artifact_gone` | The artifact's commit is no longer reachable | Nothing to re-grade; `retry` |
 | `dependencies_unmet` | An upstream Task has not landed | Land it, or drop the edge |
 | `proposal_recorded` | An **agent** asked for something consequential | `task proposals confirm <id>` — as a human |
 
-Three recovery verbs, and they mean different things:
+Recovery verbs, and they mean different things. The first question to ask is
+**what was wrong — the work, the instruction, or the grading?**
 
-- **`retry <id>`** — same objective, fresh Job, attempt counter advances.
+- **`retry <id>`** — the WORK was wrong. Same objective, fresh Job, attempt
+  counter advances.
 - **`retry <id> --rebase`** — same, but re-pinned to the project tip; this
   re-freezes the acceptance policy, so use it deliberately.
-- **`replan <id> --objective "…"`** — back to `planned` with a new objective, for
-  when the task was wrong rather than the attempt.
+- **`replan <id> --objective "…"`** — the INSTRUCTION was wrong. Back to
+  `planned` with a new objective.
+- **`reverify <id>`** — the GRADING was wrong. Re-grades the artifact you already
+  have: no new Job, no attempt spent, and no review cycle charged, because a
+  verdict from a verifier that never ran its check judged nothing. Use it when
+  the harness was broken — a verifier that could not execute the check, a stale
+  daemon, a policy that failed on an advisory warning.
+- **`reverify <id> --amended`** — the ORACLE was wrong, and you have fixed it.
+  Re-pins the Task to the project tip so the corrected `.daedalus/verify.json` is
+  the one that grades, then re-grades the same artifact. This one *is* charged a
+  review cycle: the oracle changed, so a real grading happened. The policy
+  lineage is recorded, because a verdict under a policy amended after the fact is
+  weaker than one under the policy the artifact faced.
+
+Note the order of operations for `--amended`: commit the corrected policy, land
+it on the plane-owned target (`task target <project> --sync` if no integration
+has moved it), *then* re-verify. The policy is read from the commit, not from
+your working tree.
+
+Two rejections cannot be re-graded at all — the **integrity gate** and the
+**null-agent floor**. Both are findings about the artifact rather than about the
+grading, and re-grading them would be an appeal rather than a correction.
 
 ### Dependencies across projects
 

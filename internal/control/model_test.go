@@ -27,8 +27,14 @@ func TestCanTransition_Exhaustive(t *testing.T) {
 		StateVerifying: {StateVerified, StateRejected, StateCandidate, StateCancelled, StateExpired, StateFailed},
 		// verified → rejected: a post-verification gate (review, human approval)
 		// saying no. A downgrade, so it weakens nothing.
-		StateVerified:         {StateApprovalRequired, StateRejected, StateCancelled, StateExpired},
-		StateRejected:         {StateQueued, StatePlanned, StateCancelled, StateExpired},
+		StateVerified: {StateApprovalRequired, StateRejected, StateCancelled, StateExpired},
+		// rejected → candidate is re-verification (Sprint 65): the artifact is
+		// unchanged and it is the GRADING that is being redone. Plane-only, and a
+		// downgrade — it returns an artifact to be judged again by the same
+		// verification path, so it brings nothing closer to `verified`. Mirrors the
+		// verifying → candidate edge above: a verdict from a broken harness examined
+		// the artifact no more than an interrupted verification did.
+		StateRejected:         {StateQueued, StatePlanned, StateCandidate, StateCancelled, StateExpired},
 		StateApprovalRequired: {StateApproved, StateRejected, StateCancelled, StateExpired},
 		// approved → rejected is the failed-integration route (Sprint 59): a rebase
 		// conflict or a merged-result verification failure feeds the retry ladder.
