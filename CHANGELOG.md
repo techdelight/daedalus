@@ -131,6 +131,25 @@ All notable changes to this project will be documented in this file.
     flag called "acceptance" to have.
 
 ### Fixed
+- **A Job reaped by reconcile no longer destroys its Task.** When reconcile finds
+  a `working` Job whose session has vanished it fails the Job — correctly, the
+  attempt is over — but it used to drive the **Task** to `failed` as well, which
+  is terminal. `dispatch`, `retry`, `replan` and `reverify` all refuse a `failed`
+  Task and no transition leaves that state, so a single liveness reading
+  destroyed the objective, its budget and every recovery command at once. The
+  reading can be wrong in ordinary ways: a control daemon restarted mid-run
+  reads exactly like a dead session, and so does a container removed by hand.
+  The Task now goes to `rejected` — the state the retry ladder already
+  understands and `prepareDispatch` already accepts — so the remedy is
+  `task dispatch <id>`. This restores a path rather than inventing one; the
+  precedent is two cases up in the same function, where a Task whose dispatch
+  died before any Job existed is returned to `rejected` on the reasoning that
+  nothing was ever attempted. A reaped Job is that situation with one more row in
+  the database. The attempt is still charged against `max-attempts`: the plane
+  cannot distinguish a Job killed by a daemon bounce from one that died on its
+  own, and silently refunding on a reading it is unsure of is the worse error.
+  Found the hard way — a real Task went `working → failed` with
+  "reconcile: the job's session is gone" and had no way back.
 - **`task board` columns now say whose move it is, not which phase the work is
   in.** Reported from a real board: "In verification" held work needing
   **approval**, and "Awaiting approval" held work needing **integration**. Both

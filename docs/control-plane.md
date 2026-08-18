@@ -124,8 +124,20 @@ controller pattern, minimal single-host form — the dual-write fix, §6). For e
 non-terminal Job it compares desired (DB) vs observed reality:
 
 - A `working` Job whose **coordinator session has vanished** (checked via an
-  injectable `SessionObserver`) is captured, **failed**, and its worktree
-  reclaimed. If liveness can't be verified (no observer / an error), the Job is
+  injectable `SessionObserver`) is captured, its worktree reclaimed, and the
+  **Job failed** — but its **Task is returned to `rejected`, not to a terminal
+  state**. The two entities answer different questions: the attempt really is
+  over and nothing will resume it, while nobody has grounds to say the
+  *objective* is finished, because no artifact was ever examined and no verdict
+  reached. A daemon restarted mid-run reads exactly like a dead session, and so
+  does a container removed by hand. `rejected` is the state the retry ladder
+  already understands, so `task dispatch` / `task retry` remain available.
+  (Before Sprint 65 both went to `failed`, which is terminal: a liveness reading
+  that could be wrong destroyed the Task, its budget, and every recovery command
+  at once.) The attempt is still charged against `max-attempts` — the plane
+  cannot tell a Job killed by a daemon bounce from one that died on its own, and
+  refunding on an uncertain reading would be the worse error.
+  If liveness can't be verified (no observer / an error), the Job is
   **left alone** — never fail what you can't prove is dead.
 - A live session → the Job is **adopted** as-is.
 - An **orphaned worktree** (no live, non-terminal DB Job) is removed.

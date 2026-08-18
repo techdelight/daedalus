@@ -84,8 +84,8 @@ func TestReconcile_PerJobLivenessReapsOnlyTheDeadJob(t *testing.T) {
 	if wt.Exists(dead.ID) {
 		t.Error("the crashed job kept its worktree")
 	}
-	if gotTask, _ := store.GetTask(deadTask.ID); gotTask.State != StateFailed {
-		t.Errorf("the crashed job's task = %s, want failed", gotTask.State)
+	if gotTask, _ := store.GetTask(deadTask.ID); gotTask.State != StateRejected {
+		t.Errorf("the crashed job's task = %s, want rejected", gotTask.State)
 	}
 	// …and the healthy siblings are untouched.
 	for _, job := range []Job{alive1, alive2} {
@@ -385,3 +385,47 @@ type pointerSessions struct{ live map[string]bool }
 func (p *pointerSessions) HasSession(project string) (bool, error) { return p.live[project], nil }
 
 func (p *pointerSessions) HasSessionForJob(jobID string) (bool, error) { return p.live[jobID], nil }
+
+// TestReconcile_ReapedJobLeavesTheTaskRecoverable is the property the states
+// exist to provide, asserted as the operator experiences it: after reconcile has
+// reaped a Job whose session vanished, the Task can still be dispatched.
+//
+// It is written as "dispatch actually works" rather than "the state string is
+// rejected" on purpose. The bug it guards against was not a wrong label — it was
+// a Task in a terminal state, where `dispatch`, `retry`, `replan` and `reverify`
+// all refuse and no transition escapes, so a liveness reading that could be wrong
+// destroyed the objective and its budget together. Asserting the state alone
+// would not have noticed if every recovery path still refused.
+func TestReconcile_ReapedJobLeavesTheTaskRecoverable(t *testing.T) {
+	repo := gitRepo(t)
+	sessions := fakeSessions{liveJobs: map[string]bool{}}
+	svc, wt, store := newService(t, mapResolver{"app": repo},
+		StubRunner{Result: ExecSuccess, WriteFile: true}, sessions)
+
+	task, job := stageWorkingJob(t, svc, store, wt, repo, "app", 0)
+
+	rep, err := svc.Reconcile()
+	if err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if len(rep.FailedVanished) != 1 {
+		t.Fatalf("FailedVanished = %v, want the one staged job", rep.FailedVanished)
+	}
+	if gotJob, _ := store.GetJob(job.ID); gotJob.State != StateFailed {
+		t.Errorf("the reaped job = %s, want failed — the attempt really is over", gotJob.State)
+	}
+
+	// The point: a second attempt is possible.
+	if _, err := svc.DispatchTask(task.ID); err != nil {
+		t.Fatalf("a reaped Task must still be dispatchable, got: %v", err)
+	}
+	after, _ := store.GetTask(task.ID)
+	if after.State != StateCandidate {
+		t.Errorf("re-dispatched task = %s, want candidate", after.State)
+	}
+	// A fresh Job, not the reaped one resurrected.
+	jobs, _ := store.CountJobsForTask(task.ID)
+	if jobs != 2 {
+		t.Errorf("jobs for task = %d, want 2 — the retry is a new attempt and the reaped one is preserved", jobs)
+	}
+}

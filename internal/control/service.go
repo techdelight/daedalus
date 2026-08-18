@@ -1513,6 +1513,50 @@ func (s *Service) terminate(taskID, jobID, repoDir string, term State, note stri
 	}
 }
 
+// reapJob settles a Job whose run reconcile could not find: the JOB goes to
+// `failed`, and its TASK goes to `rejected` rather than to a terminal state.
+//
+// That asymmetry is the whole point. The two entities are answering different
+// questions. "Did this attempt finish?" — no, and nothing will resume it, so the
+// Job is genuinely over. "Is this objective finished with?" — nobody has any
+// grounds to say so: no artifact was ever examined, no verdict was reached, and
+// the reason the Job died may have nothing to do with the work at all. A daemon
+// restarted mid-run produces exactly this reading, and so does a container
+// removed by hand.
+//
+// Before this, both went to `failed`, which is terminal — so a liveness reading
+// that could be wrong permanently destroyed the Task, its budget, and every
+// recovery command at once: `dispatch`, `retry`, `replan` and `reverify` all
+// refuse a `failed` Task, and no transition leaves that state. `rejected` is the
+// state the retry ladder already understands, and `prepareDispatch` already
+// accepts it, so this restores a remedy rather than inventing one.
+//
+// The precedent is two cases up in the same function: a Task whose dispatch died
+// before any Job existed is returned to `rejected` on the reasoning that nothing
+// was ever attempted. A Job reaped for a missing session is the same situation
+// with one more row in the database.
+//
+// The attempt IS still charged against max-attempts — the Job row exists and
+// CountJobsForTask counts it. That is deliberate: the plane cannot tell a Job
+// killed by a daemon bounce from one whose container died of its own accord, and
+// silently refunding attempts on a reading it is not sure of would be a worse
+// error than charging for one.
+func (s *Service) reapJob(taskID, jobID, repoDir, note string) {
+	// A Task that is no longer running releases its place in line with its capacity.
+	s.sched.Forget(taskID)
+	if _, err := s.store.TransitionJob(jobID, StateFailed, false, note); err != nil {
+		log.Printf("control: reap job %s → failed: %v", jobID, err)
+	}
+	if _, err := s.store.TransitionTask(taskID, StateRejected, false, note); err != nil {
+		log.Printf("control: reap task %s → rejected: %v", taskID, err)
+	}
+	// The worktree goes; a retry checks out a fresh one. The BRANCH survives, so
+	// anything the salvage above captured is still reachable.
+	if err := s.worktrees.Remove(repoDir, jobID); err != nil {
+		log.Printf("control: remove worktree %s: %v", jobID, err)
+	}
+}
+
 // failJobAndTask is terminate for the pre-worktree failure path (no worktree to
 // remove yet). Records the execution result first.
 func (s *Service) failJobAndTask(taskID, jobID string, result ExecutionResult, headSHA, note string) {
@@ -1646,15 +1690,15 @@ func (s *Service) Reconcile() (ReconcileReport, error) {
 				_, _ = s.store.SetJobExecutionResult(j.ID, ExecFailed, head)
 			}
 		}
-		note := "reconcile: the job's session is gone"
+		note := "reconcile: the job's session is gone — the attempt is over; the Task is returned for another (`task dispatch` or `task retry`)"
 		if viaHeuristic {
 			// Reported separately AND named in the event, because a guessed reaping
 			// must be legible as a guess: an operator investigating a failed Job
 			// deserves to know the plane inferred its death rather than observed it.
-			note = "reconcile: HEURISTIC judged this job dead (worktree gone, or far past its wall-clock budget) — liveness could not be observed directly"
+			note = "reconcile: HEURISTIC judged this job dead (worktree gone, or far past its wall-clock budget) — liveness could not be observed directly; the Task is returned for another attempt"
 			rep.HeuristicallyFailed = append(rep.HeuristicallyFailed, j.ID)
 		}
-		s.terminate(j.TaskID, j.ID, repoDir, StateFailed, note)
+		s.reapJob(j.TaskID, j.ID, repoDir, note)
 		rep.FailedVanished = append(rep.FailedVanished, j.ID)
 	}
 

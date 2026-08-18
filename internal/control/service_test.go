@@ -235,9 +235,12 @@ func TestReconcile_VanishedSession_FailsAndCleans(t *testing.T) {
 	if gotJob.State != StateFailed {
 		t.Errorf("job state = %q, want failed", gotJob.State)
 	}
+	// The JOB is over; the TASK is not. Nothing was ever judged, so the objective
+	// is returned to the retry ladder rather than destroyed — `failed` is terminal
+	// and would take every recovery command with it.
 	gotTask, _ := store.GetTask(task.ID)
-	if gotTask.State != StateFailed {
-		t.Errorf("task state = %q, want failed", gotTask.State)
+	if gotTask.State != StateRejected {
+		t.Errorf("task state = %q, want rejected", gotTask.State)
 	}
 	if wt.Exists(job.ID) {
 		t.Error("vanished job's worktree should be cleaned")
