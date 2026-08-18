@@ -30,7 +30,7 @@ func manageTasks(cfg *core.Config) error {
 	args := cfg.TaskArgs
 	if len(args) == 0 {
 		printTaskUsage()
-		return fmt.Errorf("task: subcommand required (create|list|status|dispatch|verify|review|approve|reject|integrate|approvals|proposals|depends|steer|board|target|retry|reverify|replan|events|cancel)")
+		return fmt.Errorf("task: subcommand required (create|list|status|dispatch|verify|review|approve|reject|integrate|approvals|proposals|depends|steer|board|target|retry|reverify|checks|replan|events|cancel)")
 	}
 	if args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
 		printTaskUsage()
@@ -62,6 +62,8 @@ func runTaskCommand(api control.TaskAPI, args []string) error {
 		return taskRetry(api, args[1:])
 	case "reverify", "regrade":
 		return taskReverify(api, args[1:])
+	case "checks":
+		return taskChecks(api, args[1:])
 	case "replan":
 		return taskReplan(api, args[1:])
 	case "events", "log":
@@ -89,7 +91,7 @@ func runTaskCommand(api control.TaskAPI, args []string) error {
 	case "cancel":
 		return taskCancel(api, args[1:])
 	default:
-		return fmt.Errorf("task: unknown subcommand %q\n%s daedalus task <create|list|status|dispatch|verify|review|approve|reject|integrate|approvals|proposals|depends|steer|board|target|retry|reverify|replan|events|cancel>", args[0], color.Cyan("Hint:"))
+		return fmt.Errorf("task: unknown subcommand %q\n%s daedalus task <create|list|status|dispatch|verify|review|approve|reject|integrate|approvals|proposals|depends|steer|board|target|retry|reverify|checks|replan|events|cancel>", args[0], color.Cyan("Hint:"))
 	}
 }
 
@@ -373,10 +375,20 @@ func taskDispatch(api control.TaskAPI, args []string) error {
 // taskVerify implements `task verify <id>`: the plane-owned verify pass over a
 // candidate job (test-integrity gate → verifier → verified | rejected).
 func taskVerify(api control.TaskAPI, args []string) error {
+	const usage = "usage: daedalus task verify <id> [--ignore-result]"
 	if len(args) < 1 {
-		return fmt.Errorf("usage: daedalus task verify <id>")
+		return fmt.Errorf("%s", usage)
 	}
-	res, err := api.VerifyTask(args[0])
+	var req control.VerifyRequest
+	for _, a := range args[1:] {
+		switch a {
+		case "--ignore-result":
+			req.IgnoreResult = true
+		default:
+			return fmt.Errorf("task verify: unknown flag %q\n%s %s", a, color.Cyan("Hint:"), usage)
+		}
+	}
+	res, err := api.VerifyTask(args[0], req)
 	if err != nil {
 		if errors.Is(err, control.ErrNotFound) {
 			return fmt.Errorf("task %q not found", args[0])
@@ -403,6 +415,19 @@ func taskVerify(api control.TaskAPI, args []string) error {
 		// Pre-verifier: null-agent floor, stale base, or policy-hash drift.
 		by = "the control plane"
 	}
+	if res.Waived {
+		// Said in this order on purpose: the finding first, the override second. An
+		// operator who waives a check should read what they waived.
+		fmt.Printf("%s task %s FAILED verification [%s] — %s\n",
+			color.Yellow("Reject:"), args[0], res.Reason, res.Detail)
+		fmt.Printf("%s the result was WAIVED — task %s is now awaiting your approval.\n",
+			color.Yellow("Waived:"), args[0])
+		fmt.Println("     it is NOT verified and never will be: the rejection and the waiver both stand")
+		fmt.Println("     on the record, and the artifact keeps verify=fail. What changed is that you")
+		fmt.Println("     are answerable for it rather than the oracle.")
+		fmt.Printf("     approve it with `daedalus task approve %s`\n", args[0])
+		return nil
+	}
 	fmt.Printf("%s task %s REJECTED by %s [%s] — job %s → %s (%s)\n",
 		color.Yellow("Reject:"), args[0], by, res.Reason, res.Job.ID, res.Job.State, res.Detail)
 	if res.Reason == control.ReasonStaleBase {
@@ -420,6 +445,67 @@ func taskVerify(api control.TaskAPI, args []string) error {
 			fmt.Printf("     if the VERDICT was wrong rather than the work, re-grade this same artifact with `daedalus task reverify %s`\n", args[0])
 		}
 	}
+	return nil
+}
+
+// taskChecks implements `task checks <id> [--set <cmd>]... | --clear`: show or
+// replace a Task's per-task acceptance checks.
+func taskChecks(api control.TaskAPI, args []string) error {
+	const usage = "usage: daedalus task checks <id> [--set <cmd>]... [--clear]"
+	if len(args) < 1 {
+		return fmt.Errorf("%s", usage)
+	}
+	id := args[0]
+	var req control.AmendChecksRequest
+	amend, clear := false, false
+	for i := 1; i < len(args); i++ {
+		switch args[i] {
+		case "--set":
+			if i+1 >= len(args) {
+				return fmt.Errorf("--set requires a command")
+			}
+			i++
+			req.Checks = append(req.Checks, args[i])
+			amend = true
+		case "--clear":
+			clear, amend = true, true
+		default:
+			return fmt.Errorf("task checks: unknown flag %q\n%s %s", args[i], color.Cyan("Hint:"), usage)
+		}
+	}
+	if clear && len(req.Checks) > 0 {
+		return fmt.Errorf("task checks: --clear and --set are mutually exclusive")
+	}
+	if !amend {
+		view, err := api.TaskStatus(id)
+		if err != nil {
+			return err
+		}
+		t := view.Task
+		if len(t.Checks) == 0 {
+			fmt.Printf("task %s has no per-task checks — it is graded by the project policy alone\n", id)
+			return nil
+		}
+		fmt.Printf("%s task %s, run after the project's frozen policy:\n", color.Bold("Task checks:"), id)
+		for _, c := range t.Checks {
+			fmt.Printf("  - %s\n", c)
+		}
+		return nil
+	}
+	t, err := api.AmendTaskChecks(id, req)
+	if err != nil {
+		if errors.Is(err, control.ErrNotFound) {
+			return fmt.Errorf("task %q not found", id)
+		}
+		return err
+	}
+	fmt.Printf("%s task %s now carries %d check(s); the amendment and its before→after are in `task events`\n",
+		color.Green("OK:"), id, len(t.Checks))
+	for _, c := range t.Checks {
+		fmt.Printf("  - %s\n", c)
+	}
+	fmt.Println("     a re-verification after an amendment costs a review cycle: the oracle changed,")
+	fmt.Println("     so it is a new grading rather than a replay")
 	return nil
 }
 
@@ -1180,10 +1266,20 @@ func printTaskUsage() {
 	fmt.Println("  list                 List all tasks (id, project, state, objective)")
 	fmt.Println("  status <id>          Show a task with its budget, jobs and artifacts")
 	fmt.Println("  dispatch <id>        Run one headless Job attempt (isolated worktree; success → candidate)")
-	fmt.Println("  verify <id>          Verify a candidate (integrity gate → verifier → verified | rejected)")
+	fmt.Println("  verify <id> [--ignore-result]")
+	fmt.Println("                       Verify a candidate (integrity gate → verifier → verified | rejected).")
+	fmt.Println("                       --ignore-result WAIVES a failing result: the verifier still runs, the")
+	fmt.Println("                       failure is still recorded, the artifact still reads verify=fail — and")
+	fmt.Println("                       the task moves to the approval gate on YOUR authority. It never marks")
+	fmt.Println("                       anything verified, and an agent may not ask for it")
 	fmt.Println("  retry <id> [--rebase]")
 	fmt.Println("                       Retry a rejected task as a fresh Job (attempt counter advanced;")
 	fmt.Println("                       --rebase re-pins it to the project tip after a stale-base rejection)")
+	fmt.Println("  checks <id> [--set <cmd>]... [--clear]")
+	fmt.Println("                       Show or REPLACE a task's per-task acceptance checks. A check written")
+	fmt.Println("                       before the work exists can be wrong, and a wrong one can never pass;")
+	fmt.Println("                       amending is human-only, recorded with its before→after, and withdraws")
+	fmt.Println("                       the free re-verify (the oracle changed, so it is a new grading)")
 	fmt.Println("  reverify <id> [--amended]")
 	fmt.Println("                       Re-grade a rejected task's EXISTING artifact — no new Job, no attempt")
 	fmt.Println("                       spent. For when the VERDICT was wrong rather than the work: a verifier")

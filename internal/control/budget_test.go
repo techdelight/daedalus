@@ -381,14 +381,14 @@ func TestDispatch_MaxAttemptsRefused(t *testing.T) {
 	if _, err := svc.DispatchTask(task.ID); err != nil {
 		t.Fatalf("attempt 1: %v", err)
 	}
-	if _, err := svc.VerifyTask(task.ID); err != nil {
+	if _, err := svc.VerifyTask(task.ID, VerifyRequest{}); err != nil {
 		t.Fatalf("verify 1: %v", err)
 	}
 	// Attempt 2 → candidate → rejected.
 	if _, err := svc.RetryTask(task.ID, RetryRequest{}); err != nil {
 		t.Fatalf("attempt 2: %v", err)
 	}
-	if _, err := svc.VerifyTask(task.ID); err != nil {
+	if _, err := svc.VerifyTask(task.ID, VerifyRequest{}); err != nil {
 		t.Fatalf("verify 2: %v", err)
 	}
 	// Attempt 3 is over budget.
@@ -427,13 +427,13 @@ func TestVerify_ReviewCyclesRefused(t *testing.T) {
 	if _, err := svc.DispatchTask(task.ID); err != nil {
 		t.Fatalf("dispatch 1: %v", err)
 	}
-	if _, err := svc.VerifyTask(task.ID); err != nil { // cycle 1 → rejected
+	if _, err := svc.VerifyTask(task.ID, VerifyRequest{}); err != nil { // cycle 1 → rejected
 		t.Fatalf("verify 1: %v", err)
 	}
 	if _, err := svc.RetryTask(task.ID, RetryRequest{}); err != nil { // → candidate again
 		t.Fatalf("retry: %v", err)
 	}
-	_, err := svc.VerifyTask(task.ID) // cycle 2 — over the review budget
+	_, err := svc.VerifyTask(task.ID, VerifyRequest{}) // cycle 2 — over the review budget
 	var rej *RejectionError
 	if !errors.As(err, &rej) {
 		t.Fatalf("verify 2 err = %v, want *RejectionError", err)

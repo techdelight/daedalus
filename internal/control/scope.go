@@ -145,11 +145,11 @@ func (c *callerScope) CreateTask(req CreateTaskRequest) (Task, error) {
 
 // VerifyTask asks the plane to apply its OWN oracle to a candidate. The caller
 // cannot influence the verdict, so there is nothing to gate.
-func (c *callerScope) VerifyTask(id string) (VerifyResult, error) {
+func (c *callerScope) VerifyTask(id string, req VerifyRequest) (VerifyResult, error) {
 	if !c.allowed(OpVerify) {
 		return VerifyResult{}, c.propose(OpVerify, id, "")
 	}
-	return c.svc.VerifyTask(id)
+	return c.svc.verifyTask(c.caller, id, req)
 }
 
 func (c *callerScope) ReviewTask(id string) (ReviewResult, error) {
@@ -180,6 +180,14 @@ func (c *callerScope) RetryTask(id string, req RetryRequest) (RetryResult, error
 		return RetryResult{}, c.propose(OpRetry, id, fmt.Sprintf("rebase=%v", req.Rebase))
 	}
 	return c.svc.retryTask(c.caller, id, req)
+}
+
+// AmendTaskChecks has NO tier check and NO proposal path, deliberately — see the
+// note in authority.go. It calls straight through, and the service refuses an
+// agent caller when it validates the checks, which is the same rule and the same
+// function that guards them at create.
+func (c *callerScope) AmendTaskChecks(id string, req AmendChecksRequest) (Task, error) {
+	return c.svc.amendTaskChecks(c.caller, id, req)
 }
 
 // ReverifyTask sets aside a verdict the plane already reached. Tiered with the

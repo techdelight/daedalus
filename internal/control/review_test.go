@@ -132,7 +132,7 @@ func TestReview_BoundedByBudget(t *testing.T) {
 		t.Fatalf("Dispatch: %v", err)
 	}
 	// One verification cycle is consumed here…
-	if _, err := svc.VerifyTask(task.ID); err != nil {
+	if _, err := svc.VerifyTask(task.ID, VerifyRequest{}); err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
 	// …and a review pass is still available, because the two are not summed.

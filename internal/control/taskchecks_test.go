@@ -70,7 +70,7 @@ func TestTaskChecks_AppendedAfterTheProjectPolicy(t *testing.T) {
 	if _, err := svc.DispatchTask(task.ID); err != nil {
 		t.Fatalf("dispatch: %v", err)
 	}
-	res, err := svc.VerifyTask(task.ID)
+	res, err := svc.VerifyTask(task.ID, VerifyRequest{})
 	if err != nil {
 		t.Fatalf("verify: %v", err)
 	}
@@ -104,7 +104,7 @@ func TestTaskChecks_AFailingTaskCheckRejectsTheArtifact(t *testing.T) {
 	if _, err := svc.DispatchTask(task.ID); err != nil {
 		t.Fatalf("dispatch: %v", err)
 	}
-	res, err := svc.VerifyTask(task.ID)
+	res, err := svc.VerifyTask(task.ID, VerifyRequest{})
 	if err != nil {
 		t.Fatalf("verify: %v", err)
 	}
@@ -204,7 +204,7 @@ func TestTaskChecks_DoNotCountAsPolicyDrift(t *testing.T) {
 	if _, err := svc.DispatchTask(withChecks.ID); err != nil {
 		t.Fatalf("dispatch: %v", err)
 	}
-	res, err := svc.VerifyTask(withChecks.ID)
+	res, err := svc.VerifyTask(withChecks.ID, VerifyRequest{})
 	if err != nil {
 		t.Fatalf("verify: %v", err)
 	}

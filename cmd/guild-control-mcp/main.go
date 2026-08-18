@@ -274,7 +274,7 @@ func registerControlTools(server *mcp.Server, api control.TaskAPI) {
 		Name:        "request_verification",
 		Description: "Ask the control plane to verify a candidate artifact against the project's frozen acceptance policy, in a clean container. Allowed directly: this applies the PLANE's oracle, which the caller cannot influence.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in TaskRef) (*mcp.CallToolResult, OutcomeOutput, error) {
-		res, err := api.VerifyTask(in.TaskID)
+		res, err := api.VerifyTask(in.TaskID, control.VerifyRequest{})
 		if err != nil {
 			return nil, outcomeFor(err), nil
 		}

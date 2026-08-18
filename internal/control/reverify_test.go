@@ -44,7 +44,7 @@ func TestReverify_ReplayGradesTheSameArtifactWithoutANewJob(t *testing.T) {
 	}}
 	svc, store, task := dispatchToCandidate(t, "AGENT_RAN.txt", sv)
 
-	if _, err := svc.VerifyTask(task.ID); err != nil {
+	if _, err := svc.VerifyTask(task.ID, VerifyRequest{}); err != nil {
 		t.Fatalf("first verify: %v", err)
 	}
 	before, err := store.GetTask(task.ID)
@@ -105,7 +105,7 @@ func TestReverify_RefusesUnappealableRejections(t *testing.T) {
 	sv := &sequenceVerifier{verdicts: []VerifyOutcome{{Passed: true}}}
 	svc, store, task := dispatchToCandidate(t, "sneaky_test.go", sv)
 
-	res, err := svc.VerifyTask(task.ID)
+	res, err := svc.VerifyTask(task.ID, VerifyRequest{})
 	if err != nil {
 		t.Fatalf("verify: %v", err)
 	}
@@ -148,7 +148,7 @@ func TestReverify_RefusesWhenTheArtifactIsGone(t *testing.T) {
 	if _, err := svc.DispatchTask(task.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.VerifyTask(task.ID); err != nil {
+	if _, err := svc.VerifyTask(task.ID, VerifyRequest{}); err != nil {
 		t.Fatal(err)
 	}
 	job, ok, err := svc.jobInState(task.ID, StateRejected)
@@ -202,7 +202,7 @@ func TestReverify_BudgetAccounting(t *testing.T) {
 		sv := &sequenceVerifier{verdicts: []VerifyOutcome{{Passed: false}, {Passed: true}}}
 		svc, store, task := dispatchToCandidate(t, "AGENT_RAN.txt", sv)
 
-		if _, err := svc.VerifyTask(task.ID); err != nil {
+		if _, err := svc.VerifyTask(task.ID, VerifyRequest{}); err != nil {
 			t.Fatal(err)
 		}
 		spent, err := store.CountReviewCycles(task.ID)
@@ -230,7 +230,7 @@ func TestReverify_BudgetAccounting(t *testing.T) {
 	t.Run("attempts are never consumed", func(t *testing.T) {
 		sv := &sequenceVerifier{verdicts: []VerifyOutcome{{Passed: false}, {Passed: true}}}
 		svc, store, task := dispatchToCandidate(t, "AGENT_RAN.txt", sv)
-		if _, err := svc.VerifyTask(task.ID); err != nil {
+		if _, err := svc.VerifyTask(task.ID, VerifyRequest{}); err != nil {
 			t.Fatal(err)
 		}
 		before, _ := store.CountJobsForTask(task.ID)
@@ -266,7 +266,7 @@ func TestReverify_AmendedRefreezesThePolicyAndRecordsTheLineage(t *testing.T) {
 	if _, err := svc.DispatchTask(task.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.VerifyTask(task.ID); err != nil {
+	if _, err := svc.VerifyTask(task.ID, VerifyRequest{}); err != nil {
 		t.Fatal(err)
 	}
 	rejected, _ := store.GetTask(task.ID)
@@ -341,7 +341,7 @@ func TestReverify_AmendedConsumesAReviewCycle(t *testing.T) {
 	if _, err := svc.DispatchTask(task.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.VerifyTask(task.ID); err != nil {
+	if _, err := svc.VerifyTask(task.ID, VerifyRequest{}); err != nil {
 		t.Fatal(err)
 	}
 

@@ -141,7 +141,9 @@ func (s *Service) executeProposal(caller Caller, p Proposal) error {
 		_, err := s.syncTarget(caller, p.Argument)
 		return err
 	case OpVerify:
-		_, err := s.VerifyTask(p.TaskID)
+		// Never waived: a proposal carries no IgnoreResult, so an agent cannot get
+		// one granted by way of a human's confirmation click.
+		_, err := s.VerifyTask(p.TaskID, VerifyRequest{})
 		return err
 	case OpReview:
 		_, err := s.ReviewTask(p.TaskID)

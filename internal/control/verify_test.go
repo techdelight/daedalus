@@ -49,7 +49,7 @@ func TestVerify_GateClean_Passes(t *testing.T) {
 	rv := &recordingVerifier{pass: true, detail: "clean checkout ok"}
 	svc, store, task := dispatchToCandidate(t, "AGENT_RAN.txt", rv) // non-test marker → gate clean
 
-	res, err := svc.VerifyTask(task.ID)
+	res, err := svc.VerifyTask(task.ID, VerifyRequest{})
 	if err != nil {
 		t.Fatalf("VerifyTask: %v", err)
 	}
@@ -75,7 +75,7 @@ func TestVerify_IntegrityGate_RejectsWithoutVerifier(t *testing.T) {
 	rv := &recordingVerifier{pass: true} // would pass — but must never be called
 	svc, store, task := dispatchToCandidate(t, "sneaky_test.go", rv)
 
-	res, err := svc.VerifyTask(task.ID)
+	res, err := svc.VerifyTask(task.ID, VerifyRequest{})
 	if err != nil {
 		t.Fatalf("VerifyTask: %v", err)
 	}
@@ -107,7 +107,7 @@ func TestVerify_VerifierFail_Rejects(t *testing.T) {
 	rv := &recordingVerifier{pass: false, detail: "tests failed in clean checkout"}
 	svc, store, task := dispatchToCandidate(t, "AGENT_RAN.txt", rv) // gate clean
 
-	res, err := svc.VerifyTask(task.ID)
+	res, err := svc.VerifyTask(task.ID, VerifyRequest{})
 	if err != nil {
 		t.Fatalf("VerifyTask: %v", err)
 	}
@@ -126,7 +126,7 @@ func TestVerify_VerifierFail_Rejects(t *testing.T) {
 func TestVerify_RejectThenRetryDispatch(t *testing.T) {
 	rv := &recordingVerifier{pass: false}
 	svc, store, task := dispatchToCandidate(t, "AGENT_RAN.txt", rv)
-	if _, err := svc.VerifyTask(task.ID); err != nil {
+	if _, err := svc.VerifyTask(task.ID, VerifyRequest{}); err != nil {
 		t.Fatalf("verify: %v", err)
 	}
 	// Rejected → a retry dispatch is allowed (rejected → queued → working).
@@ -148,7 +148,7 @@ func TestVerify_NotCandidate_Rejected(t *testing.T) {
 	repo := gitRepo(t)
 	svc, _, store := newService(t, mapResolver{"app": repo}, StubRunner{}, nil)
 	task, _ := svc.CreateTask(CreateTaskRequest{Project: "app", Objective: "x"}) // planned
-	if _, err := svc.VerifyTask(task.ID); err == nil {
+	if _, err := svc.VerifyTask(task.ID, VerifyRequest{}); err == nil {
 		t.Error("verifying a planned (non-candidate) task should error")
 	}
 	_ = store

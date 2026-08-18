@@ -276,6 +276,21 @@ Recovery verbs, and they mean different things. The first question to ask is
   verdict from a verifier that never ran its check judged nothing. Use it when
   the harness was broken — a verifier that could not execute the check, a stale
   daemon, a policy that failed on an advisory warning.
+- **`checks <id> --set '<cmd>'`** — the CHECK was wrong. A check is written
+  before the work exists, and a wrong one — aimed at the wrong file, or asserting
+  something the objective never asked for — can never pass however good the
+  artifact is. Amending is human-only and recorded with its before→after. It
+  **withdraws the free re-verify**: the oracle changed, so the next grading is a
+  new grading and costs a review cycle. (The project's own policy in
+  `.daedalus/verify.json` is *not* touched by this — that stays frozen, which is
+  what stops anyone lowering the bar after seeing the work.)
+- **`verify <id> --ignore-result`** — nothing was wrong; you have read the
+  failure and are proceeding anyway. The verifier still runs, the failure is
+  still recorded, and the artifact still reads `verify=fail`. What changes is
+  that the task moves to the approval gate on **your** authority instead of the
+  oracle's. It never marks anything `verified`, because `verified` means the
+  plane applied its oracle and the artifact passed — and approval, integration
+  and dependency satisfaction all read it that way. An agent may not ask for it.
 - **`reverify <id> --amended`** — the ORACLE was wrong, and you have fixed it.
   Re-pins the Task to the project tip so the corrected `.daedalus/verify.json` is
   the one that grades, then re-grades the same artifact. This one *is* charged a
@@ -287,6 +302,15 @@ Note the order of operations for `--amended`: commit the corrected policy, land
 it on the plane-owned target (`task target <project> --sync` if no integration
 has moved it), *then* re-verify. The policy is read from the commit, not from
 your working tree.
+
+**If you merge a rejected branch by hand**, daedalus will notice. Reconcile checks
+whether a rejected Task's commits are contained in the integration target and, if
+they are, settles the record to match the repository — the Task shows as
+`integrated` with a note saying it got there outside the plane. It is not a
+bypass: nothing becomes `verified`, and the rejection and its reason stay in the
+log. It exists because the alternative is a database that carries a claim anyone
+can see is false, which would leave dependent Tasks waiting forever on work that
+already shipped.
 
 Two rejections cannot be re-graded at all — the **integrity gate** and the
 **null-agent floor**. Both are findings about the artifact rather than about the

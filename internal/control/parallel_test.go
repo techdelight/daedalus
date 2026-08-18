@@ -392,7 +392,7 @@ func TestParallel_CompetingIntegrationsSerialize(t *testing.T) {
 	wg.Wait()
 
 	for _, id := range ids {
-		if _, err := svc.VerifyTask(id); err != nil {
+		if _, err := svc.VerifyTask(id, VerifyRequest{}); err != nil {
 			t.Fatalf("verify %s: %v", id, err)
 		}
 	}
@@ -604,7 +604,7 @@ func TestParallel_TwoIndependentChangesBothLand(t *testing.T) {
 		if _, err := svc.DispatchTask(id); err != nil {
 			t.Fatalf("dispatch %s: %v", id, err)
 		}
-		if _, err := svc.VerifyTask(id); err != nil {
+		if _, err := svc.VerifyTask(id, VerifyRequest{}); err != nil {
 			t.Fatalf("verify %s: %v", id, err)
 		}
 		got, _ := store.GetTask(id)
@@ -659,7 +659,7 @@ func TestParallel_CollidingChangesConflictDeliberately(t *testing.T) {
 		if _, err := svc.DispatchTask(task.ID); err != nil {
 			t.Fatalf("dispatch: %v", err)
 		}
-		if _, err := svc.VerifyTask(task.ID); err != nil {
+		if _, err := svc.VerifyTask(task.ID, VerifyRequest{}); err != nil {
 			t.Fatalf("verify: %v", err)
 		}
 	}

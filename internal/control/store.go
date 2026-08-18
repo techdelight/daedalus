@@ -68,20 +68,22 @@ const (
 
 // Event kinds — the "typed" in "typed event" (§6). Every row carries one.
 const (
-	EventCreated      = "created"      // an entity was inserted
-	EventTransition   = "transition"   // a state change
-	EventBudget       = "budget"       // a budget decision (usually a refusal)
-	EventRejection    = "rejection"    // a request refused, or an artifact rejected
-	EventVerification = "verification" // a verification outcome
-	EventGovernance   = "governance"   // retry / replan / rebase and similar acts
-	EventIntegration  = "integration"  // a target advance / integration transaction step
-	EventApproval     = "approval"     // a human approve or reject
-	EventReview       = "review"       // an independent reviewer pass
-	EventProposal     = "proposal"     // an agent proposed a consequential operation
-	EventSchedule     = "schedule"     // a scheduler admission decision
-	EventGraph        = "graph"        // a dependency edge or blocked/ready move
-	EventSteering     = "steering"     // a typed instruction issued at a running Job
-	EventReverify     = "reverify"     // an artifact was returned for re-grading
+	EventCreated      = "created"        // an entity was inserted
+	EventTransition   = "transition"     // a state change
+	EventBudget       = "budget"         // a budget decision (usually a refusal)
+	EventRejection    = "rejection"      // a request refused, or an artifact rejected
+	EventVerification = "verification"   // a verification outcome
+	EventGovernance   = "governance"     // retry / replan / rebase and similar acts
+	EventIntegration  = "integration"    // a target advance / integration transaction step
+	EventApproval     = "approval"       // a human approve or reject
+	EventReview       = "review"         // an independent reviewer pass
+	EventProposal     = "proposal"       // an agent proposed a consequential operation
+	EventSchedule     = "schedule"       // a scheduler admission decision
+	EventGraph        = "graph"          // a dependency edge or blocked/ready move
+	EventSteering     = "steering"       // a typed instruction issued at a running Job
+	EventReverify     = "reverify"       // an artifact was returned for re-grading
+	EventChecksAmend  = "checks_amended" // a human changed a Task's per-task checks
+	EventWaiver       = "waiver"         // a human waived a verification result
 )
 
 // EventMeta annotates an event row. Kind defaults to EventTransition, Reason is
@@ -889,6 +891,94 @@ func (s *Store) CountReviewCycles(taskID string) (int, error) {
 		return n, nil
 	}
 	return 0, nil
+}
+
+// SetTaskChecks replaces a Task's per-task acceptance checks, recording the
+// change and its lineage in one transaction.
+//
+// One transaction because the alternative has a window in which the checks a Task
+// will be graded by have changed and nothing says so — and for an operation whose
+// entire safety story is "every amendment is visible", an unrecorded amendment is
+// the one outcome that must be impossible.
+func (s *Store) SetTaskChecks(id string, checks []string, meta EventMeta, note string) (Task, error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return Task{}, err
+	}
+	defer tx.Rollback()
+
+	cur, err := scanTask(tx.QueryRow(taskSelect+` WHERE id = ?`, id))
+	if err != nil {
+		return Task{}, err
+	}
+	encoded := ""
+	if len(checks) > 0 {
+		b, err := json.Marshal(checks)
+		if err != nil {
+			return Task{}, fmt.Errorf("encoding task checks: %w", err)
+		}
+		encoded = string(b)
+	}
+	now := s.now()
+	if _, err := tx.Exec(`UPDATE tasks SET task_checks = ?, updated_at = ? WHERE id = ?`,
+		encoded, now, id); err != nil {
+		return Task{}, fmt.Errorf("amending checks of %s: %w", id, err)
+	}
+	if err := s.logEvent(tx, "task", id, "", "", meta, meta.Actor, note); err != nil {
+		return Task{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Task{}, err
+	}
+	cur.Checks = checks
+	cur.UpdatedAt = now
+	return cur, nil
+}
+
+// ChecksAmendedSinceLastVerdict reports whether a Task's checks were changed
+// after the most recent rejection recorded against it.
+//
+// It exists for one decision, and that decision is what keeps amendable checks
+// from becoming an unlimited free re-roll. Re-verification grants a FREE replay
+// on the reasoning that a verdict from a broken harness judged nothing — true
+// when the artifact and the oracle are both unchanged. Amend a check and that
+// reasoning collapses: the next grading is a NEW grading against a DIFFERENT
+// oracle, which is exactly the case an amended re-verify is charged for. Without
+// this, an operator could soften a check, replay for free, and repeat until
+// something passed, with the budget never noticing.
+func (s *Store) ChecksAmendedSinceLastVerdict(taskID string) (bool, error) {
+	var n int
+	err := s.db.QueryRow(
+		`SELECT COUNT(*) FROM events
+		  WHERE entity_type = 'task' AND entity_id = ? AND kind = ?
+		    AND seq > COALESCE((SELECT MAX(seq) FROM events
+		                         WHERE entity_type = 'task' AND entity_id = ? AND kind = ?), 0)`,
+		taskID, EventChecksAmend, taskID, EventRejection,
+	).Scan(&n)
+	if err != nil {
+		return false, fmt.Errorf("checking amendments of %s: %w", taskID, err)
+	}
+	return n > 0, nil
+}
+
+// WaiverForJob reports whether a human waived the verification result of a
+// specific Job.
+//
+// Keyed to the JOB, not the Task, and that is the whole of its correctness. A
+// waiver is a judgement about one artifact — "I have looked at this and I am
+// taking responsibility for it" — so it must not survive into a later attempt.
+// A Task-level flag would silently pre-authorise the next Job a retry produces,
+// which nobody waived and nobody has seen.
+func (s *Store) WaiverForJob(jobID string) (bool, error) {
+	var n int
+	err := s.db.QueryRow(
+		`SELECT COUNT(*) FROM events WHERE entity_type = 'job' AND entity_id = ? AND kind = ?`,
+		jobID, EventWaiver,
+	).Scan(&n)
+	if err != nil {
+		return false, fmt.Errorf("checking waivers of %s: %w", jobID, err)
+	}
+	return n > 0, nil
 }
 
 // LastRejectionReason returns the typed reason of the most recent rejection

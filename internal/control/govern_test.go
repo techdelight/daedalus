@@ -84,7 +84,7 @@ func TestVerify_StaleBase_Rejected(t *testing.T) {
 		t.Fatalf("AdvanceTarget: %v", err)
 	}
 
-	res, err := svc.VerifyTask(task.ID)
+	res, err := svc.VerifyTask(task.ID, VerifyRequest{})
 	if err != nil {
 		t.Fatalf("VerifyTask: %v", err)
 	}
@@ -129,7 +129,7 @@ func rejectedTask(t *testing.T, repo string, budget Budget) (*Service, *Store, T
 	if _, err := svc.DispatchTask(task.ID); err != nil {
 		t.Fatalf("Dispatch: %v", err)
 	}
-	if _, err := svc.VerifyTask(task.ID); err != nil {
+	if _, err := svc.VerifyTask(task.ID, VerifyRequest{}); err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
 	got, _ := store.GetTask(task.ID)
@@ -280,7 +280,7 @@ func TestRetry_RebaseThenVerify_ClearsStaleBase(t *testing.T) {
 	if _, err := store.AdvanceTarget(repoKey(t, repo), task.BaseSHA, landed, "test: another integration landed"); err != nil {
 		t.Fatalf("AdvanceTarget: %v", err)
 	}
-	res, err := svc.VerifyTask(task.ID)
+	res, err := svc.VerifyTask(task.ID, VerifyRequest{})
 	if err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
@@ -292,7 +292,7 @@ func TestRetry_RebaseThenVerify_ClearsStaleBase(t *testing.T) {
 	if _, err := svc.RetryTask(task.ID, RetryRequest{Rebase: true}); err != nil {
 		t.Fatalf("RetryTask(rebase): %v", err)
 	}
-	res2, err := svc.VerifyTask(task.ID)
+	res2, err := svc.VerifyTask(task.ID, VerifyRequest{})
 	if err != nil {
 		t.Fatalf("Verify after rebase: %v", err)
 	}
@@ -424,7 +424,7 @@ func TestVerify_StrandedVerifying_IsRecovered(t *testing.T) {
 		t.Fatalf("stage verifying task: %v", err)
 	}
 	// Precondition: stranded means every governance route refuses.
-	if _, err := svc.VerifyTask(task.ID); err == nil {
+	if _, err := svc.VerifyTask(task.ID, VerifyRequest{}); err == nil {
 		t.Error("precondition: a verifying task should not be verifiable")
 	}
 	if _, err := svc.RetryTask(task.ID, RetryRequest{}); err == nil {
@@ -459,7 +459,7 @@ func TestVerify_StrandedVerifying_IsRecovered(t *testing.T) {
 	if cycles != 0 {
 		t.Errorf("review cycles = %d, want 0 — an interrupted verification costs nothing", cycles)
 	}
-	if _, err := svc.VerifyTask(task.ID); err != nil {
+	if _, err := svc.VerifyTask(task.ID, VerifyRequest{}); err != nil {
 		t.Fatalf("verify after recovery: %v", err)
 	}
 	final, _ := store.GetTask(task.ID)
@@ -485,7 +485,7 @@ func TestVerify_NoVerifierConfigured_DoesNotStrand(t *testing.T) {
 	if _, err := svc.DispatchTask(task.ID); err != nil {
 		t.Fatalf("Dispatch: %v", err)
 	}
-	if _, err := svc.VerifyTask(task.ID); err == nil {
+	if _, err := svc.VerifyTask(task.ID, VerifyRequest{}); err == nil {
 		t.Fatal("verify with no verifier should error")
 	}
 	got, _ := store.GetTask(task.ID)
@@ -821,7 +821,7 @@ func TestVerify_PanickingVerifier_LeavesNoStrandedTask(t *testing.T) {
 				t.Error("expected the verifier panic to propagate")
 			}
 		}()
-		_, _ = svc.VerifyTask(task.ID)
+		_, _ = svc.VerifyTask(task.ID, VerifyRequest{})
 	}()
 
 	// The deferred recovery must have put it back.
@@ -845,7 +845,7 @@ func TestVerify_PanickingVerifier_LeavesNoStrandedTask(t *testing.T) {
 		// A second verify panics again (same verifier); what matters is that it
 		// RUNS rather than being refused with operation_in_flight.
 		defer func() { _ = recover() }()
-		if _, err := svc.VerifyTask(task.ID); err != nil {
+		if _, err := svc.VerifyTask(task.ID, VerifyRequest{}); err != nil {
 			if reason, refused := Rejected(err); refused && reason == ReasonOperationInFlight {
 				t.Errorf("verify after a panic was refused as %q — the claim leaked", reason)
 			}
@@ -1130,7 +1130,7 @@ func TestReconcile_SettlesAGhostJob(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Dispatch: %v", err)
 	}
-	if _, err := svc.VerifyTask(task.ID); err != nil {
+	if _, err := svc.VerifyTask(task.ID, VerifyRequest{}); err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
 	if _, err := svc.IntegrateTask(task.ID, IntegrateRequest{}); err != nil {

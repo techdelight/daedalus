@@ -33,7 +33,7 @@ func printUsage() {
 	fmt.Println("                      review <id> | approve <id> | reject <id> | integrate <id> |")
 	fmt.Println("                      approvals | proposals | depends <id> | steer <job-id> |")
 	fmt.Println("                      board | target |")
-	fmt.Println("                      retry <id> | reverify <id> | replan <id> |")
+	fmt.Println("                      retry <id> | reverify <id> | checks <id> | replan <id> |")
 	fmt.Println("                      events <id> |")
 	fmt.Println("                      cancel <id>]")
 	fmt.Println("       daedalus --help")

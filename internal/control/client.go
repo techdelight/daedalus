@@ -109,23 +109,21 @@ func (c *Client) DispatchTask(id string) (DispatchResult, error) {
 }
 
 // VerifyTask implements TaskAPI.
-func (c *Client) VerifyTask(id string) (VerifyResult, error) {
-	resp, err := c.httpClient.Post(c.baseURL+"/tasks/"+url.PathEscape(id)+"/verify", "application/json", nil)
-	if err != nil {
-		return VerifyResult{}, fmt.Errorf("control client: POST /tasks/%s/verify: %w", id, err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return VerifyResult{}, decodeError(resp)
-	}
+func (c *Client) VerifyTask(id string, req VerifyRequest) (VerifyResult, error) {
 	var res VerifyResult
-	return res, json.NewDecoder(resp.Body).Decode(&res)
+	return res, c.postJSON("/tasks/"+url.PathEscape(id)+"/verify", req, &res)
 }
 
 // RetryTask implements TaskAPI.
 func (c *Client) RetryTask(id string, req RetryRequest) (RetryResult, error) {
 	var res RetryResult
 	return res, c.postJSON("/tasks/"+url.PathEscape(id)+"/retry", req, &res)
+}
+
+// AmendTaskChecks implements TaskAPI.
+func (c *Client) AmendTaskChecks(id string, req AmendChecksRequest) (Task, error) {
+	var t Task
+	return t, c.postJSON("/tasks/"+url.PathEscape(id)+"/checks", req, &t)
 }
 
 // ReverifyTask implements TaskAPI.

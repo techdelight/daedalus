@@ -29,7 +29,7 @@ func land(t *testing.T, svc *Service, id string) {
 	if _, err := svc.DispatchTask(id); err != nil {
 		t.Fatalf("dispatch %s: %v", id, err)
 	}
-	if _, err := svc.VerifyTask(id); err != nil {
+	if _, err := svc.VerifyTask(id, VerifyRequest{}); err != nil {
 		t.Fatalf("verify %s: %v", id, err)
 	}
 	if _, err := svc.IntegrateTask(id, IntegrateRequest{}); err != nil {
@@ -111,7 +111,7 @@ func TestGraph_BlockedUntilDependencyLands(t *testing.T) {
 	if _, err := svc.DispatchTask(upstream.ID); err != nil {
 		t.Fatalf("dispatch upstream: %v", err)
 	}
-	if _, err := svc.VerifyTask(upstream.ID); err != nil {
+	if _, err := svc.VerifyTask(upstream.ID, VerifyRequest{}); err != nil {
 		t.Fatalf("verify upstream: %v", err)
 	}
 	svc.wakeDependentsLocked(t, upstream.ID)

@@ -107,7 +107,7 @@ func TestDaemon_VerifyRoundTrip(t *testing.T) {
 	if _, err := client.DispatchTask(task.ID); err != nil {
 		t.Fatalf("dispatch: %v", err)
 	}
-	res, err := client.VerifyTask(task.ID)
+	res, err := client.VerifyTask(task.ID, VerifyRequest{})
 	if err != nil {
 		t.Fatalf("client VerifyTask: %v", err)
 	}
@@ -160,7 +160,7 @@ func TestDaemon_GovernanceRoundTrip(t *testing.T) {
 	if _, err := client.DispatchTask(task.ID); err != nil {
 		t.Fatalf("dispatch: %v", err)
 	}
-	vres, err := client.VerifyTask(task.ID)
+	vres, err := client.VerifyTask(task.ID, VerifyRequest{})
 	if err != nil {
 		t.Fatalf("verify: %v", err)
 	}
@@ -176,7 +176,7 @@ func TestDaemon_GovernanceRoundTrip(t *testing.T) {
 		t.Errorf("retry over wire = %+v, want attempt 2 with a fresh job", rres)
 	}
 
-	if _, err := client.VerifyTask(task.ID); err != nil {
+	if _, err := client.VerifyTask(task.ID, VerifyRequest{}); err != nil {
 		t.Fatalf("verify 2: %v", err)
 	}
 	replanned, err := client.ReplanTask(task.ID, ReplanRequest{Objective: "second go"})
@@ -234,7 +234,7 @@ func TestDaemon_RejectionSurvivesTheWire(t *testing.T) {
 	if _, err := client.DispatchTask(task.ID); err != nil {
 		t.Fatalf("dispatch 1: %v", err)
 	}
-	if _, err := client.VerifyTask(task.ID); err != nil {
+	if _, err := client.VerifyTask(task.ID, VerifyRequest{}); err != nil {
 		t.Fatalf("verify: %v", err)
 	}
 	_, err = client.RetryTask(task.ID, RetryRequest{})
@@ -327,7 +327,7 @@ func TestDaemon_WrongStateIsConflictNot500(t *testing.T) {
 	if _, err := svc.DispatchTask(task.ID); err != nil {
 		t.Fatalf("dispatch: %v", err)
 	}
-	if _, err := svc.VerifyTask(task.ID); err != nil {
+	if _, err := svc.VerifyTask(task.ID, VerifyRequest{}); err != nil {
 		t.Fatalf("verify: %v", err)
 	}
 	rec := httptest.NewRecorder()
@@ -366,7 +366,7 @@ func TestDaemon_IntegrationRoundTrip(t *testing.T) {
 	if _, err := client.DispatchTask(task.ID); err != nil {
 		t.Fatalf("dispatch: %v", err)
 	}
-	if _, err := client.VerifyTask(task.ID); err != nil {
+	if _, err := client.VerifyTask(task.ID, VerifyRequest{}); err != nil {
 		t.Fatalf("verify: %v", err)
 	}
 	// Approval is required, so it shows up in the queue.
@@ -428,7 +428,7 @@ func TestDaemon_RejectApprovalAndSyncTarget(t *testing.T) {
 	if _, err := client.DispatchTask(task.ID); err != nil {
 		t.Fatalf("dispatch: %v", err)
 	}
-	if _, err := client.VerifyTask(task.ID); err != nil {
+	if _, err := client.VerifyTask(task.ID, VerifyRequest{}); err != nil {
 		t.Fatalf("verify: %v", err)
 	}
 	got, err := client.RejectApproval(task.ID, "not this way")

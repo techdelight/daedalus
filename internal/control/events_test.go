@@ -29,13 +29,13 @@ func TestTaskEvents_RecordsTheWholeChain(t *testing.T) {
 	if _, err := svc.DispatchTask(task.ID); err != nil { // job + artifact + transitions
 		t.Fatalf("Dispatch: %v", err)
 	}
-	if _, err := svc.VerifyTask(task.ID); err != nil { // verification → rejection
+	if _, err := svc.VerifyTask(task.ID, VerifyRequest{}); err != nil { // verification → rejection
 		t.Fatalf("Verify: %v", err)
 	}
 	if _, err := svc.RetryTask(task.ID, RetryRequest{}); err != nil { // governance + attempt 2
 		t.Fatalf("Retry: %v", err)
 	}
-	if _, err := svc.VerifyTask(task.ID); err != nil { // second rejection
+	if _, err := svc.VerifyTask(task.ID, VerifyRequest{}); err != nil { // second rejection
 		t.Fatalf("Verify 2: %v", err)
 	}
 	// The third attempt is over the 2-attempt budget: a refusal, on the record.
@@ -124,7 +124,7 @@ func TestEvents_AppendOnly_HistoryIsNeverRewritten(t *testing.T) {
 	before, _ := store.ListEvents()
 
 	// A rejection, a refused illegal transition, a retry, a cancel.
-	if _, err := svc.VerifyTask(task.ID); err != nil {
+	if _, err := svc.VerifyTask(task.ID, VerifyRequest{}); err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
 	if _, err := store.TransitionTask(task.ID, StateVerified, true, "worker self-verify"); err == nil {

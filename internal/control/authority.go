@@ -30,6 +30,16 @@ package control
 // (budget.go), so "the Guild Master raises its own budget" is not an operation
 // that can be attempted, tiered, or refused — it does not exist.
 
+// Also absent by construction: AMENDING A TASK'S CHECKS. It has no operation
+// name, no tier entry and no proposal path, and that is the point. The two tiers
+// available are "execute" and "record a proposal for a human to confirm", and a
+// proposal would launder exactly what the rule forbids — the agent authors the
+// command, a human clicks confirm, and a command written by the party being
+// graded is now running inside the verifier. There is no way to express "may not
+// even ask" in the table, so the refusal lives where the checks are validated
+// (resolveTaskChecks), which is the same function the create path uses and the
+// same rule tested there.
+
 // Tier is the authority a caller class has over one operation.
 type Tier int
 

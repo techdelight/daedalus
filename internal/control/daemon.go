@@ -21,6 +21,7 @@ package control
 //	                                                       → 422 review-cycle budget
 //	POST   /tasks/{id}/retry      body: RetryRequest      → 200 RetryResult
 //	POST   /tasks/{id}/reverify   body: ReverifyRequest   → 200 ReverifyResult
+//	POST   /tasks/{id}/checks     body: AmendChecksRequest → 200 Task
 //	                                                       → 422 attempts budget
 //	POST   /tasks/{id}/replan     body: ReplanRequest     → 200 Task
 //	GET    /tasks/{id}/events                             → 200 []Event  (read-only;
@@ -97,6 +98,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /tasks/{id}/verify", s.handleVerify)
 	mux.HandleFunc("POST /tasks/{id}/retry", s.handleRetry)
 	mux.HandleFunc("POST /tasks/{id}/reverify", s.handleReverify)
+	mux.HandleFunc("POST /tasks/{id}/checks", s.handleAmendChecks)
 	mux.HandleFunc("POST /tasks/{id}/replan", s.handleReplan)
 	// GET only, deliberately: the event log has no mutation route because it has
 	// no mutation operation (§6). Any other verb on this path falls through to the
@@ -186,7 +188,13 @@ func (s *Server) handleDispatch(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleVerify(w http.ResponseWriter, r *http.Request) {
-	res, err := s.api.VerifyTask(r.PathValue("id"))
+	var req VerifyRequest
+	// An empty body is an ordinary verification; a waiver has to be asked for.
+	if err := decodeOptionalJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	res, err := s.api.VerifyTask(r.PathValue("id"), req)
 	if err != nil {
 		writeError(w, statusFor(err), err)
 		return
@@ -207,6 +215,23 @@ func (s *Server) handleRetry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, res)
+}
+
+func (s *Server) handleAmendChecks(w http.ResponseWriter, r *http.Request) {
+	var req AmendChecksRequest
+	// NOT optional: an empty body here would mean "clear every check", which is a
+	// destructive reading of a missing field. Clearing is spelled with an explicit
+	// empty list.
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	t, err := s.api.AmendTaskChecks(r.PathValue("id"), req)
+	if err != nil {
+		writeError(w, statusFor(err), err)
+		return
+	}
+	writeJSON(w, http.StatusOK, t)
 }
 
 func (s *Server) handleReverify(w http.ResponseWriter, r *http.Request) {
@@ -258,6 +283,16 @@ func decodeOptionalJSON(r *http.Request, v any) error {
 		return nil
 	}
 	return fmt.Errorf("invalid request body: %w", err)
+}
+
+// decodeJSON requires a body, unlike decodeOptionalJSON. Used where a missing
+// field would have a destructive default — amending checks with an absent list
+// would mean "clear them all", which nobody would intend by omission.
+func decodeJSON(r *http.Request, v any) error {
+	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
+		return fmt.Errorf("invalid request body: %w", err)
+	}
+	return nil
 }
 
 func (s *Server) handleReview(w http.ResponseWriter, r *http.Request) {

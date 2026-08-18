@@ -429,3 +429,83 @@ func TestReconcile_ReapedJobLeavesTheTaskRecoverable(t *testing.T) {
 		t.Errorf("jobs for task = %d, want 2 — the retry is a new attempt and the reaped one is preserved", jobs)
 	}
 }
+
+// TestReconcile_SettlesWorkMergedOutsideThePlane: the plane does not own the
+// repository, so a human can merge a branch it rejected — and people do, most
+// often when the check rather than the work was wrong. Until it notices, the
+// database carries a claim anyone can see is false.
+//
+// What this asserts is that the record catches up, and — just as important —
+// that catching up is not a bypass: the Task lands as `integrated`, the artifact
+// is never marked verified, and the rejection stays in the log.
+func TestReconcile_SettlesWorkMergedOutsideThePlane(t *testing.T) {
+	rv := &recordingVerifier{pass: false, detail: "the check was wrong"}
+	svc, store, task := dispatchToCandidate(t, "AGENT_RAN.txt", rv)
+	repo := mustProjectDir(t, svc, task.Project)
+
+	res, err := svc.VerifyTask(task.ID, VerifyRequest{})
+	if err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	if res.Verified {
+		t.Fatal("precondition: the artifact should have been rejected")
+	}
+	art := res.Artifact
+	if art == nil {
+		t.Fatal("precondition: expected an artifact")
+	}
+
+	// Reconcile before the merge: nothing to settle.
+	rep, err := svc.Reconcile()
+	if err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if len(rep.SettledLandedOutside) != 0 {
+		t.Fatalf("settled a task whose work is not in the target: %v", rep.SettledLandedOutside)
+	}
+
+	// The human merges it by hand and re-points the plane's target at the result,
+	// exactly as `git merge` + `task target --sync` would.
+	mustGit(t, repo, "merge", "--no-edit", art.Branch)
+	if _, err := svc.SyncTarget(task.Project); err != nil {
+		t.Fatalf("SyncTarget: %v", err)
+	}
+
+	rep, err = svc.Reconcile()
+	if err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if len(rep.SettledLandedOutside) != 1 || rep.SettledLandedOutside[0] != task.ID {
+		t.Fatalf("SettledLandedOutside = %v, want [%s]", rep.SettledLandedOutside, task.ID)
+	}
+
+	got, _ := store.GetTask(task.ID)
+	if got.State != StateIntegrated {
+		t.Errorf("task state = %s, want integrated — the record should match the repository", got.State)
+	}
+	// Not a bypass: the artifact was never verified, and the rejection stands.
+	arts, _ := store.ListArtifactsForJob(res.Job.ID)
+	if len(arts) > 0 && arts[0].Verify == VerifyPass {
+		t.Error("settling a landed artifact must not mark it verified — it never passed the oracle")
+	}
+	events, _ := store.ListEventsForTask(task.ID)
+	var sawRejection bool
+	for _, e := range events {
+		if e.Kind == EventRejection && e.Reason == ReasonVerifyFailed {
+			sawRejection = true
+		}
+	}
+	if !sawRejection {
+		t.Error("the rejection must survive in the log; settling records what happened, it does not erase it")
+	}
+}
+
+// mustProjectDir resolves a project the way the service does.
+func mustProjectDir(t *testing.T, svc *Service, project string) string {
+	t.Helper()
+	dir, err := svc.projects.ProjectDir(project)
+	if err != nil {
+		t.Fatalf("ProjectDir(%s): %v", project, err)
+	}
+	return dir
+}

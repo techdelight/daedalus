@@ -34,7 +34,10 @@ func TestCanTransition_Exhaustive(t *testing.T) {
 		// verification path, so it brings nothing closer to `verified`. Mirrors the
 		// verifying → candidate edge above: a verdict from a broken harness examined
 		// the artifact no more than an interrupted verification did.
-		StateRejected:         {StateQueued, StatePlanned, StateCandidate, StateCancelled, StateExpired},
+		// rejected → approval_required is the waiver (Sprint 65): a human accepting
+		// answerability for an artifact the oracle refused. It never reaches
+		// `verified`, so the plane never claims a pass it did not observe.
+		StateRejected:         {StateQueued, StatePlanned, StateCandidate, StateApprovalRequired, StateCancelled, StateExpired},
 		StateApprovalRequired: {StateApproved, StateRejected, StateCancelled, StateExpired},
 		// approved → rejected is the failed-integration route (Sprint 59): a rebase
 		// conflict or a merged-result verification failure feeds the retry ladder.

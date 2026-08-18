@@ -169,10 +169,13 @@ type VerifyResult struct {
 	// Reason is the machine-readable "why" of a negative verdict (stale_base,
 	// null_agent_floor, policy_drift, integrity_gate, verify_failed) and is empty
 	// on a pass — so a client never has to parse Detail to know what happened.
-	Reason         RejectionReason `json:"reason,omitempty"`
-	VerifierCalled bool            `json:"verifierCalled"` // false when the gate short-circuited
-	Verified       bool            `json:"verified"`       // final verdict: reached `verified`
-	Detail         string          `json:"detail"`
+	Reason RejectionReason `json:"reason,omitempty"`
+	// Waived reports that a failing result was carried forward by a human. The
+	// artifact is NOT verified and never will be; this says a person took it on.
+	Waived         bool   `json:"waived,omitempty"`
+	VerifierCalled bool   `json:"verifierCalled"` // false when the gate short-circuited
+	Verified       bool   `json:"verified"`       // final verdict: reached `verified`
+	Detail         string `json:"detail"`
 }
 
 // TaskAPI is the surface the CLI drives and the daemon serves. Both the
@@ -184,9 +187,10 @@ type TaskAPI interface {
 	TaskStatus(id string) (StatusView, error)
 	CancelTask(id string) (Task, error)
 	DispatchTask(id string) (DispatchResult, error)
-	VerifyTask(id string) (VerifyResult, error)
+	VerifyTask(id string, req VerifyRequest) (VerifyResult, error)
 	RetryTask(id string, req RetryRequest) (RetryResult, error)
 	ReverifyTask(id string, req ReverifyRequest) (ReverifyResult, error)
+	AmendTaskChecks(id string, req AmendChecksRequest) (Task, error)
 	ReplanTask(id string, req ReplanRequest) (Task, error)
 	ReviewTask(id string) (ReviewResult, error)
 	ApproveTask(id, note string) (Task, error)
@@ -1015,7 +1019,44 @@ func runUnderWallClock(runner AgentRunner, spec JobSpec) RunOutcome {
 // never consulted. Otherwise candidate → verifying → VerifyRunner →
 // verified | rejected. Structurally this is a plane transition, so only the
 // control plane can reach `verified` (workers cannot).
-func (s *Service) VerifyTask(id string) (VerifyResult, error) {
+// VerifyRequest is the input to Service.VerifyTask (and POST /tasks/{id}/verify).
+type VerifyRequest struct {
+	// IgnoreResult waives a FAILING verification: the verifier still runs, its true
+	// outcome is still recorded, the artifact still carries verify=fail — and the
+	// Task moves on to the approval gate anyway, on the named human's authority.
+	//
+	// It is deliberately NOT a way to record a pass. `verified` means "the plane
+	// applied its own oracle and the artifact passed", and a waived artifact never
+	// reaches that state, because writing it would put a false statement into a log
+	// that approval, integration and dependency satisfaction all read as true. What
+	// a waiver changes is not the finding but who is answerable for proceeding past
+	// it — which is exactly what an operator overriding a check is actually doing.
+	IgnoreResult bool `json:"ignoreResult,omitempty"`
+}
+
+func (s *Service) VerifyTask(id string, req VerifyRequest) (VerifyResult, error) {
+	return s.verifyTask(Human(), id, req)
+}
+
+func (s *Service) verifyTask(caller Caller, id string, req VerifyRequest) (VerifyResult, error) {
+	// A waiver is the one thing in verification a caller can influence, so it is
+	// the one thing an agent may not ask for. Refused here rather than tiered as a
+	// proposal: the two tiers are "execute" and "ask a human to execute", and the
+	// second would let the party being graded put its own waiver in front of a
+	// human as a routine-looking confirmation.
+	if req.IgnoreResult && caller.IsAgent() {
+		return VerifyResult{}, &RejectionError{
+			Reason: ReasonForbidden,
+			Entity: id,
+			Message: "a verification result may only be waived by a human caller: " +
+				"waiving is accepting answerability for an artifact the oracle refused, " +
+				"and the party being graded cannot accept it on its own behalf",
+		}
+	}
+	return s.verifyTaskLocked(caller, id, req)
+}
+
+func (s *Service) verifyTaskLocked(caller Caller, id string, req VerifyRequest) (VerifyResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -1217,6 +1258,14 @@ func (s *Service) VerifyTask(id string) (VerifyResult, error) {
 		res := s.doReject(task, job, art, repoDir, ReasonVerifyFailed, withDetail("verify failed", outcome.Detail))
 		res.VerifierCalled = true
 		res.Detail = outcome.Detail
+		if req.IgnoreResult {
+			// The rejection above STANDS: it is on the record, the artifact keeps
+			// verify=fail, and nothing here claims the checks passed. The waiver adds
+			// a second fact next to the first — a named human read that failure and
+			// chose to carry the change forward — and moves the Task to the approval
+			// gate, where the same human must still approve it in the open.
+			res = s.waiveVerification(caller, res, outcome.Detail)
+		}
 		return res, nil
 	}
 
@@ -1302,6 +1351,47 @@ func (s *Service) doReject(task Task, job Job, art *Artifact, repoDir string, re
 		_ = s.worktrees.Remove(repoDir, job.ID)
 	}
 	return VerifyResult{Job: jb, Task: tk, Artifact: art, Reason: reason, Verified: false}
+}
+
+// waiveVerification records a human's decision to proceed past a failing
+// verification and moves the Task to the approval gate.
+//
+// Two events, not one, and the order matters: the rejection is already written
+// when this runs, so the log reads "the artifact failed" and then "a human waived
+// that result" — never a single entry that could be mistaken for a pass. The
+// waiver is recorded against the JOB, because it is a judgement about one
+// artifact; a Task-level flag would silently pre-authorise whatever a later retry
+// produced, which nobody waived and nobody has seen.
+//
+// If the move to the approval gate fails, the Task simply stays `rejected` and
+// the waiver stands in the log as an intent that did not take effect. That is the
+// right failure direction: a waiver that half-applied must leave the artifact
+// harder to land, never easier.
+func (s *Service) waiveVerification(caller Caller, res VerifyResult, detail string) VerifyResult {
+	meta := EventMeta{Kind: EventWaiver, Actor: governanceMetaFor(caller).Actor}
+	note := fmt.Sprintf("verification result WAIVED by %s: the checks failed (%s) and a human "+
+		"chose to carry this artifact forward on their own authority; it was never verified",
+		meta.Actor, detail)
+	if err := s.store.LogDecision("job", res.Job.ID, meta, note); err != nil {
+		log.Printf("control: recording waiver for %s: %v", res.Job.ID, err)
+		return res
+	}
+	if _, err := s.store.TransitionJobWith(res.Job.ID, StateApprovalRequired, false, meta, note); err != nil {
+		log.Printf("control: waived job %s → approval_required: %v", res.Job.ID, err)
+		return res
+	}
+	tk, err := s.store.TransitionTaskWith(res.Task.ID, StateApprovalRequired, false, meta, note)
+	if err != nil {
+		log.Printf("control: waived task %s → approval_required: %v", res.Task.ID, err)
+		return res
+	}
+	res.Task = tk
+	res.Waived = true
+	res.Detail = note
+	if j, err := s.store.GetJob(res.Job.ID); err == nil {
+		res.Job = j
+	}
+	return res
 }
 
 // RetryTask retries a rejected Task: a FRESH Job on the same Task, with the
@@ -1592,6 +1682,65 @@ func note(o RunOutcome, base string) string {
 	return base + " (" + o.Detail + ")"
 }
 
+// settleIfLandedOutsideThePlane settles a rejected Task whose artifact's commits
+// are already contained in the project's integration target.
+//
+// Reuses ArtifactIsLanded, the same containment test the integration transaction
+// runs before landing anything — so "already in" means the same thing here as it
+// does there, including for an artifact that was rebased on its way in and shares
+// no sha with what landed.
+//
+// Deliberately narrow. Only `rejected` Tasks are examined, because that is the
+// state a human merges around, and only when an artifact with a real head exists;
+// the cost is two git calls per rejected Task per pass, which is bounded by how
+// many rejections are outstanding rather than by the size of the board.
+func (s *Service) settleIfLandedOutsideThePlane(task Task) (bool, error) {
+	job, ok, err := s.jobInState(task.ID, StateRejected)
+	if err != nil || !ok {
+		return false, err
+	}
+	art := s.firstArtifact(job.ID)
+	if art == nil || art.HeadSHA == "" {
+		return false, nil
+	}
+	repoDir, err := s.projects.ProjectDir(task.Project)
+	if err != nil {
+		return false, err
+	}
+	target, err := s.Target(task.Project)
+	if err != nil {
+		return false, err
+	}
+	landed, err := ArtifactIsLanded(repoDir, target.SHA, art.BaseSHA, art.HeadSHA)
+	if err != nil || !landed {
+		return false, err
+	}
+	note := fmt.Sprintf("landed outside the plane: the artifact's commits are contained in target %s, "+
+		"though this Task was rejected — a human merged it. Settling the record to match the repository; "+
+		"the rejection and its reason stay in the log, and nothing here marks the artifact verified",
+		shortSHA(target.SHA))
+	// Walk the gate rather than jumping to `integrated`. There is no
+	// rejected → integrated edge and there must not be one: a single hop from a
+	// refusal to a landing is the shape of every laundering bug this table exists
+	// to make impossible, and adding it for a convenience would make it reachable
+	// from everywhere else too. Walking costs two extra events and states the
+	// truth — a human did approve this, by merging it — which is the same
+	// reasoning `driveJob` already applies to the Job in settleAlreadyLanded.
+	meta := EventMeta{Kind: EventIntegration}
+	for _, to := range []State{StateApprovalRequired, StateApproved} {
+		if _, err := s.store.TransitionTaskWith(task.ID, to, false, meta, note); err != nil {
+			return false, err
+		}
+	}
+	if task, err = s.store.GetTask(task.ID); err != nil {
+		return false, err
+	}
+	if _, _, err = s.settleAlreadyLanded(task, job, art, repoDir, target, note); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // ReconcileReport summarises what a reconcile pass changed. Returned for tests
 // and daemon logging.
 type ReconcileReport struct {
@@ -1604,6 +1753,7 @@ type ReconcileReport struct {
 	HeuristicallyFailed    []string // job ids failed by the liveness HEURISTIC, not an observer
 	CheckedActive          int      // non-terminal jobs examined
 	SkippedUnverified      int      // jobs left alone because liveness couldn't be verified
+	SettledLandedOutside   []string // task ids settled because their work was merged outside the plane
 	SkippedInflight        int      // jobs left alone because this process is running them
 }
 
@@ -1735,6 +1885,29 @@ func (s *Service) Reconcile() (ReconcileReport, error) {
 				log.Printf("control: re-evaluating dependencies of %s: %v", task.ID, err)
 			} else if changed {
 				rep.DependencyStateChanged = append(rep.DependencyStateChanged, task.ID)
+			}
+		}
+		// F5: a REJECTED Task whose work is nonetheless in the target. The plane
+		// does not own the repository — a human can merge a branch it refused, and
+		// people do, most often when the check rather than the work was wrong. The
+		// database then carries a claim anyone can see is false: a Task recorded as
+		// rejected and never landed, whose commits are demonstrably in the tree.
+		//
+		// That claim is not merely untidy. Everything downstream reads it: a Task
+		// waiting on this one stays blocked forever, and the board shows work that
+		// shipped as work that failed.
+		//
+		// Observing it is strictly better than either alternative. It is not a
+		// bypass — nothing here lets anybody skip a verdict, and no artifact becomes
+		// `verified`; the Task lands as `integrated` with a note saying it got there
+		// outside the plane, which is exactly what happened. And it beats leaving the
+		// divergence silent, because a human merge is otherwise invisible to the
+		// plane in a way even a recorded override would not be.
+		if task.State == StateRejected {
+			if settled, err := s.settleIfLandedOutsideThePlane(task); err != nil {
+				log.Printf("control: checking whether %s already landed: %v", task.ID, err)
+			} else if settled {
+				rep.SettledLandedOutside = append(rep.SettledLandedOutside, task.ID)
 			}
 		}
 	}

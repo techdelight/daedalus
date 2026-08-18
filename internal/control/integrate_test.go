@@ -123,7 +123,7 @@ func verifiedTask(t *testing.T, repo string, verifier VerifyRunner, marker strin
 	if _, err := svc.DispatchTask(task.ID); err != nil {
 		t.Fatalf("Dispatch: %v", err)
 	}
-	res, err := svc.VerifyTask(task.ID)
+	res, err := svc.VerifyTask(task.ID, VerifyRequest{})
 	if err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
@@ -261,7 +261,7 @@ func TestIntegrate_TargetMovesMidTransaction_Retries(t *testing.T) {
 	if _, err := svc.DispatchTask(task.ID); err != nil {
 		t.Fatalf("Dispatch: %v", err)
 	}
-	if _, err := svc.VerifyTask(task.ID); err != nil {
+	if _, err := svc.VerifyTask(task.ID, VerifyRequest{}); err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
 	// Swap in the racing verifier only for the integration phase.
@@ -305,7 +305,7 @@ func TestIntegrate_ExhaustedRetries_LandsNothing(t *testing.T) {
 	if _, err := svc.DispatchTask(task.ID); err != nil {
 		t.Fatalf("Dispatch: %v", err)
 	}
-	if _, err := svc.VerifyTask(task.ID); err != nil {
+	if _, err := svc.VerifyTask(task.ID, VerifyRequest{}); err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
 	// A verifier that advances the target on EVERY pass: the CAS can never win.
@@ -360,7 +360,7 @@ func TestIntegrate_RebaseConflict_Rejects(t *testing.T) {
 	if _, err := svc.DispatchTask(task.ID); err != nil {
 		t.Fatalf("Dispatch: %v", err)
 	}
-	if _, err := svc.VerifyTask(task.ID); err != nil {
+	if _, err := svc.VerifyTask(task.ID, VerifyRequest{}); err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
 	landed := commitFileOn(t, repo, task.BaseSHA, "seed.txt", "the other side of the conflict\n")
@@ -708,7 +708,7 @@ func TestIntegrate_RefusesWhileADependencyHasNotLanded(t *testing.T) {
 	// Verification is deliberately NOT gated: grading an artifact against its own
 	// frozen oracle says nothing about what else must land first, and refusing
 	// here would spend a review cycle to learn nothing.
-	res, err := svc.VerifyTask(downstream.ID)
+	res, err := svc.VerifyTask(downstream.ID, VerifyRequest{})
 	if err != nil {
 		t.Fatalf("VerifyTask: %v", err)
 	}
@@ -754,7 +754,7 @@ func TestIntegrate_RefusesWhileADependencyHasNotLanded(t *testing.T) {
 // artifact is rebased onto a trunk that now contains the upstream one.
 func TestIntegrate_ProceedsOnceTheDependencyLands(t *testing.T) {
 	svc, store, downstream, upstream := dependencyPair(t)
-	if _, err := svc.VerifyTask(downstream.ID); err != nil {
+	if _, err := svc.VerifyTask(downstream.ID, VerifyRequest{}); err != nil {
 		t.Fatalf("VerifyTask downstream: %v", err)
 	}
 	if _, err := svc.IntegrateTask(downstream.ID, IntegrateRequest{}); err == nil {
@@ -765,7 +765,7 @@ func TestIntegrate_ProceedsOnceTheDependencyLands(t *testing.T) {
 	if _, err := svc.DispatchTask(upstream.ID); err != nil {
 		t.Fatalf("Dispatch upstream: %v", err)
 	}
-	if _, err := svc.VerifyTask(upstream.ID); err != nil {
+	if _, err := svc.VerifyTask(upstream.ID, VerifyRequest{}); err != nil {
 		t.Fatalf("VerifyTask upstream: %v", err)
 	}
 	if _, err := svc.IntegrateTask(upstream.ID, IntegrateRequest{}); err != nil {
@@ -789,7 +789,7 @@ func TestIntegrate_ProceedsOnceTheDependencyLands(t *testing.T) {
 // "wait a bit longer" — the two need different actions from an operator.
 func TestIntegrate_NamesAnUnsatisfiableDependency(t *testing.T) {
 	svc, _, downstream, upstream := dependencyPair(t)
-	if _, err := svc.VerifyTask(downstream.ID); err != nil {
+	if _, err := svc.VerifyTask(downstream.ID, VerifyRequest{}); err != nil {
 		t.Fatalf("VerifyTask: %v", err)
 	}
 	if _, err := svc.CancelTask(upstream.ID); err != nil {

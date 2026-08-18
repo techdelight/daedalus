@@ -5,6 +5,42 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- **`daedalus task checks <id> --set '<cmd>'` — amendable per-task checks.** A
+  check is written by a human before the work exists, and a wrong one — aimed at
+  the wrong file, or asserting something the objective never asked for — could
+  never be corrected: every attempt ran the same broken command, `retry` re-ran
+  it against new work and `reverify` re-ran it against the same work, so the Task
+  could never pass however good the artifact was. The only escape was to abandon
+  the Task and recreate it, losing its history and its budget to a typo.
+  - **It does not touch what the freeze protects.** The project's policy lives in
+    a committed `.daedalus/verify.json`, is read at `base_sha` and is hashed onto
+    the Task precisely so nobody can lower the bar after seeing the work — that is
+    untouched. Per-task checks were deliberately kept *outside* that hash when
+    they were built, so amending one changes nothing the freeze covers.
+  - **Human-only, and not proposable.** Validation and the caller rule come from
+    the same `resolveTaskChecks` the create path uses, so there is one copy of
+    "the party being graded does not choose the commands run inside the verifier".
+    There is deliberately no operation name and no tier entry: with only
+    "execute" and "propose" available, a proposal would let an agent author a
+    command and have a human wave it into the verifier.
+  - **It withdraws the free re-verify.** A replay is uncharged because a verdict
+    from a broken harness judged nothing; once a check has moved, the next
+    grading is a *new* grading against a *different* oracle and is charged like
+    any other. Without that, softening a check and replaying for free could be
+    repeated until something passed, with the budget never noticing.
+- **`daedalus task verify <id> --ignore-result` — waive a failing result.** For
+  when you have read the failure and are proceeding anyway. The verifier still
+  runs, the failure is still recorded, the artifact still carries `verify=fail`,
+  and the Task moves to the approval gate on the named human's authority.
+  - **It never records a pass.** `verified` means "the plane applied its own
+    oracle and the artifact passed", and approval, integration and dependency
+    satisfaction all read it that way — so a waived artifact never reaches that
+    state. The log gets two facts in order: the finding, then the override. What
+    a waiver changes is not the finding but who is answerable for proceeding past
+    it, which is what an operator overriding a check is actually doing.
+  - **Agents may not ask for it**, and not as a proposal either: a proposal would
+    put the graded party's own waiver in front of a human as a routine-looking
+    confirmation. An agent that could waive its own grading has no oracle at all.
 - **`daedalus task integrate <id> --into-branch`, and an honest default message.**
   Integration advances the plane-owned target, which is projected into the repo as
   `refs/daedalus/target` — a ref nobody checks out, deliberately, so landing can
@@ -131,6 +167,21 @@ All notable changes to this project will be documented in this file.
     flag called "acceptance" to have.
 
 ### Fixed
+- **Reconcile now settles work that was merged outside the plane.** Daedalus does
+  not own the repository: a human can merge a branch it rejected, and people do,
+  most often when the check rather than the work was wrong. The database then
+  carried a claim anyone could see was false — a Task recorded as rejected and
+  never landed, whose commits are demonstrably in the tree — and everything
+  downstream reads that claim, so a Task waiting on this one would block forever
+  and the board would show shipped work as failed. Reconcile now asks, for each
+  rejected Task, whether its artifact's commits are contained in the integration
+  target, reusing `ArtifactIsLanded` — the same containment test the integration
+  transaction runs, so it recognises a rebased landing that shares no sha as well
+  as a fast-forward one. It is not a bypass: nothing becomes `verified`, the
+  rejection and its reason stay in the log, and the Task walks the approval gate
+  rather than jumping — there is no `rejected → integrated` edge and there must
+  not be one, since a single hop from a refusal to a landing is the shape of
+  every laundering bug the transition table exists to prevent.
 - **A Job reaped by reconcile no longer destroys its Task.** When reconcile finds
   a `working` Job whose session has vanished it fails the Job — correctly, the
   attempt is over — but it used to drive the **Task** to `failed` as well, which

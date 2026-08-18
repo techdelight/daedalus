@@ -179,7 +179,21 @@ var legalTransitions = map[State]map[State]bool{
 		// an appeal against the artifact itself; that guard lives in ReverifyTask,
 		// which refuses the reasons that were statements about the diff.
 		StateCandidate: true,
-		StateCancelled: true, StateExpired: true,
+		// Back to the approval ladder. Two users, one meaning — a human moving work
+		// past the gate on their own authority rather than the oracle's: a WAIVED
+		// verification result (`task verify --ignore-result`), and reconcile settling
+		// a rejected Task whose commits a human merged into the target by hand.
+		// Note what this edge deliberately is NOT:
+		// it is not a path to `verified`. A waived artifact is never marked verified,
+		// because `verified` means "the plane applied its own oracle and the artifact
+		// passed", and saying that about something that failed would put a false
+		// statement into an append-only log that approval, integration and dependency
+		// satisfaction all read as true. What a waiver changes is who is answerable:
+		// the rejection stands on the record, the artifact keeps verify=fail, and a
+		// named human takes the change forward on their own authority. Plane-only,
+		// human-only, and impossible to reach without the explicit flag.
+		StateApprovalRequired: true,
+		StateCancelled:        true, StateExpired: true,
 	},
 	StateApprovalRequired: {
 		StateApproved: true, StateRejected: true,

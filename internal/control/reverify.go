@@ -93,7 +93,7 @@ func (s *Service) reverifyTask(caller Caller, id string, req ReverifyRequest) (R
 	// the correct outcome, reported as a refusal rather than a verdict. What cannot
 	// happen is a verdict on an artifact nobody asked about, because the Task ID is
 	// carried through rather than re-resolved.
-	verify, err := s.VerifyTask(id)
+	verify, err := s.VerifyTask(id, VerifyRequest{})
 	if err != nil {
 		return res, fmt.Errorf("re-verify %s: %w", id, err)
 	}
@@ -170,27 +170,45 @@ func (s *Service) prepareReverify(caller Caller, id string, req ReverifyRequest)
 		task, res.Rebased, res.BaseSHA = updated, rebased, updated.BaseSHA
 	}
 
-	// The re-verify event carries the reason being set aside, which is what
-	// CountReviewCycles reads to decide whether this grading was already paid for.
-	// It is logged BEFORE the transitions so that a crash between them leaves a
-	// record that a re-grading was asked for, rather than a Task mysteriously back
-	// at `candidate` with nothing to explain it.
-	meta := EventMeta{Kind: EventReverify, Reason: reason, Actor: governanceMetaFor(caller).Actor}
-	if !req.Amended {
-		// A replay: same artifact, same frozen policy. Named in the note because
-		// the two modes are accounted differently and an operator reading the log
-		// should not have to infer which one happened.
-		if err := s.store.LogDecision("task", id, meta,
-			fmt.Sprintf("re-verify (replay): setting aside %s; artifact %s unchanged, acceptance policy unchanged",
-				reason, shortSHA(job.OutputSnapshot))); err != nil {
-			return ReverifyResult{}, err
-		}
-	} else {
-		if err := s.store.LogDecision("task", id, EventMeta{Kind: EventReverify, Actor: meta.Actor},
-			fmt.Sprintf("re-verify (amended): setting aside %s; artifact %s graded under the policy frozen at %s",
-				reason, shortSHA(job.OutputSnapshot), shortSHA(task.BaseSHA))); err != nil {
-			return ReverifyResult{}, err
-		}
+	// Has the ORACLE moved since the verdict being set aside? A free replay is
+	// justified only when nothing has: same artifact, same policy, same checks. An
+	// amended check makes the next grading a NEW grading against a DIFFERENT
+	// oracle, which is exactly what the `--amended` mode is charged for — and
+	// without this, softening a check and replaying for free could be repeated
+	// until something passed, with the budget never noticing.
+	amended, err := s.store.ChecksAmendedSinceLastVerdict(id)
+	if err != nil {
+		return ReverifyResult{}, err
+	}
+	freeReplay := !req.Amended && !amended
+
+	// The re-verify decision event. ONE place decides whether this grading is
+	// discounted, and it is the `freeReplay` branch below: the discount is keyed
+	// off the reason on this DECISION row (CountReviewCycles restricts its subquery
+	// to `from_state = ''`), so the transitions further down cannot grant or
+	// withhold it however they are annotated. Written any other way the variable
+	// would read as the decision while the branch structure quietly made it, which
+	// is exactly the kind of comment-shaped lie the rest of this package hunts.
+	actor := governanceMetaFor(caller).Actor
+	meta := EventMeta{Kind: EventReverify, Actor: actor}
+	var note string
+	switch {
+	case freeReplay:
+		meta.Reason = reason // the discount marker, and the only thing that grants it
+		note = fmt.Sprintf("re-verify (replay): setting aside %s; artifact %s unchanged, "+
+			"acceptance policy unchanged, checks unchanged", reason, shortSHA(job.OutputSnapshot))
+	case req.Amended:
+		note = fmt.Sprintf("re-verify (amended): setting aside %s; artifact %s graded under the "+
+			"policy frozen at %s", reason, shortSHA(job.OutputSnapshot), shortSHA(task.BaseSHA))
+	default:
+		note = fmt.Sprintf("re-verify: setting aside %s; the per-task checks were amended since that "+
+			"verdict, so this is a new grading against a changed oracle and costs a review cycle", reason)
+	}
+	// Logged BEFORE the transitions so that a crash between them leaves a record
+	// that a re-grading was asked for, rather than a Task mysteriously back at
+	// `candidate` with nothing to explain it.
+	if err := s.store.LogDecision("task", id, meta, note); err != nil {
+		return ReverifyResult{}, err
 	}
 
 	if _, err := s.store.TransitionJobWith(job.ID, StateCandidate, false, meta,

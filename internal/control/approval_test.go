@@ -116,7 +116,7 @@ func TestApproval_Required_BlocksIntegrationUntilApproved(t *testing.T) {
 	if _, err := svc.DispatchTask(task.ID); err != nil {
 		t.Fatalf("Dispatch: %v", err)
 	}
-	res, err := svc.VerifyTask(task.ID)
+	res, err := svc.VerifyTask(task.ID, VerifyRequest{})
 	if err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
@@ -178,7 +178,7 @@ func TestApproval_Reject_FeedsTheRetryLadder(t *testing.T) {
 	if _, err := svc.DispatchTask(task.ID); err != nil {
 		t.Fatalf("Dispatch: %v", err)
 	}
-	if _, err := svc.VerifyTask(task.ID); err != nil {
+	if _, err := svc.VerifyTask(task.ID, VerifyRequest{}); err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
 	got, err := svc.RejectApproval(task.ID, "not what we wanted")
@@ -226,7 +226,7 @@ func TestApproval_ApproveIsIdempotent(t *testing.T) {
 	if _, err := svc.DispatchTask(task.ID); err != nil {
 		t.Fatalf("Dispatch: %v", err)
 	}
-	if _, err := svc.VerifyTask(task.ID); err != nil {
+	if _, err := svc.VerifyTask(task.ID, VerifyRequest{}); err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
 	if _, err := svc.ApproveTask(task.ID, ""); err != nil {
@@ -393,7 +393,7 @@ func TestApproval_UnreadablePolicyRequiresAHuman(t *testing.T) {
 		if _, err := svc.DispatchTask(task.ID); err != nil {
 			t.Fatalf("Dispatch: %v", err)
 		}
-		if _, err := svc.VerifyTask(task.ID); err != nil {
+		if _, err := svc.VerifyTask(task.ID, VerifyRequest{}); err != nil {
 			t.Fatalf("Verify: %v", err)
 		}
 		// It must be parked for a human, not auto-approved.

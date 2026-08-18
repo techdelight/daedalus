@@ -27,7 +27,7 @@ func agentPlane(t *testing.T) (human, agent TaskAPI, svc *Service, store *Store,
 	if _, err := svc.DispatchTask(created.ID); err != nil {
 		t.Fatalf("Dispatch: %v", err)
 	}
-	if _, err := svc.VerifyTask(created.ID); err != nil {
+	if _, err := svc.VerifyTask(created.ID, VerifyRequest{}); err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
 	task, _ = store.GetTask(created.ID)

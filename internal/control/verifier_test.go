@@ -42,7 +42,7 @@ func TestVerify_NullAgentFloor_Rejects(t *testing.T) {
 		t.Fatalf("precondition: snapshot %q should equal base %q", jobs[0].OutputSnapshot, task.BaseSHA)
 	}
 
-	res, err := svc.VerifyTask(task.ID)
+	res, err := svc.VerifyTask(task.ID, VerifyRequest{})
 	if err != nil {
 		t.Fatalf("VerifyTask: %v", err)
 	}
@@ -87,7 +87,7 @@ func TestDigest_CapturedAtCreate_AndPlumbedToVerifier(t *testing.T) {
 	if _, err := svc.DispatchTask(task.ID); err != nil {
 		t.Fatalf("Dispatch: %v", err)
 	}
-	if _, err := svc.VerifyTask(task.ID); err != nil {
+	if _, err := svc.VerifyTask(task.ID, VerifyRequest{}); err != nil {
 		t.Fatalf("VerifyTask: %v", err)
 	}
 	// The verifier ran against the pinned digest.
@@ -114,7 +114,7 @@ func TestDigest_LazyCaptureAtVerify(t *testing.T) {
 	fd := &fakeDigester{digest: "sha256:lazy123"}
 	svc.SetImageDigester(fd)
 
-	if _, err := svc.VerifyTask(task.ID); err != nil {
+	if _, err := svc.VerifyTask(task.ID, VerifyRequest{}); err != nil {
 		t.Fatalf("VerifyTask: %v", err)
 	}
 	if fd.calls == 0 {
