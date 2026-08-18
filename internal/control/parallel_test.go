@@ -413,7 +413,7 @@ func TestParallel_CompetingIntegrationsSerialize(t *testing.T) {
 		go func(i int, id string) {
 			defer landWg.Done()
 			<-start
-			_, results[i] = svc.IntegrateTask(id)
+			_, results[i] = svc.IntegrateTask(id, IntegrateRequest{})
 		}(i, id)
 	}
 	close(start)
@@ -615,7 +615,7 @@ func TestParallel_TwoIndependentChangesBothLand(t *testing.T) {
 
 	// Both land: the second REBASES onto the first rather than conflicting.
 	for _, id := range ids {
-		if _, err := svc.IntegrateTask(id); err != nil {
+		if _, err := svc.IntegrateTask(id, IntegrateRequest{}); err != nil {
 			t.Fatalf("integrate %s: %v — independent changes must both land", id, err)
 		}
 	}
@@ -664,12 +664,12 @@ func TestParallel_CollidingChangesConflictDeliberately(t *testing.T) {
 		}
 	}
 
-	if _, err := svc.IntegrateTask(ids[0]); err != nil {
+	if _, err := svc.IntegrateTask(ids[0], IntegrateRequest{}); err != nil {
 		t.Fatalf("the first landing should succeed: %v", err)
 	}
 	afterFirst, _ := svc.Target("app")
 
-	_, err := svc.IntegrateTask(ids[1])
+	_, err := svc.IntegrateTask(ids[1], IntegrateRequest{})
 	var rej *RejectionError
 	if !errors.As(err, &rej) || rej.Reason != ReasonMergeConflict {
 		t.Fatalf("the colliding landing = %v, want a merge_conflict refusal", err)

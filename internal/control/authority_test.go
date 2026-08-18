@@ -51,7 +51,7 @@ func TestAgent_EveryRestrictedOpIsRefused(t *testing.T) {
 		{OpReplan, func() error { _, err := agent.ReplanTask(task.ID, ReplanRequest{Objective: "mine"}); return err }},
 		{OpApprove, func() error { _, err := agent.ApproveTask(task.ID, "trust me"); return err }},
 		{OpRejectAppr, func() error { _, err := agent.RejectApproval(task.ID, "no"); return err }},
-		{OpIntegrate, func() error { _, err := agent.IntegrateTask(task.ID); return err }},
+		{OpIntegrate, func() error { _, err := agent.IntegrateTask(task.ID, IntegrateRequest{}); return err }},
 		{OpSyncTarget, func() error { _, err := agent.SyncTarget("app"); return err }},
 	}
 	for _, a := range attempts {
@@ -93,7 +93,7 @@ func TestAgent_CannotConfirmItsOwnProposal(t *testing.T) {
 	human, agent, _, store, task := agentPlane(t)
 
 	// The agent proposes.
-	if _, err := agent.IntegrateTask(task.ID); err == nil {
+	if _, err := agent.IntegrateTask(task.ID, IntegrateRequest{}); err == nil {
 		t.Fatal("precondition: the integrate attempt should have been refused")
 	}
 	proposals, _ := store.ListProposals(ProposalPending)
@@ -427,7 +427,7 @@ func TestScope_ZeroValueCallerIsRefused(t *testing.T) {
 	_, _, svc, store, task := agentPlane(t)
 	zero := svc.WithCaller(Caller{})
 
-	_, err := zero.IntegrateTask(task.ID)
+	_, err := zero.IntegrateTask(task.ID, IntegrateRequest{})
 	var rej *RejectionError
 	if !errors.As(err, &rej) || rej.Reason != ReasonProposalRecorded {
 		t.Fatalf("zero-valued caller integrate = %v, want a proposal refusal", err)

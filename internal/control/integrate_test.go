@@ -142,7 +142,7 @@ func TestIntegrate_AdvancesTheTarget(t *testing.T) {
 	svc, store, task := verifiedTask(t, repo, rv, "a.txt")
 
 	before, _ := svc.Target("app")
-	res, err := svc.IntegrateTask(task.ID)
+	res, err := svc.IntegrateTask(task.ID, IntegrateRequest{})
 	if err != nil {
 		t.Fatalf("IntegrateTask: %v", err)
 	}
@@ -203,7 +203,7 @@ func TestIntegrate_SemanticConflict_PassesAloneFailsMerged(t *testing.T) {
 		t.Fatalf("AdvanceTarget: %v", err)
 	}
 
-	_, err := svc.IntegrateTask(task.ID)
+	_, err := svc.IntegrateTask(task.ID, IntegrateRequest{})
 	var rej *RejectionError
 	if !errors.As(err, &rej) {
 		t.Fatalf("IntegrateTask = %v, want a *RejectionError", err)
@@ -268,7 +268,7 @@ func TestIntegrate_TargetMovesMidTransaction_Retries(t *testing.T) {
 	racer := &racingVerifier{store: store, project: "app", repo: repo, t: t}
 	svc.verifier = racer
 
-	res, err := svc.IntegrateTask(task.ID)
+	res, err := svc.IntegrateTask(task.ID, IntegrateRequest{})
 	if err != nil {
 		t.Fatalf("IntegrateTask: %v", err)
 	}
@@ -319,7 +319,7 @@ func TestIntegrate_ExhaustedRetries_LandsNothing(t *testing.T) {
 		return VerifyOutcome{Passed: true}
 	})
 
-	_, err := svc.IntegrateTask(task.ID)
+	_, err := svc.IntegrateTask(task.ID, IntegrateRequest{})
 	var rej *RejectionError
 	if !errors.As(err, &rej) {
 		t.Fatalf("IntegrateTask = %v, want a *RejectionError", err)
@@ -368,7 +368,7 @@ func TestIntegrate_RebaseConflict_Rejects(t *testing.T) {
 		t.Fatalf("AdvanceTarget: %v", err)
 	}
 
-	_, err = svc.IntegrateTask(task.ID)
+	_, err = svc.IntegrateTask(task.ID, IntegrateRequest{})
 	var rej *RejectionError
 	if !errors.As(err, &rej) {
 		t.Fatalf("IntegrateTask = %v, want a *RejectionError", err)
@@ -410,10 +410,10 @@ func TestIntegrate_WrongState(t *testing.T) {
 	repo := gitRepo(t)
 	svc, _, _ := newService(t, mapResolver{"app": repo}, StubRunner{}, nil)
 	task, _ := svc.CreateTask(CreateTaskRequest{Project: "app", Objective: "x"}) // planned
-	if _, err := svc.IntegrateTask(task.ID); !errors.Is(err, ErrWrongState) {
+	if _, err := svc.IntegrateTask(task.ID, IntegrateRequest{}); !errors.Is(err, ErrWrongState) {
 		t.Errorf("integrating a planned task = %v, want ErrWrongState", err)
 	}
-	if _, err := svc.IntegrateTask("T-404"); !errors.Is(err, ErrNotFound) {
+	if _, err := svc.IntegrateTask("T-404", IntegrateRequest{}); !errors.Is(err, ErrNotFound) {
 		t.Errorf("integrating an unknown task = %v, want ErrNotFound", err)
 	}
 }
@@ -422,7 +422,7 @@ func TestIntegrate_NoVerifier_Refuses(t *testing.T) {
 	repo := gitRepo(t)
 	svc, _, _ := newService(t, mapResolver{"app": repo},
 		StubRunner{Result: ExecSuccess, WriteFile: true}, nil, nil)
-	if _, err := svc.IntegrateTask("T-1"); err == nil {
+	if _, err := svc.IntegrateTask("T-1", IntegrateRequest{}); err == nil {
 		t.Error("integration with no verifier must refuse — the merged result could not be checked")
 	}
 }
@@ -577,7 +577,7 @@ func TestIntegrate_AlreadyLanded_IsIdempotent(t *testing.T) {
 	svc, store, task := verifiedTask(t, repo, StubVerifyRunner{Pass: true}, "a.txt")
 
 	// Land it normally.
-	first, err := svc.IntegrateTask(task.ID)
+	first, err := svc.IntegrateTask(task.ID, IntegrateRequest{})
 	if err != nil {
 		t.Fatalf("IntegrateTask: %v", err)
 	}
@@ -596,7 +596,7 @@ func TestIntegrate_AlreadyLanded_IsIdempotent(t *testing.T) {
 	}
 
 	// Re-integrating must notice the work is already contained in the target.
-	second, err := svc.IntegrateTask(task.ID)
+	second, err := svc.IntegrateTask(task.ID, IntegrateRequest{})
 	if err != nil {
 		t.Fatalf("re-integration should settle, not fail: %v", err)
 	}
@@ -720,7 +720,7 @@ func TestIntegrate_RefusesWhileADependencyHasNotLanded(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Target: %v", err)
 	}
-	_, err = svc.IntegrateTask(downstream.ID)
+	_, err = svc.IntegrateTask(downstream.ID, IntegrateRequest{})
 	if err == nil {
 		t.Fatal("integration succeeded with an unlanded dependency")
 	}
@@ -757,7 +757,7 @@ func TestIntegrate_ProceedsOnceTheDependencyLands(t *testing.T) {
 	if _, err := svc.VerifyTask(downstream.ID); err != nil {
 		t.Fatalf("VerifyTask downstream: %v", err)
 	}
-	if _, err := svc.IntegrateTask(downstream.ID); err == nil {
+	if _, err := svc.IntegrateTask(downstream.ID, IntegrateRequest{}); err == nil {
 		t.Fatal("precondition: integration should be refused before the dependency lands")
 	}
 
@@ -768,11 +768,11 @@ func TestIntegrate_ProceedsOnceTheDependencyLands(t *testing.T) {
 	if _, err := svc.VerifyTask(upstream.ID); err != nil {
 		t.Fatalf("VerifyTask upstream: %v", err)
 	}
-	if _, err := svc.IntegrateTask(upstream.ID); err != nil {
+	if _, err := svc.IntegrateTask(upstream.ID, IntegrateRequest{}); err != nil {
 		t.Fatalf("IntegrateTask upstream: %v", err)
 	}
 
-	res, err := svc.IntegrateTask(downstream.ID)
+	res, err := svc.IntegrateTask(downstream.ID, IntegrateRequest{})
 	if err != nil {
 		t.Fatalf("IntegrateTask downstream after the dependency landed: %v", err)
 	}
@@ -796,12 +796,149 @@ func TestIntegrate_NamesAnUnsatisfiableDependency(t *testing.T) {
 		t.Fatalf("CancelTask upstream: %v", err)
 	}
 
-	_, err := svc.IntegrateTask(downstream.ID)
+	_, err := svc.IntegrateTask(downstream.ID, IntegrateRequest{})
 	var rej *RejectionError
 	if !errors.As(err, &rej) {
 		t.Fatalf("want a typed rejection, got %T: %v", err, err)
 	}
 	if !strings.Contains(rej.Message, "never be satisfied") {
 		t.Errorf("refusal should distinguish unsatisfiable from merely unmet, got %q", rej.Message)
+	}
+}
+
+// --- --into-branch ---------------------------------------------------------------
+
+// approveAndIntegrate drives a verified Task through the approval gate and lands
+// it with the given request.
+func approveAndIntegrate(t *testing.T, svc *Service, id string, req IntegrateRequest) IntegrationResult {
+	t.Helper()
+	if _, err := svc.ApproveTask(id, ""); err != nil {
+		t.Fatalf("ApproveTask: %v", err)
+	}
+	res, err := svc.IntegrateTask(id, req)
+	if err != nil {
+		t.Fatalf("IntegrateTask: %v", err)
+	}
+	return res
+}
+
+// TestIntegrate_IntoBranch_FastForwardsTheCheckout is the answer to "I integrated
+// it and I cannot see any changes": by design the plane lands on
+// refs/daedalus/target, which nobody checks out, so a branch never moves on its
+// own. --into-branch opts into the courtesy.
+func TestIntegrate_IntoBranch_FastForwardsTheCheckout(t *testing.T) {
+	repo := gitRepo(t)
+	svc, _, task := verifiedTask(t, repo, &conflictVerifier{}, "a.txt")
+
+	branchBefore := trim(mustGit(t, repo, "rev-parse", "HEAD"))
+	res := approveAndIntegrate(t, svc, task.ID, IntegrateRequest{IntoBranch: true})
+
+	if !res.BranchAdvanced {
+		t.Fatalf("branch was not advanced: %q", res.BranchNote)
+	}
+	head := trim(mustGit(t, repo, "rev-parse", "HEAD"))
+	if head != res.NewTarget {
+		t.Errorf("HEAD = %s, want the landed target %s", shortSHA(head), shortSHA(res.NewTarget))
+	}
+	if head == branchBefore {
+		t.Error("HEAD did not move at all")
+	}
+	if res.BranchNote == "" {
+		t.Error("a successful advance must still say what it did — silence is the complaint this feature answers")
+	}
+}
+
+// TestIntegrate_WithoutIntoBranch_LeavesTheCheckoutAlone pins the default, which
+// is the property the target ref exists to provide.
+func TestIntegrate_WithoutIntoBranch_LeavesTheCheckoutAlone(t *testing.T) {
+	repo := gitRepo(t)
+	svc, _, task := verifiedTask(t, repo, &conflictVerifier{}, "a.txt")
+
+	before := trim(mustGit(t, repo, "rev-parse", "HEAD"))
+	res := approveAndIntegrate(t, svc, task.ID, IntegrateRequest{})
+
+	if after := trim(mustGit(t, repo, "rev-parse", "HEAD")); after != before {
+		t.Errorf("HEAD moved from %s to %s without --into-branch", shortSHA(before), shortSHA(after))
+	}
+	if res.BranchAdvanced || res.BranchNote != "" {
+		t.Errorf("nothing should be reported about a branch nobody asked to move: advanced=%v note=%q",
+			res.BranchAdvanced, res.BranchNote)
+	}
+	// The landing itself still happened, and is still reachable.
+	if trim(mustGit(t, repo, "rev-parse", targetRefName)) != res.NewTarget {
+		t.Error("the landed commit should be reachable through the projection ref")
+	}
+}
+
+// TestIntegrate_IntoBranch_RefusesToTouchADirtyTree is the guard that matters
+// most: the courtesy must never cost somebody uncommitted work, and — equally
+// important — refusing it must NOT read as a failed integration.
+func TestIntegrate_IntoBranch_RefusesToTouchADirtyTree(t *testing.T) {
+	repo := gitRepo(t)
+	svc, store, task := verifiedTask(t, repo, &conflictVerifier{}, "a.txt")
+
+	// An edit in progress, of the kind anyone might have open.
+	if err := os.WriteFile(filepath.Join(repo, "seed.txt"), []byte("work in progress"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	before := trim(mustGit(t, repo, "rev-parse", "HEAD"))
+
+	res := approveAndIntegrate(t, svc, task.ID, IntegrateRequest{IntoBranch: true})
+
+	if res.BranchAdvanced {
+		t.Error("a dirty working tree must never be fast-forwarded over")
+	}
+	if after := trim(mustGit(t, repo, "rev-parse", "HEAD")); after != before {
+		t.Errorf("HEAD moved despite the dirty tree: %s → %s", shortSHA(before), shortSHA(after))
+	}
+	body, err := os.ReadFile(filepath.Join(repo, "seed.txt"))
+	if err != nil || string(body) != "work in progress" {
+		t.Errorf("the uncommitted edit was not preserved: %q (%v)", body, err)
+	}
+	// And the landing itself succeeded regardless — this is the whole reason the
+	// branch step sits outside the transaction.
+	got, _ := store.GetTask(task.ID)
+	if got.State != StateIntegrated {
+		t.Errorf("task state = %s, want integrated — a refused courtesy must not unland the work", got.State)
+	}
+	if res.NewTarget == res.PreviousTarget {
+		t.Error("the target should still have advanced")
+	}
+}
+
+// TestIntegrate_IntoBranch_RefusesADivergedBranch — winding forward is
+// impossible, and anything else is a merge decision belonging to the operator.
+//
+// Note what this does and does not pin. The SAFETY comes from `git merge
+// --ff-only`, which refuses a non-fast-forward by itself; deleting the ancestor
+// check in advanceCheckoutBranch leaves this test green, which was verified. So
+// the note assertion below is the part that earns its keep: it pins the useful
+// message, which is the only thing the redundant check actually buys.
+func TestIntegrate_IntoBranch_RefusesADivergedBranch(t *testing.T) {
+	repo := gitRepo(t)
+	svc, store, task := verifiedTask(t, repo, &conflictVerifier{}, "a.txt")
+
+	// A commit on the checkout's branch that the landed target will not contain.
+	if err := os.WriteFile(filepath.Join(repo, "local-only.txt"), []byte("mine"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mustGit(t, repo, "add", "-A")
+	mustGit(t, repo, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "local work")
+	before := trim(mustGit(t, repo, "rev-parse", "HEAD"))
+
+	res := approveAndIntegrate(t, svc, task.ID, IntegrateRequest{IntoBranch: true})
+
+	if res.BranchAdvanced {
+		t.Error("a diverged branch must not be advanced")
+	}
+	if after := trim(mustGit(t, repo, "rev-parse", "HEAD")); after != before {
+		t.Errorf("HEAD moved despite divergence: %s → %s", shortSHA(before), shortSHA(after))
+	}
+	if got, _ := store.GetTask(task.ID); got.State != StateIntegrated {
+		t.Errorf("task state = %s, want integrated", got.State)
+	}
+	if !strings.Contains(res.BranchNote, "diverged") || !strings.Contains(res.BranchNote, targetRefName) {
+		t.Errorf("BranchNote = %q; it should say the branch diverged and name the ref to merge, "+
+			"rather than leaving the operator with git's bare refusal", res.BranchNote)
 	}
 }

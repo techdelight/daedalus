@@ -39,6 +39,22 @@ import (
 const integrateAttempts = 3
 
 // IntegrationResult reports the outcome of an integration transaction.
+// IntegrateRequest is the input to Service.IntegrateTask (and POST
+// /tasks/{id}/integrate).
+type IntegrateRequest struct {
+	// IntoBranch additionally fast-forwards the project checkout's CURRENT branch
+	// to the landed commit, once the integration itself has succeeded.
+	//
+	// Opt-in, because the plane's target is deliberately not a branch: it is
+	// projected to `refs/daedalus/target`, which nobody checks out, so landing can
+	// never disturb a working tree. That is the right default and it is also why
+	// "I integrated it and my branch is unchanged" is a reasonable thing to think.
+	// This closes the gap without changing what is authoritative — the branch is
+	// moved to a commit the plane has ALREADY landed and verified, never to one it
+	// is asked to trust.
+	IntoBranch bool `json:"intoBranch,omitempty"`
+}
+
 type IntegrationResult struct {
 	Task     Task      `json:"task"`
 	Artifact *Artifact `json:"artifact,omitempty"`
@@ -52,6 +68,13 @@ type IntegrationResult struct {
 	// moved under us and the transaction correctly recomputed).
 	Attempts int    `json:"attempts"`
 	Detail   string `json:"detail"`
+	// Branch reports what --into-branch did, if it was asked for. BranchNote is
+	// filled whether or not it worked: a refusal here is NOT an integration
+	// failure — the landing is already committed and the target already advanced —
+	// so it is reported rather than returned as an error.
+	Branch         string `json:"branch,omitempty"`
+	BranchAdvanced bool   `json:"branchAdvanced,omitempty"`
+	BranchNote     string `json:"branchNote,omitempty"`
 }
 
 // IntegrateTask runs the integration transaction for an approved Task.
@@ -60,7 +83,7 @@ type IntegrationResult struct {
 // lock except the (potentially long) re-verification, which releases it exactly
 // as VerifyTask does, with an in-flight claim so reconcile does not mistake live
 // work for a crash.
-func (s *Service) IntegrateTask(id string) (IntegrationResult, error) {
+func (s *Service) IntegrateTask(id string, req IntegrateRequest) (IntegrationResult, error) {
 	if s.verifier == nil {
 		// Checked before anything moves: an integration that cannot re-verify must
 		// not start, because "landed without the merged result being checked" is the
@@ -75,6 +98,13 @@ func (s *Service) IntegrateTask(id string) (IntegrationResult, error) {
 			return IntegrationResult{}, err
 		}
 		if !retry {
+			// Strictly AFTER the transaction, and deliberately outside it: the landing
+			// is already committed to the database and the target ref already advanced,
+			// so nothing this does — or fails to do — can unland the work. That is why
+			// every outcome below is a note on the result rather than an error.
+			if req.IntoBranch {
+				res.Branch, res.BranchAdvanced, res.BranchNote = s.advanceCheckoutBranch(res.Task.Project, res.NewTarget)
+			}
 			return res, nil
 		}
 		last = fmt.Errorf("target moved during attempt %d", attempt)
@@ -484,4 +514,67 @@ func firstLines(s string, n int) string {
 		lines = append(lines[:n], "…")
 	}
 	return strings.Join(lines, "\n")
+}
+
+// advanceCheckoutBranch fast-forwards a project checkout's current branch to a
+// commit the plane has just landed, for `task integrate --into-branch`.
+//
+// FAST-FORWARD ONLY, and every guard below refuses rather than resolves. The
+// plane is landing on its own target; moving somebody's branch is a courtesy on
+// top of that, and a courtesy that can lose work is not one. So: no merge commit,
+// no rebase, no stash, no checkout of a different branch, and above all no
+// --force. If the branch cannot simply be wound forward, this says so and leaves
+// it exactly as it was, with the landed commit still reachable through
+// refs/daedalus/target for the operator to merge however they see fit.
+//
+// It returns (branch, advanced, note); note is filled on every path, including
+// success, because "nothing appeared to happen" is the complaint this feature
+// exists to answer and silence would reproduce it.
+func (s *Service) advanceCheckoutBranch(project, targetSHA string) (string, bool, string) {
+	repoDir, err := s.projects.ProjectDir(project)
+	if err != nil {
+		return "", false, fmt.Sprintf("could not resolve %s to a checkout: %v", project, err)
+	}
+	branch, err := runGit(repoDir, "symbolic-ref", "--quiet", "--short", "HEAD")
+	if err != nil {
+		return "", false, "the checkout has a detached HEAD, so there is no branch to advance"
+	}
+	branch = strings.TrimSpace(branch)
+
+	// A dirty tree is the one case where winding the branch forward would touch
+	// files somebody is editing. Refused outright: the whole design property of the
+	// target ref is that landing never disturbs a working tree, and an opt-in flag
+	// is not licence to break that when it would cost the operator uncommitted work.
+	if status, err := runGit(repoDir, "status", "--porcelain"); err == nil && strings.TrimSpace(status) != "" {
+		return branch, false, fmt.Sprintf(
+			"%s has uncommitted changes — left untouched; commit or stash, then `git merge --ff-only %s`",
+			branch, targetRefName)
+	}
+
+	head, err := runGit(repoDir, "rev-parse", "HEAD")
+	if err != nil {
+		return branch, false, fmt.Sprintf("could not read HEAD of %s: %v", branch, err)
+	}
+	if strings.TrimSpace(head) == targetSHA {
+		return branch, false, fmt.Sprintf("%s was already at the landed commit", branch)
+	}
+	// Not an ancestor → the branch carries commits the landed target does not, so
+	// winding it forward is impossible and anything else would be a merge decision
+	// that belongs to the operator.
+	//
+	// `git merge --ff-only` below is what ENFORCES this — it refuses a non-fast-
+	// forward on its own, and removing this check does not make the operation
+	// unsafe. What the check buys is the message: an operator who is told their
+	// branch has diverged and handed the ref to merge is better served than one
+	// given git's "Not possible to fast-forward, aborting". Belt to git's braces,
+	// and honest about which is which.
+	if _, err := runGit(repoDir, "merge-base", "--is-ancestor", strings.TrimSpace(head), targetSHA); err != nil {
+		return branch, false, fmt.Sprintf(
+			"%s has diverged from the landed commit — left untouched; merge it yourself (`git merge %s`)",
+			branch, targetRefName)
+	}
+	if out, err := runGit(repoDir, "merge", "--ff-only", targetSHA); err != nil {
+		return branch, false, fmt.Sprintf("fast-forwarding %s failed: %v\n%s", branch, err, out)
+	}
+	return branch, true, fmt.Sprintf("%s fast-forwarded to %s", branch, shortSHA(targetSHA))
 }

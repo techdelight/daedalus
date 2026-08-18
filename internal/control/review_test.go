@@ -29,7 +29,7 @@ func TestReview_Pass_GatesIntegrationOpen(t *testing.T) {
 	svc.SetReviewRunner(rev)
 
 	// With a reviewer configured, integration is gated until the review runs.
-	_, err := svc.IntegrateTask(task.ID)
+	_, err := svc.IntegrateTask(task.ID, IntegrateRequest{})
 	var rej *RejectionError
 	if !errors.As(err, &rej) || rej.Reason != ReasonReviewRequired {
 		t.Fatalf("integrate before review = %v, want a review_required refusal", err)
@@ -53,7 +53,7 @@ func TestReview_Pass_GatesIntegrationOpen(t *testing.T) {
 		t.Errorf("review spec is incomplete: %+v", rev.spec)
 	}
 	// Now it lands.
-	if _, err := svc.IntegrateTask(task.ID); err != nil {
+	if _, err := svc.IntegrateTask(task.ID, IntegrateRequest{}); err != nil {
 		t.Fatalf("IntegrateTask after review: %v", err)
 	}
 	got, _ := store.GetTask(task.ID)
@@ -106,7 +106,7 @@ func TestReview_NoReviewerIsNotAGate(t *testing.T) {
 	if _, err := svc.ReviewTask(task.ID); err == nil {
 		t.Error("ReviewTask with no reviewer should say so")
 	}
-	if _, err := svc.IntegrateTask(task.ID); err != nil {
+	if _, err := svc.IntegrateTask(task.ID, IntegrateRequest{}); err != nil {
 		t.Fatalf("integration must not be gated when no reviewer is configured: %v", err)
 	}
 	got, _ := store.GetTask(task.ID)

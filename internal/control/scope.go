@@ -213,11 +213,11 @@ func (c *callerScope) RejectApproval(id, note string) (Task, error) {
 	return c.svc.rejectApproval(c.caller, id, note)
 }
 
-func (c *callerScope) IntegrateTask(id string) (IntegrationResult, error) {
+func (c *callerScope) IntegrateTask(id string, req IntegrateRequest) (IntegrationResult, error) {
 	if !c.allowed(OpIntegrate) {
 		return IntegrationResult{}, c.propose(OpIntegrate, id, "")
 	}
-	return c.svc.IntegrateTask(id)
+	return c.svc.IntegrateTask(id, req)
 }
 
 func (c *callerScope) SyncTarget(project string) (Target, error) {

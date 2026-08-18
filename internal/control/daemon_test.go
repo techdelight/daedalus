@@ -383,7 +383,7 @@ func TestDaemon_IntegrationRoundTrip(t *testing.T) {
 		t.Fatalf("review over wire = %+v", rres)
 	}
 	// Integrating before approval is a typed refusal, not a 500.
-	_, err = client.IntegrateTask(task.ID)
+	_, err = client.IntegrateTask(task.ID, IntegrateRequest{})
 	var rej *RejectionError
 	if !errors.As(err, &rej) || rej.Reason != ReasonApprovalRequired {
 		t.Fatalf("integrate before approval = %v, want approval_required", err)
@@ -396,7 +396,7 @@ func TestDaemon_IntegrationRoundTrip(t *testing.T) {
 	if approved.State != StateApproved {
 		t.Fatalf("state = %q, want approved", approved.State)
 	}
-	ires, err := client.IntegrateTask(task.ID)
+	ires, err := client.IntegrateTask(task.ID, IntegrateRequest{})
 	if err != nil {
 		t.Fatalf("IntegrateTask: %v", err)
 	}

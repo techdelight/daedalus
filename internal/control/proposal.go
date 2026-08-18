@@ -122,7 +122,10 @@ func (s *Service) executeProposal(caller Caller, p Proposal) error {
 		_, err := s.rejectApproval(caller, p.TaskID, proposalNote(p))
 		return err
 	case OpIntegrate:
-		_, err := s.IntegrateTask(p.TaskID)
+		// A confirmed proposal never advances anybody's branch: the operator who
+		// confirms it is not necessarily sitting in that checkout, and a surprise
+		// fast-forward is exactly the kind of side effect a proposal must not carry.
+		_, err := s.IntegrateTask(p.TaskID, IntegrateRequest{})
 		return err
 	case OpAddDependency:
 		_, err := s.AddDependency(p.TaskID, p.Argument)

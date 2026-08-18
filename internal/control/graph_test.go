@@ -32,7 +32,7 @@ func land(t *testing.T, svc *Service, id string) {
 	if _, err := svc.VerifyTask(id); err != nil {
 		t.Fatalf("verify %s: %v", id, err)
 	}
-	if _, err := svc.IntegrateTask(id); err != nil {
+	if _, err := svc.IntegrateTask(id, IntegrateRequest{}); err != nil {
 		t.Fatalf("integrate %s: %v", id, err)
 	}
 }
@@ -120,7 +120,7 @@ func TestGraph_BlockedUntilDependencyLands(t *testing.T) {
 	}
 
 	// Landing it wakes the dependent.
-	if _, err := svc.IntegrateTask(upstream.ID); err != nil {
+	if _, err := svc.IntegrateTask(upstream.ID, IntegrateRequest{}); err != nil {
 		t.Fatalf("integrate upstream: %v", err)
 	}
 	if got, _ := store.GetTask(downstream.ID); got.State != StatePlanned {

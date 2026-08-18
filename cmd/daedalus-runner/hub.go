@@ -37,10 +37,10 @@ type Hub struct {
 	// Inbound channels from the world.
 	add        chan *Client
 	remove     chan *Client
-	fromPty    chan []byte         // PTY → hub
-	input      chan []byte         // client → PTY
-	resize     chan resizeRequest  // client size change
-	runnerExit chan int            // runner exited; broadcast and stop
+	fromPty    chan []byte        // PTY → hub
+	input      chan []byte        // client → PTY
+	resize     chan resizeRequest // client size change
+	runnerExit chan int           // runner exited; broadcast and stop
 
 	// Hub-internal state.
 	clients map[*Client]struct{}
@@ -153,13 +153,17 @@ func (h *Hub) Stop() {
 }
 
 // Add registers a connected client and triggers the hello frame.
-func (h *Hub) Add(c *Client)              { h.add <- c }
+func (h *Hub) Add(c *Client) { h.add <- c }
+
 // Remove deregisters a client (typically called when its socket closes).
-func (h *Hub) Remove(c *Client)           { h.remove <- c }
+func (h *Hub) Remove(c *Client) { h.remove <- c }
+
 // FromPty queues PTY output bytes for broadcast.
-func (h *Hub) FromPty(data []byte)        { h.fromPty <- data }
+func (h *Hub) FromPty(data []byte) { h.fromPty <- data }
+
 // Input queues bytes from a client to write to the PTY's stdin.
-func (h *Hub) Input(data []byte)          { h.input <- data }
+func (h *Hub) Input(data []byte) { h.input <- data }
+
 // Resize queues a client size change so the hub can recompute the
 // negotiated window size and forward it to the PTY.
 func (h *Hub) Resize(c *Client, cols, rows int) {

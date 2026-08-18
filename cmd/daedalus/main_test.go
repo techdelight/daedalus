@@ -10,8 +10,8 @@ import (
 	"testing"
 
 	"github.com/techdelight/daedalus/core"
-	"github.com/techdelight/daedalus/internal/personas"
 	"github.com/techdelight/daedalus/internal/color"
+	"github.com/techdelight/daedalus/internal/personas"
 	"github.com/techdelight/daedalus/internal/registry"
 )
 

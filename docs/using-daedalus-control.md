@@ -103,12 +103,37 @@ daedalus task approve T-7 --note "reviewed the cursor encoding"
 
 # 6. Land it: serialize → rebase onto the current target → re-verify the MERGED
 #    result → compare-and-swap the target ref.
-daedalus task integrate T-7
+daedalus task integrate T-7                  # lands; leaves your branch alone
+daedalus task integrate T-7 --into-branch    # …and fast-forwards your checkout
 ```
 
 `daedalus task` with no arguments prints the full command list; every subcommand
 prints the next sensible command when it finishes, so you can follow the pipeline
 without this page open.
+
+### Where a landed commit actually goes
+
+**Integration does not move your branch, and that is deliberate.** The plane's
+integration target is authoritative in `control.db` and is projected into the
+repository as `refs/daedalus/target` — a ref nobody checks out, so landing can
+never disturb a working tree. It is not keyed on a branch on purpose: a linked
+worktree *can* write branch refs, and keying the acceptance oracle to something a
+worker could move is the hole this design closed.
+
+So after a successful `integrate`, your `git status` looks untouched. The commit
+is there:
+
+```bash
+git log --oneline refs/daedalus/target -3
+git diff <your-branch>..refs/daedalus/target --stat
+git merge --ff-only refs/daedalus/target      # adopt it
+```
+
+`--into-branch` does that last step for you, and refuses rather than resolves:
+it will not touch a detached HEAD, a dirty working tree, or a branch that has
+diverged from the landed commit — and because the branch step runs *after* the
+integration transaction, a refusal never unlands anything. You get a note saying
+what it declined to do and the landed commit is still sitting on the ref.
 
 ### Writing an acceptance policy
 

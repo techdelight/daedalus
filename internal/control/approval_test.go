@@ -77,7 +77,7 @@ func TestApproval_NotRequired_AutoApprovesWithAReason(t *testing.T) {
 	if got, _ := store.GetTask(task.ID); got.State != StateVerified {
 		t.Fatalf("precondition: task should rest at verified, got %s", got.State)
 	}
-	if _, err := svc.IntegrateTask(task.ID); err != nil {
+	if _, err := svc.IntegrateTask(task.ID, IntegrateRequest{}); err != nil {
 		t.Fatalf("IntegrateTask: %v", err)
 	}
 	// The audit trail says WHY no human was asked, rather than silently skipping.
@@ -134,7 +134,7 @@ func TestApproval_Required_BlocksIntegrationUntilApproved(t *testing.T) {
 	}
 
 	// Integration is refused with a typed reason until a human acts.
-	_, err = svc.IntegrateTask(task.ID)
+	_, err = svc.IntegrateTask(task.ID, IntegrateRequest{})
 	var rej *RejectionError
 	if !errors.As(err, &rej) || rej.Reason != ReasonApprovalRequired {
 		t.Fatalf("IntegrateTask before approval = %v, want an approval_required refusal", err)
@@ -151,7 +151,7 @@ func TestApproval_Required_BlocksIntegrationUntilApproved(t *testing.T) {
 	if approved.State != StateApproved {
 		t.Errorf("state = %q, want approved", approved.State)
 	}
-	if _, err := svc.IntegrateTask(task.ID); err != nil {
+	if _, err := svc.IntegrateTask(task.ID, IntegrateRequest{}); err != nil {
 		t.Fatalf("IntegrateTask after approval: %v", err)
 	}
 	final, _ := store.GetTask(task.ID)
@@ -401,7 +401,7 @@ func TestApproval_UnreadablePolicyRequiresAHuman(t *testing.T) {
 		if got.State != StateApprovalRequired {
 			t.Fatalf("state = %q, want approval_required", got.State)
 		}
-		_, err = svc.IntegrateTask(task.ID)
+		_, err = svc.IntegrateTask(task.ID, IntegrateRequest{})
 		var rej *RejectionError
 		if !errors.As(err, &rej) || rej.Reason != ReasonApprovalRequired {
 			t.Fatalf("integrate = %v, want an approval_required refusal", err)

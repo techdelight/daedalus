@@ -174,4 +174,3 @@ func removeProgramme(store *programme.Store, name string) error {
 	fmt.Printf("%s programme '%s' removed.\n", color.Green("OK:"), name)
 	return nil
 }
-

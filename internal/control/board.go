@@ -31,45 +31,71 @@ import (
 // gone somewhere the reader did not expect.
 
 // Board column keys. These appear in JSON and in the Web/TUI, so they are stable.
+//
+// `in_review` was split into three in Sprint 65, after an operator read the board
+// and found that "In verification" held work needing APPROVAL and "Awaiting
+// approval" held work needing INTEGRATION. Both titles were true of the lifecycle
+// phase and false about what to do, which is the wrong trade for a board: a board
+// is read to answer "whose move is it, and what is the move", and a column whose
+// title names a phase buries the answer under work the plane is still handling.
+// Nothing consumed the old keys by name — the CLI and Web render whatever columns
+// the response carries — so the rename cost nothing but this paragraph.
 const (
-	BoardRunning   = "running"
-	BoardQueued    = "queued"
-	BoardBlocked   = "blocked"
-	BoardInReview  = "in_review"
-	BoardApproval  = "awaiting_approval"
-	BoardLanded    = "landed"
-	BoardWithdrawn = "withdrawn"
+	BoardRunning     = "running"
+	BoardQueued      = "queued"
+	BoardBlocked     = "blocked"
+	BoardVerifying   = "verifying"
+	BoardNeedsAction = "needs_decision"
+	BoardApproval    = "awaiting_approval"
+	BoardReadyToLand = "ready_to_land"
+	BoardLanded      = "landed"
+	BoardWithdrawn   = "withdrawn"
 )
 
 // boardColumns is the display order, with the human-readable title for each.
+//
+// The order is the pipeline, and the titles say who is holding it: the plane is
+// working on the first four, and the operator is holding every one after that
+// until `Landed`.
 var boardColumns = []struct{ Key, Title string }{
 	{BoardQueued, "Queued"},
 	{BoardBlocked, "Blocked"},
 	{BoardRunning, "Running"},
-	{BoardInReview, "In verification"},
-	{BoardApproval, "Awaiting approval"},
+	{BoardVerifying, "Being verified"},
+	{BoardNeedsAction, "Rejected — needs a decision"},
+	{BoardApproval, "Awaiting your approval"},
+	{BoardReadyToLand, "Approved — ready to land"},
 	{BoardLanded, "Landed"},
 	{BoardWithdrawn, "Closed without landing"},
 }
 
-// columnForState maps every State to exactly one column.
+// columnForState maps every State to exactly one column, grouped by WHOSE MOVE
+// IT IS rather than by lifecycle phase.
 //
-// `rejected` sits in verification rather than in a failure column on purpose: it
-// is the entry point to the retry/replan ladder, not an ending, and putting it
-// with the cancelled work would tell an operator to stop looking at something that
-// is one command from running again.
+//   - candidate/verifying — the plane is grading it; nothing is being asked of
+//     anyone.
+//   - rejected — the operator's move, and a decision rather than a defeat:
+//     retry, replan, or re-verify. It gets its own column rather than sitting
+//     with the cancelled work, because it is one command from running again, and
+//     rather than sitting with the in-flight work, because nothing will move it
+//     until a human chooses.
+//   - verified/approval_required — the operator's move, and it is `approve`.
+//     `verified` used to sit with the in-flight work, which is how a Task could
+//     wait indefinitely under a heading that said the plane was busy with it.
+//   - approved — the operator's move, and it is `integrate`, NOT approve. Filing
+//     it under "awaiting approval" described something that had already happened.
 var columnForState = map[State]string{
 	StatePlanned:          BoardQueued,
 	StateQueued:           BoardQueued,
 	StateBlocked:          BoardBlocked,
 	StateWorking:          BoardRunning,
 	StateInputRequired:    BoardRunning,
-	StateCandidate:        BoardInReview,
-	StateVerifying:        BoardInReview,
-	StateVerified:         BoardInReview,
-	StateRejected:         BoardInReview,
+	StateCandidate:        BoardVerifying,
+	StateVerifying:        BoardVerifying,
+	StateRejected:         BoardNeedsAction,
+	StateVerified:         BoardApproval,
 	StateApprovalRequired: BoardApproval,
-	StateApproved:         BoardApproval,
+	StateApproved:         BoardReadyToLand,
 	StateIntegrated:       BoardLanded,
 	StateFailed:           BoardWithdrawn,
 	StateCancelled:        BoardWithdrawn,

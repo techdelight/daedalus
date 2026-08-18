@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- **`daedalus task integrate <id> --into-branch`, and an honest default message.**
+  Integration advances the plane-owned target, which is projected into the repo as
+  `refs/daedalus/target` — a ref nobody checks out, deliberately, so landing can
+  never disturb a working tree. The design reason is structural (keying the target
+  by canonical repo path rather than a branch ref is what closed the Sprint-59
+  oracle-laundering hole, because a linked worktree *can* write branch refs), but
+  the consequence appeared in no document and no command output: the first honest
+  read of a successful landing was "nothing happened". `task integrate` now says
+  in plain words that your branch was not changed and how to adopt the commit, and
+  `--into-branch` opts into a **guarded fast-forward**. It refuses rather than
+  resolves — no merge commit, no rebase, no stash, no `--force` — on a detached
+  HEAD, on a dirty working tree (the one case where winding forward would touch
+  files somebody is editing), and on a branch that has diverged. The branch step
+  runs *after* the integration transaction, so a refusal can never unland the
+  work; every outcome is reported as a note rather than an error. A confirmed
+  agent **proposal** never advances a branch: the human confirming it is not
+  necessarily sitting in that checkout, and a surprise fast-forward is exactly the
+  side effect a proposal must not carry. Filed as backlog #79 rather than closed —
+  the Web UI and TUI still say "integrated" with no equivalent explanation, and
+  there is no way to ask for the fast-forward after the fact.
+
 - **`daedalus task reverify <id>` — re-grade an artifact without re-running the
   Job (M19, Sprint 65).** A verdict can be wrong for reasons that say nothing
   about the work: a verifier that never ran the check it reported on, or an
@@ -110,6 +131,20 @@ All notable changes to this project will be documented in this file.
     flag called "acceptance" to have.
 
 ### Fixed
+- **`task board` columns now say whose move it is, not which phase the work is
+  in.** Reported from a real board: "In verification" held work needing
+  **approval**, and "Awaiting approval" held work needing **integration**. Both
+  titles were true of the lifecycle and false about what to do, which is the
+  wrong trade for a board — it is read to answer "whose move is it, and what is
+  the move", and a column titled for a phase buries that under work the plane is
+  still handling. `in_review` splits into **Being verified** (`candidate`,
+  `verifying` — the plane is working, nothing is being asked of anyone),
+  **Rejected — needs a decision** (`rejected`, its own column because it is one
+  command from running again but nothing will move it until a human chooses), and
+  **Awaiting your approval** (`verified`, `approval_required`); `approved` moves
+  to **Approved — ready to land**, since filing it under "awaiting approval"
+  described something that had already happened. Nothing consumed the old column
+  keys by name — the CLI and Web render whatever columns the response carries.
 - **The integrity gate and the null-agent floor now measure against the Job's own
   base, not the Task's.** Both ask what *this Job did*, and a Job's diff is
   defined relative to the commit it was checked out at. The two values are

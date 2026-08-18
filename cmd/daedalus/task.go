@@ -684,13 +684,23 @@ func idAndNote(cmd string, args []string) (string, string, error) {
 	return id, note, nil
 }
 
-// taskIntegrate implements `task integrate <id>`: the race-safe landing
+// taskIntegrate implements `task integrate <id> [--into-branch]`: the race-safe landing
 // transaction (rebase onto the target → re-verify the MERGED result → CAS).
 func taskIntegrate(api control.TaskAPI, args []string) error {
+	const usage = "usage: daedalus task integrate <id> [--into-branch]"
 	if len(args) < 1 {
-		return fmt.Errorf("usage: daedalus task integrate <id>")
+		return fmt.Errorf("%s", usage)
 	}
-	res, err := api.IntegrateTask(args[0])
+	var req control.IntegrateRequest
+	for _, a := range args[1:] {
+		switch a {
+		case "--into-branch":
+			req.IntoBranch = true
+		default:
+			return fmt.Errorf("task integrate: unknown flag %q\n%s %s", a, color.Cyan("Hint:"), usage)
+		}
+	}
+	res, err := api.IntegrateTask(args[0], req)
 	if err != nil {
 		if errors.Is(err, control.ErrNotFound) {
 			return fmt.Errorf("task %q not found", args[0])
@@ -702,6 +712,20 @@ func taskIntegrate(api control.TaskAPI, args []string) error {
 	fmt.Printf("     landed as %s (the artifact rebased onto the target and re-verified in that form)\n", shortSHA(res.MergedSHA))
 	if res.Attempts > 1 {
 		fmt.Printf("     took %d attempts — the target moved under us and the transaction recomputed\n", res.Attempts)
+	}
+	switch {
+	case res.BranchAdvanced:
+		fmt.Printf("     %s %s\n", color.Green("branch:"), res.BranchNote)
+	case res.BranchNote != "":
+		// The landing SUCCEEDED; only the courtesy did not. Said in that order, so
+		// nobody reads a yellow line as "my code did not land".
+		fmt.Printf("     %s %s\n", color.Yellow("branch:"), res.BranchNote)
+	default:
+		// The default path, and the answer to "I integrated it, where is my code?".
+		// The plane lands on its own ref precisely so it never touches a working
+		// tree; that is a good default and a surprising one, so it is spelled out.
+		fmt.Printf("     your branch was NOT changed — the landed commit is at refs/daedalus/target.\n")
+		fmt.Printf("     adopt it with `git merge --ff-only refs/daedalus/target`, or pass --into-branch next time\n")
 	}
 	return nil
 }
@@ -1176,8 +1200,13 @@ func printTaskUsage() {
 	fmt.Println("                       Approve a verified task for integration (human authority)")
 	fmt.Println("  reject <id> [--note <text>]")
 	fmt.Println("                       Reject at the approval gate (feeds retry/replan)")
-	fmt.Println("  integrate <id>       Land it: rebase onto the target, re-verify the MERGED result,")
-	fmt.Println("                       then compare-and-swap the plane-owned target ref")
+	fmt.Println("  integrate <id> [--into-branch]")
+	fmt.Println("                       Land it: rebase onto the target, re-verify the MERGED result,")
+	fmt.Println("                       then compare-and-swap the plane-owned target ref. Your branch is")
+	fmt.Println("                       NOT moved — the commit lands on refs/daedalus/target, which nobody")
+	fmt.Println("                       checks out. --into-branch also fast-forwards the checkout's current")
+	fmt.Println("                       branch, refusing on a detached HEAD, a dirty tree, or a diverged")
+	fmt.Println("                       branch; a refusal there never unlands the work")
 	fmt.Println("  approvals            List everything awaiting a human decision")
 	fmt.Println("  depends <id> [--on <other-id>]")
 	fmt.Println("                       Show or declare a cross-project dependency; a blocked task")

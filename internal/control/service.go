@@ -191,7 +191,7 @@ type TaskAPI interface {
 	ReviewTask(id string) (ReviewResult, error)
 	ApproveTask(id, note string) (Task, error)
 	RejectApproval(id, note string) (Task, error)
-	IntegrateTask(id string) (IntegrationResult, error)
+	IntegrateTask(id string, req IntegrateRequest) (IntegrationResult, error)
 	PendingApprovals() ([]Task, error)
 	ProjectTargets() ([]TargetView, error)
 	PlaneStatus() (PlaneStatus, error)

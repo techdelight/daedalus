@@ -96,7 +96,7 @@ func fakeAgentMain() {
 		// Colour set BEFORE the clear, then body text that relies on it.
 		// A real terminal keeps the SGR across \e[2J; smart replay anchors
 		// after the clear and so drops it — the documented limitation.
-		fmt.Fprint(os.Stdout, "\x1b[31m")                      // red, before the boundary
+		fmt.Fprint(os.Stdout, "\x1b[31m")                       // red, before the boundary
 		fmt.Fprint(os.Stdout, "\x1b[2J\x1b[HSGR-BODY text\r\n") // relies on the red above
 		idleUntilTerm()
 	}

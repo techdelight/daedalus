@@ -1133,7 +1133,7 @@ func TestReconcile_SettlesAGhostJob(t *testing.T) {
 	if _, err := svc.VerifyTask(task.ID); err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
-	if _, err := svc.IntegrateTask(task.ID); err != nil {
+	if _, err := svc.IntegrateTask(task.ID, IntegrateRequest{}); err != nil {
 		t.Fatalf("Integrate: %v", err)
 	}
 	// Strand the Job as a failed driveJob would: Task integrated, Job left behind.

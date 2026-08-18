@@ -303,7 +303,13 @@ func (s *Server) handleRejectApproval(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleIntegrate(w http.ResponseWriter, r *http.Request) {
-	res, err := s.api.IntegrateTask(r.PathValue("id"))
+	var req IntegrateRequest
+	// An empty body means "land it, leave my branch alone" — the default.
+	if err := decodeOptionalJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	res, err := s.api.IntegrateTask(r.PathValue("id"), req)
 	if err != nil {
 		writeError(w, statusFor(err), err)
 		return

@@ -57,11 +57,17 @@ func TestBoard_PlacesWorkInTheRightColumns(t *testing.T) {
 		{StatePlanned, BoardQueued},
 		{StateQueued, BoardQueued},
 		{StateWorking, BoardRunning},
-		{StateCandidate, BoardInReview},
-		{StateVerifying, BoardInReview},
-		{StateVerified, BoardInReview},
+		{StateCandidate, BoardVerifying},
+		// rejected, then back to candidate: the walk goes through the Sprint-65
+		// re-verify edge, so this covers the new column AND the new transition.
+		{StateRejected, BoardNeedsAction},
+		{StateCandidate, BoardVerifying},
+		{StateVerifying, BoardVerifying},
+		// The rest moved in Sprint 65 too. Each column now names the operator's
+		// next command: verified → approve, approved → integrate.
+		{StateVerified, BoardApproval},
 		{StateApprovalRequired, BoardApproval},
-		{StateApproved, BoardApproval},
+		{StateApproved, BoardReadyToLand},
 		{StateIntegrated, BoardLanded},
 	}
 	for _, step := range steps {

@@ -359,7 +359,7 @@ func registerControlTools(server *mcp.Server, api control.TaskAPI) {
 			name:        "request_integration",
 			description: "Ask for a verified, approved task to be landed (rebase onto the target, re-verify the merged result, compare-and-swap). Consequential, so this is recorded as a proposal for a human to confirm. Approval itself is never available to this caller.",
 			call: func(in NoteRef) (string, error) {
-				_, err := api.IntegrateTask(in.TaskID)
+				_, err := api.IntegrateTask(in.TaskID, control.IntegrateRequest{})
 				return "integration", err
 			},
 		},

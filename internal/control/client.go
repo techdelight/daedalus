@@ -194,9 +194,9 @@ func (c *Client) RejectApproval(id, note string) (Task, error) {
 }
 
 // IntegrateTask implements TaskAPI.
-func (c *Client) IntegrateTask(id string) (IntegrationResult, error) {
+func (c *Client) IntegrateTask(id string, req IntegrateRequest) (IntegrationResult, error) {
 	var res IntegrationResult
-	return res, c.postJSON("/tasks/"+url.PathEscape(id)+"/integrate", struct{}{}, &res)
+	return res, c.postJSON("/tasks/"+url.PathEscape(id)+"/integrate", req, &res)
 }
 
 // PendingApprovals implements TaskAPI.
