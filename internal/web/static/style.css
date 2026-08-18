@@ -1022,7 +1022,7 @@ tbody td {
     align-items: center;
     gap: 8px;
     padding: 9px 8px;
-    background: linear-gradient(180deg, #223469 0%, #16224a 100%);
+    background: linear-gradient(180deg, var(--mana-plate-top) 0%, var(--mana-plate-bot) 100%);
     border-bottom: 2px solid var(--mana-frame-dk);
     box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.4);
 }
@@ -1048,7 +1048,7 @@ tbody td {
 }
 
 .sidebar-toggle:hover {
-    color: #fff3c4;
+    color: var(--mana-frame-pale);
     background: rgba(233, 200, 119, 0.16);
 }
 
@@ -1058,7 +1058,7 @@ tbody td {
     font-weight: 700;
     letter-spacing: 0.5px;
     color: var(--mana-ink);
-    background: linear-gradient(180deg, #fbe9b0, var(--mana-frame));
+    background: linear-gradient(180deg, var(--mana-frame-lt), var(--mana-frame));
     border: 1px solid var(--mana-frame-dk);
     border-radius: 6px;
     padding: 2px 6px;
@@ -1072,8 +1072,8 @@ tbody td {
    to strip it back off. */
 .docs-badge-warn {
     color: var(--mana-ink);
-    background: linear-gradient(180deg, #f5b3ab, var(--mana-hp-lo));
-    border-color: #8f2f27;
+    background: linear-gradient(180deg, var(--mana-hp-lo-lt), var(--mana-hp-lo));
+    border-color: var(--mana-hp-lo-dk);
 }
 
 .docs-badge-warn::after {
@@ -1129,7 +1129,7 @@ tbody td {
     width: 4px;
     height: 4px;
     border-radius: 50%;
-    background: radial-gradient(circle at 30% 30%, #fff6d8, var(--mana-frame-dk));
+    background: radial-gradient(circle at 30% 30%, var(--mana-frame-glint), var(--mana-frame-dk));
     box-shadow: 0 0 0 1px var(--mana-ink);
 }
 
@@ -1309,7 +1309,7 @@ tbody td {
 }
 
 #docs-sidebar .milestone-current .milestone-title {
-    color: #fff3c4;
+    color: var(--mana-frame-pale);
     font-weight: 700;
     text-shadow: 1px 1px 0 var(--mana-ink);
 }
@@ -1402,7 +1402,7 @@ tbody td {
 /* Building — work in flight, the same green the Guild uses for a hero on
    quest. */
 .sprint-building .sprint-phase-badge {
-    color: #b6f09a;
+    color: var(--mana-hp-hi-lt);
     background: rgba(123, 208, 106, 0.16);
     border-color: rgba(123, 208, 106, 0.45);
 }
@@ -1419,14 +1419,14 @@ tbody td {
 }
 
 .sprint-ready .sprint-name {
-    color: #fff3c4;
+    color: var(--mana-frame-pale);
     font-weight: 700;
     text-shadow: 1px 1px 0 var(--mana-ink);
 }
 
 .sprint-ready .sprint-phase-badge {
     color: var(--mana-ink);
-    background: linear-gradient(180deg, #fbe9b0, var(--mana-frame));
+    background: linear-gradient(180deg, var(--mana-frame-lt), var(--mana-frame));
     border-color: var(--mana-frame-dk);
 }
 
@@ -1466,7 +1466,7 @@ tbody td {
     font-size: 12px;
     line-height: 1.55;
     color: var(--mana-ink);
-    background: linear-gradient(180deg, #fbf4e2 0%, var(--mana-parchment) 100%);
+    background: linear-gradient(180deg, var(--mana-parchment-lt) 0%, var(--mana-parchment) 100%);
     border: 1px solid var(--mana-frame-dk);
     border-radius: 8px;
     padding: 8px 10px;
@@ -1482,7 +1482,7 @@ tbody td {
 /* "No VISION.md" lands on parchment, so the dim-on-navy empty-state colour
    would be unreadable — a faded ink instead. */
 #docs-sidebar .vision-text.empty-state {
-    color: #6d6350;
+    color: var(--mana-ink-dim);
     font-style: italic;
     font-size: 12px;
     padding: 8px 10px;
@@ -1501,7 +1501,7 @@ tbody td {
     letter-spacing: 2px;
     text-transform: uppercase;
     color: var(--mana-ink);
-    background: linear-gradient(180deg, #fbe9b0, var(--mana-frame));
+    background: linear-gradient(180deg, var(--mana-frame-lt), var(--mana-frame));
     border: 1px solid var(--mana-frame-dk);
     border-radius: 8px;
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55), 0 2px 6px rgba(0, 0, 0, 0.45);
@@ -1509,7 +1509,7 @@ tbody td {
 }
 
 #docs-sidebar .sidebar-dashboard-btn:hover {
-    background: linear-gradient(180deg, #fff3c4, #ffcf5a);
+    background: linear-gradient(180deg, var(--mana-frame-pale), var(--mana-frame-lit));
     transform: translateY(-1px);
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7), 0 4px 12px rgba(0, 0, 0, 0.5);
 }
