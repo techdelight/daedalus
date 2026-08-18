@@ -157,7 +157,7 @@ Close the correctness gaps the post-arc external review of `development` @ `e213
 - Steering delivery is bounded against an uncooperative adapter, and supersede-and-replace is atomic
 - The wall-clock budget is described as what it is: bookkeeping plus context cancellation, not process death
 
-### Milestone 19: Verification Independence (In Progress)
+### Milestone 19: Verification Independence (Done)
 
 Grading an artifact must be separable from producing it. Today a verdict is welded to the Task's lifecycle: `legalTransitions[StateRejected]` offers only `queued`/`planned`/`cancelled`/`expired`, and `VerifyTask` demands `candidate` — so the only way to re-grade an artifact is `retry`, which dispatches a **new Job** and throws the existing work away. When a verdict is wrong for a reason that has nothing to do with the artifact — a broken harness, or a broken oracle — the operator's only remedy is to re-run work that was never in question.
 
