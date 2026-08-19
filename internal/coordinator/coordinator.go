@@ -212,6 +212,10 @@ func (c *Coordinator) Start(cfg *core.Config) (*Session, error) {
 	// (#27). These were absent on the coordinator path before (Backlog #55):
 	// only the legacy path called BuildExtraArgs.
 	args = append(args, core.RunnerVolumeArgs(cfg)...)
+	// A project directory that is a LINKED WORKTREE — every control-plane Job is
+	// one — needs the repository it points at, or git inside the container is not
+	// merely absent but fatally broken. See worktreeGitMountArgs.
+	args = append(args, worktreeGitMountArgs(cfg)...)
 	// The Guild Master additionally gets every OTHER registered project's
 	// directory mounted read-only at /guild/<name> (Sprint 53) — the
 	// cross-project visibility that gives it its purpose. This is a launch-time
@@ -418,6 +422,39 @@ func guildMountArgs(cfg *core.Config) []string {
 		return nil
 	}
 	return core.GuildMounts(cfg.ProjectName, projects)
+}
+
+// worktreeGitMountArgs returns the bind mounts that make git usable when the
+// project directory is a linked worktree, or nil for an ordinary checkout.
+//
+// Every control-plane Job runs in one, and without these the container gets a
+// checkout whose `.git` names a host path it cannot see — so every git command
+// is fatal, which is strictly worse than having no git at all: the checkout looks
+// like a repository, and an agent that opens it concludes it cannot work. That is
+// not hypothetical. A Job reported exactly it, exited 0 having written nothing,
+// and was rejected on the null-agent floor — a correct verdict that said nothing
+// about the cause.
+//
+// A failure to write the pointer file is logged and the launch continues, in the
+// same spirit as the Guild Master's missing socket: it degrades to the behaviour
+// that shipped until now rather than refusing to run the Job at all.
+func worktreeGitMountArgs(cfg *core.Config) []string {
+	wt, ok := core.ReadLinkedWorktree(cfg.ProjectDir)
+	if !ok {
+		return nil // an ordinary checkout already has its .git in the mount
+	}
+	pointer := cfg.WorktreeGitFilePath()
+	if err := os.MkdirAll(filepath.Dir(pointer), 0o755); err != nil {
+		log.Printf("coordinator: git mounts: creating %s: %v (the container gets no git)", filepath.Dir(pointer), err)
+		return nil
+	}
+	if err := os.WriteFile(pointer, []byte(wt.Pointer()), 0o644); err != nil {
+		log.Printf("coordinator: git mounts: writing %s: %v (the container gets no git)", pointer, err)
+		return nil
+	}
+	log.Printf("coordinator: %q is a linked worktree — mounting %s read-only at %s so git works inside",
+		cfg.ProjectName, wt.CommonDir, core.ContainerGitCommon)
+	return core.WorktreeGitMounts(wt, pointer)
 }
 
 // guildControlMountArgs returns the bind mount for the control plane's

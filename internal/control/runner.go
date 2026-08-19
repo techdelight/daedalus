@@ -137,6 +137,47 @@ func openJobLog(path string) (*os.File, error) {
 	return os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 }
 
+// jobEnvironmentNote is what a Job is told about the room it is working in.
+//
+// It exists because the alternative to saying this is letting the agent find it
+// out by failing. Git in a Job container is READ-ONLY (core/gitworktree.go): the
+// repository is mounted so history and diffs can be read, and writes are refused
+// by the kernel. An agent that reaches for `git commit` gets a permission error
+// out of nowhere, and the observed response to an unexplained broken git is to
+// conclude the task cannot be done and stop — which is precisely the failure that
+// made the mount necessary in the first place. Fixing the mount without saying
+// what it is would trade a fatal git for a puzzling one.
+//
+// It also answers the question the agent would otherwise have to guess at: if it
+// cannot commit, how does its work become an artifact. The plane captures the
+// tree on the host when the Job ends, which is the existing design and the reason
+// the agent never needed to commit.
+const jobEnvironmentNote = `You are running as a Daedalus control-plane Job, headless, in an isolated Git
+worktree mounted at /workspace. Two things about this environment:
+
+1. Git is READ-ONLY here. git log, diff, status, show and blame all work and are
+   how you check what you have changed. Anything that writes — add, commit,
+   stash, checkout, push — will be refused by the filesystem. That is deliberate,
+   not a fault to work around.
+2. You do not need to commit. When this Job ends the control plane commits your
+   working tree itself, on the host, and that commit is the artifact it grades.
+   Leave the files as you want them and stop.
+
+Your objective follows.
+
+`
+
+// jobPrompt is the objective as the agent receives it: the environment note,
+// then the objective verbatim.
+//
+// The note is prepended at the point of LAUNCH rather than stored on the Task,
+// so the record keeps what a human asked for and the agent is told what is true
+// about the container it woke up in. The two are different things and only one of
+// them belongs in the event log.
+func jobPrompt(spec JobSpec) string {
+	return jobEnvironmentNote + spec.Objective
+}
+
 // CoordinatorRunner is the REAL, HOST-ONLY adapter. It runs the project agent
 // headless against the Job's isolated worktree via the standard daedalus launch
 // path (`daedalus <name> <worktree> -p <objective>` semantics — the worktree
@@ -215,7 +256,8 @@ func (r CoordinatorRunner) Run(ctx context.Context, spec JobSpec) RunOutcome {
 	// seeded credentials sit in a home nobody mounts, and the Job dies on
 	// `Not logged in` with the seeding step having reported success. Pinning removes
 	// the divergence rather than detecting it.
-	err := r.Exec.RunWithEnvTee(r.dataDirEnv(), tee, r.BinPath, name, spec.WorktreeDir, "-p", spec.Objective)
+	err := r.Exec.RunWithEnvTee(r.dataDirEnv(), tee, r.BinPath, name, spec.WorktreeDir,
+		"-p", jobPrompt(spec))
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
 			return RunOutcome{Result: ExecTimeout, Detail: "context deadline exceeded"}

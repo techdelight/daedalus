@@ -108,6 +108,21 @@ the logic directly (tests) or over the socket (production).
    coordinator/Docker (`daedalus … -p` semantics, worktree mounted as
    `/workspace`); a Docker-free `StubRunner` drives host tests and the
    `DAEDALUS_CONTROL_FAKE_RUNNER` smoke.
+
+   **Git inside the Job is READ-ONLY, and it has to be mounted for it to work at
+   all.** A linked worktree's `.git` is a one-line file naming an absolute *host*
+   path, so mounting only the worktree gives the container a checkout where every
+   git command is fatal — which is worse than no git, because the checkout looks
+   like a repository and an agent that opens it concludes the task is impossible.
+   That is not hypothetical: a Job hit it, reported `fatal: not a git repository:
+   <host path>`, wrote nothing, and was rejected on the null-agent floor. The
+   launch now mounts the repository's common `.git` **read-only** at `/gitcommon`
+   and shadows `/workspace/.git` with a pointer naming it (`core/gitworktree.go`).
+   Read-only is the posture, not an accident: this is the developer's real object
+   store and refs, and `log`/`diff`/`status`/`show`/`blame` all work without any
+   of it being writable by an agent acting on an objective the plane treats as
+   untrusted. The Job is told so in its prompt, because an unexplained permission
+   error is the same failure one step later.
 4. **Capture** the worktree tree as `output_snapshot` (the wrapper auto-commits,
    since agents don't reliably commit) — captured **even on failure** as a
    salvage snapshot. `execution_result` records *how the run ended*.

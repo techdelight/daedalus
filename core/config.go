@@ -174,6 +174,17 @@ func (c *Config) GuildMasterDir() string {
 	return filepath.Join(c.DataDir, "projects", GuildMasterName)
 }
 
+// WorktreeGitFilePath is where the container-side `.git` pointer is written for
+// a project whose directory is a linked worktree (see gitworktree.go).
+//
+// It lives under the data root and NOT in the worktree, which is the whole point
+// of it being a separate file: everything inside the worktree is part of the tree
+// the control plane captures as the Job's artifact, so a pointer written there
+// would be staged by `git add -A` and shipped as work the agent never did.
+func (c *Config) WorktreeGitFilePath() string {
+	return filepath.Join(c.DataDir, "gitfiles", c.ProjectName)
+}
+
 // ProgrammesDir returns the path to the programmes directory.
 func (c *Config) ProgrammesDir() string {
 	return filepath.Join(c.DataDir, "programmes")

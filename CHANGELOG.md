@@ -5,6 +5,47 @@ All notable changes to this project will be documented in this file.
 ## [0.54.0] - 2026-08-18
 
 ### Fixed
+- **Git works inside a Job container. Until now every git command in one was
+  fatal, and the failure looked like the agent's fault.** A linked worktree's
+  `.git` is not a directory — it is a one-line file holding an absolute HOST
+  path (`gitdir: /home/you/src/project/.git/worktrees/J-12`). Only the worktree's
+  files were bind-mounted, so that path did not exist inside the container and
+  every command died identically with `fatal: not a git repository: …`.
+  - **Worse than having no git**, because the checkout *looks* like a repository.
+    A real Job opened one, found every command fatal, correctly concluded it could
+    not do the work, and exited 0 having written nothing. The plane's capture then
+    found a clean tree and verification rejected it on the **null-agent floor** —
+    a correct verdict about a Job that was blocked before it started, and one that
+    said nothing at all about why. The gap had been inferred from
+    `docker-compose.yml` two days earlier and filed as unconfirmed; this is the
+    confirmation, from the agent itself.
+  - **The fix:** mount the repository's common `.git` at a fixed container path
+    (`/gitcommon`) and shadow `/workspace/.git` with a generated pointer file
+    naming it. The container path is fixed rather than the host's, so no host
+    directory layout enters the container — `commondir` inside the admin dir is
+    relative, so the shared repository relocates cleanly. The host's own pointer
+    is left alone: it lives inside the bind-mounted worktree, and the plane runs
+    `git -C <worktree>` on the host to capture the Job's tree.
+  - **Read-only, deliberately.** The mount is of the developer's real object store
+    and refs. Read-only, everything an agent needs still answers — `log`, `diff`,
+    `status`, `show`, `blame`, `ls-files`, `rev-parse` — and writes are refused by
+    the kernel with git's own message. Nothing about the repository is reachable
+    for writing by a headless agent working on an objective the plane treats as
+    untrusted: no refs to move, no objects to add, no push. The admin directory
+    was tested writable first on the theory that the index would need refreshing;
+    it does not, and leaving it read-only also removes the one remaining write —
+    an agent could otherwise move its worktree's HEAD to a branch other than the
+    one the plane records on the artifact.
+  - **The Job is told.** Fixing the mount without explaining it would trade a
+    fatal git for a puzzling one: an agent that meets an unexplained permission
+    error has no way to know it is deliberate, which is the same failure one step
+    later. Every Job's prompt now opens with the two facts — git here is
+    read-only, and the plane commits your tree when you stop — followed by the
+    objective verbatim. The note is added at launch, not stored on the Task, so
+    the record keeps what a human asked for.
+  - The mounts are derived from the project directory, not plumbed through the
+    control plane, so a human who runs `daedalus <name> <some-linked-worktree>`
+    directly gets the same repair. An ordinary checkout gets no extra mounts.
 - **Containers no longer fill up with zombies until they cannot fork.**
   `entrypoint.sh` execs `daedalus-runner`, making it pid 1 — and the runner waits
   on its one direct child and nothing else. Every process a tool orphaned was

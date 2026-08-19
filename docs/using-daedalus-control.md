@@ -442,6 +442,29 @@ do", because only one of those is reassuring.
 > unauthenticated `daedalus task`: it can dispatch Jobs, waive a failed
 > verification, approve an agent's work and land code. Do not expose it.
 
+### What a Job sees
+
+The agent runs headless in an isolated worktree mounted at `/workspace`, and it
+is told two things about that room in its prompt:
+
+- **Git is read-only.** `git log`, `diff`, `status`, `show` and `blame` all work
+  — they are how the agent checks what it changed. Everything that writes is
+  refused by the filesystem. The repository is bind-mounted read-only at
+  `/gitcommon` and `/workspace/.git` is shadowed with a pointer to it, so nothing
+  a Job does can reach your object store, your refs, or a remote.
+- **The agent never commits.** When the Job ends, the plane captures the working
+  tree on the host and that commit is the artifact it grades.
+
+This matters to know, because it used to be broken in a way that looked like the
+agent's fault. Only the worktree's *files* were mounted, and a linked worktree's
+`.git` is a file naming an absolute host path — so every git command inside the
+container died with `fatal: not a git repository: /home/you/…`. An agent that
+opens a repository where nothing works reasonably concludes it cannot do the job,
+exits cleanly having written nothing, and the verify then rejects it on the
+null-agent floor: a correct verdict that says nothing about the cause. If you see
+`null_agent_floor` on a Job you expected to do work, read its log first — the
+account of why is there.
+
 ### When a Job fails
 
 What the database keeps about a failed run is the exit status — `exit status 1`

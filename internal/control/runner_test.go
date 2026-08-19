@@ -219,3 +219,48 @@ func TestOpenJobLog_IsNotWorldReadable(t *testing.T) {
 		t.Errorf("job log mode = %#o, want 0600 — agent output must not be world-readable", perm)
 	}
 }
+
+// TestCoordinatorRunner_TellsTheJobItsGitIsReadOnly.
+//
+// Git inside a Job container is read-only by construction (core/gitworktree.go),
+// and the reason to SAY so is the failure that made the mount necessary: an agent
+// that meets an unexplained broken git concludes the task cannot be done and
+// stops, having written nothing. Fixing the mount without explaining it would
+// trade a fatal git for a puzzling one — the same shape of failure, one step
+// later.
+//
+// The objective must survive verbatim: the note is context, and an agent that
+// received a paraphrase of what it was asked to do would be graded against the
+// original.
+func TestCoordinatorRunner_TellsTheJobItsGitIsReadOnly(t *testing.T) {
+	exec := executor.NewMockExecutor()
+	r := CoordinatorRunner{Exec: exec, BinPath: "/bin/daedalus"}
+	const objective = "Add cursor pagination to GET /items"
+	r.Run(context.Background(), JobSpec{
+		JobID: "J-12", Project: "app", Objective: objective, WorktreeDir: "/wt",
+	})
+
+	var prompt string
+	for _, c := range exec.Calls {
+		for i, a := range c.Args {
+			if a == "-p" && i+1 < len(c.Args) {
+				prompt = c.Args[i+1]
+			}
+		}
+	}
+	if prompt == "" {
+		t.Fatal("the launch carried no -p prompt at all")
+	}
+	if !strings.HasSuffix(prompt, objective) {
+		t.Errorf("the objective did not survive verbatim at the end of the prompt:\n%q", prompt)
+	}
+	if prompt == objective {
+		t.Fatal("the prompt is the bare objective: a Job is never told that git here is read-only, " +
+			"so an agent meeting a permission error has no way to know it is deliberate")
+	}
+	for _, want := range []string{"READ-ONLY", "do not need to commit", "/workspace"} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("the environment note does not mention %q:\n%s", want, prompt)
+		}
+	}
+}
