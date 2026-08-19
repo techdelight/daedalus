@@ -57,7 +57,7 @@ type WebServer struct {
 	observer         agentstate.Observer
 	activityResolver *activity.Resolver
 	// control is a client of the control plane, or nil when it is not running.
-	// The dashboard never spawns the daemon (see approvals.go).
+	// The dashboard never spawns the daemon (see control.go).
 	control control.TaskAPI
 	// controlDial re-establishes that client when it is nil, and is what keeps a
 	// web server started BEFORE the plane from being deaf to it for its whole
@@ -187,14 +187,50 @@ func (ws *WebServer) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/projects/{name}/state", ws.handleAgentState)
 	mux.HandleFunc("GET /api/guild", ws.handleGuild)
 
-	// Control plane: the pending-approvals surface (read + the two human decisions).
-	mux.HandleFunc("GET /api/approvals", ws.handleApprovals)
-	mux.HandleFunc("GET /api/plane-status", ws.handlePlaneStatus)
-	// The cross-project programme board (M17): the same control client, a
-	// projection of the same state — no board store to fall out of step.
-	mux.HandleFunc("GET /api/board", ws.handleBoard)
-	mux.HandleFunc("POST /api/approvals/{id}/approve", ws.handleApproveTask)
-	mux.HandleFunc("POST /api/approvals/{id}/reject", ws.handleRejectTask)
+	// control.go — the control plane, in one namespace. These mirror the daemon's
+	// own routes (control/daemon.go) one for one: the Ledger can do what
+	// `daedalus task` can do, through the same client, with the same authority.
+	// They were three scattered paths (/api/approvals, /api/board,
+	// /api/plane-status) while the surface was read-mostly; a whole operation set
+	// spread the same way would have been a URL space nobody could hold in mind.
+	//
+	// Reads the page polls. Each answers "I could not ask" as data rather than as
+	// an empty list, because those are different facts about the same plane.
+	mux.HandleFunc("GET /api/control/status", ws.handlePlaneStatus)
+	mux.HandleFunc("GET /api/control/board", ws.handleBoard)
+	mux.HandleFunc("GET /api/control/approvals", ws.handleApprovals)
+	mux.HandleFunc("GET /api/control/tasks", ws.handleControlTasks)
+	mux.HandleFunc("GET /api/control/proposals", ws.handleProposals)
+	mux.HandleFunc("GET /api/control/targets", ws.handleTargets)
+
+	// Reads about one entity.
+	mux.HandleFunc("GET /api/control/tasks/{id}", ws.handleTaskStatus)
+	mux.HandleFunc("GET /api/control/tasks/{id}/events", ws.handleTaskEvents)
+	mux.HandleFunc("GET /api/control/tasks/{id}/dependencies", ws.handleTaskDependencies)
+	mux.HandleFunc("GET /api/control/jobs/{id}/steering", ws.handleJobSteering)
+
+	// The lifecycle: create → dispatch → verify → approve → integrate, plus the
+	// ladder out of a rejection (retry, reverify, replan, checks) and the exits.
+	mux.HandleFunc("POST /api/control/tasks", ws.handleCreateTask)
+	mux.HandleFunc("POST /api/control/tasks/{id}/dispatch", ws.handleDispatchTask)
+	mux.HandleFunc("POST /api/control/tasks/{id}/verify", ws.handleVerifyTask)
+	mux.HandleFunc("POST /api/control/tasks/{id}/retry", ws.handleRetryTask)
+	mux.HandleFunc("POST /api/control/tasks/{id}/reverify", ws.handleReverifyTask)
+	mux.HandleFunc("POST /api/control/tasks/{id}/checks", ws.handleAmendChecks)
+	mux.HandleFunc("POST /api/control/tasks/{id}/replan", ws.handleReplanTask)
+	mux.HandleFunc("POST /api/control/tasks/{id}/review", ws.handleReviewTask)
+	mux.HandleFunc("POST /api/control/tasks/{id}/approve", ws.handleApproveTask)
+	mux.HandleFunc("POST /api/control/tasks/{id}/reject", ws.handleRejectTask)
+	mux.HandleFunc("POST /api/control/tasks/{id}/integrate", ws.handleIntegrateTask)
+	mux.HandleFunc("DELETE /api/control/tasks/{id}", ws.handleCancelTask)
+
+	// The graph, steering, proposals, and the integration target.
+	mux.HandleFunc("POST /api/control/tasks/{id}/dependencies", ws.handleAddDependency)
+	mux.HandleFunc("POST /api/control/jobs/{id}/steer", ws.handleSteerJob)
+	mux.HandleFunc("DELETE /api/control/steering/{id}", ws.handleCancelSteering)
+	mux.HandleFunc("POST /api/control/proposals/{id}/confirm", ws.handleConfirmProposal)
+	mux.HandleFunc("POST /api/control/proposals/{id}/deny", ws.handleDenyProposal)
+	mux.HandleFunc("POST /api/control/targets/{project}/sync", ws.handleSyncTarget)
 
 	// roadmap.go
 	mux.HandleFunc("GET /api/projects/{name}/roadmap", ws.handleRoadmap)

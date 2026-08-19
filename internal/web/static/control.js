@@ -5,17 +5,26 @@
 // It supersedes the two panels that used to sit squeezed under the project
 // list (approvals.js, board.js). Those answered the same two questions in two
 // places, which board.js itself argued against: one surface per question. This
-// is that one surface — what is happening, and what is waiting on you.
+// is that one surface — what is happening, what is waiting on you, and now what
+// to do about it.
 //
-// It reads three endpoints that already existed: /api/board (the grouped
-// programme view), /api/approvals (what needs a human), and /api/plane-status
-// (the daemon's own summary). The board is the source of truth for grouping;
-// approvals only decides which entries get a seal.
+// THE WRITES. Every operation `daedalus task` can perform is here, on the same
+// routes under /api/control, through the same client, with the same authority —
+// the Web UI is a client of control.sock exactly like the CLI. The earlier
+// version deliberately offered only approve and reject, on the argument that a
+// ledger which could also dispatch would be a second place for those decisions
+// to be made. That was wrong in one direction: a surface that shows you a
+// refused task and cannot retry it does not avoid the second place, it sends you
+// to a terminal to finish the thought — and the two then disagree about where
+// work is driven from. There is still one surface; it is just no longer a
+// read-only one.
 //
-// THE ONE WRITE. Approve and reject POST to /api/approvals/{id}/…, exactly as
-// the old panel did. Nothing else here acts: cancel, retry, integrate and the
-// rest have surfaces with the right confirmations attached, and a ledger that
-// could also dispatch would be a second place for those decisions to be made.
+// WHO DECIDES WHAT IS LEGAL. The plane does. COMMANDS below names the states in
+// which each command is worth OFFERING, which is a question about the menu, not
+// about authority: the guards live in internal/control and a command the plane
+// refuses comes back as a typed refusal and is printed as one. The table can be
+// out of date and the worst that happens is a command that says no; it can never
+// let something through.
 
 (function () {
   // The board changes on the scale of a Job, not a keystroke, and building it
@@ -26,9 +35,19 @@
 
   let timers = [];
   let approvable = new Set();
-  // The task the cursor is on. Kept across refreshes so a poll does not empty the
-  // description window out from under someone mid-read.
-  let current = null;
+  // What the cursor is on, kept across refreshes so a poll does not empty the
+  // entry window out from under someone mid-read.
+  let current = null;         // {kind: 'task'|'proposal', id}
+  let currentCard = null;     // the board card, when the entry is a task
+  let currentKey = null;      // its column key
+  let detail = null;          // StatusView for the selected task, once loaded
+  let tab = 'entry';          // entry | terms | record
+  let message = null;         // {text, kind} — the last thing that happened
+  let proposals = [];
+  let targets = [];
+  let archive = [];           // terminal tasks; only fetched when asked for
+  let showArchive = false;
+  let busy = false;           // one command at a time
 
   function el(id) { return document.getElementById(id); }
 
@@ -53,12 +72,231 @@
     withdrawn: ['closed', 'is-refused'],
   };
 
+  // The archive is the one section the board does not supply, so its rows are
+  // marked from the Task's own state rather than a column key.
+  const STATE_MARK = {
+    integrated: ['landed', 'is-passed'],
+    cancelled: ['cancelled', 'is-refused'],
+    failed: ['failed', 'is-refused'],
+    expired: ['expired', 'is-refused'],
+  };
+
   function text(tag, cls, value) {
     const node = document.createElement(tag);
     if (cls) node.className = cls;
     node.textContent = value;
     return node;
   }
+
+  function short(sha) { return sha ? sha.slice(0, 7) : ''; }
+
+  // --- talking to the plane -------------------------------------------------
+
+  // send performs one command and turns whatever comes back into a message.
+  //
+  // A REFUSAL IS NOT A FAILURE, and this is the only place that distinction gets
+  // made on the page: the plane answers 422 with a machine-readable reason for
+  // "I understood and declined", and anything else for "something broke". Told
+  // apart here, an operator reads "over_budget — no attempts left" instead of a
+  // red box that could mean the daemon died.
+  function send(method, path, body) {
+    const init = { method: method };
+    if (body !== undefined) {
+      init.headers = { 'Content-Type': 'application/json' };
+      init.body = JSON.stringify(body);
+    }
+    return fetch('/api/control' + path, init).then(function (res) {
+      return res.json().catch(function () { return {}; }).then(function (data) {
+        if (res.ok) return data;
+        const err = new Error((data && data.error) || ('the plane answered ' + res.status));
+        err.reason = data && data.reason;
+        err.refused = res.status === 422;
+        err.conflict = res.status === 409;
+        throw err;
+      });
+    });
+  }
+
+  function get(path) {
+    return fetch('/api/control' + path).then(function (res) { return res.json(); });
+  }
+
+  function say(text, kind) {
+    message = { text: text, kind: kind || '' };
+    paintMessage();
+  }
+
+  // --- the command table ----------------------------------------------------
+  //
+  // `states` is where the command is worth OFFERING. The flag variants are
+  // separate commands rather than a modifier on one, because each is a different
+  // act with different consequences — `retry --rebase` re-freezes the acceptance
+  // oracle at a new commit, and burying that in a checkbox would make the more
+  // consequential option the easier one to reach by accident.
+
+  const ANY_ACTIVE = ['planned', 'blocked', 'queued', 'working', 'input_required',
+    'candidate', 'verifying', 'verified', 'rejected', 'approval_required', 'approved'];
+
+  const COMMANDS = [
+    {
+      key: 'dispatch', label: 'Dispatch', states: ['planned', 'queued', 'rejected'],
+      run: function (id) { return send('POST', '/tasks/' + enc(id) + '/dispatch'); },
+      done: function (r) {
+        return 'Job ' + (r.job ? r.job.id : '?') + ' ' +
+          (r.job ? r.job.state : '') + (r.artifact ? ' · artifact ' + r.artifact.id : '');
+      },
+    },
+    {
+      key: 'verify', label: 'Verify', states: ['candidate'],
+      run: function (id) { return send('POST', '/tasks/' + enc(id) + '/verify', {}); },
+      done: verdict,
+    },
+    {
+      // Named for what it does to the RECORD, not for what it does to the gate:
+      // the verifier still runs, the failure is still recorded, and the artifact
+      // still carries verify=fail. What is waived is the consequence, and the
+      // human doing it is the one answerable for that.
+      key: 'waive', label: 'Verify · waive', states: ['candidate'], confirm: true, danger: true,
+      hint: 'Runs the verifier, records the true result, and moves on anyway — on your authority.',
+      run: function (id) { return send('POST', '/tasks/' + enc(id) + '/verify', { ignoreResult: true }); },
+      done: verdict,
+    },
+    {
+      key: 'retry', label: 'Retry', states: ['rejected'],
+      hint: 'A fresh attempt from the same base. Costs an attempt.',
+      run: function (id) { return send('POST', '/tasks/' + enc(id) + '/retry', {}); },
+      done: function (r) {
+        return 'Attempt ' + r.attempt + (r.maxAttempts ? ' of ' + r.maxAttempts : '') +
+          ' · job ' + (r.dispatch && r.dispatch.job ? r.dispatch.job.id : '?');
+      },
+    },
+    {
+      key: 'retry-rebase', label: 'Retry · rebase', states: ['rejected'], confirm: true,
+      hint: 'Re-pins the task to the project tip and RE-FREEZES its acceptance policy there.',
+      run: function (id) { return send('POST', '/tasks/' + enc(id) + '/retry', { rebase: true }); },
+      done: function (r) {
+        return 'Attempt ' + r.attempt + ' from ' + short(r.baseSha) + (r.rebased ? ' (rebased)' : '');
+      },
+    },
+    {
+      key: 'reverify', label: 'Reverify', states: ['rejected'],
+      hint: 'Grade the SAME artifact again. Costs no attempt.',
+      run: function (id) { return send('POST', '/tasks/' + enc(id) + '/reverify', {}); },
+      done: regrade,
+    },
+    {
+      key: 'reverify-amended', label: 'Reverify · amended', states: ['rejected'], confirm: true,
+      hint: 'Re-grade under a policy that has CHANGED: re-pins to the tip and re-freezes the oracle.',
+      run: function (id) { return send('POST', '/tasks/' + enc(id) + '/reverify', { amended: true }); },
+      done: regrade,
+    },
+    {
+      key: 'replan', label: 'Replan', states: ['rejected'],
+      prompt: {
+        title: 'Replan', label: 'A new objective for this task',
+        multiline: true, fill: function (t) { return t.objective; },
+      },
+      run: function (id, value) { return send('POST', '/tasks/' + enc(id) + '/replan', { objective: value }); },
+      done: function () { return 'Objective replaced; the task is planned again.'; },
+    },
+    {
+      key: 'checks', label: 'Checks', states: ['planned', 'blocked', 'queued', 'candidate', 'rejected'],
+      hint: 'Per-task acceptance commands, appended to the project policy. One per line; empty clears.',
+      prompt: {
+        title: 'Acceptance checks', label: 'One command per line',
+        multiline: true, allowEmpty: true,
+        fill: function (t) { return (t.checks || []).join('\n'); },
+      },
+      run: function (id, value) {
+        const lines = value.split('\n').map(function (s) { return s.trim(); })
+          .filter(function (s) { return s.length; });
+        return send('POST', '/tasks/' + enc(id) + '/checks', { checks: lines });
+      },
+      done: function (t) {
+        const n = (t.checks || []).length;
+        return n ? n + ' check' + (n === 1 ? '' : 's') + ' on this task.' : 'Checks cleared.';
+      },
+    },
+    {
+      key: 'review', label: 'Review', states: ['verified', 'approval_required', 'approved'],
+      run: function (id) { return send('POST', '/tasks/' + enc(id) + '/review'); },
+      done: function (r) {
+        return r.passed ? 'Review passed.' : 'Review failed — ' + (r.reason || '') + ' ' + (r.detail || '');
+      },
+    },
+    {
+      key: 'approve', label: 'Approve', states: ['verified', 'approval_required'], seal: true,
+      prompt: { title: 'Approve', label: 'A note for the record (optional)', allowEmpty: true },
+      run: function (id, note) { return send('POST', '/tasks/' + enc(id) + '/approve', { note: note }); },
+      done: function (t) { return t.id + ' is ' + t.state + '.'; },
+    },
+    {
+      key: 'reject', label: 'Reject', states: ['verified', 'approval_required'], danger: true,
+      prompt: { title: 'Reject', label: 'Why (optional)', allowEmpty: true },
+      run: function (id, note) { return send('POST', '/tasks/' + enc(id) + '/reject', { note: note }); },
+      done: function (t) { return t.id + ' is ' + t.state + '.'; },
+    },
+    {
+      key: 'integrate', label: 'Integrate', states: ['verified', 'approved'], confirm: true,
+      hint: 'Rebase onto the target, re-verify the MERGED result, and land it.',
+      run: function (id) { return send('POST', '/tasks/' + enc(id) + '/integrate', {}); },
+      done: landed,
+    },
+    {
+      key: 'integrate-branch', label: 'Integrate · branch', states: ['verified', 'approved'], confirm: true,
+      hint: 'Lands it, then fast-forwards the project checkout’s current branch to the landed commit.',
+      run: function (id) { return send('POST', '/tasks/' + enc(id) + '/integrate', { intoBranch: true }); },
+      done: landed,
+    },
+    {
+      key: 'steer', label: 'Steer', states: ['queued', 'working', 'input_required'],
+      hint: 'Inject an instruction into the running Job.',
+      needsJob: true,
+      prompt: { title: 'Steer', label: 'What should the Job do differently', multiline: true },
+      run: function (id, value, jobID) {
+        return send('POST', '/jobs/' + enc(jobID) + '/steer', { instruction: value });
+      },
+      done: function (s) { return s.id + ' is ' + s.state + (s.detail ? ' — ' + s.detail : ''); },
+    },
+    {
+      key: 'depends', label: 'Depends on', states: ANY_ACTIVE,
+      hint: 'This task may not LAND until the named one has.',
+      prompt: { title: 'Dependency', label: 'The task this one waits for, e.g. T-3' },
+      run: function (id, value) {
+        return send('POST', '/tasks/' + enc(id) + '/dependencies', { dependsOn: value.trim() });
+      },
+      done: function (e) { return e.taskId + ' now waits for ' + e.dependsOn + '.'; },
+    },
+    {
+      key: 'cancel', label: 'Cancel', states: ANY_ACTIVE, confirm: true, danger: true,
+      hint: 'Ends the task and any running Job. Terminal — there is no way back.',
+      run: function (id) { return send('DELETE', '/tasks/' + enc(id)); },
+      done: function (t) { return t.id + ' is ' + t.state + '.'; },
+    },
+  ];
+
+  function enc(s) { return encodeURIComponent(s); }
+
+  function verdict(r) {
+    if (r.verified) return 'Verified.';
+    if (r.waived) return 'Waived — recorded as ' + (r.reason || 'failed') + '; ' + (r.detail || '');
+    return 'Refused — ' + (r.reason || '') + ' ' + (r.detail || '');
+  }
+
+  function regrade(r) {
+    return 'Set aside ' + (r.previousReason || 'the verdict') +
+      (r.amended ? ' under an amended policy at ' + short(r.base_sha || r.baseSha) : '') +
+      ' — ' + verdict(r.verify || {});
+  }
+
+  function landed(r) {
+    let out = 'Landed ' + short(r.mergedSha) + ' onto the target' +
+      (r.attempts > 1 ? ' after ' + r.attempts + ' rounds' : '') + '.';
+    if (r.branchNote) out += ' Branch: ' + r.branchNote;
+    return out;
+  }
+
+  // --- the list -------------------------------------------------------------
 
   // The plane's marginalia: why this entry is where it is. Same facts the CLI
   // board prints under a card, in the same words.
@@ -86,125 +324,41 @@
   }
 
   // A row is one line and never more. The objective is a paragraph — sometimes
-  // several — so the row carries as much as fits and the description window
-  // above carries the rest. Pointing at a row is what fills that window, which
-  // is the same gesture as reading it.
-  function entry(card, columnKey) {
+  // several — so the row carries as much as fits and the entry window beside it
+  // carries the rest. Pointing at a row is what fills that window, which is the
+  // same gesture as reading it.
+  function entry(id, label, mark, onShow) {
     const row = document.createElement('button');
     row.type = 'button';
     row.className = 'ledger-row';
-    row.dataset.taskId = card.taskId;
+    row.dataset.entryId = id;
 
-    row.appendChild(text('span', 'ledger-cursor', '\u25B6'));
-    row.appendChild(text('span', 'ledger-row-id', card.taskId));
-    row.appendChild(text('span', 'ledger-row-objective', card.objective));
-
-    // Every row gets a status word, including the ones awaiting a decision. The
-    // commands live in the entry window, where the objective they are deciding
-    // on is legible — a row is one truncated line and nobody should approve
-    // something on the strength of its first eight words.
-    const mark = markFor(columnKey);
+    row.appendChild(text('span', 'ledger-cursor', '▶'));
+    row.appendChild(text('span', 'ledger-row-id', id));
+    row.appendChild(text('span', 'ledger-row-objective', label));
     row.appendChild(text('span', 'ledger-row-status ' + mark[1], mark[0]));
 
-    const show = function () { describe(card, columnKey); };
-    row.addEventListener('mouseenter', show);
-    row.addEventListener('focus', show);
-    row.addEventListener('click', show);
+    row.addEventListener('mouseenter', onShow);
+    row.addEventListener('focus', onShow);
+    row.addEventListener('click', onShow);
     return row;
   }
 
-  // The description window. It is the only place an objective is readable in
-  // full, so it is also the only place the plane's marginalia belongs.
-  function describe(card, columnKey) {
-    const id = el('ledger-desc-id');
-    const project = el('ledger-desc-project');
-    const status = el('ledger-desc-status');
-    const body = el('ledger-desc-body');
-    const note = el('ledger-desc-note');
-    if (!id || !body) return;
-
-    current = card ? card.taskId : null;
-    document.querySelectorAll('.ledger-row').forEach(function (r) {
-      r.classList.toggle('is-current', !!card && r.dataset.taskId === card.taskId);
-    });
-
-    if (!card) {
-      id.textContent = '—';
-      if (project) project.textContent = '';
-      if (status) status.textContent = '';
-      body.className = 'ledger-desc-body is-empty';
-      body.textContent = 'Point at an entry to read it.';
-      if (note) note.textContent = '';
-      const none = el('ledger-commands');
-      if (none) none.innerHTML = '';
-      return;
+  function section(list, title, count, rows) {
+    const sec = document.createElement('div');
+    sec.className = 'ledger-section';
+    const head = document.createElement('div');
+    head.className = 'ledger-section-head';
+    head.appendChild(text('span', 'ledger-section-title', title));
+    head.appendChild(text('span', 'ledger-section-count', String(count)));
+    sec.appendChild(head);
+    if (!rows.length) {
+      sec.appendChild(text('div', 'ledger-none', 'Nothing.'));
+    } else {
+      rows.forEach(function (r) { sec.appendChild(r); });
     }
-
-    const mark = markFor(columnKey);
-    id.textContent = card.taskId;
-    if (project) project.textContent = card.project;
-    if (status) {
-      status.textContent = mark[0];
-      status.className = 'ledger-desc-status ledger-row-status ' + mark[1];
-    }
-    body.className = 'ledger-desc-body';
-    body.textContent = card.objective;
-    body.scrollTop = 0;
-    if (note) {
-      const n = notesFor(card);
-      note.textContent = n.text;
-      note.className = 'ledger-desc-note' + (n.stuck ? ' is-stuck' : '');
-    }
-
-    // Commands only where a decision is genuinely the next act, and only once
-    // the approvals endpoint has confirmed it. The board alone is not enough: it
-    // groups by state, and a task can sit in the approval column while the plane
-    // is still settling it.
-    const cmds = el('ledger-commands');
-    if (cmds) {
-      cmds.innerHTML = '';
-      if (columnKey === AWAITING_YOU && approvable.has(card.taskId)) {
-        cmds.appendChild(commands(card));
-      }
-    }
-  }
-
-  // A decision is a menu command, rendered into the entry window beside the
-  // objective it decides on.
-  function commands(card) {
-    const wrap = document.createElement('span');
-    wrap.className = 'ledger-command-group';
-
-    const approve = document.createElement('button');
-    approve.className = 'ff-cmd';
-    approve.type = 'button';
-    approve.textContent = 'Approve';
-    // A screen reader hears the object, not just the verb: there may be several
-    // of these on screen and "Approve" alone would not say which.
-    approve.setAttribute('aria-label', 'Approve ' + card.taskId + ', ' + card.project);
-
-    const refuse = document.createElement('button');
-    refuse.className = 'ff-cmd is-refuse';
-    refuse.type = 'button';
-    refuse.textContent = 'Reject';
-    refuse.setAttribute('aria-label', 'Reject ' + card.taskId + ', ' + card.project);
-
-    approve.onclick = function () { decide(card.taskId, 'approve', approve, refuse); };
-    refuse.onclick = function () { decide(card.taskId, 'reject', approve, refuse); };
-
-    wrap.appendChild(approve);
-    wrap.appendChild(refuse);
-    return wrap;
-  }
-
-  function decide(id, action, approve, refuse) {
-    // Both commands go down together so a double-click cannot send two
-    // decisions; the refresh restores the true state either way.
-    approve.disabled = true;
-    refuse.disabled = true;
-    fetch('/api/approvals/' + encodeURIComponent(id) + '/' + action, { method: 'POST' })
-      .catch(function () { /* the refresh below reports the real state */ })
-      .then(function () { refreshApprovals(); refreshBoard(); });
+    list.appendChild(sec);
+    return sec;
   }
 
   function renderBoard(data) {
@@ -227,43 +381,688 @@
     if (body) body.style.display = '';
 
     if (sub) {
-      const limit = data.globalLimit > 0 ? String(data.globalLimit) : '\u221E';
-      sub.textContent = data.globalRunning + '/' + limit + ' running \u00B7 ' +
-        data.pendingApprovals + ' awaiting you \u00B7 ' +
+      const limit = data.globalLimit > 0 ? String(data.globalLimit) : '∞';
+      sub.textContent = data.globalRunning + '/' + limit + ' running · ' +
+        data.pendingApprovals + ' awaiting you · ' +
         data.pendingProposals + ' proposals pending';
     }
 
     list.innerHTML = '';
     let restored = null;
     (data.columns || []).forEach(function (col) {
-      const section = document.createElement('div');
-      section.className = 'ledger-section';
-
-      const head = document.createElement('div');
-      head.className = 'ledger-section-head';
-      head.appendChild(text('span', 'ledger-section-title', col.title));
-      head.appendChild(text('span', 'ledger-section-count', String(col.cards.length)));
-      section.appendChild(head);
-
-      if (!col.cards.length) {
-        section.appendChild(text('div', 'ledger-none', 'Nothing.'));
-      } else {
-        col.cards.forEach(function (c) {
-          section.appendChild(entry(c, col.key));
-          if (c.taskId === current) restored = { card: c, key: col.key };
-        });
-      }
-      list.appendChild(section);
+      const rows = col.cards.map(function (c) {
+        if (current && current.kind === 'task' && c.taskId === current.id) {
+          restored = { card: c, key: col.key };
+        }
+        return entry(c.taskId, c.objective, markFor(col.key), function () { selectTask(c, col.key); });
+      });
+      section(list, col.title, col.cards.length, rows);
     });
 
-    // Put the cursor back where it was. If that task has moved on, the window
-    // says so by going blank rather than showing a stale entry as if it were live.
-    if (restored) {
-      describe(restored.card, restored.key);
+    // Proposals are entries in the same ledger: an agent asked for something and
+    // a human has to answer. Kept out of the board columns because they are not
+    // work in a state — they are a question about work.
+    if (proposals.length) {
+      section(list, 'Proposed — awaiting your word', proposals.length,
+        proposals.map(function (p) {
+          // Re-point at the FRESH proposal, not the one selected a poll ago: a
+          // proposal that has just been confirmed elsewhere must not still be
+          // offering its Confirm plate.
+          if (current && current.kind === 'proposal' && p.id === current.id) {
+            detail = p;
+            restored = { proposal: p };
+          }
+          return entry(p.id, p.operation.replace(/_/g, ' ') + (p.taskId ? ' · ' + p.taskId : ''),
+            ['proposed', 'is-waiting'], function () { selectProposal(p); });
+        }));
+    }
+
+    // The archive is off by default: the board is about what is in flight, and a
+    // list that grows forever would bury it. It is one command away because the
+    // record of a landed task is exactly what you want when asking what happened.
+    if (showArchive) {
+      section(list, 'Closed', archive.length, archive.map(function (t) {
+        const card = { taskId: t.id, project: t.project, objective: t.objective, state: t.state };
+        if (current && current.kind === 'task' && t.id === current.id) restored = { card: card, key: null };
+        return entry(t.id, t.objective, STATE_MARK[t.state] || [t.state, 'is-working'],
+          function () { selectTask(card, null); });
+      }));
+    }
+
+    // Put the cursor back where it was. If that entry has moved on, the window
+    // says so by going blank rather than showing a stale one as if it were live.
+    if (restored && restored.card) {
+      currentCard = restored.card;
+      currentKey = restored.key;
+      paintEntry();
+    } else if (restored && restored.proposal) {
+      paintEntry();
+    } else if (current) {
+      clearEntry();
     } else {
-      describe(null, null);
+      paintEntry();
     }
   }
+
+  // --- the entry window -----------------------------------------------------
+
+  function selectTask(card, columnKey) {
+    const same = current && current.kind === 'task' && current.id === card.taskId;
+    current = { kind: 'task', id: card.taskId };
+    currentCard = card;
+    currentKey = columnKey;
+    if (!same) {
+      detail = null;
+      message = null;
+      tab = 'entry';
+    }
+    paintEntry();
+    loadDetail(card.taskId);
+  }
+
+  function selectProposal(p) {
+    current = { kind: 'proposal', id: p.id };
+    currentCard = null;
+    currentKey = null;
+    detail = p;
+    message = null;
+    tab = 'entry';
+    paintEntry();
+  }
+
+  function clearEntry() {
+    current = null;
+    currentCard = null;
+    currentKey = null;
+    detail = null;
+    paintEntry();
+  }
+
+  // loadDetail fetches the full status of the selected task. It is a SECOND
+  // request on top of the board because the board is a summary by design — the
+  // jobs, the artifacts, the budget and the frozen policy are what the commands
+  // are decided against, and none of them are on a card.
+  function loadDetail(id) {
+    get('/tasks/' + enc(id)).then(function (view) {
+      if (!current || current.kind !== 'task' || current.id !== id) return; // moved on
+      if (view && view.task) {
+        detail = view;
+        paintEntry();
+      }
+    }).catch(function () { /* the entry renders from the card alone */ });
+  }
+
+  function paintEntry() {
+    const head = el('ledger-desc-id');
+    const project = el('ledger-desc-project');
+    const status = el('ledger-desc-status');
+    const bodyEl = el('ledger-desc-body');
+    const note = el('ledger-desc-note');
+    const tabs = el('ledger-tabs');
+    if (!head || !bodyEl) return;
+
+    document.querySelectorAll('.ledger-row').forEach(function (r) {
+      r.classList.toggle('is-current', !!current && r.dataset.entryId === current.id);
+    });
+
+    if (!current) {
+      head.textContent = '—';
+      if (project) project.textContent = '';
+      if (status) status.textContent = '';
+      if (tabs) tabs.innerHTML = '';
+      bodyEl.className = 'ledger-desc-body is-empty';
+      bodyEl.textContent = 'Point at an entry to read it.';
+      if (note) note.textContent = '';
+      el('ledger-commands').innerHTML = '';
+      paintFoot();
+      return;
+    }
+
+    if (current.kind === 'proposal') return paintProposal();
+
+    const task = detail && detail.task;
+    const state = task ? task.state : (currentCard ? currentCard.state : '');
+    const mark = currentKey ? markFor(currentKey) : (STATE_MARK[state] || [state, 'is-working']);
+
+    head.textContent = current.id;
+    if (project) project.textContent = currentCard ? currentCard.project : (task ? task.project : '');
+    if (status) {
+      status.textContent = mark[0];
+      status.className = 'ledger-desc-status ledger-row-status ' + mark[1];
+    }
+    paintTabs(['entry', 'terms', 'record']);
+    bodyEl.className = 'ledger-desc-body';
+    bodyEl.innerHTML = '';
+    if (tab === 'entry') paintObjective(bodyEl);
+    else if (tab === 'terms') paintTerms(bodyEl);
+    else paintRecord(bodyEl);
+
+    if (note) {
+      const n = currentCard ? notesFor(currentCard) : { text: '', stuck: false };
+      note.textContent = n.text;
+      note.className = 'ledger-desc-note' + (n.stuck ? ' is-stuck' : '');
+    }
+    paintCommands(state);
+    paintMessage();
+    paintFoot();
+  }
+
+  function paintTabs(names) {
+    const tabs = el('ledger-tabs');
+    if (!tabs) return;
+    tabs.innerHTML = '';
+    names.forEach(function (name) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'ff-tab' + (tab === name ? ' is-current' : '');
+      b.textContent = name;
+      b.setAttribute('aria-pressed', tab === name ? 'true' : 'false');
+      b.onclick = function () { tab = name; paintEntry(); };
+      tabs.appendChild(b);
+    });
+  }
+
+  function paintObjective(host) {
+    const task = detail && detail.task;
+    host.appendChild(text('div', 'ledger-prose', task ? task.objective :
+      (currentCard ? currentCard.objective : '')));
+    const deps = detail && detail.dependencies;
+    if (deps && ((deps.dependsOn || []).length || (deps.dependents || []).length)) {
+      const facts = document.createElement('dl');
+      facts.className = 'ledger-facts';
+      if ((deps.dependsOn || []).length) fact(facts, 'waits for', deps.dependsOn.join(' '));
+      if ((deps.dependents || []).length) fact(facts, 'waited on by', deps.dependents.join(' '));
+      if (deps.status && deps.status.unsatisfiable && deps.status.unsatisfiable.length) {
+        fact(facts, 'unsatisfiable', deps.status.unsatisfiable.join(' '));
+      }
+      host.appendChild(facts);
+    }
+  }
+
+  function fact(list, key, value) {
+    list.appendChild(text('dt', 'ledger-fact-k', key));
+    list.appendChild(text('dd', 'ledger-fact-v', value));
+  }
+
+  // TERMS is what this task is graded against and bounded by — the two things a
+  // command like `reverify --amended` or `checks` actually changes. They were
+  // invisible on the old page, which meant the operator could not see what the
+  // oracle was before deciding to move it.
+  function paintTerms(host) {
+    const task = detail && detail.task;
+    if (!task) {
+      host.appendChild(text('div', 'ledger-prose is-empty', 'Reading…'));
+      return;
+    }
+    const facts = document.createElement('dl');
+    facts.className = 'ledger-facts';
+    fact(facts, 'base', short(task.baseSha) || '—');
+    fact(facts, 'policy hash', short(task.acceptanceHash) || 'the project default');
+    fact(facts, 'image', task.imageDigest ? short(task.imageDigest.replace('sha256:', '')) : 'not pinned yet');
+    if (task.acceptanceRef) fact(facts, 'acceptance note', task.acceptanceRef);
+    const b = task.budget || {};
+    fact(facts, 'wall clock', b.wallClockSeconds ? b.wallClockSeconds + 's' : 'unbounded');
+    fact(facts, 'attempts', (detail.jobs || []).length + ' used' +
+      (b.maxAttempts ? ' of ' + b.maxAttempts : ' of unbounded'));
+    fact(facts, 'review cycles', b.maxReviewCycles ? 'max ' + b.maxReviewCycles : 'unbounded');
+    if (b.concurrency) fact(facts, 'concurrency', String(b.concurrency));
+    host.appendChild(facts);
+
+    host.appendChild(text('div', 'ledger-sub', 'Per-task checks'));
+    const checks = task.checks || [];
+    if (!checks.length) {
+      host.appendChild(text('div', 'ledger-prose is-empty',
+        'None. This task is graded on the project policy alone.'));
+    } else {
+      const ul = document.createElement('ul');
+      ul.className = 'ledger-checks';
+      checks.forEach(function (c) { ul.appendChild(text('li', 'ledger-check', c)); });
+      host.appendChild(ul);
+    }
+
+    const s = detail.scheduling;
+    if (s && (s.queuedForCapacity || s.running)) {
+      host.appendChild(text('div', 'ledger-sub', 'With the scheduler'));
+      const sf = document.createElement('dl');
+      sf.className = 'ledger-facts';
+      if (s.running) fact(sf, 'running', 'yes');
+      if (s.queuedForCapacity) fact(sf, 'queued', 'position ' + (s.queuePosition || '?'));
+      fact(sf, 'in flight', s.globalRunning + '/' +
+        (s.limits && s.limits.global ? s.limits.global : '∞') + ' globally');
+      host.appendChild(sf);
+    }
+  }
+
+  // RECORD is the attempts and the append-only log, in that order: what was
+  // tried, then what the plane wrote down about it.
+  function paintRecord(host) {
+    const jobs = (detail && detail.jobs) || [];
+    host.appendChild(text('div', 'ledger-sub', 'Attempts'));
+    if (!jobs.length) {
+      host.appendChild(text('div', 'ledger-prose is-empty', 'Nothing has been attempted yet.'));
+    } else {
+      jobs.forEach(function (jv) {
+        const j = jv.job;
+        const row = document.createElement('div');
+        row.className = 'ledger-log-row';
+        row.appendChild(text('span', 'ledger-log-id', j.id));
+        row.appendChild(text('span', 'ledger-log-what',
+          j.state + (j.executionResult ? ' · ' + j.executionResult : '') +
+          (j.outputSnapshot ? ' · ' + short(j.outputSnapshot) : '')));
+        host.appendChild(row);
+        (jv.artifacts || []).forEach(function (a) {
+          const ar = document.createElement('div');
+          ar.className = 'ledger-log-row is-sub';
+          ar.appendChild(text('span', 'ledger-log-id', a.id));
+          ar.appendChild(text('span', 'ledger-log-what',
+            'verify ' + a.verify + ' · review ' + a.review + ' · ' + a.branch +
+            (a.integratedSha ? ' → ' + short(a.integratedSha) : '')));
+          host.appendChild(ar);
+        });
+        if (j.logPath) {
+          const lp = text('div', 'ledger-logpath', j.logPath);
+          lp.title = 'This Job’s own log on the host';
+          host.appendChild(lp);
+        }
+        paintSteering(host, j.id);
+      });
+    }
+
+    host.appendChild(text('div', 'ledger-sub', 'The record'));
+    const log = text('div', 'ledger-prose is-empty', 'Reading…');
+    host.appendChild(log);
+    get('/tasks/' + enc(current.id) + '/events').then(function (events) {
+      if (!Array.isArray(events)) return;
+      log.remove();
+      if (!events.length) {
+        host.appendChild(text('div', 'ledger-prose is-empty', 'Empty.'));
+        return;
+      }
+      events.forEach(function (e) {
+        const row = document.createElement('div');
+        row.className = 'ledger-log-row';
+        row.appendChild(text('span', 'ledger-log-id', e.entityId));
+        const what = e.kind + (e.from || e.to ? ' · ' + (e.from || '—') + ' → ' + e.to : '') +
+          (e.reason ? ' · ' + e.reason : '');
+        row.appendChild(text('span', 'ledger-log-what', what));
+        host.appendChild(row);
+        if (e.note) host.appendChild(text('div', 'ledger-log-note', e.note));
+      });
+    }).catch(function () { log.textContent = 'The record could not be read.'; });
+  }
+
+  // A Job's steering history, under the Job it was aimed at. It is here rather
+  // than beside the Steer command because an instruction's INTERESTING part is
+  // what became of it: the shipped runner has no steering boundary, so most of
+  // these read `undeliverable`, and a page that showed only "sent" would be
+  // making the claim the subsystem deliberately refuses to make.
+  //
+  // Withdrawing is offered only on a PENDING one, which is the same window the
+  // CLI's `task steer --withdraw` has: once an instruction is delivered there is
+  // nothing left to take back.
+  function paintSteering(host, jobID) {
+    const anchor = text('div', 'ledger-logpath', '');
+    host.appendChild(anchor);
+    get('/jobs/' + enc(jobID) + '/steering').then(function (events) {
+      if (!Array.isArray(events) || !events.length) {
+        anchor.remove();
+        return;
+      }
+      events.forEach(function (s) {
+        const row = document.createElement('div');
+        row.className = 'ledger-log-row is-sub';
+        row.appendChild(text('span', 'ledger-log-id', s.id));
+        row.appendChild(text('span', 'ledger-log-what',
+          s.state + ' · ' + (s.issuedBy || '') + ' · ' + s.instruction));
+        host.insertBefore(row, anchor);
+        if (s.state === 'pending') {
+          const wrap = document.createElement('div');
+          wrap.className = 'ledger-commands is-inline';
+          wrap.appendChild(plate('Withdraw ' + s.id, 'refuse', function () {
+            runCommand({
+              key: 'withdraw', label: 'Withdraw ' + s.id, confirm: true, danger: true,
+              hint: 'Takes back an instruction that has not been delivered yet.',
+              run: function () { return send('DELETE', '/steering/' + enc(s.id)); },
+              done: function (r) { return r.id + ' is ' + r.state + '.'; },
+            }, s.id);
+          }));
+          host.insertBefore(wrap, anchor);
+        }
+      });
+      anchor.remove();
+    }).catch(function () { anchor.remove(); });
+  }
+
+  function paintProposal() {
+    const p = detail;
+    const bodyEl = el('ledger-desc-body');
+    el('ledger-desc-id').textContent = p.id;
+    el('ledger-desc-project').textContent = p.taskId || '';
+    const status = el('ledger-desc-status');
+    status.textContent = p.state;
+    status.className = 'ledger-desc-status ledger-row-status ' +
+      (p.state === 'pending' ? 'is-waiting' : p.state === 'confirmed' ? 'is-passed' : 'is-refused');
+    el('ledger-tabs').innerHTML = '';
+    bodyEl.className = 'ledger-desc-body';
+    bodyEl.innerHTML = '';
+    bodyEl.appendChild(text('div', 'ledger-prose',
+      'The ' + p.proposedBy + ' asked to ' + p.operation.replace(/_/g, ' ') +
+      (p.taskId ? ' on ' + p.taskId : '') + '.'));
+    const facts = document.createElement('dl');
+    facts.className = 'ledger-facts';
+    fact(facts, 'operation', p.operation);
+    if (p.argument) fact(facts, 'argument', p.argument);
+    fact(facts, 'proposed by', p.proposedBy);
+    fact(facts, 'at', p.createdAt);
+    if (p.detail) fact(facts, 'detail', p.detail);
+    bodyEl.appendChild(facts);
+    el('ledger-desc-note').textContent = p.state === 'pending'
+      ? 'Confirming runs the operation. An agent cannot confirm its own proposal — that is what this queue is for.'
+      : '';
+
+    const cmds = el('ledger-commands');
+    cmds.innerHTML = '';
+    if (p.state === 'pending') {
+      cmds.appendChild(plate('Confirm', 'seal', function () {
+        runCommand({
+          key: 'confirm', label: 'Confirm', confirm: true,
+          prompt: { title: 'Confirm', label: 'A note for the record (optional)', allowEmpty: true },
+          run: function (id, note) { return send('POST', '/proposals/' + enc(id) + '/confirm', { note: note }); },
+          done: function (r) { return r.id + ' is ' + r.state + '.'; },
+        }, p.id);
+      }));
+      cmds.appendChild(plate('Deny', 'refuse', function () {
+        runCommand({
+          key: 'deny', label: 'Deny', danger: true,
+          prompt: { title: 'Deny', label: 'Why (optional)', allowEmpty: true },
+          run: function (id, note) { return send('POST', '/proposals/' + enc(id) + '/deny', { note: note }); },
+          done: function (r) { return r.id + ' is ' + r.state + '.'; },
+        }, p.id);
+      }));
+    }
+    paintMessage();
+    paintFoot();
+  }
+
+  // --- commands -------------------------------------------------------------
+
+  function plate(label, kind, onClick) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'ff-cmd' + (kind === 'refuse' ? ' is-refuse' : '') + (kind === 'seal' ? ' is-seal' : '');
+    b.textContent = label;
+    b.onclick = onClick;
+    return b;
+  }
+
+  function paintCommands(state) {
+    const host = el('ledger-commands');
+    if (!host) return;
+    host.innerHTML = '';
+    if (!state) return;
+
+    const runningJob = jobToSteer();
+    COMMANDS.forEach(function (cmd) {
+      if (cmd.states.indexOf(state) === -1) return;
+      // Approve and reject are the one pair the board has a second opinion about:
+      // a task can sit in the approval column while the plane is still settling
+      // it, and the approvals endpoint is what confirms a human is genuinely the
+      // next actor.
+      if ((cmd.key === 'approve' || cmd.key === 'reject') &&
+        currentKey === AWAITING_YOU && !approvable.has(current.id)) return;
+      if (cmd.needsJob && !runningJob) return;
+
+      const b = plate(cmd.label, cmd.danger ? 'refuse' : cmd.seal ? 'seal' : '', function () {
+        runCommand(cmd, current.id, runningJob);
+      });
+      // The screen reader hears the object, not just the verb: there are a dozen
+      // of these and "Retry" alone would not say what is being retried.
+      b.setAttribute('aria-label', cmd.label + ' ' + current.id);
+      if (cmd.hint) b.title = cmd.hint;
+      b.disabled = busy;
+      host.appendChild(b);
+    });
+  }
+
+  // The Job a steer would reach. Steering is aimed at work that is RUNNING, so
+  // this looks for a running Job rather than the newest one — a task can be
+  // `working` with an older Job long since finished.
+  function jobToSteer() {
+    const jobs = (detail && detail.jobs) || [];
+    for (let i = jobs.length - 1; i >= 0; i--) {
+      const s = jobs[i].job.state;
+      if (s === 'working' || s === 'queued' || s === 'input_required') return jobs[i].job.id;
+    }
+    return null;
+  }
+
+  // runCommand walks the three gates a command can have, in order: ask for a
+  // value, ask whether you meant it, then do it. Each is optional and most
+  // commands have none.
+  function runCommand(cmd, id, jobID) {
+    if (busy) return;
+    if (cmd.prompt) {
+      // A prompt that PRE-FILLS from the task must not open before the task has
+      // been read. `checks` fills with the current checks and sends back exactly
+      // what is in the box — opened early it would show an empty field, and an
+      // operator pressing OK would clear checks they never saw.
+      if (cmd.prompt.fill && !(detail && detail.task)) {
+        say('Still reading ' + id + ' — try again in a moment.', '');
+        return;
+      }
+      const fill = cmd.prompt.fill ? cmd.prompt.fill(detail.task) : '';
+      askFor(cmd.prompt, fill, function (value) {
+        if (!cmd.prompt.allowEmpty && !value.trim()) {
+          say(cmd.label + ' needs something to act on.', 'is-refused');
+          return;
+        }
+        maybeConfirm(cmd, function () { execute(cmd, id, value, jobID); });
+      });
+      return;
+    }
+    maybeConfirm(cmd, function () { execute(cmd, id, undefined, jobID); });
+  }
+
+  // A confirmation is a command plate turning into a question, in place. A
+  // browser confirm() would work and would be the only thing on the page that
+  // did not belong to it; more to the point, the question needs to name the
+  // consequence, and confirm() gives one line with no room to.
+  function maybeConfirm(cmd, then) {
+    if (!cmd.confirm) return then();
+    const host = el('ledger-commands');
+    host.innerHTML = '';
+    const q = document.createElement('span');
+    q.className = 'ledger-confirm';
+    q.appendChild(text('span', 'ledger-confirm-q', cmd.label + '?'));
+    if (cmd.hint) q.appendChild(text('span', 'ledger-confirm-why', cmd.hint));
+    host.appendChild(q);
+    const yes = plate('Yes', cmd.danger ? 'refuse' : '', function () { then(); });
+    const no = plate('No', '', function () { paintEntry(); });
+    host.appendChild(yes);
+    host.appendChild(no);
+    yes.focus();
+  }
+
+  function execute(cmd, id, value, jobID) {
+    busy = true;
+    paintCommands(currentState());
+    say('…' + cmd.label, '');
+    cmd.run(id, value, jobID).then(function (result) {
+      say(cmd.done ? cmd.done(result) : 'Done.', 'is-good');
+    }).catch(function (err) {
+      // A refusal is the plane working. Said differently from a failure, and
+      // labelled with the reason code, because the reason is what tells you which
+      // command to reach for next.
+      if (err.refused) say('Refused · ' + (err.reason || '') + ' — ' + err.message, 'is-refused');
+      else if (err.conflict) say('Not now — ' + err.message, 'is-refused');
+      else say(err.message, 'is-bad');
+    }).then(function () {
+      busy = false;
+      // Re-enable the commands from what we already know, then go and find out
+      // what is actually true. Waiting for the round trip would leave every plate
+      // greyed out for as long as a verify takes.
+      paintEntry();
+      if (current && current.kind === 'task') loadDetail(current.id);
+      refreshApprovals();
+      refreshProposals().then(refreshBoard);
+    });
+  }
+
+  function currentState() {
+    if (detail && detail.task) return detail.task.state;
+    return currentCard ? currentCard.state : '';
+  }
+
+  function paintMessage() {
+    const host = el('ledger-message');
+    if (!host) return;
+    host.className = 'ledger-message ' + (message ? message.kind : '');
+    host.textContent = message ? message.text : '';
+  }
+
+  // --- the prompt window ----------------------------------------------------
+
+  function askFor(spec, fill, then) {
+    const overlay = el('ledger-prompt');
+    const field = el('ledger-prompt-field');
+    if (!overlay || !field) return;
+    el('ledger-prompt-title').textContent = spec.title;
+    el('ledger-prompt-label').textContent = spec.label;
+    field.innerHTML = '';
+
+    const input = document.createElement(spec.multiline ? 'textarea' : 'input');
+    input.className = 'ledger-input';
+    if (!spec.multiline) input.type = 'text';
+    if (spec.multiline) input.rows = 6;
+    input.value = fill || '';
+    field.appendChild(input);
+
+    const cmds = el('ledger-prompt-commands');
+    cmds.innerHTML = '';
+    const accept = function () { close(); then(input.value); };
+    const close = function () {
+      overlay.classList.remove('is-open');
+      document.removeEventListener('keydown', onKey);
+    };
+    cmds.appendChild(plate('OK', 'seal', accept));
+    cmds.appendChild(plate('Cancel', '', function () { close(); paintEntry(); }));
+
+    // Escape closes, and Enter accepts a single-line field. A textarea keeps
+    // Enter for what it is for; Ctrl+Enter accepts it, which is the convention
+    // everywhere else a multi-line box has a submit.
+    const onKey = function (e) {
+      if (e.key === 'Escape') { close(); paintEntry(); }
+      else if (e.key === 'Enter' && (!spec.multiline || e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        accept();
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    overlay.classList.add('is-open');
+    input.focus();
+    input.select();
+  }
+
+  // --- creating a task ------------------------------------------------------
+
+  // The one entry that does not exist yet. It gets its own window rather than a
+  // command plate, because everything else on this page acts on a selected row
+  // and this acts on nothing.
+  function openNewTask() {
+    const overlay = el('ledger-new');
+    if (!overlay) return;
+    overlay.classList.add('is-open');
+    const project = el('new-project');
+    // Projects come from the registry, not from the plane: a task can be created
+    // for a project that has never had one.
+    fetch('/api/projects').then(function (r) { return r.json(); }).then(function (list) {
+      project.innerHTML = '';
+      (list || []).forEach(function (p) {
+        const opt = document.createElement('option');
+        opt.value = p.name;
+        opt.textContent = p.name;
+        project.appendChild(opt);
+      });
+      if (current && current.kind === 'task' && currentCard) project.value = currentCard.project;
+    }).catch(function () { /* the field stays empty and the plane will say so */ });
+    el('new-objective').value = '';
+    el('new-checks').value = '';
+    el('new-wall-clock').value = '';
+    el('new-attempts').value = '';
+    el('new-review-cycles').value = '';
+    el('new-error').textContent = '';
+    el('new-objective').focus();
+  }
+
+  function closeNewTask() {
+    const overlay = el('ledger-new');
+    if (overlay) overlay.classList.remove('is-open');
+  }
+
+  function submitNewTask() {
+    const objective = el('new-objective').value.trim();
+    const err = el('new-error');
+    if (!objective) {
+      err.textContent = 'An objective is what the task IS; there is nothing to create without one.';
+      return;
+    }
+    const req = { project: el('new-project').value, objective: objective };
+    const checks = el('new-checks').value.split('\n')
+      .map(function (s) { return s.trim(); }).filter(function (s) { return s.length; });
+    if (checks.length) req.checks = checks;
+
+    // A budget axis is sent only when it was typed. An empty field means "inherit
+    // the project ceiling", and sending 0 for it would mean something else
+    // entirely — 0 reads as unbounded on some axes and is refused on others.
+    const budget = {};
+    const num = function (id, key) {
+      const v = el(id).value.trim();
+      if (v !== '') budget[key] = parseInt(v, 10);
+    };
+    num('new-wall-clock', 'wallClockSeconds');
+    num('new-attempts', 'maxAttempts');
+    num('new-review-cycles', 'maxReviewCycles');
+    if (Object.keys(budget).length) req.budget = budget;
+
+    err.textContent = '';
+    send('POST', '/tasks', req).then(function (task) {
+      closeNewTask();
+      say(task.id + ' created for ' + task.project + '.', 'is-good');
+      refreshBoard();
+    }).catch(function (e) {
+      err.textContent = e.refused ? (e.reason || 'refused') + ' — ' + e.message : e.message;
+    });
+  }
+
+  // --- the foot: the message, and the target the work would land on ---------
+
+  function paintFoot() {
+    const host = el('ledger-target');
+    if (!host) return;
+    host.innerHTML = '';
+    const project = currentCard ? currentCard.project :
+      (detail && detail.task ? detail.task.project : null);
+    if (!project) return;
+
+    const target = targets.filter(function (t) {
+      return (t.projects || []).indexOf(project) !== -1;
+    })[0];
+    if (!target) return;
+
+    host.appendChild(text('span', 'ledger-target-label', 'target'));
+    host.appendChild(text('span', 'ledger-target-value',
+      short(target.sha) + ' · ' + (target.repoPath || target.queueId)));
+    host.appendChild(plate('Sync', '', function () {
+      runCommand({
+        key: 'sync', label: 'Sync target', confirm: true,
+        hint: 'Re-points the integration target at the project checkout’s current HEAD.',
+        run: function () { return send('POST', '/targets/' + enc(project) + '/sync', {}); },
+        done: function (t) { return 'Target for ' + project + ' is now ' + short(t.sha) + '.'; },
+      }, project);
+    }));
+  }
+
+  // --- polling --------------------------------------------------------------
 
   function renderApprovals(data) {
     const next = new Set();
@@ -280,17 +1079,44 @@
   }
 
   function refreshBoard() {
-    return fetch('/api/board')
-      .then(function (res) { return res.json(); })
-      .then(renderBoard)
-      .catch(function () { renderBoard(null); });
+    return get('/board').then(renderBoard).catch(function () { renderBoard(null); });
   }
 
   function refreshApprovals() {
-    return fetch('/api/approvals')
-      .then(function (res) { return res.json(); })
-      .then(renderApprovals)
-      .catch(function () { renderApprovals(null); });
+    return get('/approvals').then(renderApprovals).catch(function () { renderApprovals(null); });
+  }
+
+  function refreshProposals() {
+    return get('/proposals?state=pending').then(function (data) {
+      proposals = (data && data.available && data.proposals) || [];
+    }).catch(function () { proposals = []; });
+  }
+
+  function refreshTargets() {
+    return get('/targets').then(function (data) {
+      targets = (data && data.available && data.targets) || [];
+      paintFoot();
+    }).catch(function () { targets = []; });
+  }
+
+  function refreshArchive() {
+    if (!showArchive) return Promise.resolve();
+    return get('/tasks').then(function (data) {
+      const terminal = { integrated: 1, cancelled: 1, failed: 1, expired: 1 };
+      archive = ((data && data.available && data.tasks) || [])
+        .filter(function (t) { return terminal[t.state]; })
+        .reverse();
+    }).catch(function () { archive = []; });
+  }
+
+  function toggleArchive() {
+    showArchive = !showArchive;
+    const btn = el('ledger-archive-btn');
+    if (btn) {
+      btn.setAttribute('aria-pressed', showArchive ? 'true' : 'false');
+      btn.classList.toggle('is-current', showArchive);
+    }
+    refreshArchive().then(refreshBoard);
   }
 
   // Polling starts when the view opens and stops when it closes: the Ledger is
@@ -298,10 +1124,15 @@
   // questions nobody is reading.
   function start() {
     stop();
+    const cycle = function () {
+      return Promise.all([refreshProposals(), refreshArchive()]).then(refreshBoard);
+    };
     refreshApprovals();
-    refreshBoard();
-    timers.push(setInterval(refreshBoard, BOARD_MS));
+    refreshTargets();
+    cycle();
+    timers.push(setInterval(cycle, BOARD_MS));
     timers.push(setInterval(refreshApprovals, APPROVALS_MS));
+    timers.push(setInterval(refreshTargets, BOARD_MS));
   }
 
   function stop() {
@@ -333,6 +1164,12 @@
   window.hideControlView = function () {
     const view = el('control-view');
     if (view) view.classList.remove('active');
+    closeNewTask();
     stop();
   };
+
+  window.ledgerNewTask = openNewTask;
+  window.ledgerCloseNewTask = closeNewTask;
+  window.ledgerSubmitNewTask = submitNewTask;
+  window.ledgerToggleArchive = toggleArchive;
 })();

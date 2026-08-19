@@ -88,7 +88,7 @@ func (s *Service) resolveProposal(caller Caller, id string, confirm bool, note s
 		// CORRECTLY HANDLED case — the proposal is recorded `failed`, nothing was
 		// mutated — and an operator confirming from the Web UI should not be shown
 		// a server fault for it. A policy refusal nested inside still wins the
-		// mapping (statusFor checks RejectionError first) and surfaces as 422,
+		// mapping (StatusFor checks RejectionError first) and surfaces as 422,
 		// which is also right.
 		return resolved, fmt.Errorf("%w: proposal %s confirmed but the operation failed: %v", ErrWrongState, id, err)
 	}

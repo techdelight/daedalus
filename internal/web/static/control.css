@@ -24,6 +24,11 @@
     flex-direction: column;
     height: 100vh;
     box-sizing: border-box;
+    /* The prompt and new-entry windows are absolutely positioned inside the view
+       rather than over the whole page: they belong to this screen, and covering
+       the app chrome would make them look like a browser dialog instead of a
+       menu the game opened. */
+    position: relative;
     padding: 16px 18px 20px;
     gap: 12px;
     background:
@@ -112,7 +117,8 @@
     white-space: nowrap;
 }
 
-.ledger-header .btn-back {
+.ledger-header .btn-back,
+.ledger-header .ff-cmd {
     flex: none;
 }
 
@@ -145,6 +151,7 @@
     display: flex;
     align-items: baseline;
     gap: 10px;
+    flex: none;
     margin-bottom: 6px;
 }
 
@@ -175,7 +182,11 @@
 /* With a column of its own the objective no longer has to be clamped to three
    lines: it scrolls, so the whole thing is readable here rather than only in
    the CLI. Whitespace is preserved because these are written as paragraphs and
-   reflowing them into one block loses the author's structure. */
+   reflowing them into one block loses the author's structure.
+
+   It is the ONLY part of the entry window that scrolls. The head, the tabs, the
+   commands, the message and the target strip stay put, so a long event log can
+   never push the command you are reaching for off the bottom of the screen. */
 .ledger-desc-body {
     flex: 1;
     min-height: 0;
@@ -207,6 +218,7 @@
 }
 
 .ledger-desc-note {
+    flex: none;
     margin-top: 7px;
     font-size: 11px;
     letter-spacing: 0.5px;
@@ -364,6 +376,13 @@
    browser is obliged to make sense of. */
 .ledger-commands {
     display: flex;
+    /* A rejected task offers nine commands — retry, retry·rebase, reverify,
+       reverify·amended, replan, checks, dispatch, depends, cancel — because that
+       is genuinely how many ways out of a rejection there are. They wrap rather
+       than scroll or hide behind a "more": a command an operator cannot see is a
+       command they will go to the terminal for. */
+    flex-wrap: wrap;
+    align-items: center;
     gap: 8px;
     flex: none;
     margin-top: 12px;
@@ -373,6 +392,15 @@
 
 .ledger-commands:empty {
     display: none;
+}
+
+/* A command that belongs to one row of the record rather than to the entry as a
+   whole — withdrawing a pending steer. It keeps the plate but drops the rule and
+   the spacing, which are there to separate the entry from its commands. */
+.ledger-commands.is-inline {
+    margin: 2px 0 6px 6ch;
+    padding: 0;
+    border-top: none;
 }
 
 .ledger-command-group {
@@ -428,6 +456,329 @@
     transform: none;
 }
 
+/* A seal is the one act reserved to a human, and the plate says so by being the
+   only brighter one. It is also used for OK and Create — the same idea: this is
+   the plate that commits. */
+.ff-cmd.is-seal {
+    background: linear-gradient(180deg, var(--mana-frame-pale) 0%, var(--mana-frame-lt) 100%);
+    box-shadow: 0 2px 0 var(--mana-frame), 0 0 10px rgba(240, 200, 96, 0.35);
+}
+
+.ff-cmd.is-current {
+    background: linear-gradient(180deg, var(--mana-frame-pale) 0%, var(--mana-frame-lit) 100%);
+}
+
+/* A command that needs confirming asks in place, and names the consequence. A
+   browser confirm() would be the one thing on this screen that did not belong to
+   it, and it has no room for the second sentence — which is the sentence that
+   matters, since these are the commands that spend budget or land code. */
+.ledger-confirm {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 2px;
+    min-width: 0;
+    margin-right: auto;
+}
+
+.ledger-confirm-q {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--mana-frame);
+    text-shadow: 1px 1px 0 var(--mana-ink);
+}
+
+.ledger-confirm-why {
+    font-size: 10px;
+    line-height: 1.5;
+    color: var(--mana-text-dim);
+    text-shadow: 1px 1px 0 var(--mana-ink);
+}
+
+/* --- the sub-screens ---------------------------------------------------- */
+
+.ledger-tabs {
+    display: flex;
+    gap: 6px;
+    flex: none;
+    margin: 2px 0 8px;
+}
+
+.ledger-tabs:empty {
+    display: none;
+}
+
+.ff-tab {
+    padding: 3px 10px;
+    border: 2px solid var(--mana-frame-dk);
+    border-radius: 3px;
+    background: transparent;
+    color: var(--mana-text-dim);
+    font: 700 9px/1 ui-monospace, "DejaVu Sans Mono", "Courier New", monospace;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    cursor: pointer;
+}
+
+.ff-tab.is-current {
+    border-color: var(--mana-frame);
+    color: var(--mana-frame-pale);
+    background: rgba(255, 255, 255, 0.07);
+}
+
+.ff-tab:focus-visible {
+    outline: 2px solid var(--mana-frame);
+    outline-offset: 1px;
+}
+
+/* Prose inside a sub-screen: the objective, and the "nothing here" lines. */
+.ledger-prose {
+    white-space: pre-wrap;
+    font-size: 12px;
+    line-height: 1.7;
+    color: var(--mana-text);
+    text-shadow: 1px 1px 0 var(--mana-ink);
+}
+
+.ledger-prose.is-empty {
+    color: var(--mana-text-dim);
+}
+
+.ledger-sub {
+    margin: 14px 0 6px;
+    padding-bottom: 3px;
+    border-bottom: 2px solid var(--mana-frame-dk);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--mana-frame);
+    text-shadow: 1px 1px 0 var(--mana-ink);
+}
+
+/* Key/value pairs, the way a status screen lists them: labels dim and narrow,
+   values in the reading colour. */
+.ledger-facts {
+    display: grid;
+    grid-template-columns: minmax(0, 11ch) minmax(0, 1fr);
+    gap: 2px 10px;
+    margin: 10px 0 0;
+    font-size: 11px;
+    line-height: 1.6;
+}
+
+.ledger-fact-k {
+    color: var(--mana-text-dim);
+    letter-spacing: 1px;
+    text-shadow: 1px 1px 0 var(--mana-ink);
+}
+
+.ledger-fact-v {
+    margin: 0;
+    min-width: 0;
+    color: var(--mana-text);
+    overflow-wrap: anywhere;
+    text-shadow: 1px 1px 0 var(--mana-ink);
+}
+
+.ledger-checks {
+    margin: 4px 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+.ledger-check {
+    padding: 3px 8px;
+    margin-bottom: 3px;
+    border-radius: 3px;
+    background: rgba(0, 0, 0, 0.3);
+    font-size: 11px;
+    color: var(--mana-frame-pale);
+    overflow-wrap: anywhere;
+}
+
+/* The record: one line per event, id in a fixed column so the eye can run down
+   it, and the note underneath where there is one. */
+.ledger-log-row {
+    display: grid;
+    grid-template-columns: 5ch minmax(0, 1fr);
+    gap: 8px;
+    padding: 2px 0;
+    font-size: 11px;
+    line-height: 1.5;
+}
+
+.ledger-log-row.is-sub {
+    padding-left: 12px;
+}
+
+.ledger-log-id {
+    color: var(--mana-frame-pale);
+    text-shadow: 1px 1px 0 var(--mana-ink);
+}
+
+.ledger-log-what {
+    min-width: 0;
+    color: var(--mana-text);
+    overflow-wrap: anywhere;
+    text-shadow: 1px 1px 0 var(--mana-ink);
+}
+
+.ledger-log-note,
+.ledger-logpath {
+    padding: 0 0 4px 6ch;
+    font-size: 10px;
+    line-height: 1.5;
+    color: var(--mana-text-dim);
+    overflow-wrap: anywhere;
+    text-shadow: 1px 1px 0 var(--mana-ink);
+}
+
+/* --- the message window -------------------------------------------------- */
+
+/* Every JRPG has a line at the bottom that says what just happened. This is
+   that line, and its colours carry the distinction the whole surface rests on:
+   a REFUSAL is the plane working (amber, like a status effect) and a FAILURE is
+   the plane broken (red). Conflating them would make an operator distrust a
+   plane that was doing its job. */
+.ledger-message {
+    flex: none;
+    min-height: 0;
+    font-size: 11px;
+    line-height: 1.6;
+    letter-spacing: 0.5px;
+    color: var(--mana-text-dim);
+    overflow-wrap: anywhere;
+    text-shadow: 1px 1px 0 var(--mana-ink);
+}
+
+.ledger-message:not(:empty) {
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 2px solid var(--mana-frame-dk);
+}
+
+.ledger-message.is-good { color: var(--mana-hp-hi); }
+.ledger-message.is-refused { color: var(--mana-hp-mid); }
+.ledger-message.is-bad { color: var(--mana-hp-lo-lt); }
+
+/* --- the target strip ---------------------------------------------------- */
+
+/* Where this entry's work would land. It belongs beside the entry rather than in
+   a screen of its own because it is only ever read while deciding about one
+   task, and `integrate` is meaningless without it. */
+.ledger-target {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: none;
+    font-size: 10px;
+    letter-spacing: 1px;
+    color: var(--mana-text-dim);
+}
+
+.ledger-target:not(:empty) {
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 2px solid var(--mana-frame-dk);
+}
+
+.ledger-target-label {
+    font-weight: 700;
+    text-transform: uppercase;
+    color: var(--mana-frame);
+    text-shadow: 1px 1px 0 var(--mana-ink);
+}
+
+.ledger-target-value {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--mana-text);
+    text-shadow: 1px 1px 0 var(--mana-ink);
+}
+
+/* --- the overlays -------------------------------------------------------- */
+
+.ledger-overlay {
+    display: none;
+    position: absolute;
+    inset: 0;
+    z-index: 20;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: rgba(6, 12, 32, 0.72);
+}
+
+.ledger-overlay.is-open {
+    display: flex;
+}
+
+.ledger-prompt-window {
+    width: min(560px, 100%);
+    max-height: 100%;
+    overflow-y: auto;
+    padding: 20px 18px 16px;
+}
+
+.ledger-prompt-window.is-wide {
+    width: min(680px, 100%);
+}
+
+.ledger-prompt-label {
+    display: block;
+    margin: 12px 0 5px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--mana-frame);
+    text-shadow: 1px 1px 0 var(--mana-ink);
+}
+
+.ledger-prompt-window > .ledger-prompt-label:first-of-type {
+    margin-top: 4px;
+}
+
+/* An input inside a SNES window is an inset panel, not a browser text box. */
+.ledger-input {
+    display: block;
+    box-sizing: border-box;
+    width: 100%;
+    padding: 8px 10px;
+    border: 2px solid var(--mana-frame-dk);
+    border-radius: 3px;
+    background: rgba(0, 0, 0, 0.38);
+    color: var(--mana-text);
+    font: 12px/1.6 ui-monospace, "DejaVu Sans Mono", "Courier New", monospace;
+    resize: vertical;
+}
+
+.ledger-input:focus {
+    outline: none;
+    border-color: var(--mana-frame);
+    box-shadow: inset 0 0 0 1px var(--mana-frame-dk);
+}
+
+.ledger-budget {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 4px 10px;
+    align-items: end;
+}
+
+.ledger-budget label {
+    font-size: 10px;
+    letter-spacing: 1px;
+    color: var(--mana-text-dim);
+    text-shadow: 1px 1px 0 var(--mana-ink);
+}
+
 /* --- the plane is not running ------------------------------------------- */
 
 .ledger-closed {
@@ -477,11 +828,16 @@
 
     /* Columns become rows, and the entry goes FIRST: there is no pointing on a
        touch screen, so you tap a row and look up — which only works if "up" is
-       where the entry is. It takes a fixed share rather than growing, so the
-       list never gets squeezed to a couple of rows by a long objective. */
+       where the entry is. Both take a fixed share rather than growing, so the
+       list never gets squeezed to a couple of rows by a long objective.
+
+       The entry's share went up when the commands moved into it: it now carries
+       the tabs, up to nine command plates, the message line and the target strip
+       on top of the objective, and at the old 0.8/1.2 split the objective itself
+       was the part that got squeezed out. */
     .ledger-body {
         grid-template-columns: minmax(0, 1fr);
-        grid-template-rows: minmax(0, 0.8fr) minmax(0, 1.2fr);
+        grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
     }
 
     .ledger-desc {
@@ -506,6 +862,39 @@
     .ledger-row-status {
         grid-column: 3;
         grid-row: 1 / span 2;
+    }
+
+    /* The header wraps rather than shrinking the title to nothing; the subtitle
+       takes the second line, where it has room to be read. */
+    .ledger-header {
+        flex-wrap: wrap;
+        gap: 8px;
+        padding: 8px 6px;
+    }
+
+    .ledger-subtitle {
+        order: 3;
+        flex-basis: 100%;
+        white-space: normal;
+    }
+
+    .ledger-overlay {
+        padding: 12px;
+    }
+
+    /* Three budget axes side by side are unreadable at this width, and they are
+       the fields most likely to be left alone anyway. */
+    .ledger-budget {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .ledger-facts {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 0 0;
+    }
+
+    .ledger-fact-k {
+        margin-top: 6px;
     }
 }
 

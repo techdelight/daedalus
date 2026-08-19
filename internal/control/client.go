@@ -360,7 +360,28 @@ func decodeError(resp *http.Response) error {
 	if resp.StatusCode == http.StatusBadRequest {
 		return fmt.Errorf("%w: %s", ErrInvalidRequest, msg)
 	}
-	return fmt.Errorf("control daemon %d: %s", resp.StatusCode, msg)
+	return &RemoteError{Status: resp.StatusCode, Msg: msg}
+}
+
+// RemoteError is a daemon response the client could not rebuild as a domain
+// sentinel — a 409 state conflict, most often, since those reach the wire as a
+// plain envelope with no reason code.
+//
+// It exists so the status the plane chose survives the trip. A caller that
+// RELAYS this API rather than printing it (the Web UI does) would otherwise have
+// to answer 500 for every unmapped refusal, which says "the plane broke" about a
+// plane that in fact said no — a distinction daemon.go's StatusFor takes three
+// paragraphs of comment to draw, thrown away one layer later.
+//
+// Error() formats exactly as the fmt.Errorf it replaced, so nothing that only
+// prints the error can tell the difference.
+type RemoteError struct {
+	Status int
+	Msg    string
+}
+
+func (e *RemoteError) Error() string {
+	return fmt.Sprintf("control daemon %d: %s", e.Status, e.Msg)
 }
 
 // compile-time assertions: both the Service and the Client satisfy TaskAPI.

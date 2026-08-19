@@ -151,7 +151,7 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	t, err := s.api.CreateTask(req)
 	if err != nil {
-		writeError(w, statusFor(err), err)
+		writeError(w, StatusFor(err), err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, t)
@@ -172,7 +172,7 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	view, err := s.api.TaskStatus(r.PathValue("id"))
 	if err != nil {
-		writeError(w, statusFor(err), err)
+		writeError(w, StatusFor(err), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, view)
@@ -181,7 +181,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleDispatch(w http.ResponseWriter, r *http.Request) {
 	res, err := s.api.DispatchTask(r.PathValue("id"))
 	if err != nil {
-		writeError(w, statusFor(err), err)
+		writeError(w, StatusFor(err), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, res)
@@ -196,7 +196,7 @@ func (s *Server) handleVerify(w http.ResponseWriter, r *http.Request) {
 	}
 	res, err := s.api.VerifyTask(r.PathValue("id"), req)
 	if err != nil {
-		writeError(w, statusFor(err), err)
+		writeError(w, StatusFor(err), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, res)
@@ -211,7 +211,7 @@ func (s *Server) handleRetry(w http.ResponseWriter, r *http.Request) {
 	}
 	res, err := s.api.RetryTask(r.PathValue("id"), req)
 	if err != nil {
-		writeError(w, statusFor(err), err)
+		writeError(w, StatusFor(err), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, res)
@@ -228,7 +228,7 @@ func (s *Server) handleAmendChecks(w http.ResponseWriter, r *http.Request) {
 	}
 	t, err := s.api.AmendTaskChecks(r.PathValue("id"), req)
 	if err != nil {
-		writeError(w, statusFor(err), err)
+		writeError(w, StatusFor(err), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, t)
@@ -243,7 +243,7 @@ func (s *Server) handleReverify(w http.ResponseWriter, r *http.Request) {
 	}
 	res, err := s.api.ReverifyTask(r.PathValue("id"), req)
 	if err != nil {
-		writeError(w, statusFor(err), err)
+		writeError(w, StatusFor(err), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, res)
@@ -257,7 +257,7 @@ func (s *Server) handleReplan(w http.ResponseWriter, r *http.Request) {
 	}
 	t, err := s.api.ReplanTask(r.PathValue("id"), req)
 	if err != nil {
-		writeError(w, statusFor(err), err)
+		writeError(w, StatusFor(err), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, t)
@@ -266,7 +266,7 @@ func (s *Server) handleReplan(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	events, err := s.api.TaskEvents(r.PathValue("id"))
 	if err != nil {
-		writeError(w, statusFor(err), err)
+		writeError(w, StatusFor(err), err)
 		return
 	}
 	if events == nil {
@@ -298,7 +298,7 @@ func decodeJSON(r *http.Request, v any) error {
 func (s *Server) handleReview(w http.ResponseWriter, r *http.Request) {
 	res, err := s.api.ReviewTask(r.PathValue("id"))
 	if err != nil {
-		writeError(w, statusFor(err), err)
+		writeError(w, StatusFor(err), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, res)
@@ -317,7 +317,7 @@ func (s *Server) handleApprove(w http.ResponseWriter, r *http.Request) {
 	}
 	t, err := s.api.ApproveTask(r.PathValue("id"), req.Note)
 	if err != nil {
-		writeError(w, statusFor(err), err)
+		writeError(w, StatusFor(err), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, t)
@@ -331,7 +331,7 @@ func (s *Server) handleRejectApproval(w http.ResponseWriter, r *http.Request) {
 	}
 	t, err := s.api.RejectApproval(r.PathValue("id"), req.Note)
 	if err != nil {
-		writeError(w, statusFor(err), err)
+		writeError(w, StatusFor(err), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, t)
@@ -346,7 +346,7 @@ func (s *Server) handleIntegrate(w http.ResponseWriter, r *http.Request) {
 	}
 	res, err := s.api.IntegrateTask(r.PathValue("id"), req)
 	if err != nil {
-		writeError(w, statusFor(err), err)
+		writeError(w, StatusFor(err), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, res)
@@ -377,7 +377,7 @@ func (s *Server) handleAddDependency(w http.ResponseWriter, r *http.Request) {
 	}
 	edge, err := s.api.AddDependency(r.PathValue("id"), req.DependsOn)
 	if err != nil {
-		writeError(w, statusFor(err), err)
+		writeError(w, StatusFor(err), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, edge)
@@ -386,7 +386,7 @@ func (s *Server) handleAddDependency(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleTaskDependencies(w http.ResponseWriter, r *http.Request) {
 	view, err := s.api.TaskDependencies(r.PathValue("id"))
 	if err != nil {
-		writeError(w, statusFor(err), err)
+		writeError(w, StatusFor(err), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, view)
@@ -395,7 +395,7 @@ func (s *Server) handleTaskDependencies(w http.ResponseWriter, r *http.Request) 
 func (s *Server) handlePlaneStatus(w http.ResponseWriter, r *http.Request) {
 	st, err := s.api.PlaneStatus()
 	if err != nil {
-		writeError(w, statusFor(err), err)
+		writeError(w, StatusFor(err), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, st)
@@ -404,7 +404,7 @@ func (s *Server) handlePlaneStatus(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleBoard(w http.ResponseWriter, r *http.Request) {
 	view, err := s.api.ProgrammeBoard()
 	if err != nil {
-		writeError(w, statusFor(err), err)
+		writeError(w, StatusFor(err), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, view)
@@ -428,7 +428,7 @@ func (s *Server) handleSteerJob(w http.ResponseWriter, r *http.Request) {
 	}
 	steer, err := s.api.SteerJob(r.PathValue("id"), req.Instruction)
 	if err != nil {
-		writeError(w, statusFor(err), err)
+		writeError(w, StatusFor(err), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, steer)
@@ -437,7 +437,7 @@ func (s *Server) handleSteerJob(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleJobSteering(w http.ResponseWriter, r *http.Request) {
 	steers, err := s.api.JobSteering(r.PathValue("id"))
 	if err != nil {
-		writeError(w, statusFor(err), err)
+		writeError(w, StatusFor(err), err)
 		return
 	}
 	if steers == nil {
@@ -449,7 +449,7 @@ func (s *Server) handleJobSteering(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleCancelSteering(w http.ResponseWriter, r *http.Request) {
 	steer, err := s.api.CancelSteering(r.PathValue("id"))
 	if err != nil {
-		writeError(w, statusFor(err), err)
+		writeError(w, StatusFor(err), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, steer)
@@ -470,7 +470,7 @@ func (s *Server) handleTargets(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleSyncTarget(w http.ResponseWriter, r *http.Request) {
 	t, err := s.api.SyncTarget(r.PathValue("project"))
 	if err != nil {
-		writeError(w, statusFor(err), err)
+		writeError(w, StatusFor(err), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, t)
@@ -479,7 +479,7 @@ func (s *Server) handleSyncTarget(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleListProposals(w http.ResponseWriter, r *http.Request) {
 	proposals, err := s.api.ListProposals(ProposalState(r.URL.Query().Get("state")))
 	if err != nil {
-		writeError(w, statusFor(err), err)
+		writeError(w, StatusFor(err), err)
 		return
 	}
 	if proposals == nil {
@@ -504,7 +504,7 @@ func (s *Server) resolveProposal(w http.ResponseWriter, r *http.Request, confirm
 	}
 	p, err := s.api.ResolveProposal(r.PathValue("id"), confirm, req.Note)
 	if err != nil {
-		writeError(w, statusFor(err), err)
+		writeError(w, StatusFor(err), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, p)
@@ -513,18 +513,24 @@ func (s *Server) resolveProposal(w http.ResponseWriter, r *http.Request, confirm
 func (s *Server) handleCancel(w http.ResponseWriter, r *http.Request) {
 	t, err := s.api.CancelTask(r.PathValue("id"))
 	if err != nil {
-		writeError(w, statusFor(err), err)
+		writeError(w, StatusFor(err), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, t)
 }
 
-// statusFor maps domain errors to HTTP status codes so the client can recover
+// StatusFor maps domain errors to HTTP status codes so the client can recover
 // the original sentinel via the status + error envelope.
-func statusFor(err error) int {
+//
+// Exported because the Web UI serves the same operations under /api/control and
+// must give the browser the answer the plane gave, not a re-derivation of it. It
+// is the same function on both sides of the socket, so a refusal cannot mean one
+// thing to the CLI and another to a page.
+func StatusFor(err error) int {
 	var notGit *ErrNotGitRepo
 	var rejected *RejectionError
 	var cycle *ErrDependencyCycle
+	var remote *RemoteError
 	switch {
 	case errors.Is(err, ErrNotFound):
 		return http.StatusNotFound
@@ -551,6 +557,12 @@ func statusFor(err error) int {
 		// non-Git project). The caller fixes it by asking differently, which is not
 		// true of a 409 state conflict or a 422 policy refusal.
 		return http.StatusBadRequest
+	// An answer that already came from a plane: relay its status rather than
+	// inventing one. Last of the specific cases because it is the only one that
+	// carries a status of its own — everything above is a Go error being assigned
+	// a status for the first time.
+	case errors.As(err, &remote):
+		return remote.Status
 	default:
 		return http.StatusInternalServerError
 	}

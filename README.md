@@ -320,8 +320,15 @@ edited by the work being graded), **budgets** enforced host-side, **typed
 refusals** you can act on, a **cross-project dependency graph** that gates landing,
 concurrent Jobs with a fair scheduler, and an append-only event log.
 
-Full walkthrough — acceptance policies, budgets, dependencies, steering, approving
-from the TUI/Web, and the limits worth knowing — in
+**Or drive it from the browser.** `daedalus web` → **Ledger** is the same
+operation set on the same socket: every command above, plus retry, reverify,
+replan, amendable checks, steering, dependencies, the proposal queue and the
+per-task record. It is a client of `control.sock` exactly like the CLI — it holds
+no authority the CLI lacks, and a refusal from the plane is shown as a refusal
+with its reason, not as an error.
+
+Full walkthrough — acceptance policies, budgets, dependencies, steering, driving
+it from the TUI/Web, and the limits worth knowing — in
 **[docs/using-daedalus-control.md](docs/using-daedalus-control.md)**; the as-built
 reference is [docs/control-plane.md](docs/control-plane.md).
 
@@ -361,15 +368,15 @@ The web UI provides:
 
 **Security:** Authentication is enabled by default. On first launch, a random access token is generated, saved to `config.json`, and printed to the terminal. Enter the token in the login page to start a session (cookie-based, default 24h expiry). Use `--no-auth` to disable authentication. Binds to `127.0.0.1` by default (localhost only); use `--host 0.0.0.0` for remote access.
 
-> **`--no-auth` now gives away more than a dashboard.** Since the control plane's
-> approval gate landed, the web UI carries **write authority over human
-> approval** — `POST /api/approvals/{id}/approve|reject` decides whether an
-> agent's work is allowed to be integrated. Those handlers sit behind the same
-> auth middleware as everything else, so the default is safe; but with
-> `--no-auth`, anyone who can reach the port can approve an agent's changes.
-> Note also that WSL2 auto-detection binds `0.0.0.0` so the UI is reachable from
-> Windows, which makes "anyone who can reach the port" a larger set than it looks.
-> Use `--no-auth` only on a host you would be happy to hand the approve button to.
+> **`--no-auth` now gives away a control plane, not a dashboard.** The Ledger
+> carries the **whole** `daedalus task` operation set over `/api/control/*` — it
+> can create and dispatch Jobs, waive a failing verification, approve an agent's
+> work, land code, and cancel anything running. Those handlers sit behind the
+> same auth middleware as everything else, so the default is safe; but with
+> `--no-auth`, anyone who can reach the port can do all of it. Note also that
+> WSL2 auto-detection binds `0.0.0.0` so the UI is reachable from Windows, which
+> makes "anyone who can reach the port" a larger set than it looks. Use
+> `--no-auth` only on a host you would be happy to hand the CLI to.
 
 ### WSL2
 

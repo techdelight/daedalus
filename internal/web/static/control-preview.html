@@ -14,6 +14,11 @@
   always loads. If this looks right, the view looks right — the only thing it
   fakes is the data, and the objectives below are the real ones, at their real
   length, because a row that only holds short strings proves nothing.
+
+  It now also has to show the COMMANDS, which is the part most worth eyeballing:
+  a rejected task offers nine of them and they have to wrap without pushing the
+  message line off the window. Every command set below is the real one for that
+  state, taken from COMMANDS in control.js.
 -->
 <link rel="stylesheet" href="guild.css">
 <link rel="stylesheet" href="control.css">
@@ -32,7 +37,10 @@
 
   <div class="ledger-header">
     <span class="ledger-title">The Ledger</span>
-    <span class="ledger-subtitle">2/4 running · 1 awaiting you · 0 proposals pending</span>
+    <span class="ledger-subtitle">2/4 running · 1 awaiting you · 1 proposal pending</span>
+    <button class="ff-cmd" id="preview-prompt-btn">Prompt</button>
+    <button class="ff-cmd" id="preview-archive-btn" aria-pressed="false">Closed</button>
+    <button class="ff-cmd is-seal" id="preview-new-btn">New entry</button>
     <button class="btn btn-back">Back</button>
   </div>
 
@@ -46,13 +54,13 @@
         <span class="ledger-section-title">Running</span>
         <span class="ledger-section-count">2</span>
       </div>
-      <button type="button" class="ledger-row" data-task-id="T-14">
+      <button type="button" class="ledger-row" data-entry-id="T-14">
         <span class="ledger-cursor">▶</span>
         <span class="ledger-row-id">T-14</span>
         <span class="ledger-row-objective">Give the scheduler a durable queue so admission survives a daemon restart, replacing the in-memory waiting map</span>
         <span class="ledger-row-status is-working">running</span>
       </button>
-      <button type="button" class="ledger-row" data-task-id="T-15">
+      <button type="button" class="ledger-row" data-entry-id="T-15">
         <span class="ledger-cursor">▶</span>
         <span class="ledger-row-id">T-15</span>
         <span class="ledger-row-objective">Move the deck importer off the synchronous parse path so a large import cannot block the review queue</span>
@@ -65,7 +73,7 @@
         <span class="ledger-section-title">Blocked</span>
         <span class="ledger-section-count">1</span>
       </div>
-      <button type="button" class="ledger-row" data-task-id="T-16">
+      <button type="button" class="ledger-row" data-entry-id="T-16">
         <span class="ledger-cursor">▶</span>
         <span class="ledger-row-id">T-16</span>
         <span class="ledger-row-objective">Publish the Homebrew formula from the release workflow and check it against the bundled archive</span>
@@ -78,7 +86,7 @@
         <span class="ledger-section-title">Awaiting your approval</span>
         <span class="ledger-section-count">1</span>
       </div>
-      <button type="button" class="ledger-row is-current" data-task-id="T-12">
+      <button type="button" class="ledger-row is-current" data-entry-id="T-12">
         <span class="ledger-cursor">▶</span>
         <span class="ledger-row-id">T-12</span>
         <span class="ledger-row-objective">Promote the ad-hoc colour literals introduced by T-8 into shared custom properties, so the sidebar and the Guild view draw from one palette</span>
@@ -91,7 +99,7 @@
         <span class="ledger-section-title">Rejected — needs a decision</span>
         <span class="ledger-section-count">1</span>
       </div>
-      <button type="button" class="ledger-row" data-task-id="T-13">
+      <button type="button" class="ledger-row" data-entry-id="T-13">
         <span class="ledger-cursor">▶</span>
         <span class="ledger-row-id">T-13</span>
         <span class="ledger-row-objective">Rebuild the review queue around spaced-repetition intervals rather than a fixed daily cap</span>
@@ -109,16 +117,29 @@
 
     <div class="ledger-section">
       <div class="ledger-section-head">
+        <span class="ledger-section-title">Proposed — awaiting your word</span>
+        <span class="ledger-section-count">1</span>
+      </div>
+      <button type="button" class="ledger-row" data-entry-id="P-3">
+        <span class="ledger-cursor">▶</span>
+        <span class="ledger-row-id">P-3</span>
+        <span class="ledger-row-objective">dispatch task · T-16</span>
+        <span class="ledger-row-status is-waiting">proposed</span>
+      </button>
+    </div>
+
+    <div class="ledger-section">
+      <div class="ledger-section-head">
         <span class="ledger-section-title">Landed</span>
         <span class="ledger-section-count">2</span>
       </div>
-      <button type="button" class="ledger-row" data-task-id="T-10">
+      <button type="button" class="ledger-row" data-entry-id="T-10">
         <span class="ledger-cursor">▶</span>
         <span class="ledger-row-id">T-10</span>
         <span class="ledger-row-objective">Promote the ad-hoc colour literals into shared Mana variables</span>
         <span class="ledger-row-status is-passed">landed</span>
       </button>
-      <button type="button" class="ledger-row" data-task-id="T-8">
+      <button type="button" class="ledger-row" data-entry-id="T-8">
         <span class="ledger-cursor">▶</span>
         <span class="ledger-row-id">T-8</span>
         <span class="ledger-row-objective">Restyle the Web UI sidebar to match the classic-JRPG theme of the Guild dashboard</span>
@@ -135,59 +156,225 @@
       <span class="ledger-desc-project" id="ledger-desc-project">daedalus</span>
       <span class="ledger-desc-status ledger-row-status is-waiting" id="ledger-desc-status">awaiting seal</span>
     </div>
-    <div class="ledger-desc-body" id="ledger-desc-body">Promote the ad-hoc colour literals introduced by T-8 in internal/web/static/style.css into shared custom properties, so the sidebar and the Guild view draw from one palette. These are not arbitrary colours: almost every one is a lighter or darker variant of an existing --mana-* variable, invented at the call site because the palette has a base tier and no highlight/shade tier.</div>
+    <div class="ledger-tabs" id="ledger-tabs" role="group" aria-label="Entry pages"></div>
+    <div class="ledger-desc-body" id="ledger-desc-body"></div>
     <div class="ledger-desc-note" id="ledger-desc-note"></div>
-    <div class="ledger-commands" id="ledger-commands">
-      <span class="ledger-command-group">
-        <button type="button" class="ff-cmd" aria-label="Approve T-12, daedalus">Approve</button>
-        <button type="button" class="ff-cmd is-refuse" aria-label="Reject T-12, daedalus">Reject</button>
-      </span>
+    <div class="ledger-commands" id="ledger-commands"></div>
+    <div class="ledger-message" id="ledger-message" role="status" aria-live="polite"></div>
+    <div class="ledger-target" id="ledger-target"></div>
+  </div>
+
+  </div>
+
+  <div class="ledger-overlay" id="ledger-prompt">
+    <div class="ff-window ledger-prompt-window">
+      <span class="ff-window-title" id="ledger-prompt-title">Acceptance checks</span>
+      <div class="ledger-prompt-label" id="ledger-prompt-label">One command per line</div>
+      <div class="ledger-prompt-field" id="ledger-prompt-field">
+        <textarea class="ledger-input" rows="6">daedalus docs lint
+! grep -qE '#[0-9a-fA-F]{6}' internal/web/static/style.css</textarea>
+      </div>
+      <div class="ledger-commands" id="ledger-prompt-commands">
+        <button type="button" class="ff-cmd is-seal">OK</button>
+        <button type="button" class="ff-cmd" data-close="ledger-prompt">Cancel</button>
+      </div>
     </div>
   </div>
 
+  <div class="ledger-overlay" id="ledger-new">
+    <div class="ff-window ledger-prompt-window is-wide">
+      <span class="ff-window-title">New entry</span>
+      <label class="ledger-prompt-label" for="new-project">Project</label>
+      <select class="ledger-input" id="new-project"><option>daedalus</option><option>flashcards</option></select>
+      <label class="ledger-prompt-label" for="new-objective">Objective</label>
+      <textarea class="ledger-input" id="new-objective" rows="5">Give the Ledger the whole task lifecycle, so an operator never has to leave the page to finish a thought.</textarea>
+      <label class="ledger-prompt-label" for="new-checks">
+        Acceptance checks — one command per line, appended to the project policy
+      </label>
+      <textarea class="ledger-input" id="new-checks" rows="3">daedalus docs lint</textarea>
+      <div class="ledger-prompt-label">Budget — blank inherits the project ceiling</div>
+      <div class="ledger-budget">
+        <label for="new-wall-clock">wall clock (s)</label>
+        <input class="ledger-input" id="new-wall-clock" type="number" value="3600">
+        <label for="new-attempts">max attempts</label>
+        <input class="ledger-input" id="new-attempts" type="number">
+        <label for="new-review-cycles">max review cycles</label>
+        <input class="ledger-input" id="new-review-cycles" type="number">
+      </div>
+      <div class="ledger-message is-refused" id="new-error"></div>
+      <div class="ledger-commands">
+        <button type="button" class="ff-cmd is-seal">Create</button>
+        <button type="button" class="ff-cmd" data-close="ledger-new">Cancel</button>
+      </div>
+    </div>
   </div>
 </div>
 
 <script>
-  // The cursor drives the description window — the whole point of the layout,
-  // so the preview wires it up rather than showing a frozen screenshot.
+  // The cursor drives the entry window — the whole point of the layout, so the
+  // preview wires it up rather than showing a frozen screenshot. Each entry
+  // carries the command set its state actually offers.
   var ENTRIES = {
-    'T-14': ['daedalus', 'running', 'is-working', 'Give the scheduler a durable queue so admission survives a daemon restart, replacing the in-memory waiting map and the retry-driven admission it depends on.', ''],
-    'T-15': ['flashcards', 'running', 'is-working', 'Move the deck importer off the synchronous parse path so a large import cannot block the review queue.', ''],
-    'T-16': ['daedalus', 'blocked', 'is-waiting', 'Publish the Homebrew formula from the release workflow and check it against the bundled archive.', 'stuck — T-11 can never complete'],
-    'T-12': ['daedalus', 'awaiting seal', 'is-waiting', 'Promote the ad-hoc colour literals introduced by T-8 in internal/web/static/style.css into shared custom properties, so the sidebar and the Guild view draw from one palette. These are not arbitrary colours: almost every one is a lighter or darker variant of an existing --mana-* variable, invented at the call site because the palette has a base tier and no highlight/shade tier.', ''],
-    'T-13': ['flashcards', 'refused', 'is-refused', 'Rebuild the review queue around spaced-repetition intervals rather than a fixed daily cap.', 'steering undeliverable · holding a place in line for a free slot'],
-    'T-10': ['daedalus', 'landed', 'is-passed', 'Promote the ad-hoc colour literals into shared Mana variables so the sidebar and the Guild view draw from one palette.', ''],
-    'T-8':  ['daedalus', 'landed', 'is-passed', 'Restyle the Web UI sidebar to match the classic-JRPG theme of the Guild dashboard, reusing its palette rather than inventing new values.', '']
-  };
-  document.querySelectorAll('.ledger-row').forEach(function (row) {
-    function show() {
-      var e = ENTRIES[row.dataset.taskId];
-      if (!e) return;
-      document.querySelectorAll('.ledger-row').forEach(function (r) { r.classList.remove('is-current'); });
-      row.classList.add('is-current');
-      document.getElementById('ledger-desc-id').textContent = row.dataset.taskId;
-      document.getElementById('ledger-desc-project').textContent = e[0];
-      var st = document.getElementById('ledger-desc-status');
-      st.textContent = e[1];
-      st.className = 'ledger-desc-status ledger-row-status ' + e[2];
-      var body = document.getElementById('ledger-desc-body');
-      body.className = 'ledger-desc-body';
-      body.textContent = e[3];
-      var note = document.getElementById('ledger-desc-note');
-      note.textContent = e[4];
-      note.className = 'ledger-desc-note' + (e[4].indexOf('stuck') === 0 ? ' is-stuck' : '');
-      // Commands follow the selection: only T-12 is awaiting a decision here.
-      var cmds = document.getElementById('ledger-commands');
-      cmds.innerHTML = row.dataset.taskId === 'T-12'
-        ? '<span class="ledger-command-group">' +
-          '<button type="button" class="ff-cmd">Approve</button>' +
-          '<button type="button" class="ff-cmd is-refuse">Reject</button></span>'
-        : '';
+    'T-14': {
+      project: 'daedalus', mark: ['running', 'is-working'],
+      body: 'Give the scheduler a durable queue so admission survives a daemon restart, replacing the in-memory waiting map and the retry-driven admission it depends on.',
+      note: '', cmds: ['Steer', 'Depends on', '!Cancel'],
+      msg: ['S-2 is undeliverable — the shipped runner has no steering boundary', 'is-refused']
+    },
+    'T-15': {
+      project: 'flashcards', mark: ['running', 'is-working'],
+      body: 'Move the deck importer off the synchronous parse path so a large import cannot block the review queue.',
+      note: '', cmds: ['Steer', 'Depends on', '!Cancel'], msg: null
+    },
+    'T-16': {
+      project: 'daedalus', mark: ['blocked', 'is-waiting'],
+      body: 'Publish the Homebrew formula from the release workflow and check it against the bundled archive.',
+      note: 'stuck — T-11 can never complete', cmds: ['Checks', 'Depends on', '!Cancel'], msg: null
+    },
+    'T-12': {
+      project: 'daedalus', mark: ['awaiting seal', 'is-waiting'],
+      body: 'Promote the ad-hoc colour literals introduced by T-8 in internal/web/static/style.css into shared custom properties, so the sidebar and the Guild view draw from one palette. These are not arbitrary colours: almost every one is a lighter or darker variant of an existing --mana-* variable, invented at the call site because the palette has a base tier and no highlight/shade tier.',
+      note: '', cmds: ['Review', '+Approve', '!Reject', 'Integrate', 'Integrate · branch', 'Depends on', '!Cancel'],
+      msg: null
+    },
+    'T-13': {
+      project: 'flashcards', mark: ['refused', 'is-refused'],
+      body: 'Rebuild the review queue around spaced-repetition intervals rather than a fixed daily cap.',
+      note: 'steering undeliverable · holding a place in line for a free slot',
+      // The widest command set there is, and the reason they wrap.
+      cmds: ['Dispatch', 'Retry', 'Retry · rebase', 'Reverify', 'Reverify · amended',
+             'Replan', 'Checks', 'Depends on', '!Cancel'],
+      msg: ['Refused · verify_failed — daedalus docs lint exited 1', 'is-refused']
+    },
+    'P-3': {
+      project: 'T-16', mark: ['pending', 'is-waiting'],
+      body: 'The agent asked to dispatch task on T-16.',
+      note: 'Confirming runs the operation. An agent cannot confirm its own proposal — that is what this queue is for.',
+      cmds: ['+Confirm', '!Deny'], msg: null, noTabs: true
+    },
+    'T-10': {
+      project: 'daedalus', mark: ['landed', 'is-passed'],
+      body: 'Promote the ad-hoc colour literals into shared Mana variables so the sidebar and the Guild view draw from one palette.',
+      note: '', cmds: [], msg: ['Landed 4f1c9ab onto the target.', 'is-good']
+    },
+    'T-8': {
+      project: 'daedalus', mark: ['landed', 'is-passed'],
+      body: 'Restyle the Web UI sidebar to match the classic-JRPG theme of the Guild dashboard, reusing its palette rather than inventing new values.',
+      note: '', cmds: [], msg: null
     }
-    row.addEventListener('mouseenter', show);
-    row.addEventListener('focus', show);
-    row.addEventListener('click', show);
+  };
+
+  function el(id) { return document.getElementById(id); }
+
+  function plate(label) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'ff-cmd' +
+      (label.charAt(0) === '!' ? ' is-refuse' : label.charAt(0) === '+' ? ' is-seal' : '');
+    b.textContent = label.replace(/^[!+]/, '');
+    return b;
+  }
+
+  function show(id) {
+    var e = ENTRIES[id];
+    if (!e) return;
+    document.querySelectorAll('.ledger-row').forEach(function (r) {
+      r.classList.toggle('is-current', r.dataset.entryId === id);
+    });
+    el('ledger-desc-id').textContent = id;
+    el('ledger-desc-project').textContent = e.project;
+    var st = el('ledger-desc-status');
+    st.textContent = e.mark[0];
+    st.className = 'ledger-desc-status ledger-row-status ' + e.mark[1];
+
+    var tabs = el('ledger-tabs');
+    tabs.innerHTML = '';
+    if (!e.noTabs) {
+      ['entry', 'terms', 'record'].forEach(function (name, i) {
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'ff-tab' + (i === 0 ? ' is-current' : '');
+        b.textContent = name;
+        tabs.appendChild(b);
+      });
+    }
+
+    var body = el('ledger-desc-body');
+    body.className = 'ledger-desc-body';
+    body.innerHTML = '';
+    var prose = document.createElement('div');
+    prose.className = 'ledger-prose';
+    prose.textContent = e.body;
+    body.appendChild(prose);
+
+    var note = el('ledger-desc-note');
+    note.textContent = e.note;
+    note.className = 'ledger-desc-note' + (e.note.indexOf('stuck') === 0 ? ' is-stuck' : '');
+
+    var cmds = el('ledger-commands');
+    cmds.innerHTML = '';
+    e.cmds.forEach(function (label) { cmds.appendChild(plate(label)); });
+
+    var msg = el('ledger-message');
+    msg.textContent = e.msg ? e.msg[0] : '';
+    msg.className = 'ledger-message ' + (e.msg ? e.msg[1] : '');
+
+    var target = el('ledger-target');
+    target.innerHTML = '';
+    if (id.charAt(0) === 'T') {
+      var label = document.createElement('span');
+      label.className = 'ledger-target-label';
+      label.textContent = 'target';
+      var value = document.createElement('span');
+      value.className = 'ledger-target-value';
+      value.textContent = '030e659 · /home/dave/src/' + e.project;
+      target.appendChild(label);
+      target.appendChild(value);
+      target.appendChild(plate('Sync'));
+    }
+  }
+
+  document.querySelectorAll('.ledger-row').forEach(function (row) {
+    var go = function () { show(row.dataset.entryId); };
+    row.addEventListener('mouseenter', go);
+    row.addEventListener('focus', go);
+    row.addEventListener('click', go);
+  });
+
+  // The overlays and the in-place confirmation are the two states no amount of
+  // pointing at rows will reach, so the preview opens them directly.
+  el('preview-prompt-btn').onclick = function () { el('ledger-prompt').classList.add('is-open'); };
+  el('preview-new-btn').onclick = function () { el('ledger-new').classList.add('is-open'); };
+  el('preview-archive-btn').onclick = function () {
+    this.classList.toggle('is-current');
+    this.setAttribute('aria-pressed', this.classList.contains('is-current') ? 'true' : 'false');
+  };
+  document.querySelectorAll('[data-close]').forEach(function (b) {
+    b.onclick = function () { el(b.dataset.close).classList.remove('is-open'); };
+  });
+
+  show('T-12');
+
+  // Clicking a Cancel plate shows the confirmation the real page draws in place,
+  // which is the state most worth checking: it has to name the consequence
+  // without the plates below it jumping.
+  document.getElementById('ledger-commands').addEventListener('click', function (ev) {
+    if (ev.target.textContent !== 'Cancel') return;
+    var host = this;
+    host.innerHTML = '';
+    var q = document.createElement('span');
+    q.className = 'ledger-confirm';
+    var a = document.createElement('span');
+    a.className = 'ledger-confirm-q';
+    a.textContent = 'Cancel?';
+    var b = document.createElement('span');
+    b.className = 'ledger-confirm-why';
+    b.textContent = 'Ends the task and any running Job. Terminal — there is no way back.';
+    q.appendChild(a);
+    q.appendChild(b);
+    host.appendChild(q);
+    host.appendChild(plate('!Yes'));
+    host.appendChild(plate('No'));
   });
 </script>
 </body>

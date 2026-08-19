@@ -65,6 +65,54 @@ All notable changes to this project will be documented in this file.
     shape from which error comes back.
 
 ### Added
+- **The Ledger — the control plane's own view in the Web UI, and it can now drive
+  the whole thing.** `daedalus web` → **Ledger** is a Final Fantasy menu over the
+  control plane: entries on the left grouped by whose move it is, an entry window
+  on the right with the objective in full, and the commands underneath, where the
+  reading is. It replaced two panels squeezed under the project list
+  (`approvals.js`, `board.js`) that answered the same two questions in two places.
+  - **Every `daedalus task` operation is here**, not a subset: create, dispatch,
+    verify (and `--ignore-result`), retry (and `--rebase`), reverify (and
+    `--amended`), replan, amend checks, review, approve, reject, integrate (and
+    `--into-branch`), declare a dependency, steer a running Job and withdraw an
+    undelivered instruction, confirm or deny a proposal, re-sync a target, cancel.
+    Steering history sits under the Job it was aimed at, because the interesting
+    part of an instruction is what became of it — most read `undeliverable`, and a
+    page showing only "sent" would make the claim the subsystem refuses to make.
+    The read-only version was the wrong shape:
+    a surface that shows you a refused task and cannot retry it does not avoid
+    being a second place decisions are made — it sends you to a terminal to finish
+    the thought, and then the two disagree about where work is driven from.
+  - **Three pages per entry**: *entry* (the objective, and what it waits on),
+    *terms* (base commit, frozen policy hash, pinned image, budget, per-task
+    checks — what it is graded against and bounded by), *record* (every attempt
+    with its artifacts, and the append-only event log). The terms were invisible
+    before, which meant an operator could not see what the oracle was before
+    deciding to move it.
+  - **A refusal is rendered as a refusal.** The plane answers 422 with a reason
+    code for "I understood and declined" — the message line says `Refused ·
+    over_budget — no attempts left` rather than showing a failure, because the
+    reason is what tells you which command to reach for next. A 409 state conflict
+    now survives the trip too: `control.RemoteError` carries the daemon's status
+    through the client, so "you cannot retry a task that was never rejected" is no
+    longer flattened into a 500 that reads as "the plane broke".
+  - **Consequential commands ask again, in place, and name the consequence** —
+    `Retry · rebase` re-freezes the acceptance oracle at a new commit, `Cancel` is
+    terminal. Each flag is its own plate rather than a checkbox on a shared one,
+    so the more consequential option is never the easier one to reach by accident.
+  - **It holds no authority the CLI lacks.** `/api/control/*` mirrors the daemon's
+    route table one for one over the same `control.sock`; every rule stays in
+    `internal/control`, and the web layer binds a body, calls one method, and
+    relays the plane's own status via the daemon's own `StatusFor`.
+  - **Not a reverse proxy, deliberately.** Forwarding the socket would be a third
+    of the code and fails open in the direction that matters: every future daemon
+    route exposed to the browser the day it is written, at human caller class.
+    `TestControlSurface_CoversEveryOperation` **derives** the requirement instead —
+    it reflects over `control.TaskAPI` and fails if an operation has no route, or
+    if a claimed route is not registered.
+  - **`--no-auth` now gives away a control plane, not a dashboard.** README,
+    ARCHITECTURE.md, docs/control-plane.md and docs/using-daedalus-control.md all
+    say so.
 - **`daedalus task checks <id> --set '<cmd>'` — amendable per-task checks.** A
   check is written by a human before the work exists, and a wrong one — aimed at
   the wrong file, or asserting something the objective never asked for — could

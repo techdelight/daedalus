@@ -384,14 +384,20 @@ subsystem built over Milestones 13–18; the as-built reference is
 [docs/using-daedalus-control.md](docs/using-daedalus-control.md).
 
 ```
-daedalus task … ──► control.sock ───────┐
-                                        ├──► daedalus-control ──► control.db (SQLite)
-guild-control-mcp ──► control-agent.sock┘          │
+daedalus task …    ─┐
+daedalus web (Ledger)├► control.sock ────┐
+                     ┘                   ├──► daedalus-control ──► control.db (SQLite)
+guild-control-mcp ──► control-agent.sock ┘         │
    (agent class, see below)                        ├──► git worktree per Job (isolated, at base_sha)
                                                    ├──► coordinator ──► agent container   (execute)
                                                    └──► docker run (pinned digest)        (verify)
 ```
 
+- **The Web UI's Ledger is a full client.** `/api/control/*` mirrors the daemon's
+  own route table one for one, so every `daedalus task` operation is reachable
+  from the browser — through the same human socket, with the same authority and
+  the same refusals. It is a relay, not a second implementation: nothing in
+  `internal/web` decides what is legal.
 - **Two sockets, one daemon.** Caller class is derived from *which socket a
   request arrived on* — `control.sock` is human (CLI/TUI/Web),
   `control-agent.sock` is agent. Not a request field (a client could claim to be
@@ -413,7 +419,7 @@ guild-control-mcp ──► control-agent.sock┘          │
 
 | Protocol | Endpoint | Description |
 |---|---|---|
-| HTTP | Web UI port (default 3000) | REST + login. `/api/projects/*`, `/api/programmes/*`, `/api/approvals*`, `/sprints`, `/backlog`, `/strategic-roadmap` |
+| HTTP | Web UI port (default 3000) | REST + login. `/api/projects/*`, `/api/programmes/*`, `/api/control/*`, `/sprints`, `/backlog`, `/strategic-roadmap` |
 | WebSocket | Web UI port | Terminal relay at `/api/projects/{name}/terminal` |
 | HTTP over UDS | `<DataDir>/.daedalus/coordinator.sock` | Coordinator daemon API (Start/List/Get/Stop) |
 | HTTP over UDS | `<DataDir>/.daedalus/control.sock` | Control-plane API, **human** caller class |

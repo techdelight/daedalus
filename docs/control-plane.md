@@ -718,24 +718,39 @@ at all, so a plane without one is not blocked forever. Review passes are bounded
 and not summed**, so a Task gets N verifications and N reviews rather than N of the
 two combined.
 
-### Approving from the Web UI and TUI
+### Driving the plane from the Web UI and TUI
 
 Both surfaces are **clients** of `control.sock` with no authority the CLI lacks:
-`GET /api/approvals` plus approve/reject in the Web dashboard, and `[A]` in the
-TUI. Neither **spawns** the control daemon — a dashboard that started one because
-somebody opened a tab or pressed a key would be a surprising side effect — and
-when the plane is unreachable both say so explicitly rather than rendering an
-empty queue, because "nothing needs you" and "I could not ask" are different
-answers and only one of them is reassuring.
+the Web UI's **Ledger** under `/api/control/*`, and `[A]` in the TUI. Neither
+**spawns** the control daemon — a dashboard that started one because somebody
+opened a tab or pressed a key would be a surprising side effect — and when the
+plane is unreachable both say so explicitly rather than rendering an empty queue,
+because "nothing needs you" and "I could not ask" are different answers and only
+one of them is reassuring.
 
-**This changes what `daedalus web --no-auth` gives away.** The dashboard now
-carries **write authority over human approval**: `POST
-/api/approvals/{id}/approve|reject` decides whether an agent's work may be
-integrated. The handlers are behind the same auth middleware as everything else
-and auth is on by default, so the shipped configuration is safe — but `--no-auth`
-now hands the approve button to anyone who can reach the port, and WSL2
-auto-detection binds `0.0.0.0`. The approval gate is only as strong as the
-weakest surface that can operate it.
+The TUI is the approval gate alone. The Ledger is the **whole** `TaskAPI`: its
+routes mirror the daemon's own one for one, and a test derives that requirement by
+reflecting over the interface, so an operation added to the plane and not surfaced
+on the page fails the build rather than being discovered by an operator reaching
+for it.
+
+**Why a route per operation and not a proxy.** Forwarding `/api/control/*` to the
+socket would be a third of the code and fails open in the direction that matters:
+every future daemon route would be exposed to the browser the day it was written,
+and the caller class would still be human, so "the plane grew an operation" would
+silently become "the page can do it". Explicit handlers make that a decision
+somebody writes down. What the web layer does NOT do is decide anything — it binds
+a body, calls one method, and relays the plane's own status and reason code, using
+the daemon's own `StatusFor`. There is no second implementation of any rule.
+
+**This changes what `daedalus web --no-auth` gives away.** It is no longer a
+dashboard with two write buttons; it is `daedalus task` over HTTP. It can create
+and dispatch Jobs, waive a failing verification, approve an agent's work, land
+code and cancel anything running. The handlers are behind the same auth middleware
+as everything else and auth is on by default, so the shipped configuration is safe
+— but `--no-auth` hands all of it to anyone who can reach the port, and WSL2
+auto-detection binds `0.0.0.0`. The approval gate is only as strong as the weakest
+surface that can operate it.
 
 ## Concurrency and the scheduler (Sprint 61 / M16 — built)
 

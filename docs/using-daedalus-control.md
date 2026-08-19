@@ -405,20 +405,42 @@ redispatch** (or `replan`). Milestone 17 shipped this and documented that verdic
 rather than justifying itself retroactively; the seam is ready for a runner that
 has a boundary.
 
-### Approving from the Web UI and the TUI
+### Driving it from the Web UI and the TUI
 
 - **TUI:** `daedalus tui`, then **`A`** (capital, so it cannot be confused with
   `a` = attach) opens the approvals view: `j`/`k` to move, `a`/`Enter` to approve,
-  `x` to reject, `r` to refresh, `q`/`Esc` to close.
-- **Web:** `daedalus web`, approvals surface at `/api/approvals` with approve and
-  reject actions.
+  `x` to reject, `r` to refresh, `q`/`Esc` to close. Approval only — for anything
+  else, the CLI or the Ledger.
+- **Web:** `daedalus web`, then **Ledger**. This is the whole operation set, not a
+  subset: create, dispatch, verify (and waive), retry (and rebase), reverify (and
+  amend), replan, amend checks, review, approve, reject, integrate (and
+  fast-forward the branch), declare a dependency, steer a running Job, confirm or
+  deny a proposal, re-sync a target, and cancel.
 
-Neither UI spawns the daemon; if the plane is not running they say so rather than
-starting it behind your back.
+**How the Ledger is laid out.** Entries on the left, grouped the way `task board`
+groups them — by whose move it is. The entry window on the right has three pages:
+**entry** (the objective in full, and what it waits on), **terms** (base commit,
+frozen policy hash, pinned image, budget, per-task checks — what it is graded
+against and bounded by), and **record** (every attempt with its artifacts, and the
+append-only event log). Commands appear under the entry, filtered to what its
+state can accept. Consequential ones ask again, in place, and say what they will
+do — `Retry · rebase` re-freezes the acceptance oracle, `Cancel` is terminal.
 
-> **`--no-auth` now gives away more than a dashboard.** With the control plane
-> live, an unauthenticated Web UI is an unauthenticated *approval* surface. Do not
-> expose it.
+**A refusal is shown as a refusal.** When the plane declines, the message line
+carries the reason code and the sentence — `Refused · over_budget — no attempts
+left` — rather than an error box. That distinction is the point: the reason is
+what tells you which command to reach for next.
+
+The Ledger is a **client of `control.sock`, exactly like the CLI**. It gains no
+authority the CLI lacks, every rule is enforced in `internal/control`, and the
+routes under `/api/control/*` mirror the daemon's own one for one. Neither UI
+spawns the daemon; if the plane is not running they say so rather than starting it
+behind your back — and "I could not ask" is rendered differently from "nothing to
+do", because only one of those is reassuring.
+
+> **`--no-auth` now gives away a control plane.** An unauthenticated Web UI is an
+> unauthenticated `daedalus task`: it can dispatch Jobs, waive a failed
+> verification, approve an agent's work and land code. Do not expose it.
 
 ### When a Job fails
 

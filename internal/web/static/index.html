@@ -92,6 +92,14 @@
             <div class="ledger-header">
                 <span class="ledger-title">The Ledger</span>
                 <span class="ledger-subtitle" id="ledger-subtitle"></span>
+                <!-- Opening an entry acts on a row; opening a NEW one acts on
+                     nothing, which is why it lives up here and not among the
+                     commands. Closed entries are hidden by default: the board is
+                     about what is in flight and an archive that grows forever
+                     would bury it. -->
+                <button class="ff-cmd" id="ledger-archive-btn" aria-pressed="false"
+                        onclick="ledgerToggleArchive()">Closed</button>
+                <button class="ff-cmd is-seal" onclick="ledgerNewTask()">New entry</button>
                 <button class="btn btn-back" onclick="hideControlView(); showProjectList();">Back</button>
             </div>
             <!-- List left, entry right. An objective is a paragraph and a row is
@@ -108,9 +116,19 @@
                         <span class="ledger-desc-project" id="ledger-desc-project"></span>
                         <span class="ledger-desc-status" id="ledger-desc-status"></span>
                     </div>
+                    <!-- Sub-screens, the way a SNES status menu has them: what the
+                         task IS, what it is graded against, and what has happened
+                         to it. -->
+                    <div class="ledger-tabs" id="ledger-tabs" role="group" aria-label="Entry pages"></div>
                     <div class="ledger-desc-body is-empty" id="ledger-desc-body">Point at an entry to read it.</div>
                     <div class="ledger-desc-note" id="ledger-desc-note"></div>
+                    <!-- The commands sit below the reading, because that is the
+                         order the decision is actually made in. -->
                     <div class="ledger-commands" id="ledger-commands"></div>
+                    <!-- The message window: what the plane said about the last
+                         command, and a refusal said as a refusal. -->
+                    <div class="ledger-message" id="ledger-message" role="status" aria-live="polite"></div>
+                    <div class="ledger-target" id="ledger-target"></div>
                 </div>
             </div>
             <div class="ff-window ledger-closed" id="ledger-closed" style="display:none">
@@ -119,6 +137,49 @@
                     The control plane is not running, so there is nothing to read — which is
                     not the same as nothing to do.<br>
                     Start it with <code>daedalus task list</code>. This page will find it.
+                </div>
+            </div>
+
+            <!-- A command that needs words asks for them here: one field, a
+                 label that says what it is for, and the same two plates every
+                 time. -->
+            <div class="ledger-overlay" id="ledger-prompt">
+                <div class="ff-window ledger-prompt-window">
+                    <span class="ff-window-title" id="ledger-prompt-title">Ask</span>
+                    <div class="ledger-prompt-label" id="ledger-prompt-label"></div>
+                    <div class="ledger-prompt-field" id="ledger-prompt-field"></div>
+                    <div class="ledger-commands" id="ledger-prompt-commands"></div>
+                </div>
+            </div>
+
+            <!-- A new entry. The budget fields are blank by default because blank
+                 means "inherit the project ceiling", and a task may only ever
+                 narrow it. -->
+            <div class="ledger-overlay" id="ledger-new">
+                <div class="ff-window ledger-prompt-window is-wide">
+                    <span class="ff-window-title">New entry</span>
+                    <label class="ledger-prompt-label" for="new-project">Project</label>
+                    <select class="ledger-input" id="new-project"></select>
+                    <label class="ledger-prompt-label" for="new-objective">Objective</label>
+                    <textarea class="ledger-input" id="new-objective" rows="5"></textarea>
+                    <label class="ledger-prompt-label" for="new-checks">
+                        Acceptance checks — one command per line, appended to the project policy
+                    </label>
+                    <textarea class="ledger-input" id="new-checks" rows="3"></textarea>
+                    <div class="ledger-prompt-label">Budget — blank inherits the project ceiling</div>
+                    <div class="ledger-budget">
+                        <label for="new-wall-clock">wall clock (s)</label>
+                        <input class="ledger-input" id="new-wall-clock" type="number" min="0" inputmode="numeric">
+                        <label for="new-attempts">max attempts</label>
+                        <input class="ledger-input" id="new-attempts" type="number" min="0" inputmode="numeric">
+                        <label for="new-review-cycles">max review cycles</label>
+                        <input class="ledger-input" id="new-review-cycles" type="number" min="0" inputmode="numeric">
+                    </div>
+                    <div class="ledger-message is-refused" id="new-error"></div>
+                    <div class="ledger-commands">
+                        <button class="ff-cmd is-seal" onclick="ledgerSubmitNewTask()">Create</button>
+                        <button class="ff-cmd" onclick="ledgerCloseNewTask()">Cancel</button>
+                    </div>
                 </div>
             </div>
         </div>
