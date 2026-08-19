@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/techdelight/daedalus/internal/control"
 )
@@ -289,5 +290,72 @@ func TestBoard_RendersColumnsAndBlockedReasons(t *testing.T) {
 	}
 	if resp.PendingApprovals != 1 || resp.PendingProposals != 3 {
 		t.Errorf("queues = %d approvals / %d proposals, want 1 / 3", resp.PendingApprovals, resp.PendingProposals)
+	}
+}
+
+// TestControlClient_RedialsUntilThePlaneAppears is the fix for a web server
+// started before the control plane.
+//
+// The client used to be established exactly once, at boot. Start `daedalus web`
+// first and the field stayed nil for the process's whole life, so the Ledger
+// reported the plane missing long after it was running and only restarting the
+// web server could fix it — while the CLI, which dials afresh every invocation,
+// never had the problem.
+func TestControlClient_RedialsUntilThePlaneAppears(t *testing.T) {
+	var dials int
+	var found control.TaskAPI // nil until the "plane" starts
+
+	ws := &WebServer{controlDial: func() control.TaskAPI {
+		dials++
+		return found
+	}}
+
+	// The plane is down: looking finds nothing, and the answer is still nil.
+	if got := ws.controlClient(); got != nil {
+		t.Fatalf("controlClient() = %v with no plane, want nil", got)
+	}
+	if dials != 1 {
+		t.Fatalf("dials = %d, want 1", dials)
+	}
+
+	// Immediately after a miss, it does NOT dial again — a plane that is genuinely
+	// down must not cost a dial on every request from every open tab.
+	if got := ws.controlClient(); got != nil {
+		t.Errorf("controlClient() = %v, want nil", got)
+	}
+	if dials != 1 {
+		t.Errorf("dials = %d after an immediate second call, want 1 — the retry is throttled", dials)
+	}
+
+	// The operator starts the plane. Once the throttle expires, the next look
+	// finds it, and the page heals with no restart.
+	found = &fakeControl{}
+	ws.controlRetry = time.Now().Add(-time.Second)
+	got := ws.controlClient()
+	if got == nil {
+		t.Fatal("controlClient() = nil after the plane started; the web server is deaf to it")
+	}
+	if dials != 2 {
+		t.Errorf("dials = %d, want 2", dials)
+	}
+
+	// And once found it is kept: a live client is not re-dialled, because
+	// control.Client opens a connection per request and survives a daemon restart
+	// on the same socket by itself.
+	ws.controlRetry = time.Now().Add(-time.Second)
+	if ws.controlClient() == nil {
+		t.Error("a established client should be reused")
+	}
+	if dials != 2 {
+		t.Errorf("dials = %d, want 2 — a live client must not be re-dialled", dials)
+	}
+}
+
+// TestControlClient_NoDialerNeverDials keeps the hand-built WebServer literals
+// the rest of these tests use working: without a dialer there is nothing to
+// look for, and guessing would mean reaching into a nil config.
+func TestControlClient_NoDialerNeverDials(t *testing.T) {
+	if got := (&WebServer{}).controlClient(); got != nil {
+		t.Errorf("controlClient() = %v on a bare WebServer, want nil", got)
 	}
 }

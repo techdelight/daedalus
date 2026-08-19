@@ -111,6 +111,31 @@ daedalus task integrate T-7 --into-branch    # …and fast-forwards your checkou
 prints the next sensible command when it finishes, so you can follow the pipeline
 without this page open.
 
+### Starting the plane
+
+There is no `daedalus control start`. The daemon is spawned on demand by any CLI
+call that needs it, so the ordinary way to start it is to ask it something:
+
+```bash
+daedalus task list      # spawns daedalus-control, which reconciles on boot
+```
+
+It listens on `<data-dir>/.daedalus/control.sock`, writes `<data-dir>/.daedalus/control.log`,
+and records its pid in `control.pid` next to them. To stop it:
+
+```bash
+kill $(cat <data-dir>/.daedalus/control.pid)
+```
+
+The next CLI call starts it again. Stopping it is also how you pick up a rebuilt
+binary — `EnsureRunning` reuses a live daemon and there is no version handshake,
+so an upgrade does not displace one that is already running.
+
+**The Web UI never spawns the daemon**, deliberately: opening a dashboard should
+not start a background process. It looks for one, and re-checks every few seconds
+until it finds one, so starting the plane after the web server heals the view on
+its own within a poll or two.
+
 ### Where a landed commit actually goes
 
 **Integration does not move your branch, and that is deliberate.** The plane's

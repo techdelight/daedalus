@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/techdelight/daedalus/core"
@@ -58,6 +59,13 @@ type WebServer struct {
 	// control is a client of the control plane, or nil when it is not running.
 	// The dashboard never spawns the daemon (see approvals.go).
 	control control.TaskAPI
+	// controlDial re-establishes that client when it is nil, and is what keeps a
+	// web server started BEFORE the plane from being deaf to it for its whole
+	// life. Nil in tests that build a WebServer literal, which then keep the old
+	// behaviour of never dialling at all.
+	controlDial  func() control.TaskAPI
+	controlMu    sync.Mutex
+	controlRetry time.Time
 }
 
 // NewWebServerForTest creates a WebServer with injected dependencies.
@@ -105,7 +113,8 @@ func Run(cfg *core.Config) error {
 		activityResolver: actResolver,
 		// Attach to the control plane only if it is ALREADY listening. Opening a
 		// dashboard must not spawn a daemon as a side effect.
-		control: dialControlPlane(cfg),
+		control:     dialControlPlane(cfg),
+		controlDial: func() control.TaskAPI { return dialControlPlane(cfg) },
 	}
 
 	mux := http.NewServeMux()

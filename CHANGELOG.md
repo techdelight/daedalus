@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 ## [0.54.0] - 2026-08-18
 
 ### Fixed
+- **A web server started before the control plane is no longer deaf to it.** The
+  control client was established exactly once, when `daedalus web` booted: start
+  the web server first and the field stayed nil for the process's whole life, so
+  the control-plane view reported the plane missing long after it was running and
+  only restarting the web server could fix it. The CLI never had the problem
+  because every invocation dials afresh. `controlClient` now retries, throttled to
+  one attempt every 3 seconds so a plane that is genuinely down does not cost a
+  300ms dial on every request from every open tab. A client that has been found is
+  deliberately NOT re-dialled and does not need to be — `control.Client` opens a
+  connection per request, so a daemon restarting on the same socket is picked up
+  again by itself. The only broken direction was nil forever, and that is the one
+  this repairs.
 - **A per-task check may no longer contain a line break.** `sh -c` reads a
   multi-line check as several commands and makes only the LAST one's exit status
   the verdict, so such a check silently asserts less than it appears to.

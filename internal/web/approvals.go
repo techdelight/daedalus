@@ -5,6 +5,7 @@ package web
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/techdelight/daedalus/internal/control"
 )
@@ -41,13 +42,44 @@ type approvalTask struct {
 	CreatedAt string `json:"createdAt"`
 }
 
+// controlRedialEvery bounds how often a web server with no control client tries
+// to find one. Short enough that starting the plane heals the page within a
+// poll or two; long enough that a plane which is genuinely down does not cost a
+// 300ms dial on every request from every open tab.
+const controlRedialEvery = 3 * time.Second
+
 // controlClient returns the control-plane client, or nil when the plane is not
-// reachable. Never spawns the daemon.
+// reachable. Never spawns the daemon — it only looks for one.
+//
+// The dial is retried, and that is the whole point of this function existing.
+// The client used to be established exactly once, when the web server booted:
+// start `daedalus web` before `daedalus task list` and the field stayed nil for
+// the process's entire life, so the Ledger reported the plane missing long after
+// it was running and only a restart of the web server could fix it. The CLI
+// never had this problem because every invocation dials afresh.
+//
+// A non-nil client is NOT re-dialled, and does not need to be: control.Client
+// opens a connection per request, so a daemon that restarts on the same socket
+// is picked up again without anything here noticing. The only broken direction
+// was nil forever, which is the one this repairs.
 func (ws *WebServer) controlClient() control.TaskAPI {
+	ws.controlMu.Lock()
+	defer ws.controlMu.Unlock()
+
 	if ws.control != nil {
 		return ws.control
 	}
-	return nil
+	// No dialer means a WebServer someone built by hand (tests do). Looking for a
+	// plane it was never told how to reach would be guesswork.
+	if ws.controlDial == nil {
+		return nil
+	}
+	if time.Now().Before(ws.controlRetry) {
+		return nil
+	}
+	ws.controlRetry = time.Now().Add(controlRedialEvery)
+	ws.control = ws.controlDial()
+	return ws.control
 }
 
 // planeStatusResponse is the concurrency picture the dashboard shows: with
