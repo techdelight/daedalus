@@ -20,7 +20,7 @@
 <style>
   /* Preview chrome only — not part of the design. */
   body { margin: 0; background: #0e1430; }
-  #control-view { display: flex; height: auto; min-height: 100vh; }
+  #control-view { display: flex; height: 100vh; }
   .btn { padding: 5px 12px; border: 1px solid currentColor; border-radius: 3px;
          background: transparent; color: #b9c2e6; font: 11px ui-monospace, monospace;
          letter-spacing: 1px; cursor: pointer; }
@@ -36,16 +36,8 @@
     <button class="btn btn-back">Back</button>
   </div>
 
-  <div class="ff-window ledger-desc" id="ledger-desc">
-    <span class="ff-window-title">Entry</span>
-    <div class="ledger-desc-head">
-      <span class="ledger-desc-id" id="ledger-desc-id">T-12</span>
-      <span class="ledger-desc-project" id="ledger-desc-project">daedalus</span>
-      <span class="ledger-desc-status ledger-row-status is-waiting" id="ledger-desc-status">awaiting seal</span>
-    </div>
-    <div class="ledger-desc-body" id="ledger-desc-body">Promote the ad-hoc colour literals introduced by T-8 in internal/web/static/style.css into shared custom properties, so the sidebar and the Guild view draw from one palette. These are not arbitrary colours: almost every one is a lighter or darker variant of an existing --mana-* variable, invented at the call site because the palette has a base tier and no highlight/shade tier.</div>
-    <div class="ledger-desc-note" id="ledger-desc-note"></div>
-  </div>
+
+  <div class="ledger-body" id="ledger-body">
 
   <div class="ff-window ledger-list" id="ledger-list">
 
@@ -90,10 +82,7 @@
         <span class="ledger-cursor">▶</span>
         <span class="ledger-row-id">T-12</span>
         <span class="ledger-row-objective">Promote the ad-hoc colour literals introduced by T-8 into shared custom properties, so the sidebar and the Guild view draw from one palette</span>
-        <span class="ledger-commands">
-          <button type="button" class="ff-cmd" aria-label="Approve T-12, daedalus">Approve</button>
-          <button type="button" class="ff-cmd is-refuse" aria-label="Reject T-12, daedalus">Reject</button>
-        </span>
+        <span class="ledger-row-status is-waiting">awaiting seal</span>
       </button>
     </div>
 
@@ -138,6 +127,25 @@
     </div>
 
   </div>
+
+  <div class="ff-window ledger-desc" id="ledger-desc">
+    <span class="ff-window-title">Entry</span>
+    <div class="ledger-desc-head">
+      <span class="ledger-desc-id" id="ledger-desc-id">T-12</span>
+      <span class="ledger-desc-project" id="ledger-desc-project">daedalus</span>
+      <span class="ledger-desc-status ledger-row-status is-waiting" id="ledger-desc-status">awaiting seal</span>
+    </div>
+    <div class="ledger-desc-body" id="ledger-desc-body">Promote the ad-hoc colour literals introduced by T-8 in internal/web/static/style.css into shared custom properties, so the sidebar and the Guild view draw from one palette. These are not arbitrary colours: almost every one is a lighter or darker variant of an existing --mana-* variable, invented at the call site because the palette has a base tier and no highlight/shade tier.</div>
+    <div class="ledger-desc-note" id="ledger-desc-note"></div>
+    <div class="ledger-commands" id="ledger-commands">
+      <span class="ledger-command-group">
+        <button type="button" class="ff-cmd" aria-label="Approve T-12, daedalus">Approve</button>
+        <button type="button" class="ff-cmd is-refuse" aria-label="Reject T-12, daedalus">Reject</button>
+      </span>
+    </div>
+  </div>
+
+  </div>
 </div>
 
 <script>
@@ -169,6 +177,13 @@
       var note = document.getElementById('ledger-desc-note');
       note.textContent = e[4];
       note.className = 'ledger-desc-note' + (e[4].indexOf('stuck') === 0 ? ' is-stuck' : '');
+      // Commands follow the selection: only T-12 is awaiting a decision here.
+      var cmds = document.getElementById('ledger-commands');
+      cmds.innerHTML = row.dataset.taskId === 'T-12'
+        ? '<span class="ledger-command-group">' +
+          '<button type="button" class="ff-cmd">Approve</button>' +
+          '<button type="button" class="ff-cmd is-refuse">Reject</button></span>'
+        : '';
     }
     row.addEventListener('mouseenter', show);
     row.addEventListener('focus', show);

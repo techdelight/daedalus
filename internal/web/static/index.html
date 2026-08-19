@@ -94,20 +94,25 @@
                 <span class="ledger-subtitle" id="ledger-subtitle"></span>
                 <button class="btn btn-back" onclick="hideControlView(); showProjectList();">Back</button>
             </div>
-            <!-- The description window. An objective is a paragraph and a row is
-                 one line, so the row carries what fits and this carries the rest —
-                 the same job the item description does in a SNES menu. -->
-            <div class="ff-window ledger-desc" id="ledger-desc">
-                <span class="ff-window-title">Entry</span>
-                <div class="ledger-desc-head">
-                    <span class="ledger-desc-id" id="ledger-desc-id">—</span>
-                    <span class="ledger-desc-project" id="ledger-desc-project"></span>
-                    <span class="ledger-desc-status" id="ledger-desc-status"></span>
+            <!-- List left, entry right. An objective is a paragraph and a row is
+                 one line, so the row carries what fits and the entry window
+                 carries the rest — the job the item description does in a SNES
+                 menu. Side by side rather than stacked so neither has to give up
+                 vertical space to the other. -->
+            <div class="ledger-body" id="ledger-body">
+                <div class="ff-window ledger-list" id="ledger-list"></div>
+                <div class="ff-window ledger-desc" id="ledger-desc">
+                    <span class="ff-window-title">Entry</span>
+                    <div class="ledger-desc-head">
+                        <span class="ledger-desc-id" id="ledger-desc-id">—</span>
+                        <span class="ledger-desc-project" id="ledger-desc-project"></span>
+                        <span class="ledger-desc-status" id="ledger-desc-status"></span>
+                    </div>
+                    <div class="ledger-desc-body is-empty" id="ledger-desc-body">Point at an entry to read it.</div>
+                    <div class="ledger-desc-note" id="ledger-desc-note"></div>
+                    <div class="ledger-commands" id="ledger-commands"></div>
                 </div>
-                <div class="ledger-desc-body is-empty" id="ledger-desc-body">Point at an entry to read it.</div>
-                <div class="ledger-desc-note" id="ledger-desc-note"></div>
             </div>
-            <div class="ff-window ledger-list" id="ledger-list"></div>
             <div class="ff-window ledger-closed" id="ledger-closed" style="display:none">
                 <div class="ledger-closed-title">The ledger is closed</div>
                 <div class="ledger-closed-body">

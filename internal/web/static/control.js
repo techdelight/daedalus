@@ -99,16 +99,12 @@
     row.appendChild(text('span', 'ledger-row-id', card.taskId));
     row.appendChild(text('span', 'ledger-row-objective', card.objective));
 
-    // Commands only where a decision is genuinely the next act, and only once
-    // the approvals endpoint has confirmed it. The board alone is not enough: it
-    // groups by state, and a task can sit in the approval column while the plane
-    // is still settling it.
-    if (columnKey === AWAITING_YOU && approvable.has(card.taskId)) {
-      row.appendChild(commands(card));
-    } else {
-      const mark = markFor(columnKey);
-      row.appendChild(text('span', 'ledger-row-status ' + mark[1], mark[0]));
-    }
+    // Every row gets a status word, including the ones awaiting a decision. The
+    // commands live in the entry window, where the objective they are deciding
+    // on is legible — a row is one truncated line and nobody should approve
+    // something on the strength of its first eight words.
+    const mark = markFor(columnKey);
+    row.appendChild(text('span', 'ledger-row-status ' + mark[1], mark[0]));
 
     const show = function () { describe(card, columnKey); };
     row.addEventListener('mouseenter', show);
@@ -139,6 +135,8 @@
       body.className = 'ledger-desc-body is-empty';
       body.textContent = 'Point at an entry to read it.';
       if (note) note.textContent = '';
+      const none = el('ledger-commands');
+      if (none) none.innerHTML = '';
       return;
     }
 
@@ -151,19 +149,31 @@
     }
     body.className = 'ledger-desc-body';
     body.textContent = card.objective;
+    body.scrollTop = 0;
     if (note) {
       const n = notesFor(card);
       note.textContent = n.text;
       note.className = 'ledger-desc-note' + (n.stuck ? ' is-stuck' : '');
     }
+
+    // Commands only where a decision is genuinely the next act, and only once
+    // the approvals endpoint has confirmed it. The board alone is not enough: it
+    // groups by state, and a task can sit in the approval column while the plane
+    // is still settling it.
+    const cmds = el('ledger-commands');
+    if (cmds) {
+      cmds.innerHTML = '';
+      if (columnKey === AWAITING_YOU && approvable.has(card.taskId)) {
+        cmds.appendChild(commands(card));
+      }
+    }
   }
 
-  // A decision is a menu command. The row it sits in is itself a button, so the
-  // commands stop their clicks from reaching it — pointing at a row should read
-  // it, and only the command should decide it.
+  // A decision is a menu command, rendered into the entry window beside the
+  // objective it decides on.
   function commands(card) {
     const wrap = document.createElement('span');
-    wrap.className = 'ledger-commands';
+    wrap.className = 'ledger-command-group';
 
     const approve = document.createElement('button');
     approve.className = 'ff-cmd';
@@ -179,8 +189,8 @@
     refuse.textContent = 'Reject';
     refuse.setAttribute('aria-label', 'Reject ' + card.taskId + ', ' + card.project);
 
-    approve.onclick = function (e) { e.stopPropagation(); decide(card.taskId, 'approve', approve, refuse); };
-    refuse.onclick = function (e) { e.stopPropagation(); decide(card.taskId, 'reject', approve, refuse); };
+    approve.onclick = function () { decide(card.taskId, 'approve', approve, refuse); };
+    refuse.onclick = function () { decide(card.taskId, 'reject', approve, refuse); };
 
     wrap.appendChild(approve);
     wrap.appendChild(refuse);
@@ -199,7 +209,7 @@
 
   function renderBoard(data) {
     const list = el('ledger-list');
-    const desc = el('ledger-desc');
+    const body = el('ledger-body');
     const closed = el('ledger-closed');
     const sub = el('ledger-subtitle');
     if (!list || !closed) return;
@@ -208,15 +218,13 @@
     // page: an operator who cannot tell "nothing is running" from "I could not
     // ask" will trust the wrong one.
     if (!data || !data.available) {
-      list.style.display = 'none';
-      if (desc) desc.style.display = 'none';
+      if (body) body.style.display = 'none';
       closed.style.display = '';
       if (sub) sub.textContent = '';
       return;
     }
     closed.style.display = 'none';
-    list.style.display = '';
-    if (desc) desc.style.display = '';
+    if (body) body.style.display = '';
 
     if (sub) {
       const limit = data.globalLimit > 0 ? String(data.globalLimit) : '\u221E';

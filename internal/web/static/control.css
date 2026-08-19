@@ -116,15 +116,29 @@
     flex: none;
 }
 
-/* --- the description window --------------------------------------------- */
+/* --- the split ----------------------------------------------------------- */
 
-/* Pinned above the list and never scrolled away, because it is the only place
-   an objective is readable in full and the reader is looking down at the list
-   while it changes. */
+/* List left, entry right. The horizontal split had the two competing for the
+   same vertical space: every line the description grew was a row the list lost,
+   and an objective here runs to paragraphs. Side by side, the list gets the
+   whole height and the entry gets room to actually be read — which is the point
+   of having it at all. Reading order does the rest: scan the list, and the thing
+   you are pointing at is already open beside it. */
+.ledger-body {
+    flex: 1;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+    gap: 12px;
+}
+
+/* --- the entry window ---------------------------------------------------- */
+
 .ledger-desc {
-    flex: none;
-    min-height: 92px;
-    padding: 14px 16px 13px;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    padding: 16px 16px 14px;
 }
 
 .ledger-desc-head {
@@ -158,19 +172,34 @@
     text-shadow: 1px 1px 0 var(--mana-ink);
 }
 
-/* An objective can run to paragraphs. It is clamped rather than allowed to
-   push the list off the screen: enough to know what the task is, and the CLI
-   is where you go for every word of it. */
+/* With a column of its own the objective no longer has to be clamped to three
+   lines: it scrolls, so the whole thing is readable here rather than only in
+   the CLI. Whitespace is preserved because these are written as paragraphs and
+   reflowing them into one block loses the author's structure. */
 .ledger-desc-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
     font-size: 12px;
-    line-height: 1.65;
+    line-height: 1.7;
+    white-space: pre-wrap;
     color: var(--mana-text);
     text-shadow: 1px 1px 0 var(--mana-ink);
-    display: -webkit-box;
-    -webkit-line-clamp: 3;
-    line-clamp: 3;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
+}
+
+/* A SNES window has no scrollbar furniture; this keeps it out of the way
+   without hiding the fact that there is more to read. */
+.ledger-desc-body::-webkit-scrollbar {
+    width: 6px;
+}
+
+.ledger-desc-body::-webkit-scrollbar-thumb {
+    background: var(--mana-frame-dk);
+    border-radius: 3px;
+}
+
+.ledger-desc-body::-webkit-scrollbar-track {
+    background: transparent;
 }
 
 .ledger-desc-body.is-empty {
@@ -328,9 +357,25 @@
 
 /* --- commands ----------------------------------------------------------- */
 
-/* A decision is a menu command, not a doorbell: the same plate the Guild uses
-   for anything pressable, sized for a thumb. */
+/* A decision is a menu command, and it belongs in the entry window rather than
+   on the row. Two reasons, and the second is the stronger one: you decide after
+   reading, and this is where the reading happens — and a row is itself a button,
+   so commands inside it were buttons nested in a button, which is not markup a
+   browser is obliged to make sense of. */
 .ledger-commands {
+    display: flex;
+    gap: 8px;
+    flex: none;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 2px solid var(--mana-frame-dk);
+}
+
+.ledger-commands:empty {
+    display: none;
+}
+
+.ledger-command-group {
     display: flex;
     gap: 8px;
 }
@@ -425,9 +470,22 @@
 
 /* --- responsive --------------------------------------------------------- */
 
-@media (max-width: 640px) {
+@media (max-width: 780px) {
     #control-view {
         padding: 12px 10px 14px;
+    }
+
+    /* Columns become rows, and the entry goes FIRST: there is no pointing on a
+       touch screen, so you tap a row and look up — which only works if "up" is
+       where the entry is. It takes a fixed share rather than growing, so the
+       list never gets squeezed to a couple of rows by a long objective. */
+    .ledger-body {
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-rows: minmax(0, 0.8fr) minmax(0, 1.2fr);
+    }
+
+    .ledger-desc {
+        order: -1;
     }
 
     .ledger-row {
@@ -448,15 +506,6 @@
     .ledger-row-status {
         grid-column: 3;
         grid-row: 1 / span 2;
-    }
-
-    .ledger-commands {
-        grid-column: 2 / span 2;
-        margin-top: 4px;
-    }
-
-    .ledger-desc {
-        min-height: 84px;
     }
 }
 
