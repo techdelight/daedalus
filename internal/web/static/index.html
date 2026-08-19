@@ -94,13 +94,26 @@
                 <span class="ledger-subtitle" id="ledger-subtitle"></span>
                 <button class="btn btn-back" onclick="hideControlView(); showProjectList();">Back</button>
             </div>
-            <div class="ledger-leaf" id="ledger-leaf"></div>
-            <div class="ledger-closed" id="ledger-closed" style="display:none">
-                <div class="ledger-closed-title">The ledger is closed.</div>
+            <!-- The description window. An objective is a paragraph and a row is
+                 one line, so the row carries what fits and this carries the rest —
+                 the same job the item description does in a SNES menu. -->
+            <div class="ff-window ledger-desc" id="ledger-desc">
+                <span class="ff-window-title">Entry</span>
+                <div class="ledger-desc-head">
+                    <span class="ledger-desc-id" id="ledger-desc-id">—</span>
+                    <span class="ledger-desc-project" id="ledger-desc-project"></span>
+                    <span class="ledger-desc-status" id="ledger-desc-status"></span>
+                </div>
+                <div class="ledger-desc-body is-empty" id="ledger-desc-body">Point at an entry to read it.</div>
+                <div class="ledger-desc-note" id="ledger-desc-note"></div>
+            </div>
+            <div class="ff-window ledger-list" id="ledger-list"></div>
+            <div class="ff-window ledger-closed" id="ledger-closed" style="display:none">
+                <div class="ledger-closed-title">The ledger is closed</div>
                 <div class="ledger-closed-body">
                     The control plane is not running, so there is nothing to read — which is
                     not the same as nothing to do.<br>
-                    Start it with <code>daedalus task list</code>, then come back.
+                    Start it with <code>daedalus task list</code>. This page will find it.
                 </div>
             </div>
         </div>

@@ -1,456 +1,473 @@
 /* Copyright (C) 2026 Techdelight BV */
 
 /* ============================================================
-   The Ledger — the control plane's room in the Guild's world
+   The Ledger — the control plane as a Final Fantasy menu
    ============================================================
 
-   Sibling to guild.css, deliberately its opposite material. The Guild Hall is
-   a party screen: sky panels, pixel heroes, animation, everything lit. This is
-   the room where work is JUDGED — so it is parchment and ink inside the same
-   gold binding, and it holds still.
+   Sibling to guild.css and built from the same parts: the Guild's window is a
+   blue gradient behind a triple gold frame, its type is a mono stack with the
+   pixel outline faked in layered text-shadows, and both are reused here
+   unchanged. The Guild Hall arranges those parts as a party roster; this is the
+   same game's OTHER screen — the command menu.
 
-   Every colour here comes from the Mana palette already declared in guild.css.
-   Nothing new is invented: the parchment/ink pair was the least-used half of
-   that palette, and a written record is what it was always for. The HP ramp is
-   reused as a VERDICT ramp (refused / waiting / passed), which is the same
-   idea one layer up — how healthy is this piece of work.
+   Why a menu and not a board. The control plane is a list of things in states,
+   read to decide what to do next, which is what a JRPG menu is for. The screen
+   the reference actually gives us is the item/magic menu: a list of terse rows,
+   a cursor, and a DESCRIPTION WINDOW that shows the selected row in full. That
+   window is also the answer to the real problem with a task list — an objective
+   is a paragraph and a row is one line, so the row carries the first few words
+   and the window carries the rest.
    ============================================================ */
 
 #control-view {
     display: none;
-    position: relative;
-    min-height: 100dvh;
+    flex-direction: column;
+    height: 100vh;
     box-sizing: border-box;
-    padding: 18px 16px 48px;
+    padding: 16px 18px 20px;
+    gap: 12px;
     background:
-        radial-gradient(120% 70% at 50% 0%, rgba(233, 200, 119, 0.10), transparent 60%),
+        radial-gradient(120% 80% at 50% -10%, #34509c 0%, transparent 55%),
         linear-gradient(180deg, var(--mana-sky-top) 0%, var(--mana-sky-bot) 100%);
+    /* The Guild's face, deliberately: a second type stack would be the thing
+       that made this read as a different product rather than a second screen. */
+    font-family: ui-monospace, "DejaVu Sans Mono", "Courier New", monospace;
     color: var(--mana-text);
-    overflow-x: hidden;
+    overflow: hidden;
 }
 
 #control-view.active {
-    display: block;
+    display: flex;
 }
 
-/* The ledger's hand. A serif, because this is a written record — and
-   pointedly not the Guild's pixel display, which belongs to the party screen.
-   System faces only: the page ships under a CSP that blocks external assets,
-   and a webfont would be a request that never completes. */
-#control-view {
-    --ledger-hand: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
-    --ledger-data: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+/* --- the window: one recipe, used for every box on the screen ----------- */
+
+.ff-window {
+    position: relative;
+    box-sizing: border-box;
+    border: 3px solid var(--mana-frame);
+    border-radius: 8px;
+    background: linear-gradient(180deg, var(--mana-panel-lit) 0%, var(--mana-panel) 60%, #1a2a5c 100%);
+    box-shadow:
+        inset 0 0 0 2px var(--mana-ink),
+        inset 0 0 0 5px var(--mana-frame-dk),
+        inset 0 2px 6px rgba(255, 255, 255, 0.12),
+        0 6px 18px rgba(0, 0, 0, 0.45);
 }
 
-/* --- the header plate, shared language with the Guild ------------------- */
+/* A window's name sits ON its frame, the way a SNES menu labels its boxes. */
+.ff-window-title {
+    position: absolute;
+    top: -11px;
+    left: 16px;
+    padding: 0 8px;
+    background: var(--mana-panel);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: var(--mana-frame);
+    text-shadow:
+        -1px 0 var(--mana-ink), 1px 0 var(--mana-ink),
+        0 -1px var(--mana-ink), 0 1px var(--mana-ink),
+        2px 2px 0 var(--mana-frame-dk);
+}
+
+/* --- header ------------------------------------------------------------- */
 
 .ledger-header {
     display: flex;
-    align-items: baseline;
+    align-items: center;
     gap: 14px;
-    max-width: 1080px;
-    margin: 0 auto 18px;
+    flex: none;
     padding: 10px 14px;
-    border: 2px solid var(--mana-frame-dk);
-    border-radius: 3px;
-    background: linear-gradient(180deg, var(--mana-plate-top) 0%, var(--mana-plate-bot) 100%);
-    box-shadow: inset 0 0 0 1px var(--mana-frame), 0 2px 0 rgba(0, 0, 0, 0.4);
 }
 
 .ledger-title {
-    font-family: var(--ledger-hand);
-    font-size: 1.35rem;
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    color: var(--mana-frame-pale);
-    text-shadow: 0 2px 0 var(--mana-ink);
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: var(--mana-frame);
+    text-shadow:
+        -1px 0 var(--mana-ink), 1px 0 var(--mana-ink),
+        0 -1px var(--mana-ink), 0 1px var(--mana-ink),
+        2px 2px 0 var(--mana-frame-dk);
+}
+
+/* The Guild's crossed swords mark its hall; a scroll marks the record. */
+.ledger-title::before {
+    content: "\1F4DC  ";
 }
 
 .ledger-subtitle {
     flex: 1;
     min-width: 0;
-    font-family: var(--ledger-data);
-    font-size: 0.72rem;
-    letter-spacing: 0.06em;
+    font-size: 11px;
+    letter-spacing: 1px;
     color: var(--mana-text-dim);
+    text-shadow: 1px 1px 0 var(--mana-ink);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .ledger-header .btn-back {
     flex: none;
 }
 
-/* --- the leaf ----------------------------------------------------------- */
+/* --- the description window --------------------------------------------- */
 
-/* The binding is a left edge, not a border box: a ledger opens, it is not
-   framed like a picture. */
-.ledger-leaf {
-    position: relative;
-    max-width: 1080px;
-    margin: 0 auto;
-    padding: 26px 26px 30px 34px;
-    border-radius: 2px 5px 5px 2px;
-    border-left: 7px solid var(--mana-frame-dk);
-    background:
-        linear-gradient(180deg, var(--mana-parchment-lt) 0%, var(--mana-parchment) 42%, #ece0c0 100%);
-    box-shadow:
-        inset 1px 0 0 var(--mana-frame),
-        inset 0 0 60px rgba(160, 130, 70, 0.14),
-        0 6px 0 rgba(0, 0, 0, 0.35);
-    color: var(--mana-ink);
+/* Pinned above the list and never scrolled away, because it is the only place
+   an objective is readable in full and the reader is looking down at the list
+   while it changes. */
+.ledger-desc {
+    flex: none;
+    min-height: 92px;
+    padding: 14px 16px 13px;
 }
 
-/* Two rivets on the binding, the same fastening the Guild's panels use. */
-.ledger-leaf::before,
-.ledger-leaf::after {
-    content: "";
-    position: absolute;
-    left: -5px;
-    width: 5px;
-    height: 5px;
-    border-radius: 50%;
-    background: radial-gradient(circle at 30% 30%, var(--mana-frame-glint), var(--mana-frame-dk));
-}
-
-.ledger-leaf::before { top: 22px; }
-.ledger-leaf::after { bottom: 22px; }
-
-/* --- sections: grouped by whose move it is ------------------------------ */
-
-/* Not a numbered sequence. The grouping IS the information — the plane holds
-   the first group, the operator holds the second, and the third is finished.
-   That is the same question `task board` answers, asked in the same order. */
-.ledger-section + .ledger-section {
-    margin-top: 26px;
-}
-
-.ledger-section-head {
+.ledger-desc-head {
     display: flex;
     align-items: baseline;
     gap: 10px;
-    padding-bottom: 5px;
-    border-bottom: 1px solid rgba(16, 22, 50, 0.35);
+    margin-bottom: 6px;
+}
+
+.ledger-desc-id {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    color: var(--mana-frame-pale);
+    text-shadow: 1px 1px 0 var(--mana-ink);
+}
+
+.ledger-desc-project {
+    font-size: 11px;
+    letter-spacing: 1px;
+    color: var(--mana-text-dim);
+    text-shadow: 1px 1px 0 var(--mana-ink);
+}
+
+.ledger-desc-status {
+    margin-left: auto;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    text-shadow: 1px 1px 0 var(--mana-ink);
+}
+
+/* An objective can run to paragraphs. It is clamped rather than allowed to
+   push the list off the screen: enough to know what the task is, and the CLI
+   is where you go for every word of it. */
+.ledger-desc-body {
+    font-size: 12px;
+    line-height: 1.65;
+    color: var(--mana-text);
+    text-shadow: 1px 1px 0 var(--mana-ink);
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.ledger-desc-body.is-empty {
+    color: var(--mana-text-dim);
+}
+
+.ledger-desc-note {
+    margin-top: 7px;
+    font-size: 11px;
+    letter-spacing: 0.5px;
+    color: var(--mana-frame-lt);
+    text-shadow: 1px 1px 0 var(--mana-ink);
+}
+
+.ledger-desc-note.is-stuck {
+    color: var(--mana-hp-lo-lt);
+}
+
+/* --- the list ----------------------------------------------------------- */
+
+.ledger-list {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 20px 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+}
+
+.ledger-section {
+    position: relative;
+}
+
+/* A ruled sub-header rather than a tab floating on the frame: the window's
+   background is a gradient, so a chip sitting on the border would have to match
+   a colour that changes with how far down the list it happens to fall. */
+.ledger-section-head {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 0 8px 5px;
+    margin-bottom: 6px;
+    border-bottom: 2px solid var(--mana-frame-dk);
 }
 
 .ledger-section-title {
-    font-family: var(--ledger-hand);
-    font-size: 0.98rem;
-    font-weight: 600;
-    letter-spacing: 0.02em;
-    color: var(--mana-ink);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--mana-frame);
+    text-shadow: 1px 1px 0 var(--mana-ink);
 }
 
 .ledger-section-count {
-    font-family: var(--ledger-data);
-    font-size: 0.7rem;
-    letter-spacing: 0.08em;
-    color: rgba(16, 22, 50, 0.55);
+    font-size: 10px;
+    letter-spacing: 1px;
+    color: var(--mana-text-dim);
 }
 
-/* "Whose move" said once per section, in the margin where a clerk would. */
-.ledger-section-hand {
-    margin-left: auto;
-    font-family: var(--ledger-data);
-    font-size: 0.64rem;
-    text-transform: uppercase;
-    letter-spacing: 0.14em;
-    color: rgba(16, 22, 50, 0.45);
-}
+/* --- the row ------------------------------------------------------------ */
 
-/* --- entries ------------------------------------------------------------ */
-
-.ledger-entry {
+.ledger-row {
     display: grid;
-    grid-template-columns: 88px 1fr auto;
-    align-items: start;
-    gap: 4px 14px;
-    padding: 11px 4px 11px 0;
-    border-bottom: 1px solid rgba(16, 22, 50, 0.13);
-}
-
-.ledger-entry:last-child {
-    border-bottom: none;
-}
-
-/* The task id is real data and the only identifier that survives every
-   surface, so it earns the eyebrow slot rather than a decorative marker. */
-.ledger-entry-id {
-    grid-column: 1;
-    font-family: var(--ledger-data);
-    font-size: 0.78rem;
-    font-weight: 600;
-    letter-spacing: 0.02em;
-    color: var(--mana-ink);
-}
-
-.ledger-entry-project {
-    grid-column: 1;
-    grid-row: 2;
-    font-family: var(--ledger-data);
-    font-size: 0.64rem;
-    letter-spacing: 0.04em;
-    color: rgba(16, 22, 50, 0.5);
-    overflow-wrap: anywhere;
-}
-
-.ledger-entry-objective {
-    grid-column: 2;
-    grid-row: 1 / span 2;
-    font-family: var(--ledger-hand);
-    font-size: 0.94rem;
-    line-height: 1.45;
-    color: var(--mana-ink);
-    overflow-wrap: anywhere;
-}
-
-/* A note is the plane explaining itself — why this is waiting, what it is
-   waiting on. Kept in the data face so it reads as a machine's marginalia. */
-.ledger-entry-note {
-    grid-column: 2;
-    grid-row: 3;
-    margin-top: 5px;
-    font-family: var(--ledger-data);
-    font-size: 0.68rem;
-    line-height: 1.5;
-    color: rgba(16, 22, 50, 0.6);
-    overflow-wrap: anywhere;
-}
-
-.ledger-entry-note.is-stuck {
-    color: #8f2f27;
-}
-
-/* --- the verdict mark --------------------------------------------------- */
-
-/* A stamped word, not a pill: the ledger records judgements. The HP ramp does
-   double duty as a verdict ramp, which keeps the two rooms in one palette. */
-.ledger-mark {
-    grid-column: 3;
-    grid-row: 1 / span 2;
-    align-self: center;
-    padding: 3px 9px;
-    border: 1.5px solid currentColor;
-    border-radius: 2px;
-    font-family: var(--ledger-data);
-    font-size: 0.62rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.12em;
-    white-space: nowrap;
-    opacity: 0.85;
-    transform: rotate(-1.5deg);
-}
-
-.ledger-mark.is-working { color: #4a5a8f; }
-.ledger-mark.is-waiting { color: #8a6a1f; }
-.ledger-mark.is-passed  { color: #3f7a35; }
-.ledger-mark.is-refused { color: #8f2f27; }
-
-/* --- the seal: the one act reserved to a human -------------------------- */
-
-.ledger-decision {
-    grid-column: 3;
-    grid-row: 1 / span 2;
-    align-self: center;
-    display: flex;
+    grid-template-columns: 18px 62px minmax(0, 1fr) auto;
     align-items: center;
     gap: 10px;
-}
-
-.seal {
-    position: relative;
-    width: 58px;
-    height: 58px;
-    flex: none;
-    padding: 0;
+    width: 100%;
+    padding: 6px 8px;
     border: none;
-    border-radius: 50%;
-    cursor: pointer;
-    background:
-        radial-gradient(circle at 34% 30%, #e0685c 0%, #b4372c 55%, #7e2119 100%);
-    box-shadow:
-        inset 0 -2px 4px rgba(0, 0, 0, 0.45),
-        inset 0 2px 3px rgba(255, 255, 255, 0.28),
-        0 3px 0 rgba(0, 0, 0, 0.3);
-    color: var(--mana-frame-pale);
-    font-family: var(--ledger-hand);
-    font-size: 0.62rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    text-shadow: 0 1px 1px rgba(0, 0, 0, 0.5);
-    transition: transform 120ms ease, box-shadow 120ms ease;
-}
-
-/* The wax's irregular edge. A perfect circle reads as a button; a seal does
-   not have a perfect edge. */
-.seal::before {
-    content: "";
-    position: absolute;
-    inset: -3px;
-    border-radius: 48% 52% 51% 49% / 50% 48% 52% 50%;
-    background: radial-gradient(circle at 40% 35%, rgba(224, 104, 92, 0.55), rgba(126, 33, 25, 0.65));
-    z-index: -1;
-}
-
-.seal:hover,
-.seal:focus-visible {
-    transform: translateY(-1px);
-    box-shadow:
-        inset 0 -2px 4px rgba(0, 0, 0, 0.45),
-        inset 0 2px 3px rgba(255, 255, 255, 0.35),
-        0 5px 0 rgba(0, 0, 0, 0.32);
-}
-
-.seal:focus-visible {
-    outline: 3px solid var(--mana-frame);
-    outline-offset: 3px;
-}
-
-.seal:active {
-    transform: translateY(2px);
-    box-shadow:
-        inset 0 -1px 3px rgba(0, 0, 0, 0.5),
-        inset 0 2px 3px rgba(255, 255, 255, 0.2),
-        0 1px 0 rgba(0, 0, 0, 0.3);
-}
-
-/* The stamp. The single orchestrated moment on the page: press, bite, settle. */
-.seal.is-stamping {
-    animation: seal-press 460ms cubic-bezier(0.3, 0.9, 0.3, 1) forwards;
-}
-
-@keyframes seal-press {
-    0%   { transform: translateY(-6px) scale(1.06); }
-    45%  { transform: translateY(3px) scale(0.97); }
-    70%  { transform: translateY(1px) scale(1.01); }
-    100% { transform: translateY(0) scale(1); }
-}
-
-/* Refusal is a word, not a seal. Only one of these two acts is a mark of
-   authority being spent; the other is simply declining to spend it. */
-.ledger-refuse {
-    padding: 5px 10px;
-    border: 1px solid rgba(16, 22, 50, 0.4);
-    border-radius: 2px;
+    border-radius: 3px;
     background: transparent;
+    text-align: left;
+    font: inherit;
+    color: var(--mana-text);
     cursor: pointer;
-    font-family: var(--ledger-data);
-    font-size: 0.66rem;
-    letter-spacing: 0.08em;
+}
+
+.ledger-row:hover,
+.ledger-row.is-current {
+    background: rgba(255, 255, 255, 0.07);
+}
+
+.ledger-row:focus-visible {
+    outline: 2px solid var(--mana-frame);
+    outline-offset: -2px;
+}
+
+/* THE CURSOR. Every FF menu is navigated by it, and it is the one thing on
+   this screen that moves: it marks the row whose text fills the window above,
+   so pointing and reading are the same gesture. */
+.ledger-cursor {
+    font-size: 12px;
+    line-height: 1;
+    color: var(--mana-frame);
+    text-shadow: 1px 1px 0 var(--mana-ink);
+    opacity: 0;
+}
+
+.ledger-row:hover .ledger-cursor,
+.ledger-row:focus-visible .ledger-cursor,
+.ledger-row.is-current .ledger-cursor {
+    opacity: 1;
+    animation: cursor-bob 0.7s steps(2, end) infinite;
+}
+
+@keyframes cursor-bob {
+    0%, 50% { transform: translateX(0); }
+    51%, 100% { transform: translateX(2px); }
+}
+
+.ledger-row-id {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    color: var(--mana-frame-pale);
+    text-shadow: 1px 1px 0 var(--mana-ink);
+}
+
+/* One line, always. The window above is where the rest of it lives. */
+.ledger-row-objective {
+    min-width: 0;
+    font-size: 12px;
+    color: var(--mana-text);
+    text-shadow: 1px 1px 0 var(--mana-ink);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* The status word, coloured like a JRPG status effect. The palette's HP ramp
+   is doing the same job one level up: how healthy is this piece of work. */
+.ledger-row-status {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 2px;
     text-transform: uppercase;
-    color: rgba(16, 22, 50, 0.7);
-    transition: background 120ms ease, color 120ms ease;
+    white-space: nowrap;
+    text-shadow: 1px 1px 0 var(--mana-ink);
 }
 
-.ledger-refuse:hover,
-.ledger-refuse:focus-visible {
-    background: rgba(143, 47, 39, 0.1);
-    color: #8f2f27;
-    border-color: #8f2f27;
+.ledger-row-status.is-working { color: var(--mana-text-dim); }
+.ledger-row-status.is-waiting { color: var(--mana-hp-mid); }
+.ledger-row-status.is-passed  { color: var(--mana-hp-hi); }
+.ledger-row-status.is-refused { color: var(--mana-hp-lo); }
+
+.ledger-none {
+    padding: 4px 8px 6px 46px;
+    font-size: 11px;
+    letter-spacing: 1px;
+    color: var(--mana-text-dim);
+    text-shadow: 1px 1px 0 var(--mana-ink);
 }
 
-.ledger-refuse:focus-visible {
-    outline: 2px solid var(--mana-frame-dk);
+/* --- commands ----------------------------------------------------------- */
+
+/* A decision is a menu command, not a doorbell: the same plate the Guild uses
+   for anything pressable, sized for a thumb. */
+.ledger-commands {
+    display: flex;
+    gap: 8px;
+}
+
+.ff-cmd {
+    padding: 5px 12px;
+    border: 2px solid var(--mana-frame-dk);
+    border-radius: 4px;
+    background: linear-gradient(180deg, var(--mana-frame-lt) 0%, var(--mana-frame) 100%);
+    color: var(--mana-ink);
+    font: 700 10px/1 ui-monospace, "DejaVu Sans Mono", "Courier New", monospace;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    cursor: pointer;
+    box-shadow: 0 2px 0 var(--mana-frame-dk);
+    transition: transform 0.1s ease, box-shadow 0.1s ease;
+}
+
+.ff-cmd:hover,
+.ff-cmd:focus-visible {
+    background: linear-gradient(180deg, var(--mana-frame-pale) 0%, var(--mana-frame-lit) 100%);
+}
+
+.ff-cmd:focus-visible {
+    outline: 2px solid var(--mana-frame-pale);
     outline-offset: 2px;
 }
 
-.seal[disabled],
-.ledger-refuse[disabled] {
+.ff-cmd:active {
+    transform: translateY(2px);
+    box-shadow: 0 0 0 var(--mana-frame-dk);
+}
+
+/* Refusing is not the same act as approving and does not get the gold plate. */
+.ff-cmd.is-refuse {
+    background: linear-gradient(180deg, #33406e 0%, #212c52 100%);
+    border-color: var(--mana-ink);
+    color: var(--mana-hp-lo-lt);
+    box-shadow: 0 2px 0 var(--mana-ink);
+}
+
+.ff-cmd.is-refuse:hover,
+.ff-cmd.is-refuse:focus-visible {
+    background: linear-gradient(180deg, #3d4c82 0%, #2a3766 100%);
+}
+
+.ff-cmd[disabled] {
     opacity: 0.45;
     cursor: default;
+    transform: none;
 }
 
-/* --- empty and closed --------------------------------------------------- */
+/* --- the plane is not running ------------------------------------------- */
 
-/* An empty section still prints a rule. "Nothing is awaiting you" is an
-   answer, and a section that vanished would leave the reader to infer it. */
-.ledger-none {
-    padding: 9px 0 11px;
-    font-family: var(--ledger-hand);
-    font-style: italic;
-    font-size: 0.86rem;
-    color: rgba(16, 22, 50, 0.42);
-}
-
-/* The daemon being unreachable is NOT an empty ledger, and the page says so
-   in as many words — the same distinction the CLI draws between "nothing is
-   running" and "I could not ask". */
 .ledger-closed {
-    max-width: 1080px;
-    margin: 0 auto;
-    padding: 44px 26px;
-    border: 2px solid var(--mana-frame-dk);
-    border-radius: 3px;
-    background: linear-gradient(180deg, var(--mana-panel) 0%, var(--mana-plate-bot) 100%);
-    box-shadow: inset 0 0 0 1px var(--mana-frame);
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 40px 24px;
     text-align: center;
 }
 
 .ledger-closed-title {
-    font-family: var(--ledger-hand);
-    font-size: 1.05rem;
-    color: var(--mana-frame-pale);
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: var(--mana-frame);
+    text-shadow:
+        -1px 0 var(--mana-ink), 1px 0 var(--mana-ink),
+        0 -1px var(--mana-ink), 0 1px var(--mana-ink),
+        2px 2px 0 var(--mana-frame-dk);
 }
 
 .ledger-closed-body {
-    margin-top: 8px;
-    font-family: var(--ledger-data);
-    font-size: 0.72rem;
-    line-height: 1.7;
+    max-width: 46ch;
+    font-size: 12px;
+    line-height: 1.8;
     color: var(--mana-text-dim);
+    text-shadow: 1px 1px 0 var(--mana-ink);
 }
 
 .ledger-closed-body code {
-    padding: 1px 5px;
-    border-radius: 2px;
-    background: rgba(0, 0, 0, 0.3);
+    padding: 1px 6px;
+    border-radius: 3px;
+    background: rgba(0, 0, 0, 0.35);
     color: var(--mana-frame-pale);
 }
 
 /* --- responsive --------------------------------------------------------- */
 
-@media (max-width: 720px) {
-    .ledger-leaf {
-        padding: 20px 16px 24px 22px;
+@media (max-width: 640px) {
+    #control-view {
+        padding: 12px 10px 14px;
     }
 
-    .ledger-entry {
-        grid-template-columns: 1fr;
-        gap: 3px;
+    .ledger-row {
+        grid-template-columns: 16px minmax(0, 1fr) auto;
+        row-gap: 2px;
     }
 
-    .ledger-entry-id,
-    .ledger-entry-project,
-    .ledger-entry-objective,
-    .ledger-entry-note,
-    .ledger-mark,
-    .ledger-decision {
-        grid-column: 1;
-        grid-row: auto;
+    /* The id joins the objective's line rather than holding a column of its
+       own; the status keeps its column, because that is what is being scanned. */
+    .ledger-row-id {
+        grid-column: 2;
     }
 
-    .ledger-mark {
-        justify-self: start;
-        margin-top: 6px;
-        transform: none;
+    .ledger-row-objective {
+        grid-column: 2;
     }
 
-    .ledger-decision {
-        margin-top: 10px;
+    .ledger-row-status {
+        grid-column: 3;
+        grid-row: 1 / span 2;
     }
 
-    .ledger-section-hand {
-        display: none;
+    .ledger-commands {
+        grid-column: 2 / span 2;
+        margin-top: 4px;
+    }
+
+    .ledger-desc {
+        min-height: 84px;
     }
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .seal,
-    .ledger-refuse {
-        transition: none;
+    .ledger-row:hover .ledger-cursor,
+    .ledger-row:focus-visible .ledger-cursor,
+    .ledger-row.is-current .ledger-cursor {
+        animation: none;
     }
 
-    .seal.is-stamping {
-        animation: none;
+    .ff-cmd {
+        transition: none;
     }
 }

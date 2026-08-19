@@ -26,6 +26,9 @@
 
   let timers = [];
   let approvable = new Set();
+  // The task the cursor is on. Kept across refreshes so a poll does not empty the
+  // description window out from under someone mid-read.
+  let current = null;
 
   function el(id) { return document.getElementById(id); }
 
@@ -35,19 +38,9 @@
   // column appears here without a code change.
   const AWAITING_YOU = 'awaiting_approval';
 
-  // Whose move it is, in the margin — but ONLY for the sections whose title does
-  // not already say. "Awaiting your approval" and "Rejected — needs a decision"
-  // name their hand in the heading; repeating it beside them would be decoration.
-  // "Queued", "Running" and "Being verified" do not, and there the fact that
-  // nothing is being asked of you is the most useful thing on the row.
-  const HAND = {
-    queued: 'the plane has it',
-    blocked: 'a dependency has it',
-    running: 'the plane has it',
-    verifying: 'the plane has it',
-  };
-
-  // The verdict mark's tone. Reuses the palette's HP ramp as a judgement ramp.
+  // The status word, coloured like a JRPG status effect. It replaced a note in
+  // the section margin naming whose move it was: with a word on every row saying
+  // RUNNING or AWAITING SEAL, the margin was repeating the row.
   const MARK = {
     queued: ['queued', 'is-working'],
     blocked: ['blocked', 'is-waiting'],
@@ -69,7 +62,7 @@
 
   // The plane's marginalia: why this entry is where it is. Same facts the CLI
   // board prints under a card, in the same words.
-  function noteFor(c) {
+  function notesFor(c) {
     const notes = [];
     let stuck = false;
     if (c.blockedOn && c.blockedOn.length) {
@@ -85,105 +78,155 @@
     if (c.steering) {
       notes.push('steering ' + c.steering);
     }
-    if (!notes.length) return null;
-    const node = text('div', 'ledger-entry-note' + (stuck ? ' is-stuck' : ''), notes.join(' · '));
-    return node;
+    return { text: notes.join(' · '), stuck: stuck };
   }
 
+  function markFor(columnKey) {
+    return MARK[columnKey] || [columnKey.replace(/_/g, ' '), 'is-working'];
+  }
+
+  // A row is one line and never more. The objective is a paragraph — sometimes
+  // several — so the row carries as much as fits and the description window
+  // above carries the rest. Pointing at a row is what fills that window, which
+  // is the same gesture as reading it.
   function entry(card, columnKey) {
-    const row = document.createElement('div');
-    row.className = 'ledger-entry';
+    const row = document.createElement('button');
+    row.type = 'button';
+    row.className = 'ledger-row';
+    row.dataset.taskId = card.taskId;
 
-    row.appendChild(text('span', 'ledger-entry-id', card.taskId));
-    row.appendChild(text('span', 'ledger-entry-project', card.project));
-    row.appendChild(text('span', 'ledger-entry-objective', card.objective));
+    row.appendChild(text('span', 'ledger-cursor', '\u25B6'));
+    row.appendChild(text('span', 'ledger-row-id', card.taskId));
+    row.appendChild(text('span', 'ledger-row-objective', card.objective));
 
-    // A seal only where a seal is the actual next act, and only once the
-    // approvals endpoint has confirmed this task is genuinely waiting on a
-    // human. The board alone is not enough: it groups by state, and a task can
-    // sit in the approval column while the plane is still settling it.
+    // Commands only where a decision is genuinely the next act, and only once
+    // the approvals endpoint has confirmed it. The board alone is not enough: it
+    // groups by state, and a task can sit in the approval column while the plane
+    // is still settling it.
     if (columnKey === AWAITING_YOU && approvable.has(card.taskId)) {
-      row.appendChild(decision(card));
+      row.appendChild(commands(card));
     } else {
-      const mark = MARK[columnKey] || [columnKey.replace(/_/g, ' '), 'is-working'];
-      row.appendChild(text('span', 'ledger-mark ' + mark[1], mark[0]));
+      const mark = markFor(columnKey);
+      row.appendChild(text('span', 'ledger-row-status ' + mark[1], mark[0]));
     }
 
-    const note = noteFor(card);
-    if (note) row.appendChild(note);
+    const show = function () { describe(card, columnKey); };
+    row.addEventListener('mouseenter', show);
+    row.addEventListener('focus', show);
+    row.addEventListener('click', show);
     return row;
   }
 
-  function decision(card) {
-    const wrap = document.createElement('div');
-    wrap.className = 'ledger-decision';
+  // The description window. It is the only place an objective is readable in
+  // full, so it is also the only place the plane's marginalia belongs.
+  function describe(card, columnKey) {
+    const id = el('ledger-desc-id');
+    const project = el('ledger-desc-project');
+    const status = el('ledger-desc-status');
+    const body = el('ledger-desc-body');
+    const note = el('ledger-desc-note');
+    if (!id || !body) return;
 
-    const seal = document.createElement('button');
-    seal.className = 'seal';
-    seal.type = 'button';
-    seal.textContent = 'Approve';
-    // The label a screen reader hears names the object, not just the verb —
-    // there may be several seals on the page and "Approve" alone would not say
-    // which one this is.
-    seal.setAttribute('aria-label', 'Approve ' + card.taskId + ', ' + card.project);
+    current = card ? card.taskId : null;
+    document.querySelectorAll('.ledger-row').forEach(function (r) {
+      r.classList.toggle('is-current', !!card && r.dataset.taskId === card.taskId);
+    });
+
+    if (!card) {
+      id.textContent = '—';
+      if (project) project.textContent = '';
+      if (status) status.textContent = '';
+      body.className = 'ledger-desc-body is-empty';
+      body.textContent = 'Point at an entry to read it.';
+      if (note) note.textContent = '';
+      return;
+    }
+
+    const mark = markFor(columnKey);
+    id.textContent = card.taskId;
+    if (project) project.textContent = card.project;
+    if (status) {
+      status.textContent = mark[0];
+      status.className = 'ledger-desc-status ledger-row-status ' + mark[1];
+    }
+    body.className = 'ledger-desc-body';
+    body.textContent = card.objective;
+    if (note) {
+      const n = notesFor(card);
+      note.textContent = n.text;
+      note.className = 'ledger-desc-note' + (n.stuck ? ' is-stuck' : '');
+    }
+  }
+
+  // A decision is a menu command. The row it sits in is itself a button, so the
+  // commands stop their clicks from reaching it — pointing at a row should read
+  // it, and only the command should decide it.
+  function commands(card) {
+    const wrap = document.createElement('span');
+    wrap.className = 'ledger-commands';
+
+    const approve = document.createElement('button');
+    approve.className = 'ff-cmd';
+    approve.type = 'button';
+    approve.textContent = 'Approve';
+    // A screen reader hears the object, not just the verb: there may be several
+    // of these on screen and "Approve" alone would not say which.
+    approve.setAttribute('aria-label', 'Approve ' + card.taskId + ', ' + card.project);
 
     const refuse = document.createElement('button');
-    refuse.className = 'ledger-refuse';
+    refuse.className = 'ff-cmd is-refuse';
     refuse.type = 'button';
     refuse.textContent = 'Reject';
     refuse.setAttribute('aria-label', 'Reject ' + card.taskId + ', ' + card.project);
 
-    seal.onclick = function () { decide(card.taskId, 'approve', seal, refuse); };
-    refuse.onclick = function () { decide(card.taskId, 'reject', seal, refuse); };
+    approve.onclick = function (e) { e.stopPropagation(); decide(card.taskId, 'approve', approve, refuse); };
+    refuse.onclick = function (e) { e.stopPropagation(); decide(card.taskId, 'reject', approve, refuse); };
 
-    wrap.appendChild(seal);
+    wrap.appendChild(approve);
     wrap.appendChild(refuse);
     return wrap;
   }
 
-  function decide(id, action, seal, refuse) {
-    // Both controls go down together so a double-click cannot send two
+  function decide(id, action, approve, refuse) {
+    // Both commands go down together so a double-click cannot send two
     // decisions; the refresh restores the true state either way.
-    seal.disabled = true;
+    approve.disabled = true;
     refuse.disabled = true;
-    if (action === 'approve') {
-      seal.classList.add('is-stamping');
-    }
     fetch('/api/approvals/' + encodeURIComponent(id) + '/' + action, { method: 'POST' })
       .catch(function () { /* the refresh below reports the real state */ })
-      .then(function () {
-        // Long enough to let the stamp land. A decision that vanished mid-press
-        // would read as a page glitch rather than an act.
-        setTimeout(function () { refreshApprovals(); refreshBoard(); }, 420);
-      });
+      .then(function () { refreshApprovals(); refreshBoard(); });
   }
 
   function renderBoard(data) {
-    const leaf = el('ledger-leaf');
+    const list = el('ledger-list');
+    const desc = el('ledger-desc');
     const closed = el('ledger-closed');
     const sub = el('ledger-subtitle');
-    if (!leaf || !closed) return;
+    if (!list || !closed) return;
 
     // Unreachable is not empty. The CLI draws this distinction and so does the
     // page: an operator who cannot tell "nothing is running" from "I could not
     // ask" will trust the wrong one.
     if (!data || !data.available) {
-      leaf.style.display = 'none';
+      list.style.display = 'none';
+      if (desc) desc.style.display = 'none';
       closed.style.display = '';
       if (sub) sub.textContent = '';
       return;
     }
     closed.style.display = 'none';
-    leaf.style.display = '';
+    list.style.display = '';
+    if (desc) desc.style.display = '';
 
     if (sub) {
-      const limit = data.globalLimit > 0 ? String(data.globalLimit) : '∞';
-      sub.textContent = data.globalRunning + '/' + limit + ' running · ' +
-        data.pendingApprovals + ' awaiting your seal · ' +
+      const limit = data.globalLimit > 0 ? String(data.globalLimit) : '\u221E';
+      sub.textContent = data.globalRunning + '/' + limit + ' running \u00B7 ' +
+        data.pendingApprovals + ' awaiting you \u00B7 ' +
         data.pendingProposals + ' proposals pending';
     }
 
-    leaf.innerHTML = '';
+    list.innerHTML = '';
+    let restored = null;
     (data.columns || []).forEach(function (col) {
       const section = document.createElement('div');
       section.className = 'ledger-section';
@@ -192,17 +235,26 @@
       head.className = 'ledger-section-head';
       head.appendChild(text('span', 'ledger-section-title', col.title));
       head.appendChild(text('span', 'ledger-section-count', String(col.cards.length)));
-      const hand = HAND[col.key];
-      if (hand) head.appendChild(text('span', 'ledger-section-hand', hand));
       section.appendChild(head);
 
       if (!col.cards.length) {
         section.appendChild(text('div', 'ledger-none', 'Nothing.'));
       } else {
-        col.cards.forEach(function (c) { section.appendChild(entry(c, col.key)); });
+        col.cards.forEach(function (c) {
+          section.appendChild(entry(c, col.key));
+          if (c.taskId === current) restored = { card: c, key: col.key };
+        });
       }
-      leaf.appendChild(section);
+      list.appendChild(section);
     });
+
+    // Put the cursor back where it was. If that task has moved on, the window
+    // says so by going blank rather than showing a stale entry as if it were live.
+    if (restored) {
+      describe(restored.card, restored.key);
+    } else {
+      describe(null, null);
+    }
   }
 
   function renderApprovals(data) {

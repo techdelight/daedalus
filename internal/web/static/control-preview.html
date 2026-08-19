@@ -10,71 +10,75 @@
   terminal, and a preview that renders every state from static markup can be
   opened by a person in a second.
 
-  It references the REAL control.css. If this file looks right, the view looks
-  right — the only thing it fakes is the data. The palette lives in guild.css,
-  which the real page always loads, so it is pulled in here too.
+  It references the REAL control.css, and guild.css for the palette the page
+  always loads. If this looks right, the view looks right — the only thing it
+  fakes is the data, and the objectives below are the real ones, at their real
+  length, because a row that only holds short strings proves nothing.
 -->
 <link rel="stylesheet" href="guild.css">
 <link rel="stylesheet" href="control.css">
 <style>
   /* Preview chrome only — not part of the design. */
   body { margin: 0; background: #0e1430; }
-  #control-view { display: block; }
-  .preview-label {
-      max-width: 1080px; margin: 26px auto 8px; padding: 0 4px;
-      font: 600 0.68rem ui-monospace, Menlo, monospace; letter-spacing: 0.14em;
-      text-transform: uppercase; color: #b9c2e6; opacity: 0.75;
-  }
+  #control-view { display: flex; height: auto; min-height: 100vh; }
   .btn { padding: 5px 12px; border: 1px solid currentColor; border-radius: 3px;
-         background: transparent; color: #b9c2e6; font-size: 0.78rem; cursor: pointer; }
+         background: transparent; color: #b9c2e6; font: 11px ui-monospace, monospace;
+         letter-spacing: 1px; cursor: pointer; }
 </style>
 </head>
 <body>
 
-<div class="preview-label">state 1 — the ledger, with work in every hand</div>
-
 <div id="control-view" class="active">
+
   <div class="ledger-header">
     <span class="ledger-title">The Ledger</span>
-    <span class="ledger-subtitle">2/4 running · 1 awaiting your seal · 0 proposals pending</span>
+    <span class="ledger-subtitle">2/4 running · 1 awaiting you · 0 proposals pending</span>
     <button class="btn btn-back">Back</button>
   </div>
 
-  <div class="ledger-leaf">
+  <div class="ff-window ledger-desc" id="ledger-desc">
+    <span class="ff-window-title">Entry</span>
+    <div class="ledger-desc-head">
+      <span class="ledger-desc-id" id="ledger-desc-id">T-12</span>
+      <span class="ledger-desc-project" id="ledger-desc-project">daedalus</span>
+      <span class="ledger-desc-status ledger-row-status is-waiting" id="ledger-desc-status">awaiting seal</span>
+    </div>
+    <div class="ledger-desc-body" id="ledger-desc-body">Promote the ad-hoc colour literals introduced by T-8 in internal/web/static/style.css into shared custom properties, so the sidebar and the Guild view draw from one palette. These are not arbitrary colours: almost every one is a lighter or darker variant of an existing --mana-* variable, invented at the call site because the palette has a base tier and no highlight/shade tier.</div>
+    <div class="ledger-desc-note" id="ledger-desc-note"></div>
+  </div>
+
+  <div class="ff-window ledger-list" id="ledger-list">
 
     <div class="ledger-section">
       <div class="ledger-section-head">
         <span class="ledger-section-title">Running</span>
         <span class="ledger-section-count">2</span>
-        <span class="ledger-section-hand">the plane has it</span>
       </div>
-      <div class="ledger-entry">
-        <span class="ledger-entry-id">T-14</span>
-        <span class="ledger-entry-project">daedalus</span>
-        <span class="ledger-entry-objective">Give the scheduler a durable queue so admission survives a restart</span>
-        <span class="ledger-mark is-working">running</span>
-      </div>
-      <div class="ledger-entry">
-        <span class="ledger-entry-id">T-15</span>
-        <span class="ledger-entry-project">flashcards</span>
-        <span class="ledger-entry-objective">Move the deck importer off the synchronous parse path</span>
-        <span class="ledger-mark is-working">running</span>
-      </div>
+      <button type="button" class="ledger-row" data-task-id="T-14">
+        <span class="ledger-cursor">▶</span>
+        <span class="ledger-row-id">T-14</span>
+        <span class="ledger-row-objective">Give the scheduler a durable queue so admission survives a daemon restart, replacing the in-memory waiting map</span>
+        <span class="ledger-row-status is-working">running</span>
+      </button>
+      <button type="button" class="ledger-row" data-task-id="T-15">
+        <span class="ledger-cursor">▶</span>
+        <span class="ledger-row-id">T-15</span>
+        <span class="ledger-row-objective">Move the deck importer off the synchronous parse path so a large import cannot block the review queue</span>
+        <span class="ledger-row-status is-working">running</span>
+      </button>
     </div>
 
     <div class="ledger-section">
       <div class="ledger-section-head">
         <span class="ledger-section-title">Blocked</span>
         <span class="ledger-section-count">1</span>
-        <span class="ledger-section-hand">a dependency has it</span>
       </div>
-      <div class="ledger-entry">
-        <span class="ledger-entry-id">T-16</span>
-        <span class="ledger-entry-project">daedalus</span>
-        <span class="ledger-entry-objective">Publish the Homebrew formula from the release workflow</span>
-        <span class="ledger-mark is-waiting">blocked</span>
-        <div class="ledger-entry-note is-stuck">stuck — T-11 can never complete</div>
-      </div>
+      <button type="button" class="ledger-row" data-task-id="T-16">
+        <span class="ledger-cursor">▶</span>
+        <span class="ledger-row-id">T-16</span>
+        <span class="ledger-row-objective">Publish the Homebrew formula from the release workflow and check it against the bundled archive</span>
+        <span class="ledger-row-status is-waiting">blocked</span>
+      </button>
     </div>
 
     <div class="ledger-section">
@@ -82,15 +86,15 @@
         <span class="ledger-section-title">Awaiting your approval</span>
         <span class="ledger-section-count">1</span>
       </div>
-      <div class="ledger-entry">
-        <span class="ledger-entry-id">T-12</span>
-        <span class="ledger-entry-project">daedalus</span>
-        <span class="ledger-entry-objective">Promote the ad-hoc colour literals into shared Mana variables so the sidebar and the Guild view draw from one palette</span>
-        <div class="ledger-decision">
-          <button class="seal" type="button" aria-label="Approve T-12, daedalus">Approve</button>
-          <button class="ledger-refuse" type="button" aria-label="Reject T-12, daedalus">Reject</button>
-        </div>
-      </div>
+      <button type="button" class="ledger-row is-current" data-task-id="T-12">
+        <span class="ledger-cursor">▶</span>
+        <span class="ledger-row-id">T-12</span>
+        <span class="ledger-row-objective">Promote the ad-hoc colour literals introduced by T-8 into shared custom properties, so the sidebar and the Guild view draw from one palette</span>
+        <span class="ledger-commands">
+          <button type="button" class="ff-cmd" aria-label="Approve T-12, daedalus">Approve</button>
+          <button type="button" class="ff-cmd is-refuse" aria-label="Reject T-12, daedalus">Reject</button>
+        </span>
+      </button>
     </div>
 
     <div class="ledger-section">
@@ -98,13 +102,12 @@
         <span class="ledger-section-title">Rejected — needs a decision</span>
         <span class="ledger-section-count">1</span>
       </div>
-      <div class="ledger-entry">
-        <span class="ledger-entry-id">T-13</span>
-        <span class="ledger-entry-project">flashcards</span>
-        <span class="ledger-entry-objective">Rebuild the review queue around spaced repetition intervals</span>
-        <span class="ledger-mark is-refused">refused</span>
-        <div class="ledger-entry-note">steering undeliverable · holding a place in line for a free slot</div>
-      </div>
+      <button type="button" class="ledger-row" data-task-id="T-13">
+        <span class="ledger-cursor">▶</span>
+        <span class="ledger-row-id">T-13</span>
+        <span class="ledger-row-objective">Rebuild the review queue around spaced-repetition intervals rather than a fixed daily cap</span>
+        <span class="ledger-row-status is-refused">refused</span>
+      </button>
     </div>
 
     <div class="ledger-section">
@@ -120,50 +123,56 @@
         <span class="ledger-section-title">Landed</span>
         <span class="ledger-section-count">2</span>
       </div>
-      <div class="ledger-entry">
-        <span class="ledger-entry-id">T-10</span>
-        <span class="ledger-entry-project">daedalus</span>
-        <span class="ledger-entry-objective">Promote the ad-hoc colour literals into shared Mana variables</span>
-        <span class="ledger-mark is-passed">landed</span>
-      </div>
-      <div class="ledger-entry">
-        <span class="ledger-entry-id">T-8</span>
-        <span class="ledger-entry-project">daedalus</span>
-        <span class="ledger-entry-objective">Restyle the Web UI sidebar to match the classic-JRPG theme of the Guild dashboard</span>
-        <span class="ledger-mark is-passed">landed</span>
-      </div>
+      <button type="button" class="ledger-row" data-task-id="T-10">
+        <span class="ledger-cursor">▶</span>
+        <span class="ledger-row-id">T-10</span>
+        <span class="ledger-row-objective">Promote the ad-hoc colour literals into shared Mana variables</span>
+        <span class="ledger-row-status is-passed">landed</span>
+      </button>
+      <button type="button" class="ledger-row" data-task-id="T-8">
+        <span class="ledger-cursor">▶</span>
+        <span class="ledger-row-id">T-8</span>
+        <span class="ledger-row-objective">Restyle the Web UI sidebar to match the classic-JRPG theme of the Guild dashboard</span>
+        <span class="ledger-row-status is-passed">landed</span>
+      </button>
     </div>
 
-  </div>
-</div>
-
-<div class="preview-label">state 2 — the plane is not running</div>
-
-<div id="control-view-closed" class="active" style="display:block;padding:18px 16px 48px;background:linear-gradient(180deg,#1b2a5e,#0e1430)">
-  <div class="ledger-header">
-    <span class="ledger-title">The Ledger</span>
-    <span class="ledger-subtitle"></span>
-    <button class="btn btn-back">Back</button>
-  </div>
-  <div class="ledger-closed">
-    <div class="ledger-closed-title">The ledger is closed.</div>
-    <div class="ledger-closed-body">
-      The control plane is not running, so there is nothing to read — which is
-      not the same as nothing to do.<br>
-      Start it with <code>daedalus task list</code>, then come back.
-    </div>
   </div>
 </div>
 
 <script>
-  // The signature moment, so it can be tried in the preview: pressing a seal
-  // stamps it. In the real view the press also sends the decision.
-  document.querySelectorAll('.seal').forEach(function (s) {
-    s.addEventListener('click', function () {
-      s.classList.remove('is-stamping');
-      void s.offsetWidth;           // restart the animation on a second press
-      s.classList.add('is-stamping');
-    });
+  // The cursor drives the description window — the whole point of the layout,
+  // so the preview wires it up rather than showing a frozen screenshot.
+  var ENTRIES = {
+    'T-14': ['daedalus', 'running', 'is-working', 'Give the scheduler a durable queue so admission survives a daemon restart, replacing the in-memory waiting map and the retry-driven admission it depends on.', ''],
+    'T-15': ['flashcards', 'running', 'is-working', 'Move the deck importer off the synchronous parse path so a large import cannot block the review queue.', ''],
+    'T-16': ['daedalus', 'blocked', 'is-waiting', 'Publish the Homebrew formula from the release workflow and check it against the bundled archive.', 'stuck — T-11 can never complete'],
+    'T-12': ['daedalus', 'awaiting seal', 'is-waiting', 'Promote the ad-hoc colour literals introduced by T-8 in internal/web/static/style.css into shared custom properties, so the sidebar and the Guild view draw from one palette. These are not arbitrary colours: almost every one is a lighter or darker variant of an existing --mana-* variable, invented at the call site because the palette has a base tier and no highlight/shade tier.', ''],
+    'T-13': ['flashcards', 'refused', 'is-refused', 'Rebuild the review queue around spaced-repetition intervals rather than a fixed daily cap.', 'steering undeliverable · holding a place in line for a free slot'],
+    'T-10': ['daedalus', 'landed', 'is-passed', 'Promote the ad-hoc colour literals into shared Mana variables so the sidebar and the Guild view draw from one palette.', ''],
+    'T-8':  ['daedalus', 'landed', 'is-passed', 'Restyle the Web UI sidebar to match the classic-JRPG theme of the Guild dashboard, reusing its palette rather than inventing new values.', '']
+  };
+  document.querySelectorAll('.ledger-row').forEach(function (row) {
+    function show() {
+      var e = ENTRIES[row.dataset.taskId];
+      if (!e) return;
+      document.querySelectorAll('.ledger-row').forEach(function (r) { r.classList.remove('is-current'); });
+      row.classList.add('is-current');
+      document.getElementById('ledger-desc-id').textContent = row.dataset.taskId;
+      document.getElementById('ledger-desc-project').textContent = e[0];
+      var st = document.getElementById('ledger-desc-status');
+      st.textContent = e[1];
+      st.className = 'ledger-desc-status ledger-row-status ' + e[2];
+      var body = document.getElementById('ledger-desc-body');
+      body.className = 'ledger-desc-body';
+      body.textContent = e[3];
+      var note = document.getElementById('ledger-desc-note');
+      note.textContent = e[4];
+      note.className = 'ledger-desc-note' + (e[4].indexOf('stuck') === 0 ? ' is-stuck' : '');
+    }
+    row.addEventListener('mouseenter', show);
+    row.addEventListener('focus', show);
+    row.addEventListener('click', show);
   });
 </script>
 </body>
