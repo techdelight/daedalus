@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 ## [0.54.0] - 2026-08-18
 
 ### Fixed
+- **Containers no longer fill up with zombies until they cannot fork.**
+  `entrypoint.sh` execs `daedalus-runner`, making it pid 1 — and the runner waits
+  on its one direct child and nothing else. Every process a tool orphaned was
+  re-parented to it, exited, and stayed a zombie, because only a parent can clear
+  one. The pids cgroup counts each against `pids_limit: 512`, so a long session
+  walked to its cap and then could not start anything at all — and it could not
+  be repaired from inside: `kill -CHLD 1` does nothing, a zombie cannot be killed
+  twice, and `pids.max` is read-only. Measured on a real session: **394 zombies
+  out of 405 processes, all with ppid=1 — 321 chrome-headless, 70 esbuild —
+  against 68 live tasks.** Fixed with `init: true` on the compose service, which
+  is what Docker's init exists for: tini reaps orphans in a loop, the runner
+  becomes pid 2, and signals and its exit code still propagate.
+  - **`pids_limit` was left at 512 deliberately.** With nothing leaking, live
+    usage was 13% of it; raising the cap would only have bought time before the
+    same wall.
+  - **A SIGCHLD handler in the runner was considered and rejected.** It races
+    with Go's `os/exec`: a blanket `waitpid(-1, WNOHANG)` can collect the agent's
+    exit status before `cmd.Wait()` does, which then fails with `waitid: no child
+    processes`. That would not crash anything — it would intermittently record
+    successful Jobs as failures, since the control plane reads that exit code to
+    decide `success → candidate`.
+  - Pinned by a test that DERIVES the requirement: it reads `entrypoint.sh`, and
+    only if that still hands pid 1 to the runner does it require `init: true`. Put
+    a real init in the entrypoint and the test stands down on its own.
+  - **Existing containers keep their zombies** and need recreating (`docker rm -f`
+    then relaunch); the count does not drop on its own.
 - **A web server started before the control plane is no longer deaf to it.** The
   control client was established exactly once, when `daedalus web` booted: start
   the web server first and the field stayed nil for the process's whole life, so

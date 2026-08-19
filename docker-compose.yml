@@ -13,6 +13,21 @@ services:
       - ALL
     stdin_open: true
     tty: true
+    # An init that reaps. entrypoint.sh execs daedalus-runner, so without this
+    # the runner IS pid 1 — and it waits on its one direct child and nothing
+    # else. Every process a tool orphans (Chromium's zygote/GPU/renderer tree,
+    # esbuild's service processes, backgrounded shell commands) is re-parented
+    # to pid 1, exits, and stays a zombie because only a parent can clear one.
+    # The pids cgroup counts every zombie against pids_limit below, so the
+    # container walks to its cap and then cannot fork at all. Measured on a real
+    # session before this line existed: 394 of 405 processes were zombies —
+    # 321 chrome-headless, 70 esbuild — with 68 live tasks against a 512 cap.
+    #
+    # Docker's init (tini) reaps orphans in a loop, which is the whole of its
+    # job. The runner becomes pid 2 and is otherwise untouched: tini forwards
+    # signals and propagates its exit code, which the control plane reads to
+    # decide success → candidate.
+    init: true
     mem_limit: 4g
     cpus: "2.0"
     pids_limit: 512
