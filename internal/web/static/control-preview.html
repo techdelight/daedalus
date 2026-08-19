@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Ledger — preview</title>
+<!--
+  Standalone preview of the control-plane view, the sibling of guild-preview.html
+  and there for the same reason: the visual result cannot be checked from a
+  terminal, and a preview that renders every state from static markup can be
+  opened by a person in a second.
+
+  It references the REAL control.css. If this file looks right, the view looks
+  right — the only thing it fakes is the data. The palette lives in guild.css,
+  which the real page always loads, so it is pulled in here too.
+-->
+<link rel="stylesheet" href="guild.css">
+<link rel="stylesheet" href="control.css">
+<style>
+  /* Preview chrome only — not part of the design. */
+  body { margin: 0; background: #0e1430; }
+  #control-view { display: block; }
+  .preview-label {
+      max-width: 1080px; margin: 26px auto 8px; padding: 0 4px;
+      font: 600 0.68rem ui-monospace, Menlo, monospace; letter-spacing: 0.14em;
+      text-transform: uppercase; color: #b9c2e6; opacity: 0.75;
+  }
+  .btn { padding: 5px 12px; border: 1px solid currentColor; border-radius: 3px;
+         background: transparent; color: #b9c2e6; font-size: 0.78rem; cursor: pointer; }
+</style>
+</head>
+<body>
+
+<div class="preview-label">state 1 — the ledger, with work in every hand</div>
+
+<div id="control-view" class="active">
+  <div class="ledger-header">
+    <span class="ledger-title">The Ledger</span>
+    <span class="ledger-subtitle">2/4 running · 1 awaiting your seal · 0 proposals pending</span>
+    <button class="btn btn-back">Back</button>
+  </div>
+
+  <div class="ledger-leaf">
+
+    <div class="ledger-section">
+      <div class="ledger-section-head">
+        <span class="ledger-section-title">Running</span>
+        <span class="ledger-section-count">2</span>
+        <span class="ledger-section-hand">the plane has it</span>
+      </div>
+      <div class="ledger-entry">
+        <span class="ledger-entry-id">T-14</span>
+        <span class="ledger-entry-project">daedalus</span>
+        <span class="ledger-entry-objective">Give the scheduler a durable queue so admission survives a restart</span>
+        <span class="ledger-mark is-working">running</span>
+      </div>
+      <div class="ledger-entry">
+        <span class="ledger-entry-id">T-15</span>
+        <span class="ledger-entry-project">flashcards</span>
+        <span class="ledger-entry-objective">Move the deck importer off the synchronous parse path</span>
+        <span class="ledger-mark is-working">running</span>
+      </div>
+    </div>
+
+    <div class="ledger-section">
+      <div class="ledger-section-head">
+        <span class="ledger-section-title">Blocked</span>
+        <span class="ledger-section-count">1</span>
+        <span class="ledger-section-hand">a dependency has it</span>
+      </div>
+      <div class="ledger-entry">
+        <span class="ledger-entry-id">T-16</span>
+        <span class="ledger-entry-project">daedalus</span>
+        <span class="ledger-entry-objective">Publish the Homebrew formula from the release workflow</span>
+        <span class="ledger-mark is-waiting">blocked</span>
+        <div class="ledger-entry-note is-stuck">stuck — T-11 can never complete</div>
+      </div>
+    </div>
+
+    <div class="ledger-section">
+      <div class="ledger-section-head">
+        <span class="ledger-section-title">Awaiting your approval</span>
+        <span class="ledger-section-count">1</span>
+      </div>
+      <div class="ledger-entry">
+        <span class="ledger-entry-id">T-12</span>
+        <span class="ledger-entry-project">daedalus</span>
+        <span class="ledger-entry-objective">Promote the ad-hoc colour literals into shared Mana variables so the sidebar and the Guild view draw from one palette</span>
+        <div class="ledger-decision">
+          <button class="seal" type="button" aria-label="Approve T-12, daedalus">Approve</button>
+          <button class="ledger-refuse" type="button" aria-label="Reject T-12, daedalus">Reject</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="ledger-section">
+      <div class="ledger-section-head">
+        <span class="ledger-section-title">Rejected — needs a decision</span>
+        <span class="ledger-section-count">1</span>
+      </div>
+      <div class="ledger-entry">
+        <span class="ledger-entry-id">T-13</span>
+        <span class="ledger-entry-project">flashcards</span>
+        <span class="ledger-entry-objective">Rebuild the review queue around spaced repetition intervals</span>
+        <span class="ledger-mark is-refused">refused</span>
+        <div class="ledger-entry-note">steering undeliverable · holding a place in line for a free slot</div>
+      </div>
+    </div>
+
+    <div class="ledger-section">
+      <div class="ledger-section-head">
+        <span class="ledger-section-title">Approved — ready to land</span>
+        <span class="ledger-section-count">0</span>
+      </div>
+      <div class="ledger-none">Nothing.</div>
+    </div>
+
+    <div class="ledger-section">
+      <div class="ledger-section-head">
+        <span class="ledger-section-title">Landed</span>
+        <span class="ledger-section-count">2</span>
+      </div>
+      <div class="ledger-entry">
+        <span class="ledger-entry-id">T-10</span>
+        <span class="ledger-entry-project">daedalus</span>
+        <span class="ledger-entry-objective">Promote the ad-hoc colour literals into shared Mana variables</span>
+        <span class="ledger-mark is-passed">landed</span>
+      </div>
+      <div class="ledger-entry">
+        <span class="ledger-entry-id">T-8</span>
+        <span class="ledger-entry-project">daedalus</span>
+        <span class="ledger-entry-objective">Restyle the Web UI sidebar to match the classic-JRPG theme of the Guild dashboard</span>
+        <span class="ledger-mark is-passed">landed</span>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div class="preview-label">state 2 — the plane is not running</div>
+
+<div id="control-view-closed" class="active" style="display:block;padding:18px 16px 48px;background:linear-gradient(180deg,#1b2a5e,#0e1430)">
+  <div class="ledger-header">
+    <span class="ledger-title">The Ledger</span>
+    <span class="ledger-subtitle"></span>
+    <button class="btn btn-back">Back</button>
+  </div>
+  <div class="ledger-closed">
+    <div class="ledger-closed-title">The ledger is closed.</div>
+    <div class="ledger-closed-body">
+      The control plane is not running, so there is nothing to read — which is
+      not the same as nothing to do.<br>
+      Start it with <code>daedalus task list</code>, then come back.
+    </div>
+  </div>
+</div>
+
+<script>
+  // The signature moment, so it can be tried in the preview: pressing a seal
+  // stamps it. In the real view the press also sends the decision.
+  document.querySelectorAll('.seal').forEach(function (s) {
+    s.addEventListener('click', function () {
+      s.classList.remove('is-stamping');
+      void s.offsetWidth;           // restart the animation on a second press
+      s.classList.add('is-stamping');
+    });
+  });
+</script>
+</body>
+</html>

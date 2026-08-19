@@ -8,6 +8,7 @@
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
     <link rel="stylesheet" href="/static/style.css">
     <link rel="stylesheet" href="/static/guild.css">
+    <link rel="stylesheet" href="/static/control.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css">
 </head>
 <body>
@@ -18,24 +19,14 @@
                 <h1>Daedalus</h1>
                 <button class="btn btn-filter" id="filter-active-btn" onclick="toggleFilter()">Active Only</button>
                 <button class="btn btn-guild" onclick="showGuildView()">Guild</button>
+                <button class="btn btn-ledger" onclick="showControlView()">Ledger</button>
                 <span class="status" id="refresh-status"></span>
             </header>
             <div id="status-msg" class="status-msg"></div>
-            <!-- Control plane: tasks awaiting a human decision. Hidden entirely
-                 when the daedalus-control daemon is not running, so the panel
-                 never implies "nothing to approve" when it simply cannot ask. -->
-            <div id="approvals-panel" class="approvals-panel" style="display:none">
-                <div class="approvals-title">Awaiting your approval</div>
-                <div id="approvals-list"></div>
-            </div>
-            <!-- Control plane: the cross-project programme board. Read-only —
-                 every action a card might suggest already has a surface with the
-                 right confirmations attached. Hidden when the daemon is absent. -->
-            <div id="board-panel" class="board-panel" style="display:none">
-                <div class="approvals-title">Programme board</div>
-                <div id="board-summary" class="board-summary"></div>
-                <div id="board-columns" class="board-columns"></div>
-            </div>
+            <!-- The control plane has its own view now: the Ledger, reached from
+                 the header. It replaced the two panels that used to sit here,
+                 which answered the same two questions in the same place the
+                 project list was trying to answer a third. -->
             <div class="project-list">
                 <table>
                     <thead>
@@ -91,6 +82,25 @@
                 <div class="guild-members" id="guild-members"></div>
                 <div class="guild-empty" id="guild-empty" style="display:none">
                     The guild hall stands empty — register a project to begin.
+                </div>
+            </div>
+        </div>
+
+        <!-- The Ledger — the control plane's view, sibling to the Guild Hall.
+             The Guild is the party roster; this is where the work is judged. -->
+        <div id="control-view">
+            <div class="ledger-header">
+                <span class="ledger-title">The Ledger</span>
+                <span class="ledger-subtitle" id="ledger-subtitle"></span>
+                <button class="btn btn-back" onclick="hideControlView(); showProjectList();">Back</button>
+            </div>
+            <div class="ledger-leaf" id="ledger-leaf"></div>
+            <div class="ledger-closed" id="ledger-closed" style="display:none">
+                <div class="ledger-closed-title">The ledger is closed.</div>
+                <div class="ledger-closed-body">
+                    The control plane is not running, so there is nothing to read — which is
+                    not the same as nothing to do.<br>
+                    Start it with <code>daedalus task list</code>, then come back.
                 </div>
             </div>
         </div>
@@ -812,7 +822,6 @@
         refreshTimer = setInterval(fetchProjects, 5000);
     </script>
     <script src="/static/guild.js"></script>
-    <script src="/static/approvals.js"></script>
-    <script src="/static/board.js"></script>
+    <script src="/static/control.js"></script>
 </body>
 </html>
