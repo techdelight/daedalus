@@ -169,6 +169,40 @@ Prior art surveyed: SWE-bench grades a saved `model_patch` from a prediction fil
 
 Measured motivation (2026-08-18): Task T-8 produced a good artifact, was rejected twice by a policy defect (`daedalus docs lint --ci` failing on an advisory warning about the roadmap), and the only offered remedies were to re-run the Job or discard it — having spent 2 of 3 attempts and 2 of 3 review cycles on verdicts that examined the repository rather than the change.
 
+### Milestone 20: Programmes in the Plane & a Reviewer at the Gate
+
+The control plane's unit of governance is the repository. `Task.Project` is a registry name, the integration target is keyed by canonical repo path, and every authoritative row in `control.db` is organised around a checkout. A programme — the thing that by definition is not a repo — exists today only as documents, and the system's whole purpose is to merge the common interest between projects into programmes and pursue them.
+
+Measured, 2026-08-20: **two unrelated things are called "programme".** `core.Programme` is a name, a description, a list of projects and project→project dependency edges, stored as files under `<data-dir>/programmes` and managed by `daedalus programmes` and the web CRUD. The control plane's `ProgrammeBoard` is not about those at all — it is a cross-project board of *Tasks* grouped by whose move it is, and `internal/control` contains **zero** references to the programme package. Two dependency graphs with different node types (Task→Task in the plane, Project→Project in the programme) and nothing joining them.
+
+That generalises, and the generalisation is the milestone. There are two hierarchies in this system and they never touch: `VISION → ROADMAP (milestones) → SPRINTS`, which is documents, per project; and `Task → Job → Artifact`, which is authoritative state. A Task carries a free-text `Objective` and nothing else — no link to a milestone, a sprint, a programme, or a vision. **So the most important relationship in the system, "why is this work worth doing", is held only in the Guild Master's context window.** For a design whose entire ethos is that important relationships must be structural rather than promised, this is the one place it takes the promise. Ten milestones from now the record will say precisely what happened and be silent on why any of it mattered, which is the wrong way round for a system meant to compound over a life rather than a quarter.
+
+It also sharpens what the Guild Master is *for*. If a programme is common interest **discovered** rather than declared — three projects each growing their own auth, two whose roadmaps have quietly converged, one whose VISION and its last ten sprints have drifted apart — then cross-project read-only sight is not a convenience, it is the instrument. Noticing is curatorial, not managerial, and it is the right job for an agent that proposes and cannot act.
+
+Part one — intent, in the plane:
+
+- A first-class `Programme` in `control.db`, with the file-backed `core.Programme` collapsed into it rather than living beside it — one notion, one store, one graph
+- Tasks point at a programme, and the existing Task→Task dependency graph rolls up to it, so "what is this programme waiting on" is answerable from the plane rather than assembled by hand
+- A Task carries its **rationale** — what it is in service of — as a recorded field, not an optional approval note
+- The Guild Master can *propose* a programme from what it sees across projects; forming one stays a human act, at the existing proposal tier
+
+Part two — judgement, at the gate. An exit code cannot answer "did this deliver what it promised", and it certainly cannot answer "was this worth doing". Measured over the M14 oracle's whole history: of seven verdicts, **one** was a statement about the work being graded; the others were statements about the harness, the image, the check's own formatting, or the repository the Task was handed. The reviewer rung was designed for exactly this question — `ReviewSpec` already carries `Objective` — and ships only as `StubReviewRunner`.
+
+Build it as a **separate agent**: not the worker, reading the diff against the objective and the rationale, and reporting a judgement with its reasoning to the human. That is verification by a second party rather than by a command, and it is the same separation the rest of the design rests on — the party that produced the work is not the party that judges it.
+
+**This is what buys autonomy.** Today a human stands at every gate because the machine gate can only say "a command exited non-zero", which is never enough to decide on. A reviewer that reports in the human's own terms moves the human from *in the loop at every step* to *in the loop at the end*: work can run, be reviewed, and arrive as a report worth reading. The machine gate becomes advisory — which is what it honestly is until the verifier can run a project's real tests (backlog #74).
+
+Part two deliverables:
+
+- A real `ReviewRunner`: a separate agent, given the artifact diff, the objective and the rationale, returning a judgement plus its reasoning
+- The review is recorded on the artifact and readable in the Ledger's record — a judgement, attributed, not a boolean
+- The machine verify gate becomes advisory rather than authoritative, and says so in the docs; `verified` stops meaning more than "the plane applied what checks it could"
+- Findings the reviewer raises are reported, never auto-acted on: an agent that could reject on its own reading is an oracle nobody bounded
+
+One design constraint, and it is not a detail: **the rationale must be the human's words.** A system that guides you is also a system you can end up serving, and the failure mode at this layer is not a poisoned document landing a commit — it is the roadmap slowly becoming the thing that decides what you care about, because it is legible and your actual reasons are not. Making the human's reasoning a first-class recorded artefact is what makes drift visible instead of gradual.
+
+Deliberately out of scope: making the machine verify gate authoritative again (blocked on #74 — the verifier cannot run a project's real build or tests with the network off and no dependency cache); real execution termination (#69); a durable scheduler (#70). If this proves too large for one milestone the split line is part one, then part two — part two reviews against the rationale part one records, so the order is fixed.
+
 ## Phasing
 
 ```
@@ -184,12 +218,30 @@ The "controlling Guild Master" control-plane arc
 Then M18 Control-Plane Hardening (Done) — the correctable findings of the post-arc
 external review; NOT the two milestone-sized ones (real termination #69, a durable
 scheduler #70), which stay in the backlog until they are chosen.
-Still Planned: M10 Homebrew Distribution.
+Still Planned: M10 Homebrew Distribution, and M20 Programmes in the Plane &
+a Reviewer at the Gate — the first milestone above the control-plane arc rather
+than inside it.
 ```
 
 ## Current Focus
 
-**No milestone is in progress.** **Milestone 18 (Control-Plane Hardening) closed in v0.53.0** (Sprint 64) — the M13–M17 arc's external review acted on rather than filed. The review of `development` @ `e2139df` (`daedalus-development-branch-review.md`) found five things; every one was re-verified against the source before being scheduled, and none was a false positive. Three were correctable in place and are now fixed: a **dependency edge declared late was silently inert** — recorded, shown on the board, gating nothing — and **landing is now gated on the graph** (deliberately not grading: `base_sha` is frozen at creation, so the integration rebase is the only place the two Tasks' work is genuinely combined); **steering delivery is now raced against its deadline** rather than trusting an adapter to honour a context, and **supersede-and-replace is one transaction**, so a failure can no longer leave zero pending instructions where the comment promised one. The fourth was a **claim the code contradicted two lines below itself** — the wall-clock budget called "strongly enforceable" and the Job "terminated", directly above an honest paragraph saying the container may outlive the verdict; the honest one won, in the comment and in `docs/control-plane.md`.
+**No milestone is in progress. M20 is recorded as the next candidate and has not
+been started.** It is the first milestone that sits *above* the control-plane arc
+rather than inside it: everything from M13 to M19 made the plane trustworthy about
+one attempt at one repository, and M20 asks the two questions no exit code
+answers — what is this work in service of, and did it deliver. Its measurement is
+that **two unrelated things are called "programme"** (a file-backed
+`core.Programme` of projects and edges, and a control-plane board of Tasks that
+never reads it), and its generalisation is that the document hierarchy
+(`VISION → ROADMAP → SPRINTS`) and the execution hierarchy (`Task → Job →
+Artifact`) never touch — so "why is this worth doing" lives only in the Guild
+Master's context window, which is the one place this design takes a promise where
+it otherwise insists on structure. Its second half builds the reviewer rung that
+has shipped as a stub since M15: a **separate agent** reading the diff against the
+objective, reporting a judgement to the human rather than gating on one — which is
+also what moves the human from *in the loop at every step* to *in the loop at the
+end*. Sequencing note: this is deliberately ranked above making the machine verify
+gate authoritative again, which is blocked on #74 regardless. **Milestone 18 (Control-Plane Hardening) closed in v0.53.0** (Sprint 64) — the M13–M17 arc's external review acted on rather than filed. The review of `development` @ `e2139df` (`daedalus-development-branch-review.md`) found five things; every one was re-verified against the source before being scheduled, and none was a false positive. Three were correctable in place and are now fixed: a **dependency edge declared late was silently inert** — recorded, shown on the board, gating nothing — and **landing is now gated on the graph** (deliberately not grading: `base_sha` is frozen at creation, so the integration rebase is the only place the two Tasks' work is genuinely combined); **steering delivery is now raced against its deadline** rather than trusting an adapter to honour a context, and **supersede-and-replace is one transaction**, so a failure can no longer leave zero pending instructions where the comment promised one. The fourth was a **claim the code contradicted two lines below itself** — the wall-clock budget called "strongly enforceable" and the Job "terminated", directly above an honest paragraph saying the container may outlive the verdict; the honest one won, in the comment and in `docs/control-plane.md`.
 
 **What the review left standing is the next real question, and it is deliberately unchosen.** Its two milestone-sized findings went to the backlog rather than being smuggled into a hardening sprint: **#69 real execution termination** (a persisted execution handle with an idempotent `Stop`/`Kill`, capacity released only on *confirmed* death — the prerequisite for the wall-clock budget ever being a kill) and **#70 a durable scheduler** (persisted queue entries plus a dispatch loop, replacing retry-driven admission and an in-memory `waiting` map that a restart erases). Together they are the review's verdict in one line: *the control plane is more trustworthy than the execution substrate it controls.* **#71** carries the hostile black-box test list. Also Planned: M10 (Homebrew), the one milestone that cannot be verified in this environment.
 
