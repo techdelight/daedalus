@@ -735,6 +735,10 @@ two combined.
 
 ### The reviewer, and what `verified` is worth (M20, Sprint 67)
 
+> Verification runbook: [`m20-verification.md`](m20-verification.md) — what is
+> proven, what is only argued for, and `scripts/verify-m20.sh` (19 assertions, no
+> Docker) for the half a host is not needed to check.
+
 **A reviewer now exists, and it reports rather than gates.** `AgentReviewer` runs
 a separate agent over a clean checkout of the artifact, handed the diff, the
 objective, the **rationale** and the **programme** — and it writes a judgement:

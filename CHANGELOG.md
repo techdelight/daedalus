@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 ## [0.54.0] - 2026-08-18
 
 ### Added
+- **Milestone 20 closed, with a verification playbook.**
+  `docs/m20-verification.md` says what M20 proved and what it only argued for,
+  in the order the parts deserve to be distrusted, and `scripts/verify-m20.sh`
+  runs **19 assertions with no Docker** in an isolated data dir. Its `real` phase
+  prints the container checklist rather than pretending to automate a seam that
+  needs credentials and a logged-in project — the same shape as verify-m13/m14.
 - **A reviewer that reads the change and reports — and a verify gate that is
   finally described honestly.** The second slice of Milestone 20, and the rung
   that has shipped as `StubReviewRunner` since M15.

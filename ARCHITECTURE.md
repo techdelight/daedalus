@@ -404,7 +404,7 @@ guild-control-mcp ──► control-agent.sock ┘         │
   are adopted on daemon start, once and idempotently. The identity argument is the
   same one that keys the integration target by canonical repo path — a reference
   whose only identity is a filename can be renamed out from under whatever points
-  at it.
+  at it. Verification runbook: [docs/m20-verification.md](docs/m20-verification.md).
 - **The Web UI's Ledger is a full client.** `/api/control/*` mirrors the daemon's
   own route table one for one, so every `daedalus task` operation is reachable
   from the browser — through the same human socket, with the same authority and
