@@ -132,6 +132,24 @@ All notable changes to this project will be documented in this file.
     them would only make people invent programmes to satisfy a field.
 
 ### Fixed
+- **The agent reviewer was gated behind the machine oracle, which made it useless
+  in the case it exists for.** `ReviewTask` required the Task to be `verified` and
+  a Job in `verified` — so the second opinion was available only once the first
+  one already agreed. The oracle grades documents (it cannot run a real build with
+  the network off, #74), so a Task it rejects is **precisely** the one a human
+  needs a reading of, and that reading was the one the plane refused to fetch. A
+  `candidate` nobody had graded yet was refused too, so the ordinary path was:
+  wait for the linter, be rejected by it, then be told there is nothing to review.
+  - Any Task with an artifact is now reviewable — `candidate`, `rejected`,
+    `verified`, `approval_required`, `approved`. `verifying` stays excluded (a
+    grading is in flight), and a Task that has produced nothing is still refused,
+    because there is no diff to read.
+  - Nothing is risked by widening it: since M20 a review transitions nothing and
+    gates nothing. Treating "the reviewer may look" as a privilege earned by
+    passing a different test was the error — the same error, one level up, that
+    M20 set out to fix.
+  - The Ledger offers **Review** in the same states, so an agent can be sent to
+    read a rejected task from the page rather than from a terminal.
 - **The Web UI served new markup against a cached script, and nothing said so.**
   `//go:embed static/*` bakes the CSS and JS into the binary, and an `embed.FS`
   reports a **zero modtime** — so `http.FileServer` sends neither `Last-Modified`
