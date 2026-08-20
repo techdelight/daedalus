@@ -5,6 +5,55 @@ All notable changes to this project will be documented in this file.
 ## [0.54.0] - 2026-08-18
 
 ### Added
+- **A reviewer that reads the change and reports — and a verify gate that is
+  finally described honestly.** The second slice of Milestone 20, and the rung
+  that has shipped as `StubReviewRunner` since M15.
+  - **`AgentReviewer` is a separate agent**, given a clean checkout of the
+    artifact, the diff computed by the plane, and — new in M20 — the Task's
+    **rationale** and the **programme** it serves. A diff alone supports "does
+    this compile", which is the question already answered elsewhere; the reviewer
+    exists for "did this deliver what was promised" and "was it worth doing".
+    Three separate things make it independent: the commit rather than the Job's
+    worktree, its own throwaway project and home so it cannot read the Job's
+    transcript (a reviewer that sees how the work was argued for is being lobbied
+    by it), and a diff it is handed rather than one it derives.
+  - **A judgement, not a boolean.** `ReviewOutcome` was `{Passed, Detail}` —
+    exactly the shape that cannot say anything an exit code could not. It is now a
+    verdict plus reasoning plus **findings**, each carrying a severity, a location
+    and *why it matters*; a finding with no why is an opinion. Judgements are
+    stored in a `reviews` table, attributed to whoever made them, and they
+    **accumulate**: an earlier reading is part of the record, not something the
+    next one overwrites.
+  - **It reports and does not act, and that is the design rather than a hedge.** A
+    failed review used to drive the Task to `rejected` and reclaim its worktree.
+    It no longer moves anything. A verifier runs a frozen, human-authored command;
+    a reviewer is a model reading a diff it did not write, which is untrusted input
+    by construction. A verdict that moved plane state would be an oracle nobody
+    bounded — and a PASS that carried authority would be the lethal trifecta with
+    the parts relabelled, because the diff can address the reviewer directly. The
+    findings surface at the approval gate, in `task status` and in the Ledger's
+    record; the human decides.
+  - **A harness failure is reported as *no judgement*, never as disapproval.** "The
+    reviewer could not be made to report" and "the reviewer read this and disliked
+    it" are different facts, and conflating them is precisely what made every
+    verify verdict in this project's history look like a criticism of the work.
+    Parsing refuses a judgement with no verdict rather than letting Go's zero value
+    render silence as a fail.
+  - **`--ignore-result` finally leads somewhere.** A waived Job could reach the
+    approval gate and then not land: integration looked for a Job in `verified`,
+    and a waived one is in `approval_required` and must never be in `verified`.
+    The waiver is now honoured at both points — the job lookup and the merged
+    re-verification — keyed on the recorded waiver and not on the state, so a Job
+    standing at the gate for any other reason still cannot land. The failure is
+    recorded and carried, never erased: the artifact still says `verify=fail` and
+    the log still names who carried it.
+  - **The docs now say what `verified` is worth**, with the tally: of the machine
+    oracle's seven verdicts to date, **one** was a statement about the work being
+    graded. The cause is not a run of bugs — with the network off and no dependency
+    cache the verifier cannot run a real build or test suite (#74), so it falls
+    back to grading documents. Until that is closed it is advice with a state
+    machine attached, and `docs/control-plane.md` and
+    `docs/using-daedalus-control.md` both say so.
 - **Programmes are control-plane state, and a Task can say what it is for.** The
   first slice of Milestone 20. A **Programme** — the shared intent several projects
   serve — is now a row in `control.db`; a Task points at one and carries a

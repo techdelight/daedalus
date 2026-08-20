@@ -117,6 +117,50 @@ func (s *Service) IntegrateTask(id string, req IntegrateRequest) (IntegrationRes
 		id, integrateAttempts))
 }
 
+// jobToIntegrate finds the Job whose artifact is the one being landed.
+//
+// Normally that is the Job in `verified`. It is ALSO a Job a human WAIVED: the
+// waiver (service.go's waiveVerification) records the failure honestly, leaves
+// the artifact carrying verify=fail, and moves the Job to `approval_required` on
+// a named human's authority — deliberately never to `verified`, because writing
+// that would put a false statement into a log that approval and dependency
+// satisfaction both read as true.
+//
+// Which left the waiver leading nowhere. It got a Task to the approval gate and
+// then integration refused it, because integration looked for a job in
+// `verified` and a waived one is not and must never be. So a human could take
+// responsibility for a failing check and still be unable to land the work — the
+// legitimate path missing exactly where the override was supposed to be, which
+// is the shape this repository has already had to fix once.
+//
+// The waiver is what makes the difference, and it is checked rather than
+// inferred from the state: a Job sitting in `approval_required` for any other
+// reason has nobody's name against it, and must not land on the strength of
+// where it happens to be standing.
+func (s *Service) jobToIntegrate(taskID string) (Job, bool, error) {
+	if job, ok, err := s.jobInState(taskID, StateVerified); err != nil || ok {
+		return job, ok, err
+	}
+	jobs, err := s.store.ListJobsForTask(taskID)
+	if err != nil {
+		return Job{}, false, err
+	}
+	for i := len(jobs) - 1; i >= 0; i-- {
+		j := jobs[i]
+		if j.State != StateApprovalRequired && j.State != StateApproved {
+			continue
+		}
+		waived, err := s.store.WaiverForJob(j.ID)
+		if err != nil {
+			return Job{}, false, err
+		}
+		if waived {
+			return j, true, nil
+		}
+	}
+	return Job{}, false, nil
+}
+
 // integrateOnce performs one rebase → re-verify → compare-and-swap round.
 // It returns (result, retry, err): retry=true means the CAS lost and the caller
 // should recompute against the new target.
@@ -162,7 +206,7 @@ func (s *Service) integrateOnce(id string, attempt int) (IntegrationResult, bool
 	if err != nil {
 		return IntegrationResult{}, false, err
 	}
-	job, ok, err := s.jobInState(id, StateVerified)
+	job, ok, err := s.jobToIntegrate(id)
 	if err != nil {
 		return IntegrationResult{}, false, err
 	}
@@ -260,9 +304,38 @@ func (s *Service) integrateOnce(id string, attempt int) (IntegrationResult, bool
 	if !outcome.Passed {
 		note := fmt.Sprintf("integration: the MERGED result %s failed verification against target %s: %s",
 			shortSHA(merged), shortSHA(target.SHA), outcome.Detail)
-		s.rejectFromIntegration(task, job, art, repoDir, ReasonMergedVerifyFailed, note)
-		return IntegrationResult{}, false, &RejectionError{
-			Reason: ReasonMergedVerifyFailed, Message: note, Entity: id}
+		// A WAIVED Job carries its waiver through to here, and only here.
+		//
+		// Without this the waiver led to a gate with no way through, one step
+		// further along than before: a human accepts answerability for an artifact
+		// the oracle refused, reaches the approval gate, lands — and the merged
+		// re-verify refuses it with the same broken check, for the same irrelevant
+		// reason. Asking the same person to accept the same thing twice adds no
+		// information; it just makes the override useless in the case that
+		// motivated it, which is an oracle that is wrong about everything.
+		//
+		// It is narrow on purpose. It applies to the Job that was waived and to
+		// nothing else — a retry produces a new Job with no waiver against it — and
+		// the failure is still RECORDED on the integration rather than dropped, so
+		// the record says a merged verification failed and a named human landed it
+		// anyway. That is the same trade the waiver itself makes: waive the
+		// consequence, never the truth.
+		waived, werr := s.store.WaiverForJob(job.ID)
+		if werr != nil {
+			log.Printf("control: reading waiver for %s: %v", job.ID, werr)
+		}
+		if !waived {
+			s.rejectFromIntegration(task, job, art, repoDir, ReasonMergedVerifyFailed, note)
+			return IntegrationResult{}, false, &RejectionError{
+				Reason: ReasonMergedVerifyFailed, Message: note, Entity: id}
+		}
+		carried := note + " — CARRIED ANYWAY on the waiver recorded against " + job.ID +
+			"; the merged result was never verified"
+		if err := s.store.LogDecision("task", id, EventMeta{Kind: EventWaiver, Actor: ActorHuman},
+			carried); err != nil {
+			log.Printf("control: recording carried waiver for %s: %v", id, err)
+		}
+		outcome.Detail = carried
 	}
 
 	// --- 3. COMPARE-AND-SWAP the target ---------------------------------------

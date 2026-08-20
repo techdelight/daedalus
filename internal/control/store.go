@@ -172,6 +172,26 @@ CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project);
 -- because it is what a person types, but a Task stores the ID — so renaming a
 -- programme cannot dangle the Tasks that serve it, which is the failure the
 -- file-backed store had by construction. See programme.go.
+-- Reviews (M20): a reviewer's judgement of an artifact, kept in full.
+-- Rows ACCUMULATE — a Task may be reviewed more than once, and an earlier
+-- reading is part of the record rather than something the later one overwrites.
+-- Findings are JSON because they are read as a whole and never queried by field.
+CREATE TABLE IF NOT EXISTS reviews (
+    seq        INTEGER PRIMARY KEY AUTOINCREMENT,
+    id         TEXT NOT NULL UNIQUE,
+    task_id    TEXT NOT NULL REFERENCES tasks(id),
+    job_id     TEXT NOT NULL,
+    artifact_id TEXT NOT NULL,
+    reviewer   TEXT NOT NULL DEFAULT '',
+    passed     INTEGER NOT NULL DEFAULT 0,
+    reasoning  TEXT NOT NULL DEFAULT '',
+    findings   TEXT NOT NULL DEFAULT '',
+    detail     TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_reviews_task ON reviews(task_id);
+CREATE INDEX IF NOT EXISTS idx_reviews_artifact ON reviews(artifact_id);
+
 CREATE TABLE IF NOT EXISTS programmes (
     seq         INTEGER PRIMARY KEY AUTOINCREMENT,
     id          TEXT NOT NULL UNIQUE,

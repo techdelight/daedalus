@@ -348,6 +348,41 @@ func taskStatus(api control.TaskAPI, args []string) error {
 			sc.ProjectRunning, limitText(sc.Limits.PerProject), sc.GlobalRunning, limitText(sc.Limits.Global))
 	}
 
+	// The judgements, in full. They ride on the status because a review is
+	// evidence for the decision taken here, and a finding one command away from
+	// the approval gate is a finding nobody reads.
+	if len(view.Reviews) > 0 {
+		fmt.Printf("\n%s (%d)\n", color.Bold("Reviews:"), len(view.Reviews))
+		for _, r := range view.Reviews {
+			verdict := color.Yellow("had concerns")
+			if r.Passed {
+				verdict = color.Green("no blocker")
+			}
+			who := r.Reviewer
+			if who == "" {
+				who = "unattributed"
+			}
+			fmt.Printf("  %s  %s  by %s  %s\n", r.ID, verdict, who, color.Dim(r.CreatedAt))
+			if r.Reasoning != "" {
+				fmt.Printf("      %s\n", r.Reasoning)
+			}
+			for _, f := range r.Findings {
+				where := f.File
+				if where != "" && f.Line > 0 {
+					where = fmt.Sprintf("%s:%d", f.File, f.Line)
+				}
+				if where != "" {
+					where = " " + where
+				}
+				fmt.Printf("      %s%s  %s\n", severityMark(f.Severity), where, f.What)
+				if f.Why != "" {
+					fmt.Printf("        %s %s\n", color.Dim("why:"), f.Why)
+				}
+			}
+		}
+		fmt.Printf("  %s\n", color.Dim("advisory — the plane acts on none of this; you decide at the approval gate"))
+	}
+
 	fmt.Printf("\n%s (%d)\n", color.Bold("Jobs:"), len(view.Jobs))
 	for _, jv := range view.Jobs {
 		j := jv.Job
@@ -726,14 +761,39 @@ func taskReview(api control.TaskAPI, args []string) error {
 	if res.MaxCycle > 0 {
 		cycles = fmt.Sprintf("%d/%d", res.Cycles, res.MaxCycle)
 	}
-	if res.Passed {
-		fmt.Printf("%s task %s passed independent review (pass %s) — %s\n",
-			color.Green("OK:"), args[0], cycles, res.Detail)
-		return nil
+	who := res.Reviewer
+	if who == "" {
+		who = "an unattributed reviewer"
 	}
-	fmt.Printf("%s task %s REJECTED by independent review [%s] (pass %s) — %s\n",
-		color.Yellow("Reject:"), args[0], res.Reason, cycles, res.Detail)
-	fmt.Printf("     retry with `daedalus task retry %s`, or replan with `daedalus task replan %s --objective <text>`\n", args[0], args[0])
+	verdict := color.Yellow("had concerns")
+	if res.Passed {
+		verdict = color.Green("found no blocker")
+	}
+	fmt.Printf("%s %s reviewed %s and %s (pass %s)\n", color.Bold("Review:"), who, args[0], verdict, cycles)
+	if res.Reasoning != "" {
+		fmt.Printf("  %s\n", res.Reasoning)
+	}
+	for _, f := range res.Findings {
+		where := f.File
+		if where != "" && f.Line > 0 {
+			where = fmt.Sprintf("%s:%d", f.File, f.Line)
+		}
+		if where != "" {
+			where = " " + where
+		}
+		fmt.Printf("  %s%s  %s\n", severityMark(f.Severity), where, f.What)
+		if f.Why != "" {
+			fmt.Printf("    %s %s\n", color.Dim("why:"), f.Why)
+		}
+	}
+	// Said every time, because the previous behaviour was the opposite and an
+	// operator who remembers it will otherwise assume the task just moved.
+	fmt.Printf("  %s\n", color.Dim("This is advisory. Nothing moved — "+args[0]+
+		" is still "+string(res.Task.State)+", and the decision is yours at the approval gate."))
+	if !res.Passed {
+		fmt.Printf("  %s if you agree with it: `daedalus task reject %s --note <why>`, then retry or replan.\n",
+			color.Cyan("Hint:"), args[0])
+	}
 	return nil
 }
 
@@ -1264,6 +1324,20 @@ func orDash(s string) string {
 }
 
 // truncate shortens s to at most n runes, appending an ellipsis when cut.
+// severityMark colours a finding by how much it is claiming. Blocking is red not
+// because the plane acts on it — it does not — but because it is the reviewer
+// saying "I would not land this", and that is the sentence an operator scans for.
+func severityMark(s control.Severity) string {
+	switch s {
+	case control.SeverityBlocking:
+		return color.Red("[blocking]")
+	case control.SeverityConcern:
+		return color.Yellow("[concern] ")
+	default:
+		return color.Dim("[note]    ")
+	}
+}
+
 func truncate(s string, n int) string {
 	r := []rune(s)
 	if len(r) <= n {

@@ -668,6 +668,36 @@
       });
     }
 
+    // The judgements, before the log. A review is evidence for the decision the
+    // commands below are about, so it belongs where the deciding happens rather
+    // than a click away — and it is ADVISORY, which the page says every time
+    // because the plane used to act on it and an operator may remember that.
+    const reviews = (detail && detail.reviews) || [];
+    if (reviews.length) {
+      host.appendChild(text('div', 'ledger-sub', 'Reviews'));
+      reviews.forEach(function (r) {
+        const head = document.createElement('div');
+        head.className = 'ledger-log-row';
+        head.appendChild(text('span', 'ledger-log-id', r.id));
+        head.appendChild(text('span', 'ledger-log-what',
+          (r.passed ? 'no blocker' : 'had concerns') + ' · ' + (r.reviewer || 'unattributed')));
+        host.appendChild(head);
+        if (r.reasoning) host.appendChild(text('div', 'ledger-log-note', r.reasoning));
+        (r.findings || []).forEach(function (f) {
+          const row = document.createElement('div');
+          row.className = 'ledger-finding is-' + (f.severity || 'note');
+          const where = f.file ? (f.line ? f.file + ':' + f.line : f.file) : '';
+          row.appendChild(text('span', 'ledger-finding-sev', f.severity || 'note'));
+          row.appendChild(text('span', 'ledger-finding-what',
+            (where ? where + ' — ' : '') + f.what));
+          host.appendChild(row);
+          if (f.why) host.appendChild(text('div', 'ledger-log-note', f.why));
+        });
+      });
+      host.appendChild(text('div', 'ledger-advisory',
+        'Advisory. The plane acts on none of this — you decide.'));
+    }
+
     host.appendChild(text('div', 'ledger-sub', 'The record'));
     const log = text('div', 'ledger-prose is-empty', 'Reading…');
     host.appendChild(log);

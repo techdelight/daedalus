@@ -19,50 +19,47 @@ type recordingReviewer struct {
 func (r *recordingReviewer) Review(_ context.Context, spec ReviewSpec) ReviewOutcome {
 	r.called = true
 	r.spec = spec
-	return ReviewOutcome{Passed: r.pass, Detail: r.detail}
+	out := ReviewOutcome{Passed: r.pass, Detail: r.detail, Reasoning: r.detail, Reviewer: "recording"}
+	if !r.pass {
+		out.Findings = []Finding{
+			{Severity: SeverityBlocking, File: "a.txt", Line: 3, What: r.detail, Why: "it is already in helpers.go"},
+			{Severity: SeverityNote, What: "no test covers the new branch"},
+		}
+	}
+	return out
 }
 
-func TestReview_Pass_GatesIntegrationOpen(t *testing.T) {
+// TestReview_DoesNotGateIntegration.
+//
+// Until M20 a configured reviewer blocked integration until it had passed. That
+// gave a language model a veto over a human's work — and, worse in the other
+// direction, made its PASS load-bearing, so a diff that talked the reviewer round
+// would have talked its way into the trunk. The judgement is evidence now; the
+// human at the approval gate is the gate.
+func TestReview_DoesNotGateIntegration(t *testing.T) {
 	repo := gitRepo(t)
 	rev := &recordingReviewer{pass: true, detail: "reads fine"}
 	svc, store, task := verifiedTask(t, repo, StubVerifyRunner{Pass: true}, "a.txt")
 	svc.SetReviewRunner(rev)
 
-	// With a reviewer configured, integration is gated until the review runs.
-	_, err := svc.IntegrateTask(task.ID, IntegrateRequest{})
-	var rej *RejectionError
-	if !errors.As(err, &rej) || rej.Reason != ReasonReviewRequired {
-		t.Fatalf("integrate before review = %v, want a review_required refusal", err)
-	}
-
-	res, err := svc.ReviewTask(task.ID)
-	if err != nil {
-		t.Fatalf("ReviewTask: %v", err)
-	}
-	if !rev.called {
-		t.Fatal("the reviewer was not called")
-	}
-	if !res.Passed || res.Reason != "" {
-		t.Errorf("res = %+v, want a pass", res)
-	}
-	if res.Artifact == nil || res.Artifact.Review != ReviewPass {
-		t.Errorf("artifact review = %+v, want pass", res.Artifact)
-	}
-	// The reviewer sees the committed artifact, never a working tree.
-	if rev.spec.HeadSHA == "" || rev.spec.BaseSHA == "" || rev.spec.Objective != task.Objective {
-		t.Errorf("review spec is incomplete: %+v", rev.spec)
-	}
-	// Now it lands.
+	// Unreviewed, and it lands: an artifact nobody has read is a decision for the
+	// human, not a refusal from a component that has not run.
 	if _, err := svc.IntegrateTask(task.ID, IntegrateRequest{}); err != nil {
-		t.Fatalf("IntegrateTask after review: %v", err)
+		t.Fatalf("integrate without a review = %v, want it allowed", err)
 	}
 	got, _ := store.GetTask(task.ID)
 	if got.State != StateIntegrated {
-		t.Errorf("state = %q, want integrated", got.State)
+		t.Fatalf("state = %q, want integrated", got.State)
 	}
 }
 
-func TestReview_Fail_RejectsAndFeedsRetry(t *testing.T) {
+// TestReview_ReportsAndDoesNotAct is the property the whole rung rests on.
+//
+// A failing review must record everything it found and move NOTHING. A reviewer
+// that could reject is an oracle nobody bounded: nothing constrains it, nothing
+// reproduces it, and the diff it reads is untrusted input that can address it
+// directly.
+func TestReview_ReportsAndDoesNotAct(t *testing.T) {
 	repo := gitRepo(t)
 	rev := &recordingReviewer{pass: false, detail: "this duplicates an existing helper"}
 	svc, store, task := verifiedTask(t, repo, StubVerifyRunner{Pass: true}, "a.txt")
@@ -72,35 +69,122 @@ func TestReview_Fail_RejectsAndFeedsRetry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReviewTask: %v", err)
 	}
-	if res.Passed || res.Reason != ReasonReviewFailed {
-		t.Errorf("res = %+v, want a review_failed rejection", res)
+	if !rev.called {
+		t.Fatal("the reviewer was not called")
 	}
-	if res.Artifact == nil || res.Artifact.Review != ReviewFail {
-		t.Errorf("artifact review = %+v, want fail", res.Artifact)
+	if res.Passed {
+		t.Error("res.Passed = true, want the reviewer's actual verdict")
 	}
+	if res.Reason != "" {
+		t.Errorf("res.Reason = %q, want empty — a review rejects nothing, so it has no rejection reason", res.Reason)
+	}
+
+	// NOTHING MOVED.
 	got, _ := store.GetTask(task.ID)
-	if got.State != StateRejected {
-		t.Errorf("state = %q, want rejected", got.State)
+	if got.State != StateVerified {
+		t.Errorf("task state = %q, want it UNCHANGED at verified — the reviewer must not transition it", got.State)
 	}
-	if job, _ := s2job(t, store, task.ID); job.State != StateRejected {
-		t.Errorf("job state = %q, want rejected", job.State)
+	if job, _ := s2job(t, store, task.ID); job.State != StateVerified {
+		t.Errorf("job state = %q, want it unchanged at verified", job.State)
 	}
-	// The Sprint-58 ladder picks it up.
-	if _, err := svc.RetryTask(task.ID, RetryRequest{}); err != nil {
-		t.Errorf("retry after a failed review: %v", err)
+	// …and the work is still there to be looked at. Reclaiming the worktree on a
+	// model's opinion was the most expensive half of the old behaviour.
+	if job, _ := s2job(t, store, task.ID); !svc.worktrees.Exists(job.ID) {
+		t.Error("the worktree was reclaimed on a failed review; the artifact must survive the reading")
 	}
+
+	// EVERYTHING WAS RECORDED.
+	if res.Artifact == nil || res.Artifact.Review != ReviewFail {
+		t.Errorf("artifact review = %+v, want fail recorded", res.Artifact)
+	}
+	if len(res.Findings) != 2 || res.Findings[0].Severity != SeverityBlocking {
+		t.Fatalf("findings = %+v, want the reviewer's two, blocking first", res.Findings)
+	}
+	if res.Findings[0].Why == "" || res.Findings[0].File == "" {
+		t.Error("a finding must carry where to look and why it matters; without both it is an opinion")
+	}
+	if res.Reviewer != "recording" {
+		t.Errorf("reviewer = %q, want it attributed — an unattributed verdict is a rumour", res.Reviewer)
+	}
+
+	stored, err := store.ReviewsForTask(task.ID)
+	if err != nil || len(stored) != 1 {
+		t.Fatalf("ReviewsForTask = %d (%v), want 1", len(stored), err)
+	}
+	if len(stored[0].Findings) != 2 || stored[0].Passed || stored[0].Reviewer != "recording" {
+		t.Errorf("stored review = %+v, want the full judgement", stored[0])
+	}
+
+	// A second reading accumulates rather than overwriting: the earlier one is
+	// part of the record.
+	rev.pass = true
+	if _, err := svc.ReviewTask(task.ID); err != nil {
+		t.Fatalf("second ReviewTask: %v", err)
+	}
+	stored, _ = store.ReviewsForTask(task.ID)
+	if len(stored) != 2 {
+		t.Fatalf("%d reviews after two passes, want 2 — an earlier reading must not be overwritten", len(stored))
+	}
+	if !stored[1].Passed || stored[0].Passed {
+		t.Errorf("stored order/verdicts = %+v, want the failing one first", stored)
+	}
+
+	// And the log carries it as a DECISION, never as a rejection.
 	events, _ := store.ListEventsForTask(task.ID)
-	if !hasEvent(events, EventRejection, ReasonReviewFailed) {
-		t.Error("the rejection should carry review_failed")
-	}
 	if !hasKind(events, EventReview) {
 		t.Error("the review pass itself should be recorded")
 	}
+	if hasEvent(events, EventRejection, ReasonReviewFailed) {
+		t.Error("the log carries a review_failed rejection; nothing was rejected")
+	}
 }
 
-// TestReview_NoReviewerIsNotAGate: review is opt-in, so a plane without one must
-// not block every landing forever.
-func TestReview_NoReviewerIsNotAGate(t *testing.T) {
+// TestReview_SeesThePromiseAndTheReason: a diff answers "did it do the thing".
+// Only the objective, the rationale and the programme let a reviewer ask whether
+// the thing was worth doing — which is the question it exists for.
+func TestReview_SeesThePromiseAndTheReason(t *testing.T) {
+	repo := gitRepo(t)
+	rev := &recordingReviewer{pass: true, detail: "fine"}
+	svc, _, task := verifiedTask(t, repo, StubVerifyRunner{Pass: true}, "a.txt")
+	svc.SetReviewRunner(rev)
+
+	prog, err := svc.CreateProgramme(ProgrammeRequest{Name: "fluency", Description: "get fluent by spring"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.store.SetTaskProgramme(task.ID, prog.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.store.db.Exec(`UPDATE tasks SET rationale = ?, rationale_by = ? WHERE id = ?`,
+		"the daily review hangs off it", string(CallerHuman), task.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := svc.ReviewTask(task.ID); err != nil {
+		t.Fatalf("ReviewTask: %v", err)
+	}
+	// Commits, never a working tree — a reviewer must not be shown something
+	// different from what would land.
+	if rev.spec.HeadSHA == "" || rev.spec.BaseSHA == "" {
+		t.Errorf("spec names no commits: %+v", rev.spec)
+	}
+	if rev.spec.Objective != task.Objective {
+		t.Errorf("objective = %q, want %q", rev.spec.Objective, task.Objective)
+	}
+	if rev.spec.Rationale != "the daily review hangs off it" || rev.spec.RationaleBy != CallerHuman {
+		t.Errorf("rationale = %q by %q, want it carried through with its author",
+			rev.spec.Rationale, rev.spec.RationaleBy)
+	}
+	if rev.spec.ProgrammeName != "fluency" || rev.spec.ProgrammeFor != "get fluent by spring" {
+		t.Errorf("programme = %q/%q, want the name and what it is for",
+			rev.spec.ProgrammeName, rev.spec.ProgrammeFor)
+	}
+}
+
+// TestReview_NoReviewerSaysSo: asking for a review with no reviewer configured is
+// an error rather than a silent pass — the one thing worse than no review is a
+// record claiming one happened. Integration is unaffected either way now.
+func TestReview_NoReviewerSaysSo(t *testing.T) {
 	repo := gitRepo(t)
 	svc, store, task := verifiedTask(t, repo, StubVerifyRunner{Pass: true}, "a.txt")
 	if _, err := svc.ReviewTask(task.ID); err == nil {

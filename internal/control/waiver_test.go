@@ -137,3 +137,89 @@ func asRejection(err error, target **RejectionError) bool {
 	}
 	return false
 }
+
+// TestWaiver_CanActuallyLand is the other half of the waiver, and it was missing.
+//
+// `verify --ignore-result` records the failure honestly and moves the Task to the
+// approval gate on a named human's authority — but integration looked for a Job
+// in `verified`, and a waived Job is in `approval_required` and must never be in
+// `verified` (writing that would put a false statement into a log that approval
+// and dependency satisfaction read as true). So the override got a human to the
+// gate and then refused to let them through: the legitimate path missing exactly
+// where the override was supposed to be.
+//
+// The waiver is checked, not inferred from the state. A Job standing in
+// `approval_required` for any other reason has nobody's name against it.
+func TestWaiver_CanActuallyLand(t *testing.T) {
+	repo := gitRepo(t)
+	svc, _, store := newService(t, mapResolver{"app": repo},
+		StubRunner{Result: ExecSuccess, WriteFile: true, MarkerName: "a.txt"}, nil,
+		StubVerifyRunner{Pass: false, Detail: "the linter is broken, not the change"})
+
+	task, err := svc.CreateTask(CreateTaskRequest{Project: "app", Objective: "x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.DispatchTask(task.ID); err != nil {
+		t.Fatal(err)
+	}
+	res, err := svc.VerifyTask(task.ID, VerifyRequest{IgnoreResult: true})
+	if err != nil {
+		t.Fatalf("waived verify: %v", err)
+	}
+	if !res.Waived || res.Verified {
+		t.Fatalf("res = %+v, want waived and NOT verified", res)
+	}
+	// The artifact still says it failed. A waiver changes who is answerable, not
+	// what is true.
+	if res.Artifact != nil && res.Artifact.Verify == VerifyPass {
+		t.Error("the waiver marked a failing artifact as passing")
+	}
+
+	if _, err := svc.ApproveTask(task.ID, "the check is wrong, I checked by hand"); err != nil {
+		t.Fatalf("approve after waiver: %v", err)
+	}
+	if _, err := svc.IntegrateTask(task.ID, IntegrateRequest{}); err != nil {
+		t.Fatalf("integrate after a waiver = %v; the waiver led to a gate with no way through", err)
+	}
+	got, _ := store.GetTask(task.ID)
+	if got.State != StateIntegrated {
+		t.Errorf("state = %q, want integrated", got.State)
+	}
+}
+
+// TestUnwaivedJobCannotLandOnItsStateAlone: the guard above must key on the
+// WAIVER and not on the state, or any Job that reached the approval gate could
+// land without ever having been verified.
+func TestUnwaivedJobCannotLandOnItsStateAlone(t *testing.T) {
+	repo := gitRepo(t)
+	svc, _, store := newService(t, mapResolver{"app": repo},
+		StubRunner{Result: ExecSuccess, WriteFile: true, MarkerName: "a.txt"}, nil,
+		StubVerifyRunner{Pass: true})
+
+	task, err := svc.CreateTask(CreateTaskRequest{Project: "app", Objective: "x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.DispatchTask(task.ID); err != nil {
+		t.Fatal(err)
+	}
+	job, ok, err := svc.jobInState(task.ID, StateCandidate)
+	if err != nil || !ok {
+		t.Fatalf("no candidate job: %v", err)
+	}
+	// Put the Job at the approval gate WITHOUT a verification and without a
+	// waiver — the shape the guard must refuse.
+	if _, err := store.TransitionJob(job.ID, StateVerifying, false, "test"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.TransitionJob(job.ID, StateVerified, false, "test"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.TransitionJob(job.ID, StateApprovalRequired, false, "test"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := svc.jobToIntegrate(task.ID); err != nil || ok {
+		t.Errorf("jobToIntegrate found a job with no waiver against it (ok=%v, err=%v)", ok, err)
+	}
+}

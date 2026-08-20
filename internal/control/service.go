@@ -143,6 +143,12 @@ type StatusView struct {
 	// what makes a Task that is QUEUED FOR CAPACITY visibly different from one that
 	// is running, which are otherwise both just "not finished".
 	Scheduling TaskScheduling `json:"scheduling"`
+	// Reviews are the judgements passed on this Task's artifacts, oldest first
+	// (M20). They ride on the status rather than living behind a route of their
+	// own because a review is EVIDENCE FOR A DECISION, and the decision is taken
+	// while looking at this: a finding one fetch away from the approval gate is a
+	// finding nobody reads.
+	Reviews []Review `json:"reviews,omitempty"`
 }
 
 // TaskScheduling is a Task's position with respect to concurrency.
@@ -669,6 +675,11 @@ func (s *Service) TaskStatus(id string) (StatusView, error) {
 		return StatusView{}, err
 	}
 	view := StatusView{Task: t, Scheduling: s.schedulingFor(t)}
+	// Best-effort: a status that cannot list reviews is still a useful status, and
+	// failing the whole call over the evidence would be worse than showing none.
+	if reviews, err := s.store.ReviewsForTask(id); err == nil {
+		view.Reviews = reviews
+	}
 	if deps, err := s.TaskDependencies(id); err == nil {
 		view.Dependencies = deps
 	}

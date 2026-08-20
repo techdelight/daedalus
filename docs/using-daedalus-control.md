@@ -66,6 +66,16 @@ task create ──► planned
   `Not logged in · Please run /login`, recorded honestly as
   `execution_result=failed`. If you see that, the Job's own log carries the
   agent's account of it — see [When a Job fails](#when-a-job-fails).
+> **What `verified` is worth.** It means "the plane applied what checks it could",
+> and today that is usually less than you would hope: the verifier runs with the
+> network off and no dependency cache, so for any project that is not vendored it
+> cannot run your real build or tests (backlog #74) and falls back to
+> `daedalus docs lint`. Measured over its whole history, one verify verdict in
+> seven was a statement about the work being graded rather than about the harness,
+> the image, or the repository the Task was handed. Treat it as advice with a
+> state machine attached — and see `--ignore-result` below, which since Sprint 67
+> actually lets a waived artifact land.
+
 - **A verify policy**, ideally. Without one you get a built-in default that only
   runs `daedalus docs lint --ci`, which is a weak oracle for most projects. And
   whatever the project declares, it cannot know what any one task promised — see
@@ -441,6 +451,30 @@ do", because only one of those is reassuring.
 > **`--no-auth` now gives away a control plane.** An unauthenticated Web UI is an
 > unauthenticated `daedalus task`: it can dispatch Jobs, waive a failed
 > verification, approve an agent's work and land code. Do not expose it.
+
+### Asking for a review
+
+```bash
+daedalus task review T-7
+```
+
+A separate agent reads the artifact's diff against what the Task promised — the
+objective, the rationale, and the programme it serves — and reports back: a
+verdict, its reasoning, and findings that each say where to look and why it
+matters. It is a different agent in a different container from the one that did
+the work, and it cannot see that agent's transcript.
+
+**Its verdict is advisory and moves nothing.** Before M20 a failed review drove
+the Task to `rejected` and reclaimed its worktree; it no longer does. The reason
+is what a reviewer is: a language model reading a diff it did not write. A
+verdict that moved plane state would be an oracle nobody bounded — and a PASS
+that carried authority would mean a diff could talk its way into your trunk. So
+the findings go in front of you at the approval gate, in `daedalus task status`
+and in the Ledger's **record** page, and you decide.
+
+If the review cannot be obtained at all — the agent failed, the judgement was
+unreadable — you get *no judgement* rather than a rejection. That distinction is
+deliberate: a broken harness must never read as a criticism of the work.
 
 ### Programmes: saying what the work is for
 

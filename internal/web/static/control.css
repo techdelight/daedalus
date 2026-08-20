@@ -909,3 +909,48 @@
         transition: none;
     }
 }
+
+/* --- review findings ------------------------------------------------------ */
+
+/* A finding is a claim with a location, so it is laid out like one: the severity
+   in a fixed column the eye can run down, the claim beside it. Blocking is
+   coloured off the HP ramp's low end — not because the plane acts on it (it does
+   not) but because it is the reviewer saying "I would not land this", which is
+   the sentence an operator is scanning for. */
+.ledger-finding {
+    display: grid;
+    grid-template-columns: 9ch minmax(0, 1fr);
+    gap: 8px;
+    padding: 2px 0 2px 12px;
+    font-size: 11px;
+    line-height: 1.5;
+}
+
+.ledger-finding-sev {
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--mana-text-dim);
+    text-shadow: 1px 1px 0 var(--mana-ink);
+}
+
+.ledger-finding.is-blocking .ledger-finding-sev { color: var(--mana-hp-lo); }
+.ledger-finding.is-concern .ledger-finding-sev { color: var(--mana-hp-mid); }
+
+.ledger-finding-what {
+    min-width: 0;
+    color: var(--mana-text);
+    overflow-wrap: anywhere;
+    text-shadow: 1px 1px 0 var(--mana-ink);
+}
+
+/* Said under every set of findings, because the plane used to act on them and an
+   operator who remembers that will otherwise assume the task has moved. */
+.ledger-advisory {
+    margin: 6px 0 2px;
+    padding-left: 12px;
+    font-size: 10px;
+    letter-spacing: 1px;
+    color: var(--mana-frame-lt);
+    text-shadow: 1px 1px 0 var(--mana-ink);
+}

@@ -733,6 +733,66 @@ at all, so a plane without one is not blocked forever. Review passes are bounded
 and not summed**, so a Task gets N verifications and N reviews rather than N of the
 two combined.
 
+### The reviewer, and what `verified` is worth (M20, Sprint 67)
+
+**A reviewer now exists, and it reports rather than gates.** `AgentReviewer` runs
+a separate agent over a clean checkout of the artifact, handed the diff, the
+objective, the **rationale** and the **programme** — and it writes a judgement:
+a verdict, its reasoning, and findings that each carry a location and a reason.
+Judgements are recorded in a `reviews` table, accumulate rather than overwrite,
+and ride on `StatusView` so they are in front of whoever is deciding.
+
+**Three things make it independent**, and they are separate: a fresh checkout of
+the commit rather than the Job's worktree; its own throwaway project and home, so
+it cannot read the Job's transcript — a reviewer that can see how the work was
+argued for is being lobbied by it — and a diff computed by the plane rather than
+derived by the reviewer.
+
+**What it costs, stated rather than absorbed:** unlike the verifier this container
+has the **network and credentials**. It must; it is a language model making a
+call. So the clean-room property does not hold here, and the compensating control
+is that its output is advisory.
+
+**Why advisory is the design and not a hedge.** A verifier runs a frozen,
+human-authored command and returns an exit code. A reviewer is a model reading a
+diff it did not write — untrusted input, by construction. Two consequences point
+the same way: a verdict that moved plane state would be an oracle nobody bounded,
+and a PASS that carried authority would be the lethal trifecta with the parts
+relabelled, since the diff can address the reviewer directly. So `ReviewTask`
+records everything and transitions nothing, `requireReviewPassed` is a no-op kept
+under its old name so the decision is visible where it used to be enforced, and a
+harness failure comes back as *no judgement* rather than as disapproval — because
+"the reviewer could not be made to report" and "the reviewer disliked this" are
+different facts.
+
+#### What `verified` is worth
+
+**It means "the plane applied what checks it could" — no more.** The honest tally,
+over the machine oracle's entire history to 2026-08-20:
+
+| Verdict | What it was actually about |
+|---|---|
+| pre-`72b2108` | the `daedalus` CLI was not in the image |
+| pre-`c21b75a` | the check never reached a shell; **every green verify before this was vacuous** |
+| T-8 | `--ci` turning a deliberate roadmap warning fatal |
+| T-8 (reverify) | ✅ the work |
+| T-10 | a check string containing a newline, run as two commands |
+| T-11 | git fatally broken in the Job container |
+| T-13 | pre-existing `SPRINTS.md` errors in a file the Task never opened |
+
+One verdict in seven was a statement about the work being graded. The cause is
+not a run of bugs: the verifier runs `--network none` with only the checkout
+mounted and no dependency cache, so for any project that is not fully vendored it
+**cannot run the real build or tests** (backlog #74) and falls back to the one
+check that always works, `daedalus docs lint` — which grades documents. Until #74
+is closed, treat the gate as advice with a state machine attached.
+
+That is why `verify --ignore-result` exists, and since Sprint 67 the waiver
+actually leads somewhere: a waived Job can be approved **and landed**, with the
+merged re-verification's failure carried on the same recorded waiver rather than
+refusing a second time for the same reason. Waive the consequence, never the
+truth — the artifact still says `verify=fail` and the log still says who carried it.
+
 ### Programmes — what the work is for (M20, Sprint 66)
 
 A **Programme** is the shared intent several projects serve, and since Sprint 66

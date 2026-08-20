@@ -180,15 +180,24 @@ func main() {
 		svc.SetImageDigester(dockerImageDigester{exec: &executor.RealExecutor{}, reg: reg, imagePrefix: defaultImagePrefix})
 	}
 
-	// Independent reviewer (M15, Sprint 59): a seam, exactly as VerifyRunner was
-	// in Sprint 56. There is no real reviewer yet, so one is wired ONLY when
-	// DAEDALUS_CONTROL_FAKE_REVIEW is set — with no reviewer configured, review is
-	// simply not a gate, which keeps governance opt-in rather than blocking every
-	// landing on a component that does not exist.
+	// Independent reviewer (M20, Sprint 67): a REAL one now — a separate agent
+	// that reads the artifact's diff against what the Task promised and reports.
+	// DAEDALUS_CONTROL_FAKE_REVIEW still selects the Docker-free stub so the
+	// no-Docker smoke can exercise the recording path.
+	//
+	// Review stays OPT-IN by being an explicit operation (`daedalus task review`)
+	// rather than by being absent: since M20 a reviewer gates nothing, so wiring
+	// one costs a project nothing until somebody asks for a reading.
 	if v := os.Getenv("DAEDALUS_CONTROL_FAKE_REVIEW"); v != "" {
 		pass := v != "fail"
 		log.Printf("WARNING using stub reviewer (DAEDALUS_CONTROL_FAKE_REVIEW=%s) — no real review happens", v)
 		svc.SetReviewRunner(control.StubReviewRunner{Pass: pass})
+	} else {
+		svc.SetReviewRunner(control.AgentReviewer{
+			Exec:    &executor.RealExecutor{},
+			BinPath: filepath.Join(scriptDir, "daedalus"),
+			DataDir: cfg.dataDir,
+		})
 	}
 
 	// Reconcile on boot.
