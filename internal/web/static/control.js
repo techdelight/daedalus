@@ -230,7 +230,15 @@
       },
     },
     {
-      key: 'review', label: 'Review', states: ['verified', 'approval_required', 'approved'],
+      // Offered wherever there is an artifact to read — including `candidate`
+      // (nobody has graded it yet) and `rejected` (the machine oracle said no,
+      // which is the case that most needs a second opinion). Review moves
+      // nothing, so there is nothing to protect by withholding it; gating it
+      // behind the oracle passing made the second opinion available only when
+      // the first one already agreed.
+      key: 'review', label: 'Review',
+      hint: 'Send an agent to read the change against what it promised. Advisory — it moves nothing.',
+      states: ['candidate', 'rejected', 'verified', 'approval_required', 'approved'],
       run: function (id) { return send('POST', '/tasks/' + enc(id) + '/review'); },
       done: function (r) {
         return r.passed ? 'Review passed.' : 'Review failed — ' + (r.reason || '') + ' ' + (r.detail || '');

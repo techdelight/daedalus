@@ -255,3 +255,67 @@ func TestStubReviewRunner(t *testing.T) {
 		}
 	}
 }
+
+// TestReview_ReadsAnArtifactWhateverTheOracleSaid.
+//
+// The reviewer used to require `verified` and a Job in `verified`, which put the
+// second opinion downstream of the first — available only once the machine
+// oracle already agreed. That made it useless in the case it exists for: the
+// oracle grades documents (#74), so a Task it rejects is exactly the one a human
+// needs a reading of, and that reading was the one the plane refused to fetch.
+func TestReview_ReadsAnArtifactWhateverTheOracleSaid(t *testing.T) {
+	repo := gitRepo(t)
+	// A verifier that FAILS: the task lands in `rejected`, which is precisely
+	// where an operator wants an agent's eyes.
+	svc, _, store := newService(t, mapResolver{"app": repo},
+		StubRunner{Result: ExecSuccess, WriteFile: true, MarkerName: "a.txt"}, nil,
+		StubVerifyRunner{Pass: false, Detail: "docs lint failed on a file the task never opened"})
+	rev := &recordingReviewer{pass: true, detail: "the change is fine; the linter is not about it"}
+	svc.SetReviewRunner(rev)
+
+	task, err := svc.CreateTask(CreateTaskRequest{Project: "app", Objective: "x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.DispatchTask(task.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	// A CANDIDATE — graded by nobody yet — is reviewable.
+	if _, err := svc.ReviewTask(task.ID); err != nil {
+		t.Fatalf("reviewing a candidate = %v, want it allowed", err)
+	}
+
+	// And after the oracle rejects it, still reviewable.
+	if _, err := svc.VerifyTask(task.ID, VerifyRequest{}); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := store.GetTask(task.ID)
+	if got.State != StateRejected {
+		t.Fatalf("state = %q, want rejected (the stub verifier fails)", got.State)
+	}
+	res, err := svc.ReviewTask(task.ID)
+	if err != nil {
+		t.Fatalf("reviewing a REJECTED task = %v — this is the case the reviewer exists for", err)
+	}
+	if !res.Passed {
+		t.Errorf("res = %+v, want the reviewer's own verdict, not the oracle's", res)
+	}
+	// And it still moves nothing.
+	after, _ := store.GetTask(task.ID)
+	if after.State != StateRejected {
+		t.Errorf("state = %q after a passing review, want it unchanged at rejected", after.State)
+	}
+}
+
+// Nothing to read is still a refusal: a Task that has produced no artifact has
+// no diff, and inventing a reading of one would be worse than saying so.
+func TestReview_RefusesWhenNothingHasBeenProduced(t *testing.T) {
+	repo := gitRepo(t)
+	svc, _, _ := newService(t, mapResolver{"app": repo}, StubRunner{}, nil)
+	svc.SetReviewRunner(StubReviewRunner{Pass: true})
+	task, _ := svc.CreateTask(CreateTaskRequest{Project: "app", Objective: "x"}) // planned
+	if _, err := svc.ReviewTask(task.ID); !errors.Is(err, ErrWrongState) {
+		t.Errorf("reviewing a planned task = %v, want ErrWrongState", err)
+	}
+}

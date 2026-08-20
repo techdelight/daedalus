@@ -179,7 +179,45 @@ type ReviewResult struct {
 	MaxCycle  int             `json:"maxCycles"` // 0 = unbounded
 }
 
-// ReviewTask runs the independent reviewer over a Task's verified artifact.
+// reviewableStates are the states in which an artifact can be read.
+//
+// The list is what it is because a reviewer answers a question about a DIFF, and
+// a diff either exists or it does not. What the machine oracle thought of it is
+// beside the point — the reviewer is the second opinion, and a second opinion
+// available only after the first one agrees is not one.
+var reviewableStates = map[State]bool{
+	StateCandidate:        true, // graded by nobody yet
+	StateRejected:         true, // the oracle said no — the case that needs a reading most
+	StateVerified:         true,
+	StateApprovalRequired: true,
+	StateApproved:         true,
+}
+
+func reviewableStateNames() string {
+	return "candidate/rejected/verified/approval_required/approved"
+}
+
+// jobToReview finds the Job whose artifact should be read: the most recent one
+// that produced anything.
+//
+// Newest first, because a retried Task carries its whole Job chain and the
+// reading anyone wants is of the latest attempt. A Job with no artifact is
+// skipped rather than refused — an earlier attempt that produced nothing should
+// not hide a later one that did.
+func (s *Service) jobToReview(taskID string) (Job, *Artifact, bool, error) {
+	jobs, err := s.store.ListJobsForTask(taskID)
+	if err != nil {
+		return Job{}, nil, false, err
+	}
+	for i := len(jobs) - 1; i >= 0; i-- {
+		if art := s.firstArtifact(jobs[i].ID); art != nil {
+			return jobs[i], art, true, nil
+		}
+	}
+	return Job{}, nil, false, nil
+}
+
+// ReviewTask runs the independent reviewer over a Task's artifact.
 //
 // It is deliberately a separate, explicit operation rather than something folded
 // into verification: the two answer different questions, they can fail for
@@ -215,22 +253,35 @@ func (s *Service) ReviewTask(id string) (ReviewResult, error) {
 	if err != nil {
 		return ReviewResult{}, err
 	}
-	// Reviewable once verification has passed and before the artifact lands:
-	// `verified` (no approval required) or `approval_required`/`approved`.
-	if task.State != StateVerified && task.State != StateApprovalRequired && task.State != StateApproved {
-		return ReviewResult{}, fmt.Errorf("%w: task %s is %s, not reviewable (want verified/approval_required/approved)",
-			ErrWrongState, id, task.State)
+	// ANYTHING WITH AN ARTIFACT IS REVIEWABLE, and correcting this is the whole
+	// point of the rung.
+	//
+	// Review used to require `verified` and a Job in `verified` — the reviewer was
+	// downstream of the machine oracle. That made it useless in exactly the case
+	// it exists for. The oracle grades documents (it cannot run a project's build
+	// with the network off — backlog #74), so a Task it rejects is precisely the
+	// one a human needs a reading of, and that was the one reading the plane
+	// refused to fetch. A `candidate` nobody has graded yet was refused too.
+	//
+	// Nothing is risked by widening it. Since M20 a review transitions nothing and
+	// gates nothing: it records a judgement for a human. A judgement about an
+	// artifact the linter disliked is not a claim that the artifact passed, and
+	// treating "the reviewer may look" as a privilege earned by passing a
+	// different test was the error.
+	//
+	// `verifying` is excluded on purpose — a grading is in flight and its verdict
+	// is about to land — as are states with no artifact to read at all.
+	if !reviewableStates[task.State] {
+		return ReviewResult{}, fmt.Errorf("%w: task %s is %s, not reviewable (want %s)",
+			ErrWrongState, id, task.State, reviewableStateNames())
 	}
-	job, ok, err := s.jobInState(id, StateVerified)
+	job, art, ok, err := s.jobToReview(id)
 	if err != nil {
 		return ReviewResult{}, err
 	}
 	if !ok {
-		return ReviewResult{}, fmt.Errorf("%w: task %s has no verified job to review", ErrWrongState, id)
-	}
-	art := s.firstArtifact(job.ID)
-	if art == nil {
-		return ReviewResult{}, fmt.Errorf("%w: task %s has no artifact to review", ErrWrongState, id)
+		return ReviewResult{}, fmt.Errorf("%w: task %s has no artifact to review — nothing has been produced yet",
+			ErrWrongState, id)
 	}
 	repoDir, err := s.projects.ProjectDir(task.Project)
 	if err != nil {
