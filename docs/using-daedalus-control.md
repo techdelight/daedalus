@@ -536,6 +536,42 @@ plane as unreachable rather than editing a file the plane will not read. And
 `add-dep` declares an *order between projects*; it does not gate anything. To make
 a landing actually wait, use `daedalus task depends <id> --on <other>`.
 
+### Letting a Job reach a git remote
+
+A Job container has **no git credentials by default**, so a Task whose objective
+requires a `push` will produce the work and stop at the push. That is deliberate:
+the container has the network and runs an objective the plane treats as
+untrusted, and a push-capable key in it can write to every host and repository
+that key reaches.
+
+To grant it, name the project in the host-side governance file
+(`<data-dir>/control/budgets.json`) — the same file that holds budgets and the
+approval gate, and for the same reason: a project that could grant itself a key
+by committing a file would not be governed at all.
+
+```json
+{
+  "remoteAccess": {
+    "projects": { "my-app": true }
+  }
+}
+```
+
+The plane then copies a narrow allow-list from that project's home into each
+Job's — `id_ed25519`, `id_rsa`, their public halves, and `known_hosts` — at 0600,
+and logs that it did. Not the whole of `~/.ssh`: that directory usually holds
+keys for machines with nothing to do with this project, and `config` can name
+hosts and forwardings you never meant to hand over.
+
+**Two limits worth knowing before you turn it on.** It does not scope the key to
+one repository — ssh has no such notion, so a **deploy key** with write access to
+exactly the intended repo is the right thing to put in that project's home. And
+`"default": true` is expressible, because some installations are one person's
+laptop; it means every Job on the machine can push wherever that key reaches.
+
+If a Task comes back having produced a plan or a patch instead of the change,
+this is the first thing to check — that is what it looks like from the outside.
+
 ### What a Job sees
 
 The agent runs headless in an isolated worktree mounted at `/workspace`, and it

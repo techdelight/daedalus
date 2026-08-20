@@ -132,6 +132,32 @@ All notable changes to this project will be documented in this file.
     them would only make people invent programmes to satisfy a field.
 
 ### Added
+- **A Job can reach a git remote, if you say so (#83).** A Job container had no
+  git credentials at all — `jobHomeSeedFiles` is an allow-list of Claude
+  credentials and nothing else — so a Task whose objective required a `push`
+  produced the work and stopped, reporting it as its own inability rather than as
+  a missing capability. **The reviewer found this, not the plane**: T-13's blocking
+  finding was *"the entire deliverable is a patch file plus a plan"*.
+  - **Opt-in per project**, in the host-side `budgets.json` — the same file as
+    budgets and the approval gate, and for the same reason: a project that could
+    grant itself a push-capable key by committing a file would not be governed.
+  - **Fails closed twice.** No policy source is no; a policy source that predates
+    the question is also no, because a fake written before the question existed
+    must not be made to answer it.
+  - A **narrow** allow-list (`id_ed25519`, `id_rsa`, their public halves,
+    `known_hosts`) at 0600 in a 0700 home — not all of `~/.ssh`, which holds keys
+    for unrelated machines, and not `config`, which can name hosts and forwardings
+    nobody meant to share. Granted-but-nothing-to-copy is an error, not a silent
+    success.
+  - The honest limit is documented rather than implied: **it does not scope the
+    key to one repository**, because ssh has no such notion. A deploy key is the
+    operator's tool for that.
+- **The second reading is recorded** in `docs/control-plane.md`, and it is the one
+  that makes the case the first could not. On the same artifact, the oracle
+  rejected T-13 for pre-existing errors in a file the Task never opened, while the
+  reviewer rejected it because *the deliverable was a plan, not the change*. The
+  oracle was not merely unhelpful but actively misleading — acting on it would
+  have meant fixing documentation and retrying into the same wall.
 - **`--help` lists the commands it dispatches, and names the id vocabulary.**
   `programmes` and `coordinator` were dispatched and appeared **nowhere** in the
   help — `programmes` was rewritten into a control-plane client the day before and

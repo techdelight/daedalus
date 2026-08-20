@@ -800,6 +800,37 @@ never again, so a review run from a terminal never appeared at all. A subsystem
 whose only product is a report failed three times at reporting, which is worth
 recording as the pattern it is.
 
+#### The second reading, and what it settles (2026-08-20)
+
+`RV-2` on **T-13** — the repository split — is the case that makes the argument
+the first reading could not. Its blocking finding, in the operator's paraphrase:
+
+> Neither half of the task landed. Part A was built but never pushed, so the new
+> repository does not exist; Part B was correctly not started, so `langlearn/` is
+> still in snowball and every file that referenced it is unchanged. **The entire
+> deliverable is a patch file plus a plan.**
+
+Put beside what the machine oracle said about the same artifact, this is the
+whole milestone in two lines:
+
+| | Verdict on T-13 |
+|---|---|
+| The oracle (`daedalus docs lint`) | rejected it — for pre-existing errors in `SPRINTS.md`, **a file the Task never opened** |
+| The reviewer | rejected it — because *the deliverable is a plan, not the change* |
+
+The oracle was not merely unhelpful, it was **actively misleading**: its rejection
+pointed at documentation, and an operator acting on it would have fixed the
+documentation and retried into the same wall. The real defect — that the Job
+produced instructions for a human rather than the work — was invisible to any
+exit code, and was found in one reading.
+
+That is the evidence for the rung. Not "the judgement looked good", but: it saw
+the thing the gate could not see, and the thing it saw was the one that mattered.
+
+It also found the cause the plane could not: the Job could not push, because a
+Job container had no credentials for a git remote. That is **#83**, filed and
+fixed the same day — opt-in, per project, in the host-side governance file.
+
 #### What `verified` is worth
 
 **It means "the plane applied what checks it could" — no more.** The honest tally,

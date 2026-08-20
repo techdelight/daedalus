@@ -193,6 +193,17 @@ type VerifyResult struct {
 	Detail         string `json:"detail"`
 }
 
+// remoteAccessFor reports whether this project's Jobs may reach a git remote.
+//
+// Fails closed twice over: no policy source at all is NO, and a policy source
+// that does not implement the optional capability is NO. A push-capable key in a
+// container with the network is the one grant that has to be proven rather than
+// assumed, and both silences mean "nobody wrote it down".
+func (s *Service) remoteAccessFor(project string) bool {
+	src, ok := s.budgets.(remoteAccessSource)
+	return ok && src.RemoteAccessFor(project)
+}
+
 // TaskAPI is the surface the CLI drives and the daemon serves. Both the
 // in-process Service and the over-the-socket Client implement it, so the CLI is
 // identical whether it runs the logic directly (tests) or via the daemon.
@@ -931,6 +942,10 @@ func (s *Service) runDispatch(prep dispatchPrep) (DispatchResult, error) {
 			TaskID: task.ID, JobID: job.ID, Project: task.Project, Objective: task.Objective,
 			Runner: "claude", Budget: task.Budget.WallClockSeconds, BaseSHA: task.BaseSHA,
 			WorktreeDir: prep.worktree, LogPath: logPath,
+			// Resolved HERE, from the host-side policy, and carried to the runner —
+			// never decided by the runner and never present in anything a Task or an
+			// agent can influence.
+			RemoteAccess: s.remoteAccessFor(task.Project),
 		})
 	})
 

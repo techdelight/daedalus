@@ -31,6 +31,10 @@ type JobSpec struct {
 	// that cannot honour it simply leaves no file, which is how the caller tells
 	// that there is nothing to point at. See JobLogPath.
 	LogPath string
+	// RemoteAccess is true when the HOST-SIDE policy grants this project's Jobs
+	// the credentials to reach a git remote (#83). Resolved by the Service from a
+	// file no agent and no checkout can edit; the runner only acts on it.
+	RemoteAccess bool
 }
 
 // RunOutcome is how a headless Job ended — the "how it ended" axis (§5), distinct
@@ -229,6 +233,13 @@ func (r CoordinatorRunner) Run(ctx context.Context, spec JobSpec) RunOutcome {
 	// Job exits 1 within seconds on "Not logged in", which is precisely what
 	// happened on the first real host to run one. See jobhome.go.
 	seedJobHomeOrWarn(r.DataDir, spec.Project, name)
+	// And, only where the operator has written it down, the means to push.
+	// Without this a Job can produce work and cannot publish it — which is how a
+	// repository-split Task came back as a handoff document and a patch file
+	// rather than as the split (#83).
+	if spec.RemoteAccess {
+		seedRemoteAccessOrWarn(r.DataDir, spec.Project, name)
+	}
 	// This Job's own log, opened BEFORE the run and closed after it. Opening it
 	// eagerly is what makes the file's existence mean "the tee was wired": the
 	// caller records the path only when the file is there, so an open failure
