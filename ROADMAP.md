@@ -169,7 +169,7 @@ Prior art surveyed: SWE-bench grades a saved `model_patch` from a prediction fil
 
 Measured motivation (2026-08-18): Task T-8 produced a good artifact, was rejected twice by a policy defect (`daedalus docs lint --ci` failing on an advisory warning about the roadmap), and the only offered remedies were to re-run the Job or discard it — having spent 2 of 3 attempts and 2 of 3 review cycles on verdicts that examined the repository rather than the change.
 
-### Milestone 20: Programmes in the Plane & a Reviewer at the Gate
+### Milestone 20: Programmes in the Plane & a Reviewer at the Gate (In Progress)
 
 The control plane's unit of governance is the repository. `Task.Project` is a registry name, the integration target is keyed by canonical repo path, and every authoritative row in `control.db` is organised around a checkout. A programme — the thing that by definition is not a repo — exists today only as documents, and the system's whole purpose is to merge the common interest between projects into programmes and pursue them.
 

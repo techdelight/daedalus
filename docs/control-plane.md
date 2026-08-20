@@ -733,6 +733,47 @@ at all, so a plane without one is not blocked forever. Review passes are bounded
 and not summed**, so a Task gets N verifications and N reviews rather than N of the
 two combined.
 
+### Programmes — what the work is for (M20, Sprint 66)
+
+A **Programme** is the shared intent several projects serve, and since Sprint 66
+it is a row in `control.db` rather than a JSON file. A Task points at one by ID,
+and carries a **rationale** plus the caller class that authored it.
+
+**Why the plane owns it.** Identity. The file-backed store keyed a programme by
+its filename, so a rename broke every reference — silently, because nothing held
+a reference the store could check. That is the same defect Sprint 59 fixed for the
+integration target by keying it to a canonical repo path instead of a name. A
+programme now has an ID, the ID is what a Task stores, and the name is free to
+change. Definitions written before this are adopted on daemon start, once and
+idempotently by name, so nothing anybody wrote is lost and there is no migration
+flag to forget.
+
+**Why the rationale carries its author.** `rationale_by` is the caller class,
+derived from the socket the request arrived on and never present in the request —
+the same rule as `proposals.proposed_by` and `steering.issued_by`. It is what
+makes "the rationale is the human's own words" a property you can check rather
+than one you hope for: an agent may draft a good reason, and it will read as the
+agent's rather than silently as the operator's. An agent-created Task with no
+rationale is *visibly* unattributed, which is the honest rendering.
+
+**Two edge kinds, and only one has teeth.** A programme carries `deps` —
+project→project ordering imported from the file store — which declare a *plan* and
+gate nothing. What blocks a landing is the Task→Task graph (`task_dependencies`,
+Sprint 62). `programmes status` rolls that graph up, and reports the part no
+per-project view can show: **edges that leave the programme**, i.e. work it waits
+on that nobody put in it.
+
+| Operation | Human | Agent |
+|---|---|---|
+| `programmes list` / `show` / `status` | yes | yes — reading is most of the point |
+| `programmes create` / `add-project` / `add-dep` | yes | proposal |
+| `programmes remove` | yes | proposal |
+
+Forming a programme stays a human act because it is a statement about what the
+work is *for* — the Guild Master is expected to notice common interest across
+projects and propose one, and a human agreeing is what turns a noticing into a
+programme.
+
 ### Driving the plane from the Web UI and TUI
 
 Both surfaces are **clients** of `control.sock` with no authority the CLI lacks:

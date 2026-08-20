@@ -596,3 +596,86 @@ func (ws *WebServer) handleDenyProposal(w http.ResponseWriter, r *http.Request) 
 func (ws *WebServer) handleSyncTarget(w http.ResponseWriter, r *http.Request) {
 	ws.act(w, func(api control.TaskAPI) (any, error) { return api.SyncTarget(r.PathValue("project")) })
 }
+
+// --- programmes (M20) -----------------------------------------------------------
+//
+// These replace the file-backed CRUD that used to live in programmes.go. A
+// programme is control-plane state now, so there is exactly one thing that
+// answers "what programmes exist" — which was the point of the change rather
+// than a consequence of it.
+//
+// The behaviour difference is worth knowing and is documented: programme CRUD now
+// needs the control daemon. The CLI auto-spawns one; this page deliberately never
+// does, so when the plane is down the surface says so instead of editing a copy
+// nobody reads.
+
+// programmesResponse is the list the page polls.
+type programmesResponse struct {
+	unavailable
+	Programmes []control.Programme `json:"programmes"`
+}
+
+func (ws *WebServer) handleListProgrammes(w http.ResponseWriter, r *http.Request) {
+	ws.collection(w,
+		func(u unavailable) any {
+			return programmesResponse{unavailable: u, Programmes: []control.Programme{}}
+		},
+		func(api control.TaskAPI) (any, error) {
+			progs, err := api.ListProgrammes()
+			if err != nil {
+				return nil, err
+			}
+			if progs == nil {
+				progs = []control.Programme{}
+			}
+			return programmesResponse{unavailable: unavailable{Available: true}, Programmes: progs}, nil
+		})
+}
+
+func (ws *WebServer) handleGetProgramme(w http.ResponseWriter, r *http.Request) {
+	ws.act(w, func(api control.TaskAPI) (any, error) { return api.GetProgramme(r.PathValue("id")) })
+}
+
+func (ws *WebServer) handleProgrammeStatus(w http.ResponseWriter, r *http.Request) {
+	ws.act(w, func(api control.TaskAPI) (any, error) { return api.ProgrammeStatusFor(r.PathValue("id")) })
+}
+
+func (ws *WebServer) handleCreateProgramme(w http.ResponseWriter, r *http.Request) {
+	var req control.ProgrammeRequest
+	if err := bind(r, &req); err != nil {
+		badRequest(w, "malformed programme: "+err.Error())
+		return
+	}
+	api := ws.controlClient()
+	if api == nil {
+		writeControlJSON(w, http.StatusServiceUnavailable, map[string]string{"error": planeDownReason})
+		return
+	}
+	p, err := api.CreateProgramme(req)
+	if err != nil {
+		writeControlError(w, err)
+		return
+	}
+	writeControlJSON(w, http.StatusCreated, p)
+}
+
+func (ws *WebServer) handleUpdateProgramme(w http.ResponseWriter, r *http.Request) {
+	var req control.ProgrammeRequest
+	if err := bind(r, &req); err != nil {
+		badRequest(w, "malformed programme: "+err.Error())
+		return
+	}
+	ws.act(w, func(api control.TaskAPI) (any, error) {
+		return api.UpdateProgramme(r.PathValue("id"), req)
+	})
+}
+
+func (ws *WebServer) handleDeleteProgramme(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	ws.act(w, func(api control.TaskAPI) (any, error) {
+		if err := api.DeleteProgramme(id); err != nil {
+			return nil, err
+		}
+		return map[string]string{"deleted": id}, nil
+	})
+}

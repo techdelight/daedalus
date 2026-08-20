@@ -442,6 +442,44 @@ do", because only one of those is reassuring.
 > unauthenticated `daedalus task`: it can dispatch Jobs, waive a failed
 > verification, approve an agent's work and land code. Do not expose it.
 
+### Programmes: saying what the work is for
+
+```bash
+daedalus programmes create fluency "get conversational in Japanese by spring"
+daedalus programmes add-project fluency langlearn
+
+daedalus task create --project langlearn \
+  --objective "Add spaced-repetition intervals to the review queue" \
+  --programme fluency \
+  --rationale "daily review is the habit everything else hangs off"
+
+daedalus programmes status fluency    # the work, and what it waits on
+```
+
+Both `--programme` and `--rationale` are optional. A Task with neither is a normal
+Task — requiring them would only make people invent programmes to satisfy a field.
+What you get by supplying them is a record that can still answer *why* a year
+later, when the objective alone cannot.
+
+The rationale is recorded with **who wrote it**, taken from the socket the request
+arrived on. You will see `(human)` or `(agent)` beside it in `task status`. That
+is deliberate: an agent may draft a perfectly good reason, and it should read as
+the agent's rather than as yours.
+
+`programmes status` is the view worth knowing. Besides the Tasks and their states
+it reports **work outside the programme that it is waiting on** — a dependency on
+a Task nobody put in the programme. No per-project view can show that, because the
+two Tasks are in different projects, and a programme that looks fully staffed while
+blocked on something outside itself is exactly the thing you want told rather than
+left to discover.
+
+Two notes on the change of ownership. Programmes now live in the control plane, so
+these commands need the daemon — the CLI spawns one on demand, as it already does
+for `daedalus task`. The Web UI deliberately never spawns one, so it reports the
+plane as unreachable rather than editing a file the plane will not read. And
+`add-dep` declares an *order between projects*; it does not gate anything. To make
+a landing actually wait, use `daedalus task depends <id> --on <other>`.
+
 ### What a Job sees
 
 The agent runs headless in an isolated worktree mounted at `/workspace`, and it

@@ -89,6 +89,15 @@ type CreateTaskRequest struct {
 	// Budget.invalidAxis). Raising a ceiling means editing the host-side policy
 	// file; no request over control.sock can do it.
 	Budget *Budget `json:"budget,omitempty"`
+	// Programme is the shared intent this Task serves — an id or a name, resolved
+	// by the plane (programme.go). Optional: a Task that serves no programme is a
+	// normal Task, and requiring one would make people invent programmes to
+	// satisfy a field.
+	Programme string `json:"programme,omitempty"`
+	// Rationale is why this work is worth doing. WHO said so is not in this
+	// struct and cannot be: it is derived from the transport, so an agent-drafted
+	// reason can never arrive labelled as the operator's (M20).
+	Rationale string `json:"rationale,omitempty"`
 }
 
 // RetryRequest is the input to Service.RetryTask (and POST /tasks/{id}/retry).
@@ -202,6 +211,14 @@ type TaskAPI interface {
 	AddDependency(taskID, dependsOn string) (DependencyEdge, error)
 	TaskDependencies(taskID string) (DependencyView, error)
 	ProgrammeBoard() (BoardView, error)
+	// Programmes (M20): the shared intent Tasks serve. Reads are free to any
+	// caller; forming, amending and dissolving are proposals for an agent.
+	ListProgrammes() ([]Programme, error)
+	GetProgramme(id string) (Programme, error)
+	ProgrammeStatusFor(id string) (ProgrammeStatus, error)
+	CreateProgramme(req ProgrammeRequest) (Programme, error)
+	UpdateProgramme(id string, req ProgrammeRequest) (Programme, error)
+	DeleteProgramme(id string) error
 	SteerJob(jobID, instruction string) (SteeringEvent, error)
 	CancelSteering(steerID string) (SteeringEvent, error)
 	JobSteering(jobID string) ([]SteeringEvent, error)
@@ -457,9 +474,25 @@ func (s *Service) createTask(caller Caller, req CreateTaskRequest) (Task, error)
 	if err != nil {
 		return Task{}, err
 	}
+	programmeID, err := s.resolveProgramme(req.Programme)
+	if err != nil {
+		return Task{}, err
+	}
+	// The rationale's author is the CALLER CLASS, taken from the transport and
+	// never from the request — the same rule as proposals.proposed_by and
+	// steering.issued_by. Recorded rather than refused: an agent may well draft a
+	// good reason, and the useful property is that it is visibly the agent's
+	// rather than silently the operator's. Stamped only when there is something to
+	// attribute, so an unattributed Task reads as unattributed instead of as
+	// "authored by a human who wrote nothing".
+	rationaleBy := CallerClass("")
+	if strings.TrimSpace(req.Rationale) != "" {
+		rationaleBy = caller.Class
+	}
 	t, err := s.store.CreateTask(NewTask{
 		Project: req.Project, Objective: req.Objective, AcceptanceRef: req.Acceptance,
 		BaseSHA: baseSHA, AcceptanceHash: policy.Hash(), Checks: checks, Budget: budget,
+		ProgrammeID: programmeID, Rationale: strings.TrimSpace(req.Rationale), RationaleBy: rationaleBy,
 	}, StatePlanned)
 	if err != nil {
 		return Task{}, err

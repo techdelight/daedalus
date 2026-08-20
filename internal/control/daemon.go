@@ -51,6 +51,13 @@ package control
 //	POST   /targets/{project}/sync                        → 200 Target (human resync)
 //	DELETE /tasks/{id}                                    → 200 Task (cancelled)
 //	                                                       → 404 unknown id
+//	GET    /programmes                                    → 200 []Programme
+//	POST   /programmes            body: ProgrammeRequest  → 201 Programme
+//	GET    /programmes/{id}                               → 200 Programme
+//	POST   /programmes/{id}       body: ProgrammeRequest  → 200 Programme (amended)
+//	DELETE /programmes/{id}                               → 200 {"deleted": id}
+//	                                                       → 409 still has tasks
+//	GET    /programmes/{id}/status                        → 200 ProgrammeStatus
 //
 // Errors surface as {"error": "..."} with an appropriate status. A *policy
 // refusal* additionally carries {"reason": "<RejectionReason>"} with status 422,
@@ -122,6 +129,13 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /proposals/{id}/deny", s.handleDenyProposal)
 	mux.HandleFunc("POST /targets/{project}/sync", s.handleSyncTarget)
 	mux.HandleFunc("DELETE /tasks/{id}", s.handleCancel)
+	// Programmes (M20): the shared intent Tasks serve.
+	mux.HandleFunc("GET /programmes", s.handleListProgrammes)
+	mux.HandleFunc("POST /programmes", s.handleCreateProgramme)
+	mux.HandleFunc("GET /programmes/{id}", s.handleGetProgramme)
+	mux.HandleFunc("POST /programmes/{id}", s.handleUpdateProgramme)
+	mux.HandleFunc("DELETE /programmes/{id}", s.handleDeleteProgramme)
+	mux.HandleFunc("GET /programmes/{id}/status", s.handleProgrammeStatus)
 	return mux
 }
 
@@ -517,6 +531,74 @@ func (s *Server) handleCancel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, t)
+}
+
+// --- programmes (M20) -----------------------------------------------------------
+
+func (s *Server) handleListProgrammes(w http.ResponseWriter, r *http.Request) {
+	progs, err := s.api.ListProgrammes()
+	if err != nil {
+		writeError(w, StatusFor(err), err)
+		return
+	}
+	if progs == nil {
+		progs = []Programme{}
+	}
+	writeJSON(w, http.StatusOK, progs)
+}
+
+func (s *Server) handleGetProgramme(w http.ResponseWriter, r *http.Request) {
+	p, err := s.api.GetProgramme(r.PathValue("id"))
+	if err != nil {
+		writeError(w, StatusFor(err), err)
+		return
+	}
+	writeJSON(w, http.StatusOK, p)
+}
+
+func (s *Server) handleProgrammeStatus(w http.ResponseWriter, r *http.Request) {
+	st, err := s.api.ProgrammeStatusFor(r.PathValue("id"))
+	if err != nil {
+		writeError(w, StatusFor(err), err)
+		return
+	}
+	writeJSON(w, http.StatusOK, st)
+}
+
+func (s *Server) handleCreateProgramme(w http.ResponseWriter, r *http.Request) {
+	var req ProgrammeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("%w: %v", ErrInvalidRequest, err))
+		return
+	}
+	p, err := s.api.CreateProgramme(req)
+	if err != nil {
+		writeError(w, StatusFor(err), err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, p)
+}
+
+func (s *Server) handleUpdateProgramme(w http.ResponseWriter, r *http.Request) {
+	var req ProgrammeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("%w: %v", ErrInvalidRequest, err))
+		return
+	}
+	p, err := s.api.UpdateProgramme(r.PathValue("id"), req)
+	if err != nil {
+		writeError(w, StatusFor(err), err)
+		return
+	}
+	writeJSON(w, http.StatusOK, p)
+}
+
+func (s *Server) handleDeleteProgramme(w http.ResponseWriter, r *http.Request) {
+	if err := s.api.DeleteProgramme(r.PathValue("id")); err != nil {
+		writeError(w, StatusFor(err), err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"deleted": r.PathValue("id")})
 }
 
 // StatusFor maps domain errors to HTTP status codes so the client can recover

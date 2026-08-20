@@ -145,6 +145,18 @@ func taskCreate(api control.TaskAPI, args []string) error {
 			}
 			i++
 			req.Objective = args[i]
+		case "--programme", "--program":
+			if i+1 >= len(args) {
+				return fmt.Errorf("--programme requires a name or id")
+			}
+			i++
+			req.Programme = args[i]
+		case "--rationale", "--for":
+			if i+1 >= len(args) {
+				return fmt.Errorf("--rationale requires text")
+			}
+			i++
+			req.Rationale = args[i]
 		case "--acceptance", "-a":
 			if i+1 >= len(args) {
 				return fmt.Errorf("--acceptance requires a reference")
@@ -176,7 +188,7 @@ func taskCreate(api control.TaskAPI, args []string) error {
 				return err
 			}
 		default:
-			return fmt.Errorf("task create: unknown flag %q\n%s usage: daedalus task create --project <name> --objective <text> [--check <cmd>]... [--acceptance <note>] [--wall-clock <s>] [--max-attempts <n>] [--max-review-cycles <n>] [--concurrency <n>]", args[i], color.Cyan("Hint:"))
+			return fmt.Errorf("task create: unknown flag %q\n%s usage: daedalus task create --project <name> --objective <text> [--programme <name|id>] [--rationale <text>] [--check <cmd>]... [--acceptance <note>] [--wall-clock <s>] [--max-attempts <n>] [--max-review-cycles <n>] [--concurrency <n>]", args[i], color.Cyan("Hint:"))
 		}
 	}
 	if req.Project == "" {
@@ -286,6 +298,19 @@ func taskStatus(api control.TaskAPI, args []string) error {
 	fmt.Printf("%s   %s\n", color.Bold("Project:"), t.Project)
 	fmt.Printf("%s     %s\n", color.Bold("State:"), t.State)
 	fmt.Printf("%s %s\n", color.Bold("Objective:"), t.Objective)
+	// What this work is FOR, and who said so. The authorship is not decoration:
+	// an agent-drafted reason must be visible as one, or the record quietly
+	// attributes it to the operator (M20).
+	if t.ProgrammeID != "" {
+		fmt.Printf("%s %s\n", color.Bold("Programme:"), t.ProgrammeID)
+	}
+	if t.Rationale != "" {
+		by := string(t.RationaleBy)
+		if by == "" {
+			by = "unattributed"
+		}
+		fmt.Printf("%s %s %s\n", color.Bold("For:"), t.Rationale, color.Dim("("+by+")"))
+	}
 	if len(t.Checks) > 0 {
 		fmt.Printf("%s %d, appended to the project policy at verify\n", color.Bold("Task checks:"), len(t.Checks))
 		for _, c := range t.Checks {

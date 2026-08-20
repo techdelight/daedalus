@@ -47,7 +47,7 @@ func renderIndexHTML(raw []byte, version string) string {
 }
 
 // WebServer holds the dependencies shared by the topic handlers
-// (projects.go, dashboard.go, roadmap.go, programmes.go, terminal.go).
+// (projects.go, dashboard.go, roadmap.go, control.go, terminal.go).
 // Each handler file owns its routes and JSON shapes.
 type WebServer struct {
 	registry         *registry.Registry
@@ -202,6 +202,7 @@ func (ws *WebServer) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/control/tasks", ws.handleControlTasks)
 	mux.HandleFunc("GET /api/control/proposals", ws.handleProposals)
 	mux.HandleFunc("GET /api/control/targets", ws.handleTargets)
+	mux.HandleFunc("GET /api/control/programmes", ws.handleListProgrammes)
 
 	// Reads about one entity.
 	mux.HandleFunc("GET /api/control/tasks/{id}", ws.handleTaskStatus)
@@ -232,6 +233,15 @@ func (ws *WebServer) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/control/proposals/{id}/deny", ws.handleDenyProposal)
 	mux.HandleFunc("POST /api/control/targets/{project}/sync", ws.handleSyncTarget)
 
+	// Programmes (M20): the shared intent Tasks serve. These replace the
+	// file-backed /api/programmes CRUD, so exactly one thing answers "what
+	// programmes exist".
+	mux.HandleFunc("GET /api/control/programmes/{id}", ws.handleGetProgramme)
+	mux.HandleFunc("GET /api/control/programmes/{id}/status", ws.handleProgrammeStatus)
+	mux.HandleFunc("POST /api/control/programmes", ws.handleCreateProgramme)
+	mux.HandleFunc("POST /api/control/programmes/{id}", ws.handleUpdateProgramme)
+	mux.HandleFunc("DELETE /api/control/programmes/{id}", ws.handleDeleteProgramme)
+
 	// roadmap.go
 	mux.HandleFunc("GET /api/projects/{name}/roadmap", ws.handleRoadmap)
 	mux.HandleFunc("GET /api/projects/{name}/sprints", ws.handleRoadmap)
@@ -251,10 +261,4 @@ func (ws *WebServer) RegisterRoutes(mux *http.ServeMux) {
 	// terminal.go
 	mux.HandleFunc("GET /api/projects/{name}/terminal", ws.handleTerminal)
 
-	// programmes.go
-	mux.HandleFunc("GET /api/programmes", ws.handleListProgrammes)
-	mux.HandleFunc("POST /api/programmes", ws.handleCreateProgramme)
-	mux.HandleFunc("GET /api/programmes/{name}", ws.handleGetProgramme)
-	mux.HandleFunc("PUT /api/programmes/{name}", ws.handleUpdateProgramme)
-	mux.HandleFunc("DELETE /api/programmes/{name}", ws.handleDeleteProgramme)
 }

@@ -338,10 +338,25 @@ type Task struct {
 	// "does this artifact still meet the project's standing bar", and cannot answer
 	// "did this task deliver what it promised". These are where the second question
 	// gets a machine-checkable answer.
-	Checks    []string `json:"checks,omitempty"`
-	State     State    `json:"state"`
-	CreatedAt string   `json:"createdAt"` // ISO 8601 UTC
-	UpdatedAt string   `json:"updatedAt"` // ISO 8601 UTC
+	Checks []string `json:"checks,omitempty"`
+	State  State    `json:"state"`
+	// ProgrammeID is the shared intent this Task serves, or "" for a Task that
+	// serves none. It stores the programme's ID and never its name, so renaming a
+	// programme cannot dangle the work that serves it (programme.go).
+	ProgrammeID string `json:"programmeId,omitempty"`
+	// Rationale is why this work is worth doing — the answer the record could not
+	// give before M20, when a Task carried an objective and nothing else. An
+	// objective says WHAT to do; this says what it is FOR, and only one of them is
+	// still interesting a year later.
+	Rationale string `json:"rationale,omitempty"`
+	// RationaleBy is the caller class that authored the rationale, derived from
+	// the transport exactly as Proposal.ProposedBy and SteeringEvent.IssuedBy are.
+	// It is never supplied by a request — which is what makes "the rationale is
+	// the human's own words" a property you can check rather than one you hope
+	// for. An agent-drafted reason is visible as an agent's.
+	RationaleBy CallerClass `json:"rationaleBy,omitempty"`
+	CreatedAt   string      `json:"createdAt"` // ISO 8601 UTC
+	UpdatedAt   string      `json:"updatedAt"` // ISO 8601 UTC
 }
 
 // Job is one attempt at a Task (§5): a headless runner invocation pinned to a

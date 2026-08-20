@@ -290,6 +290,68 @@ func (c *Client) CancelSteering(steerID string) (SteeringEvent, error) {
 	return steer, json.NewDecoder(resp.Body).Decode(&steer)
 }
 
+// --- programmes (M20) -----------------------------------------------------------
+
+// ListProgrammes implements TaskAPI.
+func (c *Client) ListProgrammes() ([]Programme, error) {
+	var out []Programme
+	if err := c.getJSON("/programmes", &out); err != nil {
+		return nil, err
+	}
+	if out == nil {
+		out = []Programme{}
+	}
+	return out, nil
+}
+
+// GetProgramme implements TaskAPI.
+func (c *Client) GetProgramme(id string) (Programme, error) {
+	var p Programme
+	return p, c.getJSON("/programmes/"+url.PathEscape(id), &p)
+}
+
+// ProgrammeStatusFor implements TaskAPI.
+func (c *Client) ProgrammeStatusFor(id string) (ProgrammeStatus, error) {
+	var st ProgrammeStatus
+	return st, c.getJSON("/programmes/"+url.PathEscape(id)+"/status", &st)
+}
+
+// CreateProgramme implements TaskAPI.
+func (c *Client) CreateProgramme(req ProgrammeRequest) (Programme, error) {
+	body, _ := json.Marshal(req)
+	resp, err := c.httpClient.Post(c.baseURL+"/programmes", "application/json", bytes.NewReader(body))
+	if err != nil {
+		return Programme{}, fmt.Errorf("control client: POST /programmes: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		return Programme{}, decodeError(resp)
+	}
+	var p Programme
+	return p, json.NewDecoder(resp.Body).Decode(&p)
+}
+
+// UpdateProgramme implements TaskAPI.
+func (c *Client) UpdateProgramme(id string, req ProgrammeRequest) (Programme, error) {
+	var p Programme
+	return p, c.postJSON("/programmes/"+url.PathEscape(id), req, &p)
+}
+
+// DeleteProgramme implements TaskAPI. The only TaskAPI operation returning no
+// value: there is nothing to say about a programme that no longer exists.
+func (c *Client) DeleteProgramme(id string) error {
+	req, _ := http.NewRequest(http.MethodDelete, c.baseURL+"/programmes/"+url.PathEscape(id), nil)
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("control client: DELETE /programmes/%s: %w", id, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		return decodeError(resp)
+	}
+	return nil
+}
+
 // ListProposals implements TaskAPI.
 func (c *Client) ListProposals(state ProposalState) ([]Proposal, error) {
 	path := "/proposals"

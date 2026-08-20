@@ -160,10 +160,28 @@ CREATE TABLE IF NOT EXISTS tasks (
     budget          TEXT NOT NULL DEFAULT '',
     base_sha        TEXT NOT NULL,
     state           TEXT NOT NULL,
+    programme_id    TEXT NOT NULL DEFAULT '',
+    rationale       TEXT NOT NULL DEFAULT '',
+    rationale_by    TEXT NOT NULL DEFAULT '',
     created_at      TEXT NOT NULL,
     updated_at      TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project);
+
+-- Programmes (M20): the shared intent several projects serve. The name is UNIQUE
+-- because it is what a person types, but a Task stores the ID — so renaming a
+-- programme cannot dangle the Tasks that serve it, which is the failure the
+-- file-backed store had by construction. See programme.go.
+CREATE TABLE IF NOT EXISTS programmes (
+    seq         INTEGER PRIMARY KEY AUTOINCREMENT,
+    id          TEXT NOT NULL UNIQUE,
+    name        TEXT NOT NULL UNIQUE,
+    description TEXT NOT NULL DEFAULT '',
+    projects    TEXT NOT NULL DEFAULT '',
+    deps        TEXT NOT NULL DEFAULT '',
+    created_at  TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+);
 
 CREATE TABLE IF NOT EXISTS jobs (
     seq              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -339,6 +357,24 @@ DROP TABLE IF EXISTS targets;
 	if err := s.backfillQueueIDs(); err != nil {
 		return err
 	}
+	// M20 / Sprint 66: what a Task is in service of, and who said so.
+	//
+	// `rationale_by` records the CALLER CLASS that authored the rationale, never a
+	// value from the request — the same rule as proposals.proposed_by and
+	// steering.issued_by. It is what makes "the rationale is the human's own
+	// words" checkable instead of assumed: an agent-drafted reason is visible as
+	// one rather than reading as the operator's.
+	for _, col := range []string{"programme_id", "rationale", "rationale_by"} {
+		if err := s.addColumnIfMissing("tasks", col, col+" TEXT NOT NULL DEFAULT ''"); err != nil {
+			return err
+		}
+	}
+	// After the ALTER, never inside the schema const: on a control.db created
+	// before this column existed, an index over it in the CREATE block would fail
+	// the whole migration.
+	if _, err := s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_tasks_programme ON tasks(programme_id)`); err != nil {
+		return fmt.Errorf("indexing tasks.programme_id: %w", err)
+	}
 	// #77: where a Job's own output was recorded. Additive with an empty default,
 	// which reads correctly for every Job that ran before there was one — those
 	// genuinely have no log, and "" is exactly that claim.
@@ -481,6 +517,12 @@ type NewTask struct {
 	AcceptanceHash string   // frozen verify policy at BaseSHA (may be "")
 	Checks         []string // per-task acceptance commands, appended to the frozen policy
 	Budget         Budget   // the resolved governance envelope (§6)
+	// ProgrammeID, Rationale and RationaleBy record what this Task is in service
+	// of and who said so. RationaleBy is derived from the transport by the
+	// Service; the store only persists what it is handed (M20).
+	ProgrammeID string
+	Rationale   string
+	RationaleBy CallerClass
 }
 
 // CreateTask inserts a new task in the given initial state (planned or queued)
@@ -512,6 +554,7 @@ func (s *Store) CreateTask(spec NewTask, initial State) (Task, error) {
 		AcceptanceRef: spec.AcceptanceRef, AcceptanceHash: spec.AcceptanceHash,
 		Checks: spec.Checks,
 		Budget: spec.Budget, BaseSHA: spec.BaseSHA, State: initial,
+		ProgrammeID: spec.ProgrammeID, Rationale: spec.Rationale, RationaleBy: spec.RationaleBy,
 		CreatedAt: now, UpdatedAt: now,
 	}
 	budgetJSON, err := json.Marshal(t.Budget)
@@ -527,9 +570,10 @@ func (s *Store) CreateTask(spec NewTask, initial State) (Task, error) {
 		checksJSON = string(b)
 	}
 	_, err = tx.Exec(
-		`INSERT INTO tasks (id, project, objective, acceptance_ref, acceptance_hash, task_checks, budget, base_sha, state, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		t.ID, t.Project, t.Objective, t.AcceptanceRef, t.AcceptanceHash, checksJSON, string(budgetJSON), t.BaseSHA, string(t.State), t.CreatedAt, t.UpdatedAt,
+		`INSERT INTO tasks (id, project, objective, acceptance_ref, acceptance_hash, task_checks, budget, base_sha, state, programme_id, rationale, rationale_by, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		t.ID, t.Project, t.Objective, t.AcceptanceRef, t.AcceptanceHash, checksJSON, string(budgetJSON), t.BaseSHA, string(t.State),
+		t.ProgrammeID, t.Rationale, string(t.RationaleBy), t.CreatedAt, t.UpdatedAt,
 	)
 	if err != nil {
 		return Task{}, fmt.Errorf("inserting task: %w", err)
@@ -762,7 +806,7 @@ func (s *Store) RebaseTask(id, baseSHA, acceptanceHash string, meta EventMeta, n
 	return cur, nil
 }
 
-const taskSelect = `SELECT id, project, objective, acceptance_ref, acceptance_hash, image_digest, task_checks, budget, base_sha, state, created_at, updated_at FROM tasks`
+const taskSelect = `SELECT id, project, objective, acceptance_ref, acceptance_hash, image_digest, task_checks, budget, base_sha, state, programme_id, rationale, rationale_by, created_at, updated_at FROM tasks`
 
 // rowScanner is satisfied by both *sql.Row and *sql.Rows.
 type rowScanner interface {
@@ -771,8 +815,8 @@ type rowScanner interface {
 
 func scanTask(sc rowScanner) (Task, error) {
 	var t Task
-	var state, budget, checks string
-	err := sc.Scan(&t.ID, &t.Project, &t.Objective, &t.AcceptanceRef, &t.AcceptanceHash, &t.ImageDigest, &checks, &budget, &t.BaseSHA, &state, &t.CreatedAt, &t.UpdatedAt)
+	var state, budget, checks, rationaleBy string
+	err := sc.Scan(&t.ID, &t.Project, &t.Objective, &t.AcceptanceRef, &t.AcceptanceHash, &t.ImageDigest, &checks, &budget, &t.BaseSHA, &state, &t.ProgrammeID, &t.Rationale, &rationaleBy, &t.CreatedAt, &t.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Task{}, ErrNotFound
 	}
@@ -780,6 +824,7 @@ func scanTask(sc rowScanner) (Task, error) {
 		return Task{}, err
 	}
 	t.State = State(state)
+	t.RationaleBy = CallerClass(rationaleBy)
 	// Per-task checks: absent on every row written before this existed, which reads
 	// back as no extra checks — the project policy alone, exactly as before.
 	if checks != "" {

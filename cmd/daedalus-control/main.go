@@ -38,6 +38,7 @@ import (
 	"github.com/techdelight/daedalus/internal/control"
 	"github.com/techdelight/daedalus/internal/coordinator"
 	"github.com/techdelight/daedalus/internal/executor"
+	"github.com/techdelight/daedalus/internal/programme"
 	"github.com/techdelight/daedalus/internal/registry"
 )
 
@@ -97,6 +98,23 @@ func main() {
 		fatalf("open control db: %v", err)
 	}
 	defer store.Close()
+
+	// Adopt programmes that were written before the plane owned them (M20).
+	//
+	// It runs on EVERY start and is idempotent by name, which is what makes that
+	// safe: a definition already adopted is skipped, so there is no migration
+	// flag to get wrong and no one-shot step to forget on a fresh install. The
+	// file store keeps its files — nothing is deleted — but the plane is now the
+	// single answer to "what programmes exist", so an edit to a file after this
+	// point is an edit to a copy nobody reads.
+	if defs, err := programme.New(filepath.Join(cfg.dataDir, "programmes")).List(); err != nil {
+		log.Printf("control: reading legacy programmes: %v (continuing with none)", err)
+	} else if n, err := store.ImportProgrammes(defs); err != nil {
+		log.Printf("control: importing legacy programmes: %v", err)
+	} else if n > 0 {
+		log.Printf("control: adopted %d programme definition(s) from %s", n,
+			filepath.Join(cfg.dataDir, "programmes"))
+	}
 
 	// Project resolution through the trusted registry.
 	reg := registry.NewRegistry(filepath.Join(cfg.dataDir, "projects.json"))

@@ -260,3 +260,38 @@ func (c *callerScope) ResolveProposal(id string, confirm bool, note string) (Pro
 
 // compile-time assertion: a caller-scoped API is a full TaskAPI.
 var _ TaskAPI = (*callerScope)(nil)
+
+// --- programmes (M20) -----------------------------------------------------------
+
+// Reads. An agent that cannot see the programmes cannot notice what projects
+// have in common, which is the one thing the Guild Master exists to do.
+func (c *callerScope) ListProgrammes() ([]Programme, error)      { return c.svc.ListProgrammes() }
+func (c *callerScope) GetProgramme(id string) (Programme, error) { return c.svc.GetProgramme(id) }
+func (c *callerScope) ProgrammeStatusFor(id string) (ProgrammeStatus, error) {
+	return c.svc.ProgrammeStatusFor(id)
+}
+
+// Writes. Forming a programme is a statement about what the work is FOR, so an
+// agent may only ask. That is not a limitation on the Guild Master, it is its
+// job description: it notices, a human agrees, and the agreement is what makes
+// the noticing a programme.
+func (c *callerScope) CreateProgramme(req ProgrammeRequest) (Programme, error) {
+	if !c.allowed(OpFormProgramme) {
+		return Programme{}, c.propose(OpFormProgramme, "", req.Name+": "+req.Description)
+	}
+	return c.svc.CreateProgramme(req)
+}
+
+func (c *callerScope) UpdateProgramme(id string, req ProgrammeRequest) (Programme, error) {
+	if !c.allowed(OpAmendProgramme) {
+		return Programme{}, c.propose(OpAmendProgramme, id, req.Name+": "+req.Description)
+	}
+	return c.svc.UpdateProgramme(id, req)
+}
+
+func (c *callerScope) DeleteProgramme(id string) error {
+	if !c.allowed(OpDissolveProgramme) {
+		return c.propose(OpDissolveProgramme, id, "dissolve "+id)
+	}
+	return c.svc.DeleteProgramme(id)
+}

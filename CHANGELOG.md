@@ -4,6 +4,53 @@ All notable changes to this project will be documented in this file.
 
 ## [0.54.0] - 2026-08-18
 
+### Added
+- **Programmes are control-plane state, and a Task can say what it is for.** The
+  first slice of Milestone 20. A **Programme** — the shared intent several projects
+  serve — is now a row in `control.db`; a Task points at one and carries a
+  **rationale** alongside the caller class that authored it.
+  - **It closes a split nobody had noticed: two unrelated things were called
+    "programme".** `core.Programme` was a file-backed list of projects and
+    project→project edges under `<data-dir>/programmes`; the control plane's
+    `ProgrammeBoard` was a board of *Tasks* that had never read it —
+    `internal/control` contained zero references to the programme package. Two
+    dependency graphs at different node types, with nothing joining them.
+  - **Why the plane owns it: identity.** A file-backed programme's only identity
+    was its filename, so a rename broke every reference silently, because nothing
+    held a reference the store could check. That is the defect Sprint 59 fixed for
+    the integration target by keying it to a canonical repo path. A programme now
+    has an ID, a Task stores the ID, and the name is free to change. Existing
+    definitions are adopted on daemon start — once, idempotently by name, so there
+    is no migration flag to forget on a fresh install and a second start is a
+    no-op. Nothing is deleted; the project→project edges survive the move, because
+    destroying somebody's data on a migration is not a trade worth making.
+  - **The rationale records who wrote it.** `rationale_by` is the caller class,
+    derived from the socket the request arrived on and never present in the
+    request — the same rule as `proposals.proposed_by` and `steering.issued_by`.
+    That is what makes "the rationale is the human's own words" a property you can
+    check rather than one you hope for: an agent may draft a perfectly good reason,
+    and it reads as the agent's instead of silently as the operator's. A Task with
+    no rationale is *visibly* unattributed rather than attributed to nobody.
+  - **`daedalus programmes status <name>` rolls the Task graph up** — the existing
+    `task_dependencies` graph, not a second one at a different node type, which is
+    the mistake the milestone exists to undo. It reports the part no per-project
+    view can show: **edges that leave the programme**, work it waits on that nobody
+    put in it. A programme that looks fully staffed while blocked on something
+    outside itself is exactly what an operator needs told.
+  - **One store, not two.** `daedalus programmes` and the Web CRUD both talk to the
+    plane now; the file-backed `/api/programmes` handlers are gone rather than left
+    beside the new ones, so no double-write survived the sprint. The visible
+    consequence is documented: programme commands need the control daemon, which
+    the CLI auto-spawns and the Web UI deliberately never does — so the web surface
+    reports the plane unreachable instead of editing a copy nobody reads.
+  - Forming, amending and dissolving a programme are **proposals** for an agent
+    caller; reading them is free, because noticing what projects have in common is
+    the Guild Master's entire job. Dissolving a programme that still has Tasks is
+    refused outright — it would erase the recorded reason for every Task that
+    served it.
+  - `--programme` and `--rationale` on `task create` are both optional. Requiring
+    them would only make people invent programmes to satisfy a field.
+
 ### Fixed
 - **Git works inside a Job container. Until now every git command in one was
   fatal, and the failure looked like the agent's fault.** A linked worktree's

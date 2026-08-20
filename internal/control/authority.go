@@ -53,29 +53,34 @@ const (
 // Operation names. These are the strings that appear in a proposal row and in
 // the event log, so they are part of the record and must stay stable.
 const (
-	OpCreateTask    = "create_task"
-	OpDispatch      = "dispatch_task"
-	OpVerify        = "request_verification"
-	OpReview        = "request_review"
-	OpRetry         = "retry_task"
-	OpReverify      = "reverify_task"
-	OpReplan        = "replan_task"
-	OpCancel        = "cancel_task"
-	OpApprove       = "approve_task"
-	OpRejectAppr    = "reject_task"
-	OpIntegrate     = "request_integration"
-	OpSyncTarget    = "sync_target"
-	OpListTasks     = "list_tasks"
-	OpTaskStatus    = "get_task"
-	OpTaskEvents    = "task_events"
-	OpApprovals     = "list_pending_approvals"
-	OpTargets       = "list_targets"
-	OpProposalAct   = "confirm_or_deny_proposal"
-	OpAddDependency = "add_dependency"
-	OpSteer         = "steer_job"
-	OpCancelSteer   = "cancel_steering"
-	OpJobSteering   = "job_steering"
-	OpBoard         = "programme_board"
+	OpCreateTask        = "create_task"
+	OpDispatch          = "dispatch_task"
+	OpVerify            = "request_verification"
+	OpReview            = "request_review"
+	OpRetry             = "retry_task"
+	OpReverify          = "reverify_task"
+	OpReplan            = "replan_task"
+	OpCancel            = "cancel_task"
+	OpApprove           = "approve_task"
+	OpRejectAppr        = "reject_task"
+	OpIntegrate         = "request_integration"
+	OpSyncTarget        = "sync_target"
+	OpListTasks         = "list_tasks"
+	OpTaskStatus        = "get_task"
+	OpTaskEvents        = "task_events"
+	OpApprovals         = "list_pending_approvals"
+	OpTargets           = "list_targets"
+	OpProposalAct       = "confirm_or_deny_proposal"
+	OpAddDependency     = "add_dependency"
+	OpSteer             = "steer_job"
+	OpCancelSteer       = "cancel_steering"
+	OpJobSteering       = "job_steering"
+	OpBoard             = "programme_board"
+	OpProgrammes        = "list_programmes"
+	OpProgramme         = "get_programme"
+	OpFormProgramme     = "form_programme"
+	OpAmendProgramme    = "amend_programme"
+	OpDissolveProgramme = "dissolve_programme"
 )
 
 // agentAuthority is the authority table for CallerAgent. Anything absent is
@@ -94,6 +99,11 @@ var agentAuthority = map[string]Tier{
 	// ProjectTargets — an agent sees opaque queue ids and no host paths.
 	OpBoard:       TierAllowed,
 	OpJobSteering: TierAllowed,
+	// Programmes are reads for an agent, and reading them is most of the point:
+	// the Guild Master's whole job is noticing what projects have in common, and
+	// it cannot notice what it cannot see.
+	OpProgrammes: TierAllowed,
+	OpProgramme:  TierAllowed,
 
 	// Bounded creation: allowed, because it cannot exceed policy. The budget is
 	// clamped to the project ceiling and the acceptance oracle is frozen at the
@@ -144,6 +154,16 @@ var agentAuthority = map[string]Tier{
 	// control by subtraction.
 	OpSteer:       TierProposal,
 	OpCancelSteer: TierProposal,
+	// Forming, amending or dissolving a programme is a statement about what the
+	// work is FOR, which is the most consequential thing in the system that is
+	// not itself a piece of work. The Guild Master is expected to propose these —
+	// noticing common interest across projects is what it is for — and a human
+	// agreeing is what turns a noticing into a programme. Dissolving is tiered
+	// with the other two: an agent that could dissolve a programme could erase
+	// the recorded reason for every Task that served it.
+	OpFormProgramme:     TierProposal,
+	OpAmendProgramme:    TierProposal,
+	OpDissolveProgramme: TierProposal,
 
 	// Confirming a proposal is the human act the whole tier exists to reserve.
 	// The refusal that actually enforces it lives in callerScope.ResolveProposal
@@ -161,6 +181,7 @@ var mutatingOps = []string{
 	OpCreateTask, OpDispatch, OpVerify, OpReview, OpRetry, OpReverify, OpReplan,
 	OpCancel, OpApprove, OpRejectAppr, OpIntegrate, OpSyncTarget, OpProposalAct,
 	OpAddDependency, OpSteer, OpCancelSteer,
+	OpFormProgramme, OpAmendProgramme, OpDissolveProgramme,
 }
 
 // TierFor returns the authority a caller class has over an operation.

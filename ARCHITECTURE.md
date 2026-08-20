@@ -93,7 +93,7 @@ Solid edges: coordinator lifecycle control. Dashed edges: PTY I/O relay.
 | `registry` | Project registry JSON I/O + migrations + progress rollup. |
 | `docker` | Container lifecycle: build, run, compose, running-check. |
 | `tui` | Bubbletea + lipgloss dashboard, split by mode (`mode_create.go`, `mode_rename.go`, `mode_confirm.go`) with `commands.go`, `model.go`, `view.go`, `styles.go`. |
-| `web` | REST API + WebSocket terminal relays, split by domain (`projects.go`, `dashboard.go`, `roadmap.go`, `programmes.go`, `terminal.go`, `runner_relay.go`). |
+| `web` | REST API + WebSocket terminal relays, split by domain (`projects.go`, `dashboard.go`, `roadmap.go`, `control.go`, `terminal.go`, `runner_relay.go`). |
 | `coordinator` | Host-side runner lifecycle. `Coordinator` (session map + `docker compose run --detach` + socket wait + sessions.json), `Server` (HTTP over UDS), `Client` (Go wrapper), `EnsureRunning` (ssh-agent-style auto-spawn), `DefaultLayout`, `DefaultSocketPath`, `DefaultSessionsFile`. |
 | `runproto` | Host↔runner wire protocol: `Hello`, `Output`, `Input`, `Resize` messages with length-prefixed framing. |
 | `runclient` | Host-side runner socket client — `Dial`, `Read`, `Write`, `Resize`, `Detach`, hello-scrollback replay. |
@@ -103,7 +103,7 @@ Solid edges: coordinator lifecycle control. Dashed edges: PTY I/O relay.
 | `personas` | User-defined persona CRUD (JSON overlays). |
 | `catalog` | Shared skill catalog operations (filesystem I/O). |
 | `progress` | Project progress file I/O (`.daedalus/progress.json`). |
-| `programme` | Programme definition CRUD. |
+| `programme` | Legacy file-backed programme definitions. Since M20 it is the IMPORTER only — the daemon adopts these into `control.db` on start; the plane is authoritative. |
 | `mcpclient` | Host-side MCP client for reading project state via bind mounts. |
 | `auth` | Token-based Web UI authentication. |
 | `activity` | Runner-agnostic activity detection (busy/idle/sleeping). |
@@ -126,6 +126,7 @@ flowchart LR
 
     personas([personas])
     programme([programme])
+    control([control])
     agentstate([agentstate])
     activity([activity])
     hooks([hooks])
@@ -142,6 +143,8 @@ flowchart LR
 
     personas --> core
     programme --> core
+    control --> core
+    control --> executor
     agentstate --> executor
     activity --> core
     activity --> agentstate
@@ -173,7 +176,7 @@ flowchart LR
     web --> agentstate
     web --> activity
     web --> mcpclient
-    web --> programme
+    web --> control
     web --> auth
 ```
 
@@ -393,6 +396,15 @@ guild-control-mcp ──► control-agent.sock ┘         │
                                                    └──► docker run (pinned digest)        (verify)
 ```
 
+- **Programmes are plane state (M20).** A programme — the shared intent several
+  projects serve — is a row in `control.db`, and a Task points at it by ID plus
+  carries a **rationale** and the caller class that authored it. It replaced a
+  file-backed store under `<data-dir>/programmes` that the plane had never read:
+  two notions called "programme", with nothing joining them. Existing definitions
+  are adopted on daemon start, once and idempotently. The identity argument is the
+  same one that keys the integration target by canonical repo path — a reference
+  whose only identity is a filename can be renamed out from under whatever points
+  at it.
 - **The Web UI's Ledger is a full client.** `/api/control/*` mirrors the daemon's
   own route table one for one, so every `daedalus task` operation is reachable
   from the browser — through the same human socket, with the same authority and
@@ -419,7 +431,7 @@ guild-control-mcp ──► control-agent.sock ┘         │
 
 | Protocol | Endpoint | Description |
 |---|---|---|
-| HTTP | Web UI port (default 3000) | REST + login. `/api/projects/*`, `/api/programmes/*`, `/api/control/*`, `/sprints`, `/backlog`, `/strategic-roadmap` |
+| HTTP | Web UI port (default 3000) | REST + login. `/api/projects/*`, `/api/control/*`, `/sprints`, `/backlog`, `/strategic-roadmap` |
 | WebSocket | Web UI port | Terminal relay at `/api/projects/{name}/terminal` |
 | HTTP over UDS | `<DataDir>/.daedalus/coordinator.sock` | Coordinator daemon API (Start/List/Get/Stop) |
 | HTTP over UDS | `<DataDir>/.daedalus/control.sock` | Control-plane API, **human** caller class |
@@ -435,7 +447,7 @@ guild-control-mcp ──► control-agent.sock ┘         │
 ├── daedalus.log                        # runtime log
 ├── skills/                             # shared skill catalog
 ├── personas/                           # persona configs
-├── programmes/                         # programme definitions
+├── programmes/                         # legacy programme definitions (adopted into control.db on daemon start; kept, not read)
 ├── control.db                          # control plane: tasks/jobs/artifacts/events (SQLite)
 ├── control/
 │   ├── budgets.json                    # host-side budget policy (never in a repo)
