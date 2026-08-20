@@ -48,6 +48,18 @@
   let archive = [];           // terminal tasks; only fetched when asked for
   let showArchive = false;
   let busy = false;           // one command at a time
+  // True while the operator is MID-INTERACTION: a prompt window is open, or a
+  // command is asking "are you sure" in place.
+  //
+  // It exists because the board polls, and polling repaints the entry — including
+  // the command row. A confirmation rendered into that row was therefore being
+  // destroyed under the operator's hand within fifteen seconds of appearing, and
+  // the Yes they then clicked landed on a rebuilt Confirm. It looked exactly like
+  // confirming did not work, which is what it was reported as.
+  //
+  // The list keeps refreshing while this is true; only the ENTRY is left alone,
+  // because the entry is the thing being interacted with.
+  let awaiting = false;
 
   function el(id) { return document.getElementById(id); }
 
@@ -429,6 +441,16 @@
       }));
     }
 
+    // Never repaint the entry out from under an interaction. The cursor is
+    // re-marked so the list still shows where you are, but the command row — which
+    // may be holding a confirmation — is left exactly as the operator left it.
+    if (awaiting || busy) {
+      document.querySelectorAll('.ledger-row').forEach(function (r) {
+        r.classList.toggle('is-current', !!current && r.dataset.entryId === current.id);
+      });
+      return;
+    }
+
     // Put the cursor back where it was. If that entry has moved on, the window
     // says so by going blank rather than showing a stale one as if it were live.
     if (restored && restored.card) {
@@ -795,7 +817,10 @@
     if (p.state === 'pending') {
       cmds.appendChild(plate('Confirm', 'seal', function () {
         runCommand({
-          key: 'confirm', label: 'Confirm', confirm: true,
+          // No second confirmation: the prompt window IS the deliberate step
+          // (click Confirm, then click OK), and stacking a Yes/No on top of it
+          // only widened the window a poll could land in.
+          key: 'confirm', label: 'Confirm',
           prompt: { title: 'Confirm', label: 'A note for the record (optional)', allowEmpty: true },
           run: function (id, note) { return send('POST', '/proposals/' + enc(id) + '/confirm', { note: note }); },
           done: function (r) { return r.id + ' is ' + r.state + '.'; },
@@ -899,6 +924,7 @@
   // consequence, and confirm() gives one line with no room to.
   function maybeConfirm(cmd, then) {
     if (!cmd.confirm) return then();
+    awaiting = true;
     const host = el('ledger-commands');
     host.innerHTML = '';
     const q = document.createElement('span');
@@ -906,8 +932,8 @@
     q.appendChild(text('span', 'ledger-confirm-q', cmd.label + '?'));
     if (cmd.hint) q.appendChild(text('span', 'ledger-confirm-why', cmd.hint));
     host.appendChild(q);
-    const yes = plate('Yes', cmd.danger ? 'refuse' : '', function () { then(); });
-    const no = plate('No', '', function () { paintEntry(); });
+    const yes = plate('Yes', cmd.danger ? 'refuse' : '', function () { awaiting = false; then(); });
+    const no = plate('No', '', function () { awaiting = false; paintEntry(); });
     host.appendChild(yes);
     host.appendChild(no);
     yes.focus();
@@ -971,6 +997,7 @@
     cmds.innerHTML = '';
     const accept = function () { close(); then(input.value); };
     const close = function () {
+      awaiting = false;
       overlay.classList.remove('is-open');
       document.removeEventListener('keydown', onKey);
     };
@@ -988,6 +1015,7 @@
       }
     };
     document.addEventListener('keydown', onKey);
+    awaiting = true;
     overlay.classList.add('is-open');
     input.focus();
     input.select();
@@ -1195,6 +1223,12 @@
     const view = el('control-view');
     if (view) view.classList.remove('active');
     closeNewTask();
+    // Leaving the view abandons whatever was half-answered. Clearing the flag
+    // matters: carried into the next visit it would freeze the entry forever,
+    // and a stuck page is a worse bug than the one this guard fixes.
+    awaiting = false;
+    const overlay = el('ledger-prompt');
+    if (overlay) overlay.classList.remove('is-open');
     stop();
   };
 

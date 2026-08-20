@@ -132,6 +132,30 @@ All notable changes to this project will be documented in this file.
     them would only make people invent programmes to satisfy a field.
 
 ### Fixed
+- **Confirming in the Ledger silently reset itself.** Reported as "confirming does
+  not seem to work", and it was: the board polls every fifteen seconds, and every
+  poll repainted the entry window — including the command row. A confirmation
+  rendered into that row ("Cancel? Yes / No") was therefore destroyed under the
+  operator's hand, and the Yes they clicked landed on a rebuilt Confirm. Click
+  fast and it worked; hesitate and nothing happened, with no error to explain it.
+  - It affected **every** guarded command — cancel, integrate, waive, rebase,
+    amend, sync, withdraw — and was easiest to hit on a proposal, which asked
+    twice: a note prompt *and* a Yes/No, widening the window a poll could land in.
+  - The entry is now left alone while the operator is mid-interaction: a prompt
+    window open, or a confirmation showing. The list keeps refreshing and the
+    cursor is re-marked, so the page stays live; only the thing being interacted
+    with is untouched. Every raise/lower pair is ordered so a throw cannot leave
+    the flag stuck, and leaving the view clears it — a frozen entry would be a
+    worse bug than the one this fixes.
+  - Confirming a proposal now asks **once**. The prompt window is already the
+    deliberate step; the second confirmation added friction and nothing else.
+  - The page's own comment had warned about exactly this a fortnight earlier —
+    *"otherwise a seal the operator is reaching for could be rebuilt out from
+    under the cursor every five seconds"* — and then a multi-step interaction was
+    built on top of a surface that still repaints. Diagnosed from the code with
+    the control-plane path proven separately end to end (agent proposes → 422 →
+    human confirms over HTTP → programme created), so the failure was known to be
+    in the page before a line of it was changed.
 - **Git works inside a Job container. Until now every git command in one was
   fatal, and the failure looked like the agent's fault.** A linked worktree's
   `.git` is not a directory — it is a one-line file holding an absolute HOST
