@@ -11,6 +11,28 @@ Everything below is the state of `development` at **v0.53.0**.
 
 ---
 
+## The vocabulary
+
+Everything the control plane holds has a prefixed id, and they turn up in command
+output, in the event log and in the Ledger without further explanation:
+
+| Id | What it is |
+|---|---|
+| `T-n` | **Task** — what to accomplish. The unit of intent. |
+| `J-n` | **Job** — one attempt at a Task. A Task can have several; they are its history. |
+| `A-n` | **Artifact** — the committed result of a Job: a `head_sha` on a branch. |
+| `RV-n` | **Review** — one agent's judgement of an Artifact. Advisory; it moves nothing. |
+| `P-n` | **Proposal** — an agent asking a human's permission for something it may not do itself. |
+| `PR-n` | **Programme** — the shared intent several projects serve, that Tasks point at. |
+| `S-n` | **Steering event** — an instruction aimed at a running Job, with its delivery state. |
+
+They nest: a Task has Jobs, a Job has an Artifact, an Artifact is what gets
+reviewed. `daedalus task status T-7` shows the whole chain indented under itself,
+and the Ledger shows it on an entry's **record** page.
+
+`PR` rather than `P` for programmes is deliberate: two id spaces differing only
+by context are a trap for whoever reads the event log a year later.
+
 ## The two pieces, and how they differ
 
 Daedalus grew two separate capabilities, and confusing them is the fastest way to

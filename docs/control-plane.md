@@ -769,6 +769,37 @@ harness failure comes back as *no judgement* rather than as disapproval — beca
 "the reviewer could not be made to report" and "the reviewer disliked this" are
 different facts.
 
+#### The first real reading (2026-08-20)
+
+`AgentReviewer` ran for the first time on a host, against **T-14** — the Task
+fixing the very `docs lint` errors that had rejected T-13 — and produced `RV-1`
+on artifact `A-8`: a pass, recorded, with the Task moving nowhere. The operator's
+verdict on the judgement itself was that it **looked good**.
+
+That is one data point and it is worth exactly one data point, but it is the only
+evidence that exists about whether an agent reviewer earns its place, so it is
+written down rather than left in a terminal. What it establishes: the host-only
+path works end to end — a separate container, its own throwaway project, a clean
+checkout, the diff and the objective in the prompt, a judgement file the plane
+could read back. None of that had ever run before.
+
+What it does **not** establish is whether the reading is good enough to lean on.
+That needs several, on work of varying quality, and the honest bar is in
+`ReviewPrompt`: does a finding name something you would have to open the file to
+know, does it say *why* it matters, does it judge against the Task's objective
+rather than drifting into generic code review, and does it notice what is
+**missing** rather than only what is present. `ReviewPrompt` is pure and exported
+so it can be tuned against those answers without touching the plane.
+
+**Three defects were found getting to that first reading, and none of them were
+the reviewer.** The rung was gated behind the machine oracle, so it could not run
+on a rejected Task — the case it exists for. The Ledger's message for a review
+still spoke the pre-M20 vocabulary and reported a real judgement as a bland
+half-sentence. And the entry window fetched its detail once per selection and
+never again, so a review run from a terminal never appeared at all. A subsystem
+whose only product is a report failed three times at reporting, which is worth
+recording as the pattern it is.
+
 #### What `verified` is worth
 
 **It means "the plane applied what checks it could" — no more.** The honest tally,

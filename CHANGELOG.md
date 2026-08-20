@@ -131,6 +131,27 @@ All notable changes to this project will be documented in this file.
   - `--programme` and `--rationale` on `task create` are both optional. Requiring
     them would only make people invent programmes to satisfy a field.
 
+### Added
+- **`--help` lists the commands it dispatches, and names the id vocabulary.**
+  `programmes` and `coordinator` were dispatched and appeared **nowhere** in the
+  help — `programmes` was rewritten into a control-plane client the day before and
+  still went unmentioned — and the task summary omitted `reverify` and `checks`.
+  A command missing from the help does not exist to anybody reading it. The
+  built-in `guild-master` project is named too. A test now **derives** the
+  requirement from `main.go`'s dispatch switch rather than restating a list, so
+  the next command added cannot go quietly missing; verified by reverting.
+- **The id prefixes are written down.** `T-n` task, `J-n` job, `A-n` artifact,
+  `RV-n` review, `P-n` proposal, `PR-n` programme, `S-n` steering — a vocabulary
+  the whole plane speaks and nothing explained, so an operator reading `A-8` in
+  their own terminal had to ask what it was. In `--help` and at the top of
+  `docs/using-daedalus-control.md`, with how they nest.
+- **The first real reading is recorded** in `docs/control-plane.md`: `AgentReviewer`
+  ran on a host for the first time against T-14, produced `RV-1` on `A-8`, and the
+  judgement was good. What that establishes (the host-only path works end to end,
+  and had never run before) and what it does not (whether the reading is good
+  enough to lean on) are both stated, along with the bar the next few should be
+  judged against.
+
 ### Fixed
 - **The Ledger's entry window was frozen while the board beside it was live.**
   `detail` — the jobs, the artifacts, the terms, and since M20 the reviews — was
