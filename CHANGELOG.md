@@ -132,6 +132,23 @@ All notable changes to this project will be documented in this file.
     them would only make people invent programmes to satisfy a field.
 
 ### Fixed
+- **A review looked like it did nothing, twice over.** Reported as "I ran review
+  on T-14, seemed to do very little", and the reading had happened — the page
+  just did not show it and there was nowhere to look.
+  - **The Ledger's message was never updated for the M20 judgement shape.** It
+    said `Review passed.` or `Review failed — ` plus a `reason` that is now
+    *always empty*, so a reading with real findings in it surfaced as one bland
+    half-sentence. Both words were wrong too: a review fails nothing and moves
+    nothing. It now names the reviewer, the verdict, and how many findings there
+    are — and **switches to the RECORD page**, where the findings live. A
+    judgement nobody reads is the same as no judgement, and this is the one
+    command whose entire output is somewhere other than the message line.
+  - **A review had no log of its own.** The reviewing agent's output went to the
+    daemon's shared `control.log`, interleaved and keyed by nothing — the exact
+    defect Backlog #77 fixed for Jobs, reproduced one component later. Each review
+    now tees to `<data-dir>/.daedalus/reviews/<job>.log`, and every *"no
+    judgement"* message names that path, because that is precisely the moment
+    somebody needs to read what the agent actually said.
 - **The agent reviewer was gated behind the machine oracle, which made it useless
   in the case it exists for.** `ReviewTask` required the Task to be `verified` and
   a Job in `verified` — so the second opinion was available only once the first

@@ -240,8 +240,28 @@
       hint: 'Send an agent to read the change against what it promised. Advisory — it moves nothing.',
       states: ['candidate', 'rejected', 'verified', 'approval_required', 'approved'],
       run: function (id) { return send('POST', '/tasks/' + enc(id) + '/review'); },
+      // This used to say "Review passed." or "Review failed — " and nothing else.
+      // Both were wrong after M20: a review FAILS nothing (it moves no state), and
+      // `reason` is now always empty, so a reading with real findings in it showed
+      // up as one bland half-sentence. The findings are the entire point, and they
+      // were a tab away with no reason to look. Say what was found, then GO THERE.
       done: function (r) {
-        return r.passed ? 'Review passed.' : 'Review failed — ' + (r.reason || '') + ' ' + (r.detail || '');
+        const n = (r.findings || []).length;
+        const blocking = (r.findings || []).filter(function (f) {
+          return f.severity === 'blocking';
+        }).length;
+        const who = r.reviewer || 'an unattributed reviewer';
+        const verdict = r.passed ? 'found no blocker' : 'had concerns';
+        // Land on the record, where the reading is. A judgement nobody reads is
+        // the same as no judgement, and this is the one command whose whole
+        // output lives somewhere other than this line.
+        tab = 'record';
+        paintEntry();
+        if (!n) {
+          return who + ' ' + verdict + ', with no findings — see RECORD. ' + (r.detail || '');
+        }
+        return who + ' ' + verdict + ': ' + n + ' finding' + (n === 1 ? '' : 's') +
+          (blocking ? ', ' + blocking + ' blocking' : '') + ' — see RECORD below.';
       },
     },
     {

@@ -161,3 +161,26 @@ func TestReviewProjectName_IsDistinctFromTheJobs(t *testing.T) {
 		t.Error("the review project is not keyed to its job; two reviews could collide")
 	}
 }
+
+// TestReviewLogPath_IsKeyedByJobAndBesideTheJobLogs.
+//
+// A review had no log of its own: the reviewing agent's output went to the
+// daemon's shared control.log, interleaved and keyed by nothing — the exact
+// defect Backlog #77 fixed for Jobs, reproduced one component later. A review
+// that produces no judgement is precisely when somebody needs to read what the
+// agent actually said, and "it seemed to do very little" is what it looks like
+// when there is nowhere to look.
+func TestReviewLogPath_IsKeyedByJobAndBesideTheJobLogs(t *testing.T) {
+	got := ReviewLogPath("/data", "J-12")
+	if !strings.Contains(got, "J-12") {
+		t.Errorf("ReviewLogPath = %q, want it keyed by the job", got)
+	}
+	if got == JobLogPath("/data", "J-12") {
+		t.Error("a review writes over the Job's own log; they are different accounts of different runs")
+	}
+	// No data dir means nowhere, not a path relative to the working directory —
+	// the same degradation JobLogPath makes.
+	if ReviewLogPath("", "J-12") != "" {
+		t.Error("ReviewLogPath with no data dir should be empty")
+	}
+}

@@ -38,6 +38,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -53,6 +55,16 @@ import (
 // chatty a model felt. The file is read on the HOST, from a directory the plane
 // created — the same shape as capturing a Job's tree.
 const reviewJudgementFile = ".daedalus/review.json"
+
+// ReviewLogPath is where a review's own output is recorded: one file per Job
+// reviewed, beside the Jobs' own logs. Empty dataDir yields "" — nowhere — the
+// same degradation JobLogPath makes.
+func ReviewLogPath(dataDir, jobID string) string {
+	if dataDir == "" {
+		return ""
+	}
+	return filepath.Join(dataDir, ".daedalus", "reviews", jobID+".log")
+}
 
 // AgentReviewer is the REAL, HOST-ONLY ReviewRunner.
 type AgentReviewer struct {
@@ -110,22 +122,44 @@ func (r AgentReviewer) Review(ctx context.Context, spec ReviewSpec) ReviewOutcom
 	// does. Its own home is also what keeps it out of the Job's transcript.
 	seedJobHomeOrWarn(r.DataDir, spec.Project, name)
 
+	// A log of its own, for the reason Backlog #77 gave Jobs one: without it the
+	// agent's output reaches only the daemon's shared control.log, interleaved
+	// with everything else and keyed by nothing. A review that produces no
+	// judgement is exactly when somebody needs to read what the agent said, and
+	// "seemed to do very little" is what it looks like when there is nowhere to
+	// look.
+	logPath := ReviewLogPath(r.DataDir, spec.JobID)
+	var tee io.Writer
+	if logPath != "" {
+		if f, err := openJobLog(logPath); err == nil {
+			defer f.Close()
+			tee = f
+		} else {
+			log.Printf("control: opening review log %s: %v", logPath, err)
+			logPath = ""
+		}
+	}
+	where := ""
+	if logPath != "" {
+		where = " (its output is in " + logPath + ")"
+	}
+
 	args := []string{name, checkout, "-p", ReviewPrompt(spec, diff)}
 	if r.Runner != "" {
 		args = append([]string{"--runner", r.Runner}, args...)
 	}
-	if err := r.Exec.RunWithEnv(r.dataDirEnv(), r.BinPath, args...); err != nil {
+	if err := r.Exec.RunWithEnvTee(r.dataDirEnv(), tee, r.BinPath, args...); err != nil {
 		// The agent failing is not the artifact failing. Say which one happened.
-		return reviewUnavailable("the reviewing agent exited with an error: " + err.Error())
+		return reviewUnavailable("the reviewing agent exited with an error: " + err.Error() + where)
 	}
 
 	raw, err := os.ReadFile(filepath.Join(checkout, reviewJudgementFile))
 	if err != nil {
-		return reviewUnavailable("the reviewer wrote no judgement to " + reviewJudgementFile)
+		return reviewUnavailable("the reviewer ran but wrote no judgement to " + reviewJudgementFile + where)
 	}
 	out, err := ParseReviewJudgement(raw)
 	if err != nil {
-		return reviewUnavailable("the reviewer's judgement could not be read: " + err.Error())
+		return reviewUnavailable("the reviewer's judgement could not be read: " + err.Error() + where)
 	}
 	if out.Reviewer == "" {
 		out.Reviewer = "agent:" + name
