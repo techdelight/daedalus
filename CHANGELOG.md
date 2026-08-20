@@ -132,6 +132,20 @@ All notable changes to this project will be documented in this file.
     them would only make people invent programmes to satisfy a field.
 
 ### Fixed
+- **The Ledger's entry window was frozen while the board beside it was live.**
+  `detail` — the jobs, the artifacts, the terms, and since M20 the reviews — was
+  fetched **once**, when a row was selected, and never again. The board polled
+  every fifteen seconds and the entry two inches to its right did not, so anything
+  that happened *outside* the page never appeared: run `daedalus task review` in a
+  terminal, or let an agent finish, and the Ledger kept showing the old reading
+  indefinitely. A page that looks live and is not is worse than one that plainly
+  is not. The open entry is now re-read on every poll, guarded so it never lands
+  mid-interaction.
+- **A review's findings were on a page nobody had a reason to open.** The entry
+  page now says a reading exists — how many, by whom, the verdict, and how many
+  blocking findings — and points at RECORD, where they are. An operator who never
+  learns an agent read their work cannot tell that from the review not having
+  happened.
 - **A review looked like it did nothing, twice over.** Reported as "I ran review
   on T-14, seemed to do very little", and the reading had happened — the page
   just did not show it and there was nowhere to look.

@@ -954,3 +954,17 @@
     color: var(--mana-frame-lt);
     text-shadow: 1px 1px 0 var(--mana-ink);
 }
+
+/* A reading exists, and it is on another page. Without this line an operator
+   with no reason to open RECORD would never learn an agent had read their work,
+   which is indistinguishable from the review never having happened. */
+.ledger-review-flag {
+    margin-top: 12px;
+    padding: 6px 8px;
+    border-left: 3px solid var(--mana-frame);
+    background: rgba(255, 255, 255, 0.06);
+    font-size: 11px;
+    letter-spacing: 0.5px;
+    color: var(--mana-frame-pale);
+    text-shadow: 1px 1px 0 var(--mana-ink);
+}

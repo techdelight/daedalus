@@ -492,6 +492,18 @@
     } else {
       paintEntry();
     }
+
+    // AND RE-READ THE OPEN ENTRY. Without this the board was live and the entry
+    // beside it was frozen: `detail` — the jobs, the artifacts, the terms, the
+    // reviews — was fetched once when a row was selected and never again, so
+    // anything that happened OUTSIDE this page never appeared. Run `task review`
+    // in a terminal, or let an agent finish, and the Ledger showed the old
+    // reading indefinitely while the list two inches to its left updated. That is
+    // a page that looks live and is not, which is worse than one that plainly
+    // is not. Guarded by the early return above, so it never lands mid-interaction.
+    if (current && current.kind === 'task') {
+      loadDetail(current.id);
+    }
   }
 
   // --- the entry window -----------------------------------------------------
@@ -616,6 +628,23 @@
     const task = detail && detail.task;
     host.appendChild(text('div', 'ledger-prose', task ? task.objective :
       (currentCard ? currentCard.objective : '')));
+    // Say that a reading exists. The findings live on RECORD, and an operator
+    // with no reason to look there would never learn an agent had read their
+    // work — which is indistinguishable from the review not having happened.
+    const reviews = (detail && detail.reviews) || [];
+    if (reviews.length) {
+      const last = reviews[reviews.length - 1];
+      const blocking = (last.findings || []).filter(function (f) {
+        return f.severity === 'blocking';
+      }).length;
+      const line = text('div', 'ledger-review-flag',
+        '▶ ' + reviews.length + ' review' + (reviews.length === 1 ? '' : 's') + ' — ' +
+        (last.reviewer || 'unattributed') + ' ' + (last.passed ? 'found no blocker' : 'had concerns') +
+        (blocking ? ', ' + blocking + ' blocking' : '') + '. See RECORD.');
+      line.title = 'Open the record page to read the findings';
+      host.appendChild(line);
+    }
+
     const deps = detail && detail.dependencies;
     if (deps && ((deps.dependsOn || []).length || (deps.dependents || []).length)) {
       const facts = document.createElement('dl');
