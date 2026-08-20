@@ -132,6 +132,31 @@ All notable changes to this project will be documented in this file.
     them would only make people invent programmes to satisfy a field.
 
 ### Fixed
+- **The Web UI served new markup against a cached script, and nothing said so.**
+  `//go:embed static/*` bakes the CSS and JS into the binary, and an `embed.FS`
+  reports a **zero modtime** — so `http.FileServer` sends neither `Last-Modified`
+  nor `ETag`, the browser has no validator to revalidate against, and it falls
+  back to heuristic caching. Upgrade the binary and you get the new page with the
+  old JavaScript, which is indistinguishable from *"the fix did nothing"*. Local
+  asset URLs are now stamped `?v=<version>`, so an upgrade is a different URL. A
+  CDN URL is left alone (its version is in its own path), and an asset that
+  already carries a query keeps it. Pinned by a test that reads the **real**
+  `index.html`, so an asset added later without a stamp fails the build rather
+  than a browser.
+- **The Ledger reports its own failures instead of dying quietly.** Every action
+  on that page is a click handler, and an exception in one is swallowed by the
+  browser: the button appears to do nothing, and there is no way to tell "nothing
+  happened" from "something failed". The page now catches its own errors and
+  unhandled rejections and says so in the message line — the same distinction the
+  control plane spends real effort on everywhere else (an unreachable plane is not
+  an empty one; a refusal is not a failure), finally applied to the surface that
+  reports them.
+  - The `busy` flag could **wedge permanently**: it is cleared in a `.then`, so a
+    throw between raising it and that callback stranded the entire command
+    surface, and every later click returned silently. Only a page reload cured it,
+    and it read exactly like dead buttons. `execute` now releases the flag on a
+    synchronous throw and on a `run` that returns nothing to wait on, and the
+    guard says *"a command is already running"* rather than saying nothing.
 - **Confirming in the Ledger silently reset itself.** Reported as "confirming does
   not seem to work", and it was: the board polls every fifteen seconds, and every
   poll repainted the entry window — including the command row. A confirmation

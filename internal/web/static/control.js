@@ -895,7 +895,15 @@
   // value, ask whether you meant it, then do it. Each is optional and most
   // commands have none.
   function runCommand(cmd, id, jobID) {
-    if (busy) return;
+    // Silence here was a trap. `busy` is cleared in a .then, so any throw between
+    // raising it and that callback used to strand the ENTIRE command surface:
+    // every later click returned quietly and only a page reload cured it, which
+    // reads exactly like "the buttons do nothing". Both halves are fixed — this
+    // says what it is doing, and execute() can no longer leave the flag raised.
+    if (busy) {
+      say('A command is already running; wait for it to answer.', 'is-refused');
+      return;
+    }
     if (cmd.prompt) {
       // A prompt that PRE-FILLS from the task must not open before the task has
       // been read. `checks` fills with the current checks and sends back exactly
@@ -943,7 +951,25 @@
     busy = true;
     paintCommands(currentState());
     say('…' + cmd.label, '');
-    cmd.run(id, value, jobID).then(function (result) {
+    let started;
+    try {
+      started = cmd.run(id, value, jobID);
+    } catch (e) {
+      // A command whose run threw before it ever reached the network. Report it
+      // and release the surface; the alternative is a page that has quietly
+      // stopped accepting input.
+      busy = false;
+      say(cmd.label + ' could not be sent: ' + (e && e.message ? e.message : e), 'is-bad');
+      paintEntry();
+      return;
+    }
+    if (!started || typeof started.then !== 'function') {
+      busy = false;
+      say(cmd.label + ' returned nothing to wait on — this is a bug in the page.', 'is-bad');
+      paintEntry();
+      return;
+    }
+    started.then(function (result) {
       say(cmd.done ? cmd.done(result) : 'Done.', 'is-good');
     }).catch(function (err) {
       // A refusal is the plane working. Said differently from a failure, and
@@ -981,7 +1007,10 @@
   function askFor(spec, fill, then) {
     const overlay = el('ledger-prompt');
     const field = el('ledger-prompt-field');
-    if (!overlay || !field) return;
+    if (!overlay || !field) {
+      say('This page is missing its prompt window — reload it (the assets may be stale).', 'is-bad');
+      return;
+    }
     el('ledger-prompt-title').textContent = spec.title;
     el('ledger-prompt-label').textContent = spec.label;
     field.innerHTML = '';
@@ -1197,6 +1226,34 @@
     timers.forEach(clearInterval);
     timers = [];
   }
+
+  // A page that breaks should SAY it broke.
+  //
+  // Everything on this screen is driven by click handlers, and an exception in
+  // one is swallowed by the browser: the button appears to do nothing, and the
+  // operator has no way to tell "nothing happened" from "something failed". That
+  // ambiguity cost a whole round of diagnosis, and it is the same ambiguity the
+  // control plane spends so much effort on elsewhere — an unreachable plane is
+  // not an empty one, a refusal is not a failure. The page should hold itself to
+  // the standard it holds the plane to.
+  //
+  // Bound once, and only speaks while the Ledger is the visible view, so it never
+  // reports another screen's problem in this screen's message line.
+  function reportPageError(what) {
+    const view = el('control-view');
+    if (!view || !view.classList.contains('active')) return;
+    busy = false;   // whatever broke, do not leave the surface locked
+    awaiting = false;
+    say('The page hit an error: ' + what + ' — please report it; a reload will unstick it.', 'is-bad');
+  }
+
+  window.addEventListener('error', function (e) {
+    reportPageError((e && e.message) || 'unknown error');
+  });
+  window.addEventListener('unhandledrejection', function (e) {
+    const r = e && e.reason;
+    reportPageError((r && r.message) || String(r || 'unknown rejection'));
+  });
 
   // Shown and hidden the same way the Guild Hall is — `.hidden` on the project
   // list, `.active` on every other view. A third pattern here would be a third

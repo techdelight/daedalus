@@ -1276,3 +1276,71 @@ func TestRenderIndexHTML_InjectsVersion(t *testing.T) {
 		t.Errorf("version not injected into title: %q", out)
 	}
 }
+
+// TestRenderIndexHTML_StampsLocalAssets.
+//
+// `//go:embed static/*` bakes the CSS and JS into the binary, and an embed.FS
+// reports a ZERO modtime — so http.FileServer sends neither Last-Modified nor
+// ETag, the browser has no validator, and it falls back to heuristic caching. An
+// upgraded binary then serves new markup against a cached script, which is
+// indistinguishable from "the fix did nothing". This is the guard against that,
+// and it was written after exactly that happened.
+func TestRenderIndexHTML_StampsLocalAssets(t *testing.T) {
+	raw := []byte(`<html><head><title>Daedalus</title>` +
+		`<link rel="stylesheet" href="/static/control.css">` +
+		`<link rel="stylesheet" href="https://cdn.example.com/x@1.2.3/x.css">` +
+		`<script src="/static/control.js"></script>` +
+		`<script src="/static/already.js?keep=1"></script>` +
+		`</head></html>`)
+
+	out := renderIndexHTML(raw, "0.54.0")
+
+	if !strings.Contains(out, `href="/static/control.css?v=0.54.0"`) {
+		t.Errorf("stylesheet not stamped:\n%s", out)
+	}
+	if !strings.Contains(out, `src="/static/control.js?v=0.54.0"`) {
+		t.Errorf("script not stamped:\n%s", out)
+	}
+	// A CDN URL carries its version in its own path; rewriting it would be
+	// meddling with somebody else's cache key.
+	if !strings.Contains(out, `href="https://cdn.example.com/x@1.2.3/x.css"`) {
+		t.Errorf("a remote asset was stamped:\n%s", out)
+	}
+	// An existing query is left alone rather than gaining a second `?`.
+	if !strings.Contains(out, `src="/static/already.js?keep=1"`) {
+		t.Errorf("an asset that already had a query was mangled:\n%s", out)
+	}
+	// The title substitution it already did must survive.
+	if !strings.Contains(out, ">Daedalus [0.54.0]<") {
+		t.Errorf("the version is no longer injected into the title:\n%s", out)
+	}
+}
+
+// Every local asset the shipped page references must come out stamped — a check
+// against the real index.html rather than a fixture, so an asset added later
+// without a stamp is caught here rather than by a stale browser.
+func TestRenderIndexHTML_StampsEveryLocalAssetInTheRealPage(t *testing.T) {
+	raw, err := staticFiles.ReadFile("static/index.html")
+	if err != nil {
+		t.Fatalf("reading the embedded index.html: %v", err)
+	}
+	out := renderIndexHTML(raw, "9.9.9")
+	for _, attr := range []string{`href="/static/`, `src="/static/`} {
+		rest := out
+		for {
+			i := strings.Index(rest, attr)
+			if i < 0 {
+				break
+			}
+			rest = rest[i+len(attr):]
+			j := strings.IndexByte(rest, '"')
+			if j < 0 {
+				t.Fatal("unterminated asset URL in the rendered page")
+			}
+			if url := rest[:j]; !strings.Contains(url, "?") {
+				t.Errorf("/static/%s is served with no cache-busting stamp", url)
+			}
+			rest = rest[j+1:]
+		}
+	}
+}

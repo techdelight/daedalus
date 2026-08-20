@@ -8,6 +8,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -39,11 +40,58 @@ func dialControlPlane(cfg *core.Config) control.TaskAPI {
 	return control.NewClient(sock)
 }
 
-// renderIndexHTML injects the version into the served index.html title. Kept
-// as a pure function so the substitution contract is unit-testable without
-// booting the server.
+// renderIndexHTML injects the version into the served index.html title AND onto
+// every local asset URL. Kept as a pure function so the substitution contract is
+// unit-testable without booting the server.
+//
+// The asset stamp is not cosmetic. `//go:embed static/*` bakes the CSS and JS
+// into the binary, and an embed.FS reports a ZERO modtime — so http.FileServer
+// sends neither Last-Modified nor ETag, the browser has no validator to
+// revalidate against, and it falls back to heuristic caching. An upgraded binary
+// then serves new markup against a cached script, which is indistinguishable
+// from "the fix did nothing" — and cost exactly one round of that. Stamping
+// ?v=<version> makes an upgrade a different URL.
+//
+// Only `/static/…` is stamped: a CDN URL carries its version in its own path and
+// must be left alone.
 func renderIndexHTML(raw []byte, version string) string {
-	return strings.Replace(string(raw), ">Daedalus<", ">Daedalus ["+version+"]<", 1)
+	out := strings.Replace(string(raw), ">Daedalus<", ">Daedalus ["+version+"]<", 1)
+	stamp := "?v=" + url.QueryEscape(version)
+	for _, attr := range []string{`href="`, `src="`} {
+		out = stampAssets(out, attr+"/static/", stamp)
+	}
+	return out
+}
+
+// stampAssets appends stamp to the end of every quoted URL that begins with
+// prefix. Written as a scan rather than a regexp so it cannot match across a
+// quote and rewrite something that is not a URL.
+func stampAssets(html, prefix, stamp string) string {
+	var b strings.Builder
+	rest := html
+	for {
+		i := strings.Index(rest, prefix)
+		if i < 0 {
+			b.WriteString(rest)
+			return b.String()
+		}
+		b.WriteString(rest[:i+len(prefix)])
+		rest = rest[i+len(prefix):]
+		j := strings.IndexByte(rest, '"')
+		if j < 0 { // malformed markup: leave the remainder exactly as it was
+			b.WriteString(rest)
+			return b.String()
+		}
+		path := rest[:j]
+		b.WriteString(path)
+		// An href that already carries a query keeps it; nothing here does today,
+		// and appending a second `?` would break the one that did.
+		if !strings.Contains(path, "?") {
+			b.WriteString(stamp)
+		}
+		b.WriteString(`"`)
+		rest = rest[j+1:]
+	}
 }
 
 // WebServer holds the dependencies shared by the topic handlers
