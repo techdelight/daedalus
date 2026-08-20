@@ -261,3 +261,134 @@ func seedTaskForProgramme(t *testing.T, st *Store, project, programmeID string) 
 	}
 	return task
 }
+
+// --- the Guild Master's path (#82) ----------------------------------------------
+
+// TestProgrammeProposal_AgentAsksAndAHumanConfirms is the end-to-end path that
+// M20 claimed and did not build.
+//
+// The operations were tiered and then had no case in executeProposal, so a
+// confirmed proposal fell to the default and failed closed: "names an operation
+// this plane cannot execute". Correct for an unknown op, and a dead end for one
+// the authority table had already promised. Tiering reserves authority over
+// something that has to exist.
+func TestProgrammeProposal_AgentAsksAndAHumanConfirms(t *testing.T) {
+	svc, store := newProgrammeService(t)
+	agent := svc.WithCaller(Agent())
+
+	// An agent asking gets a proposal, not a programme.
+	_, err := agent.CreateProgramme(ProgrammeRequest{
+		Name: "fluency", Description: "get conversational by spring", Projects: []string{"app"},
+	})
+	reason, refused := Rejected(err)
+	if !refused || reason != ReasonProposalRecorded {
+		t.Fatalf("agent CreateProgramme = %v, want a recorded proposal", err)
+	}
+	if progs, _ := store.ListProgrammes(); len(progs) != 0 {
+		t.Fatalf("%d programmes exist already; the agent's request executed", len(progs))
+	}
+
+	pending, err := store.ListProposals(ProposalPending)
+	if err != nil || len(pending) != 1 {
+		t.Fatalf("pending proposals = %d (%v), want 1", len(pending), err)
+	}
+	if pending[0].Operation != OpFormProgramme {
+		t.Errorf("operation = %q, want %q", pending[0].Operation, OpFormProgramme)
+	}
+
+	// A human confirms, and the programme exists — with the description intact.
+	// The description is the point: it is what a Task's rationale is later judged
+	// against, so an encoding that lost it would quietly hollow out the feature.
+	if _, err := svc.ResolveProposal(pending[0].ID, true, "agreed"); err != nil {
+		t.Fatalf("confirming the proposal: %v", err)
+	}
+	progs, err := store.ListProgrammes()
+	if err != nil || len(progs) != 1 {
+		t.Fatalf("programmes after confirmation = %d (%v), want 1", len(progs), err)
+	}
+	if progs[0].Name != "fluency" || progs[0].Description != "get conversational by spring" {
+		t.Errorf("programme = %+v, want the name and description carried through", progs[0])
+	}
+	if len(progs[0].Projects) != 1 || progs[0].Projects[0] != "app" {
+		t.Errorf("projects = %v, want them carried through", progs[0].Projects)
+	}
+}
+
+// Denying one leaves nothing behind — the proposal is a request, not a
+// half-applied change.
+func TestProgrammeProposal_DeniedLeavesNothing(t *testing.T) {
+	svc, store := newProgrammeService(t)
+	agent := svc.WithCaller(Agent())
+	_, _ = agent.CreateProgramme(ProgrammeRequest{Name: "fluency"})
+
+	pending, _ := store.ListProposals(ProposalPending)
+	if len(pending) != 1 {
+		t.Fatalf("pending = %d, want 1", len(pending))
+	}
+	if _, err := svc.ResolveProposal(pending[0].ID, false, "not yet"); err != nil {
+		t.Fatalf("denying: %v", err)
+	}
+	if progs, _ := store.ListProgrammes(); len(progs) != 0 {
+		t.Errorf("%d programmes after a DENIED proposal, want 0", len(progs))
+	}
+}
+
+// TestProgrammeProposal_AmendAndDissolveRoundTrip: the entity column carries the
+// programme id and the argument carries the request, and both operations have to
+// survive that round trip or the confirmation fails on a human's click.
+func TestProgrammeProposal_AmendAndDissolveRoundTrip(t *testing.T) {
+	svc, store := newProgrammeService(t)
+	agent := svc.WithCaller(Agent())
+	prog, err := svc.CreateProgramme(ProgrammeRequest{Name: "fluency", Description: "old"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, _ = agent.UpdateProgramme(prog.ID, ProgrammeRequest{Name: "fluency", Description: "new: with a colon"})
+	pending, _ := store.ListProposals(ProposalPending)
+	if len(pending) != 1 || pending[0].Operation != OpAmendProgramme {
+		t.Fatalf("pending = %+v, want one amend proposal", pending)
+	}
+	if pending[0].TaskID != prog.ID {
+		t.Errorf("proposal entity = %q, want the programme id %q", pending[0].TaskID, prog.ID)
+	}
+	if _, err := svc.ResolveProposal(pending[0].ID, true, ""); err != nil {
+		t.Fatalf("confirming the amend: %v", err)
+	}
+	got, _ := store.GetProgramme(prog.ID)
+	// The colon matters: a "split on the first separator" encoding would have
+	// truncated this, which is exactly why the argument is JSON.
+	if got.Description != "new: with a colon" {
+		t.Errorf("description = %q, want it intact through the proposal round trip", got.Description)
+	}
+
+	// Dissolve, and the refusal still applies: a confirming human cannot wave a
+	// programme away from under the Tasks that record it as their reason.
+	seedTaskForProgramme(t, store, "app", prog.ID)
+	_ = agent.DeleteProgramme(prog.ID)
+	pending, _ = store.ListProposals(ProposalPending)
+	if len(pending) != 1 || pending[0].Operation != OpDissolveProgramme {
+		t.Fatalf("pending = %+v, want one dissolve proposal", pending)
+	}
+	if _, err := svc.ResolveProposal(pending[0].ID, true, ""); err == nil {
+		t.Error("confirming a dissolve of a programme with tasks succeeded; the refusal must survive confirmation")
+	}
+	if _, err := store.GetProgramme(prog.ID); err != nil {
+		t.Errorf("the programme was dissolved anyway: %v", err)
+	}
+}
+
+// A malformed argument must fail the confirmation rather than execute a
+// half-understood request on the confirming human's authority.
+func TestDecodeProgrammeArgument_RefusesWhatItCannotRead(t *testing.T) {
+	for _, arg := range []string{"", "not json", `{"description":"no name"}`, `{"name":"  "}`} {
+		if _, err := decodeProgrammeArgument(arg); err == nil {
+			t.Errorf("decodeProgrammeArgument(%q) = nil error, want a refusal", arg)
+		}
+	}
+	req, err := decodeProgrammeArgument(encodeProgrammeArgument(
+		ProgrammeRequest{Name: "a", Description: "b: c", Projects: []string{"x"}}))
+	if err != nil || req.Name != "a" || req.Description != "b: c" || len(req.Projects) != 1 {
+		t.Errorf("round trip = %+v (%v), want it exact", req, err)
+	}
+}

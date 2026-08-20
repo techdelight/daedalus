@@ -468,3 +468,45 @@ func (s *Service) resolveProgramme(ref string) (string, error) {
 	}
 	return p.ID, nil
 }
+
+// --- proposals --------------------------------------------------------------
+//
+// A programme operation an AGENT asks for is recorded as a proposal and executed
+// on a human's confirmation, so the request has to survive a round trip through
+// one TEXT column (`proposals.argument`).
+//
+// It is JSON, and NOT the "split on the first separator" trick `decodeSteerArgument`
+// uses. That trick is sound there for a reason that does not hold here: a Job id
+// cannot contain a space, so the split is a guarantee. A programme name can
+// contain anything a person types, so borrowing the technique would be borrowing
+// the style without the reason — and the failure would be quiet, a name truncated
+// at a colon with the rest folded into the description. JSON round-trips exactly,
+// and a human confirming the proposal reads it perfectly well.
+
+// encodeProgrammeArgument renders a programme request for a proposal row.
+func encodeProgrammeArgument(req ProgrammeRequest) string {
+	b, err := json.Marshal(req)
+	if err != nil {
+		// Cannot happen for these field types; degrade to the name so the proposal
+		// is still legible rather than empty.
+		return req.Name
+	}
+	return string(b)
+}
+
+// decodeProgrammeArgument reads back what encodeProgrammeArgument wrote.
+//
+// A malformed argument is an ERROR and not a best-effort guess: this runs at the
+// moment a human confirms, and executing a half-understood request on somebody's
+// authority is worse than telling them it could not be read.
+func decodeProgrammeArgument(argument string) (ProgrammeRequest, error) {
+	var req ProgrammeRequest
+	if err := json.Unmarshal([]byte(argument), &req); err != nil {
+		return ProgrammeRequest{}, fmt.Errorf("%w: the proposal's programme details could not be read: %v",
+			ErrInvalidRequest, err)
+	}
+	if strings.TrimSpace(req.Name) == "" {
+		return ProgrammeRequest{}, fmt.Errorf("%w: the proposal names no programme", ErrInvalidRequest)
+	}
+	return req, nil
+}

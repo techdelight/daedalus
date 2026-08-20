@@ -167,6 +167,32 @@ type SteerRef struct {
 }
 
 // BoardOutput is the cross-project programme board as an agent sees it.
+// ProgrammeRef names a programme by id or by name.
+type ProgrammeRef struct {
+	Programme string `json:"programme" jsonschema:"the programme id (PR-3) or its name"`
+}
+
+// ProgrammeLine is the agent-facing view of a programme. No repository paths and
+// no host anything — the same rule the board follows.
+type ProgrammeLine struct {
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Description string   `json:"description,omitempty"`
+	Projects    []string `json:"projects,omitempty"`
+}
+
+// ProgrammesOutput is every programme the plane holds.
+type ProgrammesOutput struct {
+	Programmes []ProgrammeLine `json:"programmes"`
+}
+
+// ProposeProgrammeInput is a programme the Guild Master thinks should exist.
+type ProposeProgrammeInput struct {
+	Name        string   `json:"name" jsonschema:"a short name for the programme"`
+	Description string   `json:"description" jsonschema:"what this programme is FOR, in one or two sentences"`
+	Projects    []string `json:"projects,omitempty" jsonschema:"the projects it draws on"`
+}
+
 type BoardOutput struct {
 	Columns          []BoardColumnLine `json:"columns"`
 	GlobalRunning    int               `json:"globalRunning"`
@@ -370,6 +396,80 @@ func registerControlTools(server *mcp.Server, api control.TaskAPI) {
 	// documents, and an instruction injected into a human's RUNNING job is at least
 	// as consequential as cancelling it — and rather more subtle, because the job
 	// carries on and the change of direction shows up only in the log.
+	// --- programmes (#82) -----------------------------------------------------
+	//
+	// The Guild Master's whole job is noticing what projects have in common, and
+	// until these existed it could not see a programme at all — the operations
+	// were tiered in `agentAuthority` and reachable from nowhere. Reading is free;
+	// forming, amending and dissolving are proposals, because a programme is a
+	// statement about what the work is FOR and a human agreeing is what turns a
+	// noticing into one.
+	//
+	// NOTE for whoever reads this next to `programme_board`: that tool is the
+	// cross-project TASK board and has nothing to do with programmes. The
+	// collision is historical and is exactly what M20 set out to undo.
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "list_programmes",
+		Description: "The programmes the control plane holds: the shared intents that several projects serve. Read-only, allowed directly — noticing what projects have in common is what this agent is for.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, ProgrammesOutput, error) {
+		progs, err := api.ListProgrammes()
+		if err != nil {
+			return errResult(err), ProgrammesOutput{}, nil
+		}
+		out := ProgrammesOutput{Programmes: make([]ProgrammeLine, 0, len(progs))}
+		for _, p := range progs {
+			out.Programmes = append(out.Programmes, ProgrammeLine{
+				ID: p.ID, Name: p.Name, Description: p.Description, Projects: p.Projects,
+			})
+		}
+		return nil, out, nil
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "get_programme",
+		Description: "One programme, with what it is for and the projects it draws on. Read-only.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in ProgrammeRef) (*mcp.CallToolResult, ProgrammeLine, error) {
+		p, err := api.GetProgramme(in.Programme)
+		if err != nil {
+			// A name is what a person types and an id is what a client stores; accept
+			// either here too, or this tool disagrees with every other surface.
+			progs, lerr := api.ListProgrammes()
+			if lerr != nil {
+				return errResult(err), ProgrammeLine{}, nil
+			}
+			found := false
+			for _, cand := range progs {
+				if cand.Name == in.Programme {
+					p, found = cand, true
+					break
+				}
+			}
+			if !found {
+				return errResult(err), ProgrammeLine{}, nil
+			}
+		}
+		return nil, ProgrammeLine{
+			ID: p.ID, Name: p.Name, Description: p.Description, Projects: p.Projects,
+		}, nil
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "propose_programme",
+		Description: "Propose that several projects' common interest should become a programme. NOT executed: it is recorded for a human to confirm, because forming a programme is a statement about what the work is for. Say what it is FOR in the description — that is the part a task's rationale will later be judged against.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in ProposeProgrammeInput) (*mcp.CallToolResult, OutcomeOutput, error) {
+		_, err := api.CreateProgramme(control.ProgrammeRequest{
+			Name: in.Name, Description: in.Description, Projects: in.Projects,
+		})
+		if err != nil {
+			// The expected path: proposal_recorded, which outcomeFor renders as "not
+			// executed — recorded as a proposal". An agent reaching this tool should
+			// never see Executed=true; if it ever does, the authority table changed.
+			return nil, outcomeFor(err), nil
+		}
+		return nil, OutcomeOutput{Executed: true,
+			Detail: "programme created (this caller was not treated as an agent)"}, nil
+	})
+
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "request_steering",
 		Description: "Ask for a typed instruction to be delivered to a RUNNING job. Consequential, so this is recorded as a proposal for a human to confirm. Steering changes what the worker is told; it never changes what counts as done — the result is still independently verified against the frozen acceptance policy. Delivery is not guaranteed: a runner with no steering boundary records the instruction as undeliverable.",

@@ -200,16 +200,16 @@ Stated here so it is not discovered later:
 - **The Ledger has no programme surface.** You can read programmes from the CLI
   and see a Task's programme in its entry, but there is no view of a programme
   itself in the browser.
-- **The Guild Master cannot touch programmes at all** — and the first version of
-  this document said it could, which was wrong and is worth recording as the
-  error it was. `form_programme` is *tiered* as a proposal, which is not the same
-  as being built: `guild-control-mcp` exposes no programme tool of any kind, so
-  the Guild Master cannot even LIST programmes despite `OpProgrammes` being
-  `TierAllowed` on the argument that reading them is most of the point; and
-  `resolveProposal` has no case for the three programme operations, so a
-  confirmed proposal would fail closed with *"names an operation this plane
-  cannot execute"*. Tiering an operation reserves authority over something that
-  does not exist yet. Backlog **#82**.
+- **The Guild Master's programme path was missing and is now built (#82).** The
+  first version of this document said it was "built but unexercised", which was
+  false: `form_programme` was *tiered*, and tiering is not building.
+  `guild-control-mcp` had no programme tool at all, and `executeProposal` had no
+  case for the three operations, so a confirmed proposal failed closed on *"names
+  an operation this plane cannot execute"*. Both are fixed, and the whole path is
+  now asserted over the real sockets — `bash scripts/verify-guild-control.sh
+  static`, checks 15–20. **The error is left recorded here rather than edited
+  away**, because tiering an operation and believing it exists is the mistake
+  worth remembering.
 - **`AgentReviewer` has never run.** Every line of it is host-only. The `fake`
   phase proves the plane's half; the container's half is unproven until you run
   section 3.

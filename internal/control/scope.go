@@ -277,14 +277,14 @@ func (c *callerScope) ProgrammeStatusFor(id string) (ProgrammeStatus, error) {
 // the noticing a programme.
 func (c *callerScope) CreateProgramme(req ProgrammeRequest) (Programme, error) {
 	if !c.allowed(OpFormProgramme) {
-		return Programme{}, c.propose(OpFormProgramme, "", req.Name+": "+req.Description)
+		return Programme{}, c.propose(OpFormProgramme, "", encodeProgrammeArgument(req))
 	}
 	return c.svc.CreateProgramme(req)
 }
 
 func (c *callerScope) UpdateProgramme(id string, req ProgrammeRequest) (Programme, error) {
 	if !c.allowed(OpAmendProgramme) {
-		return Programme{}, c.propose(OpAmendProgramme, id, req.Name+": "+req.Description)
+		return Programme{}, c.propose(OpAmendProgramme, id, encodeProgrammeArgument(req))
 	}
 	return c.svc.UpdateProgramme(id, req)
 }

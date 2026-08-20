@@ -150,6 +150,35 @@ phase_static() {
     dae task status T-1 2>&1 | grep -q 'cancelled' \
         && pass "…and only then is the task cancelled" || fail "confirmed proposal did not execute"
 
+    # Programmes (#82). The Guild Master's whole job is noticing what projects
+    # have in common; until these worked it could not see a programme at all —
+    # the operations were tiered and reachable from nowhere, and a confirmed
+    # proposal failed closed on "an operation this plane cannot execute".
+    r="$(api "$AGENT_SOCK" GET /programmes)"
+    [[ "$r" == 200* ]] && pass "agent: list_programmes ALLOWED (noticing is the job)" \
+        || fail "agent list_programmes: $r"
+    r="$(api "$AGENT_SOCK" POST /programmes '{"name":"fluency","description":"get conversational: by spring"}')"
+    if [[ "$r" == 422* && "$r" == *proposal_recorded* ]]; then
+        pass "agent: forming a programme becomes a PROPOSAL"
+    else
+        fail "agent form_programme: $r"
+    fi
+    r="$(api "$HUMAN_SOCK" GET /programmes)"
+    [[ "$r" != *fluency* ]] && pass "…and no programme was formed by the agent" \
+        || fail "an agent formed a programme directly"
+    r="$(api "$HUMAN_SOCK" POST /proposals/P-2/confirm)"
+    [[ "$r" == 200* ]] && pass "human: confirming the programme proposal executes it" \
+        || fail "human confirm of P-2: $r"
+    r="$(api "$HUMAN_SOCK" GET /programmes)"
+    if [[ "$r" == *fluency* && "$r" == *"get conversational: by spring"* ]]; then
+        # The colon is the point: an encoding that split on a separator would
+        # have truncated the description, which is the field a task's rationale
+        # is later judged against.
+        pass "…and the programme exists with its description intact through the round trip"
+    else
+        fail "programme missing or its description was mangled: $r"
+    fi
+
     hdr "what remains host-only"
     info "the socket arriving INSIDE the container, the entrypoint wiring"
     info "guild-control on it, and the agent uid opening it — run: real"

@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 ## [0.54.0] - 2026-08-18
 
 ### Added
+- **The Guild Master can propose a programme (#82).** M20 tiered
+  `form_programme`, `amend_programme` and `dissolve_programme` for it — and
+  stopped there. `guild-control-mcp` exposed no programme tool of any kind, so the
+  Guild Master could not even *list* programmes despite the authority table
+  marking that allowed on the argument that noticing what projects have in common
+  is its entire job; and `executeProposal` had no case for the three, so a
+  confirmed proposal failed closed with *"names an operation this plane cannot
+  execute"*. Both halves now exist: three MCP tools (`list_programmes`,
+  `get_programme`, `propose_programme`) and three cases that run the same Service
+  methods a human's CLI runs.
+  - The proposal argument is **JSON**, deliberately not the split-on-the-first-
+    separator trick `decodeSteerArgument` uses. That trick is sound there because
+    a Job id cannot contain a space; a programme name or description can contain
+    anything, so borrowing it would have borrowed the style without the reason and
+    truncated a description at its first colon — silently, in the field a Task's
+    rationale is later judged against.
+  - `scripts/verify-guild-control.sh static` is **20/20** and drives the whole
+    path over the real sockets: the agent lists programmes, forming one returns
+    422 `proposal_recorded`, no programme appears, a human confirms, and it exists
+    with a colon-bearing description intact.
+  - **The lesson is the half worth keeping.** An operation was tiered, written
+    into a milestone's deliverable list, marked Done, and described in a
+    verification playbook as "built but unexercised" — while nothing could reach
+    it. Tiering reserves authority over something that has to exist. The error is
+    left recorded in `docs/m20-verification.md` rather than edited away.
 - **Milestone 20 closed, with a verification playbook.**
   `docs/m20-verification.md` says what M20 proved and what it only argued for,
   in the order the parts deserve to be distrusted, and `scripts/verify-m20.sh`

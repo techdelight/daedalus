@@ -148,6 +148,30 @@ func (s *Service) executeProposal(caller Caller, p Proposal) error {
 	case OpReview:
 		_, err := s.ReviewTask(p.TaskID)
 		return err
+	// Programmes (M20 / #82). These were tiered when programmes landed and then
+	// had no case here, so a confirmed proposal fell to the default and failed
+	// closed — correct for an unknown operation, and a dead end for one the
+	// authority table had already promised. The entity column carries the
+	// programme id for amend and dissolve; the argument carries the request.
+	case OpFormProgramme:
+		req, err := decodeProgrammeArgument(p.Argument)
+		if err != nil {
+			return err
+		}
+		_, err = s.CreateProgramme(req)
+		return err
+	case OpAmendProgramme:
+		req, err := decodeProgrammeArgument(p.Argument)
+		if err != nil {
+			return err
+		}
+		_, err = s.UpdateProgramme(p.TaskID, req)
+		return err
+	case OpDissolveProgramme:
+		// No argument to decode: dissolving names only the programme, and the
+		// refusal to dissolve one that still has Tasks applies here exactly as it
+		// does from the CLI — a confirming human cannot wave it through.
+		return s.DeleteProgramme(p.TaskID)
 	default:
 		// An operation nobody taught this switch about must not silently succeed:
 		// the proposal would be marked confirmed with nothing having happened.
