@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 ## [0.54.0] - 2026-08-18
 
 ### Fixed
+- **A rebuild no longer strands the image it replaced.** `Config.Image()` is a
+  constant tag per runner+target, so every `docker build -t` retagged it and left
+  the previous image carrying no tag at all — a `<none>` entry **nothing in the
+  tool ever removed**. Rebuilds are not rare either: `build.go` rebuilds
+  automatically whenever the build files' checksum changes. A runner image is
+  gigabytes, which made this the most expensive thing daedalus leaked.
+  - `Build` now records the image id before building and removes it afterwards,
+    with three properties, the first being the one that would hurt:
+    **it never removes the image just built** — a rebuild with every layer cached
+    resolves to the *same* id, so the check is "did the id move", not "did we run
+    a build"; **it removes by id and without `-f`**, so a still-tagged or
+    still-referenced image makes docker refuse, which is the wanted answer rather
+    than something to force past; and it is **scoped to what daedalus made** —
+    deliberately not `docker image prune`, which would reclaim dangling images
+    belonging to everything else on the machine.
+  - Best-effort: a failed reclaim is logged and the build still succeeds, and a
+    **failed build reclaims nothing**, because the old image is then still the
+    working one. Six tests; the two guards above verified by reverting.
+  - Existing dangling images are not touched. Reclaim them with
+    `docker images -f dangling=true` and `docker image prune` if you want them
+    gone; from here they stop accumulating.
+- **Installing a new version now reclaims the old ones.** `setup.sh` installs each
+  version alongside the last so rollback works, but nothing ever pruned, so every
+  install kept a full payload forever — measured at 21 on the same host, from the
+  same installs that left 21 orphaned networks. `daedalus version prune` had
+  existed for a while and nothing called it; `setup.sh` now calls it after
+  flipping `current`. It keeps the current version plus the three most recent, so
+  the rollback target is always among them, and a failure cannot fail an install
+  that has already succeeded.
 - **Every upgrade leaked a Docker network, until nothing could start at all.**
   The coordinator ran `docker compose -f <file> run` without `-p`, so compose
   named the project after the directory holding the compose file — and `setup.sh`

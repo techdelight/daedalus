@@ -11,6 +11,7 @@ import (
 
 	"github.com/techdelight/daedalus/core"
 	"github.com/techdelight/daedalus/internal/executor"
+	"github.com/techdelight/daedalus/internal/logging"
 )
 
 // Docker manages Docker operations.
@@ -44,15 +45,82 @@ func (d *Docker) ImageExists(image string) bool {
 	return err == nil
 }
 
-// Build builds a Docker image with the given target stage.
+// Build builds a Docker image with the given target stage, and reclaims the
+// image the build supersedes.
+//
+// The tag is constant for a given runner+target (Config.Image), so every rebuild
+// retags it and leaves the PREVIOUS image carrying no tag at all — a `<none>`
+// entry that nothing in daedalus ever removed. Rebuilds are not rare: build.go
+// rebuilds automatically whenever the build files' checksum changes. A runner
+// image is gigabytes, so this is the most expensive thing the tool leaked.
+//
+// Reclaiming is best-effort and never fails the build: the image the user asked
+// for exists either way, and refusing to return a successful build because a
+// cleanup failed would trade a disk cost for a broken command.
 func (d *Docker) Build(target, image, uid, contextDir string) error {
+	superseded := d.imageID(image)
+
 	fmt.Printf("Building %s (target: %s)...\n", image, target)
-	return d.Executor.Run("docker", "build",
+	if err := d.Executor.Run("docker", "build",
 		"--target", target,
 		"--build-arg", "CLAUDE_UID="+uid,
 		"-t", image,
 		contextDir,
-	)
+	); err != nil {
+		return err
+	}
+
+	d.reclaimSuperseded(image, superseded)
+	return nil
+}
+
+// imageID returns the image id a tag currently resolves to, or "" if there is no
+// such image (or docker cannot be asked).
+func (d *Docker) imageID(image string) string {
+	out, err := d.Executor.Output("docker", "image", "inspect", "-f", "{{.Id}}", image)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(out)
+}
+
+// reclaimSuperseded removes the image a rebuild displaced.
+//
+// Three properties, and the first is the one that would hurt:
+//
+//   - **Never remove the image just built.** A rebuild that changes nothing
+//     resolves to the SAME id (every layer cached), and deleting it because it
+//     was also the previous id would delete the working image. Hence the
+//     current != superseded guard rather than trusting "we rebuilt, so it moved".
+//   - **By id, and without -f.** After the retag the old image is untagged, so
+//     removing its id removes only it. If it still carries another tag, or a
+//     container still depends on it, docker refuses — which is the desired
+//     answer, not an error to force past.
+//   - **Scoped to what daedalus made.** Deliberately NOT `docker image prune`,
+//     which would reclaim dangling images belonging to everything else on the
+//     machine. The tool cleans up after itself and nothing more.
+func (d *Docker) reclaimSuperseded(image, superseded string) {
+	if superseded == "" {
+		return // nothing was there before
+	}
+	current := d.imageID(image)
+	if current == "" || current == superseded {
+		return
+	}
+	// Output rather than Run: a refusal here is expected and benign, and printing
+	// docker's complaint would read as a failure of the build that just succeeded.
+	if _, err := d.Executor.Output("docker", "rmi", superseded); err != nil {
+		logging.Info("superseded image " + shortID(superseded) + " not reclaimed: " + err.Error())
+	}
+}
+
+// shortID abbreviates a docker image id ("sha256:abcd…") for a log line.
+func shortID(id string) string {
+	trimmed := strings.TrimPrefix(id, "sha256:")
+	if len(trimmed) > 12 {
+		return trimmed[:12]
+	}
+	return trimmed
 }
 
 // ComposeRun executes a docker compose run command with environment variables

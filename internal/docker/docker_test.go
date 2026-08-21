@@ -90,12 +90,19 @@ func TestBuild(t *testing.T) {
 		t.Fatalf("Build failed: %v", err)
 	}
 
-	call := mock.FindCall("docker")
-	if call == nil {
-		t.Fatal("expected docker call")
+	// Build's first docker call is now the `image inspect` that reads the id it is
+	// about to supersede, so the build itself has to be picked out.
+	var build []string
+	for _, c := range mock.Calls {
+		if c.Name == "docker" && len(c.Args) > 0 && c.Args[0] == "build" {
+			build = c.Args
+		}
+	}
+	if build == nil {
+		t.Fatal("expected a docker build call")
 	}
 
-	args := strings.Join(call.Args, " ")
+	args := strings.Join(build, " ")
 	if !strings.Contains(args, "--target dev") {
 		t.Errorf("missing --target: %s", args)
 	}

@@ -386,6 +386,29 @@ if [[ "$CREATE_LINK" == true ]]; then
     fi
 fi
 
+# ── Reclaim superseded versions ──────────────────────────────────────────────
+# Installing alongside is what makes rollback possible; keeping EVERY version
+# forever is just a leak wearing that feature's clothes. `version prune` has
+# existed for a while and nothing ever called it, so installs accumulated one
+# full payload each — measured on a real host at 21, alongside the 21 orphaned
+# compose networks the same installs left behind.
+#
+# Best-effort and deliberately after the flip: `current` already points at the
+# new version, and Prune protects current plus the most recent few (default 3,
+# so the rollback target is always among them). A failure here must not fail an
+# install that has already succeeded.
+if [[ -x "$CURRENT_LINK/daedalus" ]]; then
+    if PRUNED="$("$CURRENT_LINK/daedalus" version prune 2>&1)"; then
+        # Only speak when something was actually removed; "Nothing to prune."
+        # on every install would be noise.
+        if [[ "$PRUNED" != *"Nothing to prune."* ]]; then
+            echo "$PRUNED" | sed 's/^/  /'
+        fi
+    else
+        echo "  Note: could not prune old versions (they are harmless; 'daedalus version prune' retries)."
+    fi
+fi
+
 # ── Summary ──────────────────────────────────────────────────────────────────
 echo ""
 if [[ "$UPGRADING" == true && "$INSTALLED_VERSION" != "$NEW_VERSION" ]]; then
