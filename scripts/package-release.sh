@@ -35,6 +35,19 @@
 #                     (e.g. "0.43.0" or "dev_20260806"). setup.sh reads it from
 #                     config.json at install time, so install.sh no longer needs
 #                     to patch it.
+#
+#   --stage-runtime <dir>
+#                     Copy every shared runtime file this script REQUIRES out of
+#                     the repository into <dir>, then exit. Callers use this
+#                     instead of writing their own copy list.
+#
+# WHY --stage-runtime EXISTS. The runtime-file list below is the requirement, and
+# it used to be restated by hand in three callers: both release workflows and the
+# local simulation. Adding daedalus-reclaim.sh to the requirement (916acc3)
+# updated none of them, so the dev release failed at packaging time with
+# "missing runtime file", and the real release workflow would have failed
+# identically on the next tag. A list duplicated in four places is a list that
+# will drift again; the callers now ask this script what it needs.
 
 set -euo pipefail
 
@@ -79,14 +92,22 @@ RUNTIME_FILES=(
 # Fixed timestamp for reproducible archives (UTC).
 SOURCE_EPOCH="2000-01-01 00:00:00Z"
 
+# Where each runtime file lives in the repository, when it is not at the root.
+# Only the exceptions are listed; everything else is looked for at the root.
+RUNTIME_SUBDIR=(
+    "wsl2-network.bat:scripts"
+)
+
 STAGING=""
 OUT=""
 VERSION=""
 PLATFORMS_OVERRIDE=""
+STAGE_RUNTIME=""
 
 usage() {
     cat <<EOF
 Usage: $0 --staging <dir> --out <dir> --version <ver> [--platforms <list>]
+       $0 --stage-runtime <dir>
 
 Packages the built binaries + runtime files in <staging> into one
 daedalus-<os>-<arch>.tar.gz per platform in <out>, plus SHA256SUMS.txt.
@@ -104,10 +125,34 @@ while [[ $# -gt 0 ]]; do
         --out)       [[ $# -lt 2 ]] && { echo "Error: --out requires an argument." >&2; exit 1; };     OUT="$2";     shift 2 ;;
         --version)   [[ $# -lt 2 ]] && { echo "Error: --version requires an argument." >&2; exit 1; }; VERSION="$2"; shift 2 ;;
         --platforms) [[ $# -lt 2 ]] && { echo "Error: --platforms requires an argument." >&2; exit 1; }; PLATFORMS_OVERRIDE="$2"; shift 2 ;;
+        --stage-runtime) [[ $# -lt 2 ]] && { echo "Error: --stage-runtime requires an argument." >&2; exit 1; }; STAGE_RUNTIME="$2"; shift 2 ;;
         --help|-h) usage 0 ;;
         *) echo "Error: unknown option '$1'." >&2; usage 1 ;;
     esac
 done
+
+# ── --stage-runtime: put what this script requires where it will look ────────
+#
+# Runs before every other check and exits: it needs neither --out nor --version,
+# because staging is what a caller does BEFORE it has built anything.
+#
+# A file that is required and missing from the repository is a hard error here
+# rather than at packaging time, so the message names the file and the place it
+# was expected instead of the staging directory it never reached.
+if [[ -n "$STAGE_RUNTIME" ]]; then
+    repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+    mkdir -p "$STAGE_RUNTIME"
+    for f in "${RUNTIME_FILES[@]}"; do
+        src="$repo_root/$f"
+        for entry in "${RUNTIME_SUBDIR[@]}"; do
+            [[ "${entry%%:*}" == "$f" ]] && src="$repo_root/${entry#*:}/$f"
+        done
+        [[ -f "$src" ]] || { echo "Error: runtime file '$f' is required but not at '$src'." >&2; exit 1; }
+        cp "$src" "$STAGE_RUNTIME/$f"
+    done
+    echo "Staged ${#RUNTIME_FILES[@]} runtime files into $STAGE_RUNTIME"
+    exit 0
+fi
 
 # Apply a platform subset override (comma or whitespace separated).
 if [[ -n "$PLATFORMS_OVERRIDE" ]]; then

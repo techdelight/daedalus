@@ -105,10 +105,12 @@ jobs:
           # single flat staging dir (daedalus-<os>-<arch>, skill-catalog-mcp-...,
           # project-mgmt-mcp-..., daedalus-coordinator-..., daedalus-runner-...).
           cp artifacts/binaries-*/* staging/
-          # Stage the shared runtime files (exactly what setup.sh installs) plus
-          # wsl2-network.bat. package-release.sh bakes $VERSION into config.json.
-          cp claude.json config.json docker-compose.yml Dockerfile entrypoint.sh settings.json logo.txt setup.sh staging/
-          cp scripts/wsl2-network.bat staging/
+          # Stage the shared runtime files. The packager owns the list and copies
+          # them itself; it also bakes $VERSION into config.json below. This step
+          # used to restate the list by hand and would have failed on this tag
+          # exactly as the dev release did, for a file added to the requirement
+          # three commits earlier.
+          bash scripts/package-release.sh --stage-runtime staging
           # Build one daedalus-<os>-<arch>.tar.gz per platform + SHA256SUMS.txt.
           bash scripts/package-release.sh --staging staging --out release-assets --version "$VERSION"
           # Ship a standalone install.sh with the release tag baked in.

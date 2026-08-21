@@ -73,11 +73,11 @@ echo "  Built 7 binaries."
 # ── 2. Stage the shared runtime files ────────────────────────────────────────
 echo ""
 echo "[2/5] Staging runtime files..."
-cp "$REPO_ROOT/claude.json" "$REPO_ROOT/config.json" "$REPO_ROOT/docker-compose.yml" \
-   "$REPO_ROOT/Dockerfile" "$REPO_ROOT/entrypoint.sh" "$REPO_ROOT/settings.json" \
-   "$REPO_ROOT/logo.txt" "$REPO_ROOT/setup.sh" "$STAGING/"
-cp "$REPO_ROOT/scripts/wsl2-network.bat" "$STAGING/"
-echo "  Staged runtime files."
+# The packager owns the list of runtime files and stages them itself. This
+# simulation used to restate the list, which is how it stopped simulating: when
+# daedalus-reclaim.sh joined the requirement, this copy did not, and the
+# rehearsal for the release would have failed in the same place the release did.
+bash "$PACKAGE_SH" --stage-runtime "$STAGING"
 
 # ── 3. Run the packaging script (host platform only) ─────────────────────────
 echo ""

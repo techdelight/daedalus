@@ -84,6 +84,23 @@ All notable changes to this project will be documented in this file.
   carries the old string.
 
 ### Fixed
+- **The release build could not package, because the runtime-file list lived in
+  four places and one of them was the requirement.** `daedalus-reclaim.sh` was
+  added to `package-release.sh`'s `RUNTIME_FILES` and to `setup.sh`, and the
+  three callers that stage those files were not updated — so the dev release
+  failed with `missing runtime file 'staging/daedalus-reclaim.sh'`, the tagged
+  release workflow would have failed identically on the next tag, and
+  `scripts/test-release-bundle.sh` — the local rehearsal that exists to catch
+  exactly this — had stopped rehearsing, because its own copy list was one of the
+  three.
+  - Fixed by removing the duplication rather than adding a fourth copy of the
+    name: `package-release.sh --stage-runtime <dir>` copies what the packager
+    requires out of the repository, and both workflows plus the local simulation
+    call it. A file that is required and absent now fails naming the file and the
+    path it was expected at, before anything is built.
+  - Verified by running the whole chain: `scripts/test-release-bundle.sh` is
+    **26 passed, 0 failed**, including its `daedalus-reclaim.sh installed` check,
+    which could not have passed before.
 - **`docs/m20-verification.md` claimed a surface that did not exist (#87).** Its
   known-gaps list said you could see a Task's programme in its Ledger entry. You
   could not. Corrected and **left recorded rather than edited away**, because that
