@@ -209,6 +209,23 @@ type AmendProgrammeInput struct {
 	Name        string   `json:"name,omitempty" jsonschema:"a new name, if the name is what is wrong"`
 	Description string   `json:"description,omitempty" jsonschema:"what this programme is FOR, restated"`
 	Projects    []string `json:"projects,omitempty" jsonschema:"the full project list, replacing the old one"`
+	// Deps is the declared ORDER between projects. It was missing from the first
+	// version of this tool, which left the agent able to propose which projects a
+	// programme draws on and not the order they go in — an odd half, since
+	// noticing that one project's work has to land before another's is exactly
+	// the cross-project sight this agent exists for.
+	//
+	// It declares a PLAN and gates nothing; what makes a landing wait is a
+	// Task→Task dependency, which is tiered separately and for a stronger reason
+	// (an agent that could declare what must happen before a Task is graded could
+	// declare it satisfied). So proposing an order here cannot become a gate.
+	Deps []ProgrammeEdgeInput `json:"deps,omitempty" jsonschema:"the full declared project order, replacing the old one"`
+}
+
+// ProgrammeEdgeInput is one project→project ordering: downstream follows upstream.
+type ProgrammeEdgeInput struct {
+	Upstream   string `json:"upstream" jsonschema:"the project whose work comes first"`
+	Downstream string `json:"downstream" jsonschema:"the project that follows it"`
 }
 
 // DissolveProgrammeInput names a programme that should stop existing.
@@ -507,23 +524,7 @@ func registerControlTools(server *mcp.Server, api control.TaskAPI) {
 		if err != nil {
 			return errResult(err), OutcomeOutput{}, nil
 		}
-		// Read-then-write, and the read is what makes an omitted field mean "leave
-		// it" instead of "clear it". The window between the two is real but is the
-		// same window every proposal has: what a human confirms is what the agent
-		// proposed, and the plane refuses the result if it has since become invalid.
-		next := control.ProgrammeRequest{
-			Name: cur.Name, Description: cur.Description, Projects: cur.Projects, Deps: cur.Deps,
-		}
-		if strings.TrimSpace(in.Name) != "" {
-			next.Name = in.Name
-		}
-		if strings.TrimSpace(in.Description) != "" {
-			next.Description = in.Description
-		}
-		if in.Projects != nil {
-			next.Projects = in.Projects
-		}
-		if _, err := api.UpdateProgramme(cur.ID, next); err != nil {
+		if _, err := api.UpdateProgramme(cur.ID, mergeProgramme(cur, in)); err != nil {
 			return nil, outcomeFor(err), nil
 		}
 		return nil, OutcomeOutput{Executed: true,
@@ -579,6 +580,43 @@ func registerControlTools(server *mcp.Server, api control.TaskAPI) {
 				return nil, OutcomeOutput{Executed: true, Detail: what + " executed directly"}, nil
 			})
 	}
+}
+
+// mergeProgramme applies an amendment to the programme as it stands, and is the
+// reason an omitted field means "leave it" rather than "clear it".
+//
+// Read-then-write, deliberately, and pure so the rule can be tested: the whole
+// risk in this tool is a caller who wanted to fix a description and silently
+// lost the project list. The window between the read and the human's
+// confirmation is real, and it is the same window every proposal has — what a
+// human confirms is what the agent proposed, and the plane refuses the result if
+// it has since become invalid.
+//
+// An empty slice and an absent one are NOT the same: `[]` clears the list, nil
+// keeps it. That distinction is the whole reason this takes the parsed input
+// rather than a map.
+func mergeProgramme(cur control.Programme, in AmendProgrammeInput) control.ProgrammeRequest {
+	next := control.ProgrammeRequest{
+		Name: cur.Name, Description: cur.Description, Projects: cur.Projects, Deps: cur.Deps,
+	}
+	if strings.TrimSpace(in.Name) != "" {
+		next.Name = in.Name
+	}
+	if strings.TrimSpace(in.Description) != "" {
+		next.Description = in.Description
+	}
+	if in.Projects != nil {
+		next.Projects = in.Projects
+	}
+	if in.Deps != nil {
+		next.Deps = make([]core.DependencyEdge, 0, len(in.Deps))
+		for _, d := range in.Deps {
+			next.Deps = append(next.Deps, core.DependencyEdge{
+				Upstream: d.Upstream, Downstream: d.Downstream,
+			})
+		}
+	}
+	return next
 }
 
 // findProgramme resolves what the agent typed — an id or a name — to a

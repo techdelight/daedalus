@@ -1077,6 +1077,101 @@ func TestEnsureGuildMaster_Idempotent(t *testing.T) {
 	}
 }
 
+// The role doc is refreshed on EVERY ensure, not only at creation.
+//
+// It used to be consulted exactly once in a workspace's life, because
+// EnsureGuildMaster returned early when the project was already registered. So
+// an agent whose tools grew afterwards kept, forever, the instructions that
+// described the tools it had on the day it was made — and the M12 text stated in
+// as many words that controlling anything was "impossible by design".
+func TestEnsureGuildMaster_RefreshesAnUntouchedRoleDoc(t *testing.T) {
+	dir := t.TempDir()
+	reg := NewRegistry(filepath.Join(dir, "projects.json"))
+	if err := reg.Init(); err != nil {
+		t.Fatal(err)
+	}
+	ws := filepath.Join(dir, "projects", core.GuildMasterName)
+	if err := reg.EnsureGuildMaster(ws); err != nil {
+		t.Fatalf("first ensure: %v", err)
+	}
+	rolePath := filepath.Join(ws, "CLAUDE.md")
+
+	// Put an EARLIER version of our own doc back, as an install made before the
+	// control tools existed would have.
+	if err := os.WriteFile(rolePath, []byte(guildMasterRoleDocV1ForTest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.EnsureGuildMaster(ws); err != nil {
+		t.Fatalf("second ensure: %v", err)
+	}
+	got, err := os.ReadFile(rolePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != core.GuildMasterRoleDoc {
+		t.Error("an unedited earlier role doc must be brought up to date")
+	}
+	if GuildMasterRoleDocStale(ws) {
+		t.Error("a refreshed doc must not still report as stale")
+	}
+}
+
+// …and a doc the operator has touched is never overwritten. This is the rule the
+// refresh must not break, so it is asserted rather than assumed: "never clobber
+// user edits" is what makes the workspace safe to keep notes in.
+func TestEnsureGuildMaster_LeavesAnEditedRoleDocAlone(t *testing.T) {
+	dir := t.TempDir()
+	reg := NewRegistry(filepath.Join(dir, "projects.json"))
+	if err := reg.Init(); err != nil {
+		t.Fatal(err)
+	}
+	ws := filepath.Join(dir, "projects", core.GuildMasterName)
+	if err := reg.EnsureGuildMaster(ws); err != nil {
+		t.Fatal(err)
+	}
+	rolePath := filepath.Join(ws, "CLAUDE.md")
+
+	mine := "# Guild Master\n\nMy own instructions. Do not touch.\n"
+	if err := os.WriteFile(rolePath, []byte(mine), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.EnsureGuildMaster(ws); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(rolePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != mine {
+		t.Fatalf("an edited role doc was overwritten:\n%s", got)
+	}
+	// And the one case the refresh cannot fix is reported, so the launch path can
+	// say so. An agent running on instructions that predate its tools is a quiet
+	// failure; this is what makes it a visible one.
+	if !GuildMasterRoleDocStale(ws) {
+		t.Error("a customised doc should report as stale so a human can be told")
+	}
+}
+
+// guildMasterRoleDocV1ForTest is the M12 role doc verbatim. It is duplicated
+// here rather than exported from core: the production copy exists only to be
+// compared against, and exporting it would invite it being written somewhere.
+const guildMasterRoleDocV1ForTest = "# Guild Master\n\n" +
+	"You are the **Guild Master** — Daedalus's read-only programme overseer.\n\n" +
+	"Every other registered project is mounted **read-only** under `/guild/<name>`.\n" +
+	"You can read any project's documents there; you can **never** write another\n" +
+	"project's files. You do not control, dispatch, or launch other agents — that is\n" +
+	"impossible by design and explicitly out of scope. Your job is *visibility*: read\n" +
+	"across the guild and draft programme-level plans and synthesis.\n\n" +
+	"## Tools (the `guild-mcp` server)\n\n" +
+	"- `list_guild_projects` — every project and a one-line status.\n" +
+	"- `read_project_doc` — read a named document (README, VISION, ROADMAP,\n" +
+	"  SPRINTS, ARCHITECTURE, BACKLOG, CHANGELOG, CONTRIBUTING) from a project.\n" +
+	"- `guild_overview` — parsed milestones, sprints, and progress per project.\n\n" +
+	"## Your workspace\n\n" +
+	"`/workspace` is your own writable space. Keep programme-level notes, plans,\n" +
+	"and cross-project synthesis here. Treat `/guild/*` as strictly read-only source.\n"
+
 func TestRemoveProject_RefusesGuildMaster(t *testing.T) {
 	dir := t.TempDir()
 	regFile := filepath.Join(dir, "projects.json")

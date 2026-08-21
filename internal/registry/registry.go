@@ -161,20 +161,24 @@ func (r *Registry) EnsureGuildMaster(workspaceDir string) error {
 		return err
 	}
 	if _, ok := data.Projects[core.GuildMasterName]; ok {
-		return nil // already present — nothing to do
+		// Registered already, so there is nothing to scaffold — but the ROLE DOC is
+		// still checked, and that is the point of not returning here.
+		//
+		// It used to return immediately, which meant the role doc was consulted
+		// exactly once in a workspace's life: at creation. An agent whose tools grew
+		// afterwards kept instructions describing the tools it had on the day it was
+		// made, forever, on every existing install. The M12 text said in as many
+		// words that controlling anything was "impossible by design"; by M21 the
+		// Guild Master could propose a programme.
+		return refreshGuildMasterRoleDoc(workspaceDir)
 	}
 	// First create: scaffold the workspace so `docs lint` passes on it from the
 	// start. force=false leaves any pre-existing files untouched.
 	if _, _, err := core.ScaffoldDocs(workspaceDir, false); err != nil {
 		return fmt.Errorf("scaffolding Guild Master workspace: %w", err)
 	}
-	// Seed the role doc (CLAUDE.md) so the agent knows it is the read-only
-	// programme overseer. Written only if absent — never clobber user edits.
-	rolePath := filepath.Join(workspaceDir, "CLAUDE.md")
-	if _, statErr := os.Stat(rolePath); os.IsNotExist(statErr) {
-		if err := os.WriteFile(rolePath, []byte(core.GuildMasterRoleDoc), 0o644); err != nil {
-			return fmt.Errorf("writing Guild Master role doc: %w", err)
-		}
+	if err := refreshGuildMasterRoleDoc(workspaceDir); err != nil {
+		return err
 	}
 	now := core.NowUTC()
 	data.Projects[core.GuildMasterName] = core.ProjectEntry{
@@ -184,6 +188,49 @@ func (r *Registry) EnsureGuildMaster(workspaceDir string) error {
 		LastUsed:  now,
 	}
 	return r.write(data)
+}
+
+// refreshGuildMasterRoleDoc keeps the Guild Master's CLAUDE.md describing the
+// tools it actually has.
+//
+// THE RULE IT MUST NOT BREAK is "never clobber user edits", and it does not:
+// a doc is replaced only when it matches a version Daedalus itself wrote, byte
+// for byte. Such a file contains nothing of anybody's, so replacing it destroys
+// nothing. Anything else is the operator's document and is left exactly as it is
+// — reported by GuildMasterRoleDocStale so the human launch path can say so,
+// because an agent running on instructions that predate its tools is a quiet
+// failure, not a visible one.
+func refreshGuildMasterRoleDoc(workspaceDir string) error {
+	rolePath := filepath.Join(workspaceDir, "CLAUDE.md")
+	existing, err := os.ReadFile(rolePath)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return fmt.Errorf("reading Guild Master role doc: %w", err)
+		}
+		if err := os.WriteFile(rolePath, []byte(core.GuildMasterRoleDoc), 0o644); err != nil {
+			return fmt.Errorf("writing Guild Master role doc: %w", err)
+		}
+		return nil
+	}
+	if core.ClassifyGuildMasterRoleDoc(string(existing)) != core.RoleDocOutdated {
+		return nil // current, or the user's own — either way, hands off
+	}
+	if err := os.WriteFile(rolePath, []byte(core.GuildMasterRoleDoc), 0o644); err != nil {
+		return fmt.Errorf("updating Guild Master role doc: %w", err)
+	}
+	return nil
+}
+
+// GuildMasterRoleDocStale reports whether the workspace's CLAUDE.md is a
+// customised doc that predates the current one — the only case refresh cannot
+// fix, and therefore the only one worth telling a human about. A missing file,
+// a current one, or one that was refreshed all answer false.
+func GuildMasterRoleDocStale(workspaceDir string) bool {
+	existing, err := os.ReadFile(filepath.Join(workspaceDir, "CLAUDE.md"))
+	if err != nil {
+		return false
+	}
+	return core.ClassifyGuildMasterRoleDoc(string(existing)) == core.RoleDocCustom
 }
 
 // RenameProject changes a project's registry key from oldName to newName.

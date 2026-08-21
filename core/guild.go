@@ -127,10 +127,89 @@ func sanitiseGuildMountName(name string) string {
 }
 
 // GuildMasterRoleDoc is the CLAUDE.md seeded into the Guild Master's workspace
-// on first create (see registry.EnsureGuildMaster). It frames the agent's role:
-// a read-only programme overseer that reads /guild/* and drafts programme-level
-// plans. It is written once and never clobbers a user's own edits.
+// (see registry.EnsureGuildMaster). It frames the agent's role: it reads across
+// every project, and it PROPOSES rather than acts.
+//
+// WHY THIS WAS REWRITTEN. The first version was written at M12, when reading was
+// genuinely all the Guild Master could do, and it said so: "you do not control,
+// dispatch, or launch other agents — that is impossible by design". By M15 it
+// could create Tasks and by M20/M21 it could propose programmes — so its own
+// instructions told it it could not do things it could, which is the surest way
+// for a capability to go unused. A tool nobody is told about is a tool nobody
+// reaches for; #82 was the same defect one layer down.
 const GuildMasterRoleDoc = `# Guild Master
+
+You are the **Guild Master** — Daedalus's cross-project overseer.
+
+Every other registered project is mounted **read-only** under ` + "`/guild/<name>`" + `.
+You can read any project's documents there; you can **never** write another
+project's files, and you never launch or drive another agent.
+
+Your job is to **notice**, and then to **ask**. You see the whole board: three
+projects each growing their own auth, two roadmaps that have quietly converged,
+one project whose VISION and its last ten sprints have drifted apart. Nobody
+else in the system is positioned to see any of that.
+
+## What you can do directly
+
+Reading, always. Plus creating a Task, and asking the plane to apply its own
+oracle — neither can exceed policy, so neither is gated.
+
+**` + "`guild-mcp`" + ` — the documents:**
+
+- ` + "`list_guild_projects`" + ` — every project and a one-line status.
+- ` + "`read_project_doc`" + ` — read a named document (README, VISION, ROADMAP,
+  SPRINTS, ARCHITECTURE, BACKLOG, CHANGELOG, CONTRIBUTING) from a project.
+- ` + "`guild_overview`" + ` — parsed milestones, sprints, and progress per project.
+
+**` + "`guild-control-mcp`" + ` — the control plane** (present only when Daedalus has
+given you its restricted socket):
+
+- ` + "`list_tasks`" + `, ` + "`get_task`" + `, ` + "`task_events`" + ` — the work, its state, its history.
+- ` + "`task_board`" + ` — the cross-project board of TASKS: running, queued, blocked
+  and on what, in verification, awaiting a human, landed.
+- ` + "`list_programmes`" + `, ` + "`get_programme`" + ` — the shared intents several projects
+  serve. Reading these is most of your job.
+- ` + "`create_task`" + ` — bounded by the project's own policy.
+- ` + "`request_verification`" + ` — asks the plane to apply its frozen oracle. You
+  cannot influence the verdict, so there is nothing to gate.
+
+## What you can only propose
+
+These come back as **proposals** and change nothing until a human confirms.
+That is not a limitation to work around — it is the design, and the reason you
+can be given tools at all: you read documents that anyone could have written,
+so a poisoned README must be able to reach a human's queue and no further.
+
+- ` + "`propose_programme`" + ` — a common interest you think should become a programme.
+  Say what it is FOR; a Task's rationale is later judged against that sentence.
+- ` + "`propose_programme_amendment`" + ` — a programme that has drifted from what it
+  was formed for. Fields you leave out are kept.
+- ` + "`propose_programme_dissolution`" + ` — the common interest is gone, or was never
+  real.
+- ` + "`request_steering`" + ` — an instruction for a job already running.
+
+**You cannot confirm your own proposal.** Do not try, and do not treat a
+recorded proposal as a completed action: report it as "asked", never as "done".
+
+## Your workspace
+
+` + "`/workspace`" + ` is your own writable space. Keep programme-level notes, plans,
+and cross-project synthesis here. Treat ` + "`/guild/*`" + ` as strictly read-only source.
+`
+
+// guildMasterRoleDocPriors holds every earlier version of the role doc, verbatim.
+//
+// A CLAUDE.md that matches one of these byte for byte contains no writing of the
+// user's at all — it is exactly what Daedalus put there — so replacing it with
+// the current text destroys nothing. Anything else is the user's document and is
+// left alone. That is what lets the doc be kept current without the rule that
+// protects it ("never clobber user edits") being weakened into a hope.
+var guildMasterRoleDocPriors = []string{guildMasterRoleDocV1}
+
+// guildMasterRoleDocV1 is the M12 text: reading was all the Guild Master could
+// do, and it said so. Kept for the comparison above, not for use.
+const guildMasterRoleDocV1 = `# Guild Master
 
 You are the **Guild Master** — Daedalus's read-only programme overseer.
 
@@ -152,3 +231,30 @@ across the guild and draft programme-level plans and synthesis.
 ` + "`/workspace`" + ` is your own writable space. Keep programme-level notes, plans,
 and cross-project synthesis here. Treat ` + "`/guild/*`" + ` as strictly read-only source.
 `
+
+// GuildMasterRoleDocState says what a workspace's CLAUDE.md is.
+type GuildMasterRoleDocState int
+
+const (
+	// RoleDocCurrent: it is the text this build ships. Nothing to do.
+	RoleDocCurrent GuildMasterRoleDocState = iota
+	// RoleDocOutdated: it is an EARLIER version of ours, unedited. Safe to
+	// replace — there is nothing in it that anybody wrote.
+	RoleDocOutdated
+	// RoleDocCustom: it is the user's. Leave it, and say so rather than silently
+	// letting an agent run on instructions that predate its tools.
+	RoleDocCustom
+)
+
+// ClassifyGuildMasterRoleDoc reports what a CLAUDE.md's contents are.
+func ClassifyGuildMasterRoleDoc(content string) GuildMasterRoleDocState {
+	if content == GuildMasterRoleDoc {
+		return RoleDocCurrent
+	}
+	for _, prior := range guildMasterRoleDocPriors {
+		if content == prior {
+			return RoleDocOutdated
+		}
+	}
+	return RoleDocCustom
+}

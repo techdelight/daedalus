@@ -128,6 +128,22 @@ phase_static() {
     [[ -z "$missing" ]] && pass "guild-control-mcp registers every programme tool, and the board is task_board" \
         || fail "guild-control-mcp is missing:$missing"
 
+    # An amendment must be able to carry the declared ORDER as well as the
+    # membership. The first version of the tool could not, which left the agent
+    # able to propose which projects a programme draws on and not which goes
+    # first — and noticing exactly that is what cross-project sight is for.
+    grep -q 'Deps \[\]ProgrammeEdgeInput' "$mcp_src" \
+        && pass "an amendment can propose the declared project order, not only the membership" \
+        || fail "AmendProgrammeInput carries no deps"
+
+    # The role doc has to describe the tools above, or the agent is told it
+    # cannot do what it can. The M12 text said controlling anything was
+    # "impossible by design", which stopped being true at M15.
+    grep -q 'propose_programme' "$REPO_ROOT/core/guild.go" \
+        && grep -q 'task_board' "$REPO_ROOT/core/guild.go" \
+        && pass "the seeded role doc names the control tools the agent actually holds" \
+        || fail "core.GuildMasterRoleDoc does not mention the control tools"
+
     hdr "the plane's two sockets"
     local proj="$WORK/proj"; new_git_repo "$proj"; register demo "$proj"
     dae task list >/dev/null 2>&1   # auto-spawns daedalus-control

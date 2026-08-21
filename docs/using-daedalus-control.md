@@ -781,6 +781,16 @@ claim to be human, and the tiers are:
 | Consequential | dispatch, retry, replan, cancel, integrate, approve/reject, target resync, **declare a dependency**, **steer or withdraw a steer**, **form / amend / dissolve a programme** | gets a **proposal**, not an action |
 | Human-only | confirming or denying a proposal | is refused |
 
+**The Guild Master is told about all of this.** Its workspace `CLAUDE.md` is
+seeded with a role doc describing what it may do directly and what it may only
+propose. That doc used to be written once, at workspace creation, and said
+(truthfully, at M12) that controlling anything was *"impossible by design"* — so
+an agent whose tools grew afterwards kept instructions describing the tools it
+had on the day it was made. It is refreshed on every launch now, **but only when
+it is untouched**: a `CLAUDE.md` you have edited is left exactly as it is, and
+`daedalus guild-master` prints a note saying it may predate the control tools.
+If you have customised yours, compare it against `core.GuildMasterRoleDoc`.
+
 Two of those may look over-restricted until you consider the attack: a
 **dependency edge** decides what must happen before a Task is graded, so an agent
 that could declare its own edges could declare them satisfied; and **steering**

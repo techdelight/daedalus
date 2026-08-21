@@ -84,6 +84,42 @@ All notable changes to this project will be documented in this file.
   carries the old string.
 
 ### Fixed
+- **The Guild Master's own instructions said it could not do what it can.** The
+  role doc seeded into its workspace (`core.GuildMasterRoleDoc`) was written at
+  M12, when reading really was all it could do, and it stated that controlling or
+  dispatching anything was *"impossible by design and explicitly out of scope"*.
+  That stopped being true at M15 (it can create Tasks) and again at M20/M21 (it
+  can propose programmes). **A tool an agent is told it does not have is a tool it
+  will not reach for**, which is #82's defect one layer up: the capability was
+  wired and the thing that would make it get used was not.
+  - Rewritten around what it can do **directly** (read the guild, read the
+    programmes and the board, create a bounded Task, ask the plane to apply its
+    own oracle) and what it can only **propose**, with the reason the split
+    exists stated rather than implied — it reads documents anyone could have
+    written, so a poisoned README must reach a human's queue and go no further.
+    It is also told not to report a recorded proposal as a completed action.
+  - **The doc was only ever consulted once in a workspace's life.**
+    `EnsureGuildMaster` returned early when the project was already registered,
+    so on every existing install the role doc was frozen at whatever shipped the
+    day the workspace was made. It now refreshes on every ensure.
+  - **"Never clobber user edits" is kept, and is now checkable rather than
+    hoped for.** A `CLAUDE.md` is replaced only when it matches a version
+    Daedalus itself wrote, byte for byte — such a file contains nothing of
+    anybody's. Anything else is the operator's and is left exactly as it is, and
+    `daedalus guild-master` says so on launch, because an agent running on
+    instructions that predate its tools is otherwise a silent failure. Both
+    directions are pinned by tests and the refresh verified by reverting.
+- **The Guild Master could propose a programme's membership but not its order.**
+  `propose_programme_amendment` took a name, a description and a project list and
+  not `deps` — so it could say which projects a programme draws on and not which
+  of them has to land first, which is an odd half given that noticing exactly
+  that is what cross-project sight is for. Added, as `deps`, and it stays
+  declarative: it plans and gates nothing, so an agent proposing an order can
+  never produce a gate. The merge is now a pure `mergeProgramme` with the **first
+  tests this command has ever had**, covering the case that can destroy
+  something: an omitted field is kept, an explicit empty list clears, and
+  whitespace is not a name.
+
 - **The release build could not package, because the runtime-file list lived in
   four places and one of them was the requirement.** `daedalus-reclaim.sh` was
   added to `package-release.sh`'s `RUNTIME_FILES` and to `setup.sh`, and the
