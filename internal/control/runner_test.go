@@ -258,7 +258,13 @@ func TestCoordinatorRunner_TellsTheJobItsGitIsReadOnly(t *testing.T) {
 		t.Fatal("the prompt is the bare objective: a Job is never told that git here is read-only, " +
 			"so an agent meeting a permission error has no way to know it is deliberate")
 	}
-	for _, want := range []string{"READ-ONLY", "do not need to commit", "/workspace"} {
+	// The third fact is the one a Task learned the expensive way: a repo-split Job
+	// spent its whole attempt discovering it had no credentials and then delivered
+	// a plan, which looks like a result until somebody reads it.
+	for _, want := range []string{
+		"READ-ONLY", "do not need to commit", "/workspace",
+		"cannot reach a git remote", "STOP AND SAY SO", "handoff document",
+	} {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("the environment note does not mention %q:\n%s", want, prompt)
 		}

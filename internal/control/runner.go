@@ -31,10 +31,6 @@ type JobSpec struct {
 	// that cannot honour it simply leaves no file, which is how the caller tells
 	// that there is nothing to point at. See JobLogPath.
 	LogPath string
-	// RemoteAccess is true when the HOST-SIDE policy grants this project's Jobs
-	// the credentials to reach a git remote (#83). Resolved by the Service from a
-	// file no agent and no checkout can edit; the runner only acts on it.
-	RemoteAccess bool
 }
 
 // RunOutcome is how a headless Job ended — the "how it ended" axis (§5), distinct
@@ -144,7 +140,20 @@ func openJobLog(path string) (*os.File, error) {
 // jobEnvironmentNote is what a Job is told about the room it is working in.
 //
 // It exists because the alternative to saying this is letting the agent find it
-// out by failing. Git in a Job container is READ-ONLY (core/gitworktree.go): the
+// out by failing — and the third point was added after watching exactly that.
+// A repository-split Task spent its whole attempt discovering there were no
+// credentials, then delivered a patch file and a handoff document: a plan for a
+// human, which is not a smaller version of the work but a different thing
+// entirely, and which looks like a result until somebody reads it. Stating the
+// limit up front costs one paragraph and converts that into a refusal in the
+// first minute.
+//
+// It is a STATEMENT, not a setting. Giving a Job container credentials was built
+// and then removed: a container with the network, an untrusted objective and a
+// push-capable key is the wrong trade, and gating it behind a per-project policy
+// file solved that by making the operator maintain configuration — which is the
+// opposite of what this tool is for. A Job cannot reach a remote. That is the
+// design, so the design says it. Git in a Job container is READ-ONLY (core/gitworktree.go): the
 // repository is mounted so history and diffs can be read, and writes are refused
 // by the kernel. An agent that reaches for `git commit` gets a permission error
 // out of nowhere, and the observed response to an unexplained broken git is to
@@ -166,6 +175,15 @@ worktree mounted at /workspace. Two things about this environment:
 2. You do not need to commit. When this Job ends the control plane commits your
    working tree itself, on the host, and that commit is the artifact it grades.
    Leave the files as you want them and stop.
+3. You cannot reach a git remote. There are no credentials here: you cannot
+   push, clone a private repository, or create one. This is a property of the
+   system, not a fault to route around.
+
+If the objective needs something in point 3, STOP AND SAY SO IMMEDIATELY, in one
+paragraph, naming what it is you cannot do. Do not produce a patch file, a
+handoff document or a plan for a human to carry out instead — that is not a
+smaller version of the task, it is a different deliverable, and it wastes the
+attempt while looking like a result.
 
 Your objective follows.
 
@@ -233,13 +251,6 @@ func (r CoordinatorRunner) Run(ctx context.Context, spec JobSpec) RunOutcome {
 	// Job exits 1 within seconds on "Not logged in", which is precisely what
 	// happened on the first real host to run one. See jobhome.go.
 	seedJobHomeOrWarn(r.DataDir, spec.Project, name)
-	// And, only where the operator has written it down, the means to push.
-	// Without this a Job can produce work and cannot publish it — which is how a
-	// repository-split Task came back as a handoff document and a patch file
-	// rather than as the split (#83).
-	if spec.RemoteAccess {
-		seedRemoteAccessOrWarn(r.DataDir, spec.Project, name)
-	}
 	// This Job's own log, opened BEFORE the run and closed after it. Opening it
 	// eagerly is what makes the file's existence mean "the tee was wired": the
 	// caller records the path only when the file is there, so an open failure

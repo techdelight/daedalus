@@ -132,26 +132,27 @@ All notable changes to this project will be documented in this file.
     them would only make people invent programmes to satisfy a field.
 
 ### Added
-- **A Job can reach a git remote, if you say so (#83).** A Job container had no
-  git credentials at all — `jobHomeSeedFiles` is an allow-list of Claude
-  credentials and nothing else — so a Task whose objective required a `push`
-  produced the work and stopped, reporting it as its own inability rather than as
-  a missing capability. **The reviewer found this, not the plane**: T-13's blocking
-  finding was *"the entire deliverable is a patch file plus a plan"*.
-  - **Opt-in per project**, in the host-side `budgets.json` — the same file as
-    budgets and the approval gate, and for the same reason: a project that could
-    grant itself a push-capable key by committing a file would not be governed.
-  - **Fails closed twice.** No policy source is no; a policy source that predates
-    the question is also no, because a fake written before the question existed
-    must not be made to answer it.
-  - A **narrow** allow-list (`id_ed25519`, `id_rsa`, their public halves,
-    `known_hosts`) at 0600 in a 0700 home — not all of `~/.ssh`, which holds keys
-    for unrelated machines, and not `config`, which can name hosts and forwardings
-    nobody meant to share. Granted-but-nothing-to-copy is an error, not a silent
-    success.
-  - The honest limit is documented rather than implied: **it does not scope the
-    key to one repository**, because ssh has no such notion. A deploy key is the
-    operator's tool for that.
+- **A Job is told what it cannot do, instead of discovering it (#83).** A Job
+  container has no git credentials — it cannot push, clone a private repository,
+  or create one — and until now nothing said so. A repository-split Task spent its
+  whole attempt finding that out and then delivered a patch file and a handoff
+  document: a plan for a human, which is not a smaller version of the work but a
+  different deliverable, and which looks like a result until somebody reads it.
+  The Job's prompt now states the limit and says to stop and report rather than
+  route around it. One paragraph; buys a refusal in the first minute instead of a
+  wasted attempt.
+  - **A credential-granting fix was built and then removed the same day**, and the
+    removal is the part worth recording. It seeded SSH material per project,
+    opt-in, from the host-side policy file. Two things were wrong: a container with
+    the network, an untrusted objective and a push-capable key is a bad trade
+    whatever gates it — ssh cannot scope a key to one repository — and the gating
+    itself answered a capability question with a **per-project configuration
+    file**, in a tool whose whole purpose is to remove administrative work. A knob
+    that must be maintained for every project is not a smaller cost than the
+    missing feature; here it is a larger one.
+  - If it is ever revisited: a **deploy key** scoped to one repository, or the
+    plane pushing on the Job's behalf after verification. Never a general
+    credential in the container.
 - **The second reading is recorded** in `docs/control-plane.md`, and it is the one
   that makes the case the first could not. On the same artifact, the oracle
   rejected T-13 for pre-existing errors in a file the Task never opened, while the

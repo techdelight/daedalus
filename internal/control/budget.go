@@ -233,17 +233,6 @@ type PolicySource interface {
 	RequiresApproval(project string) bool
 }
 
-// remoteAccessSource is an OPTIONAL capability of a PolicySource (#83).
-//
-// Optional rather than part of PolicySource so that a source which has never
-// heard of remote access answers the only safe answer by not answering: the
-// assertion fails and the plane says no. Adding it to the interface would have
-// forced every fake to make a decision about a question it has no opinion on,
-// and a fake written before the question existed would have had to be given one.
-type remoteAccessSource interface {
-	RemoteAccessFor(project string) bool
-}
-
 // BudgetPolicy is the on-disk, HOST-SIDE budget configuration: a default
 // envelope plus per-project overrides.
 //
@@ -270,11 +259,6 @@ type BudgetPolicy struct {
 	// cannot edit — and because an operator should find all of it in one place.
 	// Absent means opt-out: governance stays opt-in per §9.
 	Approval ApprovalPolicy `json:"approval,omitempty"`
-	// RemoteAccess declares which projects' Jobs may reach a git remote (#83).
-	// Same file, same reason: a project that could grant itself a push-capable
-	// key by committing a file would not be governed at all. Absent means NO,
-	// which is the answer that has to be proven rather than assumed.
-	RemoteAccess RemoteAccessPolicy `json:"remoteAccess,omitempty"`
 	// Concurrency is the scheduler's global and per-project limits (Sprint 61).
 	// Absent keeps DefaultSchedulerLimits — one Job per project, as before — so
 	// lifting the invariant changes what the plane CAN do without changing what an
@@ -308,29 +292,6 @@ func (p BudgetPolicy) BudgetFor(project string) Budget {
 		return override.withDefaults(base).sanitized(DefaultBudget())
 	}
 	return base.sanitized(DefaultBudget())
-}
-
-// RemoteAccessPolicy declares which projects' Jobs are given SSH material, and so
-// may push. Off unless written down: a Job container has the network and runs an
-// untrusted objective, and a key in it can write to every host that key reaches.
-type RemoteAccessPolicy struct {
-	// Default applies to any project without an explicit entry.
-	Default bool `json:"default"`
-	// Projects overrides the default per project.
-	Projects map[string]bool `json:"projects,omitempty"`
-}
-
-// AllowedFor reports whether a project's Jobs may reach a git remote.
-func (p RemoteAccessPolicy) AllowedFor(project string) bool {
-	if v, ok := p.Projects[project]; ok {
-		return v
-	}
-	return p.Default
-}
-
-// RemoteAccessFor implements the same lookup on the whole policy.
-func (p BudgetPolicy) RemoteAccessFor(project string) bool {
-	return p.RemoteAccess.AllowedFor(project)
 }
 
 // LoadBudgetPolicy reads a BudgetPolicy from path. A missing file is not an
