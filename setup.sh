@@ -184,7 +184,7 @@ if [[ "$UNINSTALL" == true ]]; then
         rm -rf "$VERSIONS_DIR"
         echo "  Removed all installed versions."
     fi
-    for f in "${BINARIES[@]}" setup.sh "${RUNTIME_FILES[@]}"; do
+    for f in "${BINARIES[@]}" setup.sh daedalus-reclaim.sh "${RUNTIME_FILES[@]}"; do
         rm -f "$PREFIX/$f"
     done
     echo "  Removed binaries and runtime files."
@@ -228,7 +228,7 @@ if [[ -f "$PREFIX/daedalus" && ! -L "$PREFIX/daedalus" ]]; then
     echo ""
     echo "Migrating legacy flat install ($OLD_VERSION) into $LEGACY_DIR..."
     mkdir -p "$LEGACY_DIR"
-    for f in "${BINARIES[@]}" setup.sh "${RUNTIME_FILES[@]}"; do
+    for f in "${BINARIES[@]}" setup.sh daedalus-reclaim.sh "${RUNTIME_FILES[@]}"; do
         if [[ -e "$PREFIX/$f" && ! -L "$PREFIX/$f" ]]; then
             mv "$PREFIX/$f" "$LEGACY_DIR/$f"
         fi
@@ -319,6 +319,14 @@ fi
 SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 cp "$SELF" "$VERSION_DIR/setup.sh"
 chmod 755 "$VERSION_DIR/setup.sh"
+
+# daedalus-reclaim.sh clears what earlier versions left behind (orphaned compose
+# networks, superseded images, old payloads). Conditional because archives built
+# before it existed do not carry it, and a missing extra must not fail an install.
+if [[ -f "$WORK_DIR/daedalus-reclaim.sh" ]]; then
+    cp "$WORK_DIR/daedalus-reclaim.sh" "$VERSION_DIR/daedalus-reclaim.sh"
+    chmod 755 "$VERSION_DIR/daedalus-reclaim.sh"
+fi
 
 for f in "${RUNTIME_FILES[@]}"; do
     # config.json is written separately with merged settings.

@@ -72,6 +72,7 @@ RUNTIME_FILES=(
     settings.json
     logo.txt
     setup.sh
+    daedalus-reclaim.sh
     wsl2-network.bat
 )
 

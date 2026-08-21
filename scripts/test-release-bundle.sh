@@ -99,6 +99,7 @@ config.json
 daedalus
 daedalus-control
 daedalus-coordinator
+daedalus-reclaim.sh
 daedalus-runner
 docker-compose.yml
 entrypoint.sh
@@ -112,7 +113,7 @@ skill-catalog-mcp
 wsl2-network.bat"
 ACTUAL_ENTRIES="$(tar -tzf "$DIST/$ARCHIVE_NAME" | LC_ALL=C sort)"
 if [ "$EXPECTED_ENTRIES" = "$ACTUAL_ENTRIES" ]; then
-    pass "archive contains exactly the expected 17 flat entries"
+    pass "archive contains exactly the expected 18 flat entries"
 else
     fail "archive contents differ from expected"
     echo "    --- expected ---"; echo "$EXPECTED_ENTRIES" | sed 's/^/      /'
@@ -146,6 +147,7 @@ check_file "settings.json installed"                "$PREFIX/current/settings.js
 check_file "logo.txt installed"                     "$PREFIX/current/logo.txt"
 check_file "config.json installed"                  "$PREFIX/current/config.json"
 check_file "setup.sh installed"                      "$PREFIX/current/setup.sh"
+check_exec "daedalus-reclaim.sh installed"          "$PREFIX/current/daedalus-reclaim.sh"
 
 # Symlink created in the (fake) home, pointing through `current`.
 LINK="$FAKE_HOME/.local/bin/daedalus"

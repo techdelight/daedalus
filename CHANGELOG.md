@@ -4,6 +4,28 @@ All notable changes to this project will be documented in this file.
 
 ## [0.54.0] - 2026-08-18
 
+### Added
+- **`daedalus-reclaim.sh` — clears what earlier versions left behind.** The three
+  leaks fixed below stop *accumulation*; they do nothing about what has already
+  piled up, and the host that prompted all this was carrying 21 orphaned networks
+  before any of them landed. This is the one-off cleanup, and it ships with the
+  payload so it is present on the machine that needs it
+  (`$PREFIX/current/daedalus-reclaim.sh`).
+  - **Reports by default and deletes nothing without `--apply`.** Every section
+    lists what it would remove before removing it.
+  - Reclaims, with `--apply`: orphaned compose networks from superseded installs
+    (matched by compose project label, skipping the live project and anything with
+    a container attached); leftover `daedalus-job-*` / `daedalus-review-*` homes
+    whose container is no longer running — **these can hold a copy of the
+    project's credentials**, so they are worth clearing beyond the disk; and old
+    installed versions, delegated to `daedalus version prune` rather than
+    reimplementing the one rule that must not be got wrong.
+  - Opt-in, each for a stated reason: `--images` sweeps dangling images and says
+    plainly that **this one is not daedalus-scoped** — an untagged image carries
+    nothing identifying who built it, so the tool does not pretend it can tell;
+    `--logs-older-than DAYS` reclaims job/review logs, because retention is a
+    decision and a job log is the only account of what an agent did (#77(c)).
+
 ### Fixed
 - **A rebuild no longer strands the image it replaced.** `Config.Image()` is a
   constant tag per runner+target, so every `docker build -t` retagged it and left
