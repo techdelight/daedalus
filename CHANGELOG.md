@@ -4,6 +4,37 @@ All notable changes to this project will be documented in this file.
 
 ## [0.54.0] - 2026-08-18
 
+### Fixed
+- **Every upgrade leaked a Docker network, until nothing could start at all.**
+  The coordinator ran `docker compose -f <file> run` without `-p`, so compose
+  named the project after the directory holding the compose file — and `setup.sh`
+  installs one payload per version at `$PREFIX/versions/<version>/`. A dev build's
+  version is a timestamp, so **every install minted a new compose project and a
+  new `<project>_default` network, and nothing ever removed them.**
+  - Measured on the operator's host: **21 orphaned `dev_*_default` networks**,
+    which with the rest exhausted Docker's default address pools (`172.16.0.0/12`
+    in /16s plus `192.168.0.0/16` in /20s — roughly 31 bridge networks). Every
+    project then failed to start with `all predefined address pools have been
+    fully subnetted`, and the coordinator retried every 16 seconds indefinitely.
+  - **The error named a network and said nothing about daedalus**, so it read as
+    a Docker problem or as a problem with whichever project happened to be opened
+    when it tipped over — which is exactly how it presented: "why is the langlearn
+    project not starting".
+  - Both compose call sites now pin `-p daedalus` (`core.ComposeProject`). It
+    costs nothing — the container name is passed explicitly with `--name`, so the
+    project name governs only network and volume naming — and it makes the leak
+    structurally impossible, because there is now one project for every version
+    that will ever be installed.
+  - **Existing installs need one cleanup:** `docker network prune -f` removes the
+    orphans (running containers keep theirs). New installs cannot accumulate them.
+  - Pinned by two tests, both verified by reverting. The one that carries the
+    argument asserts the property rather than the string: the same argv must come
+    out for two different install directories, so it fails if `-p` is dropped
+    *and* if the project name is ever derived from something that moves.
+  - This is the second resource-exhaustion bug of the same shape in three days,
+    after the PID leak fixed in `030e659` — a per-run resource leaked silently
+    until the host hit a ceiling, surfacing as an unrelated-looking failure.
+
 ### Changed
 - **A verify verdict is now a statement about the change, not about the
   repository.** When a project check fails against the artifact, the clean

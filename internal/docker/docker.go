@@ -87,7 +87,10 @@ func (d *Docker) ComposeRun(containerName string, env map[string]string, claudeA
 // ComposeRunCommand returns the full docker compose command as a slice.
 // Env vars for compose interpolation are supplied separately by ComposeRun.
 func (d *Docker) ComposeRunCommand(containerName string, claudeArgs []string, extraArgs []string) []string {
-	args := []string{"docker", "compose", "-f", d.ComposeFile, "run", "--rm", "--name", containerName}
+	// -p for the same reason as the coordinator's: an unpinned project name is
+	// derived from the versioned install directory and leaks a network per
+	// upgrade. See core.ComposeProject.
+	args := []string{"docker", "compose", "-p", core.ComposeProject, "-f", d.ComposeFile, "run", "--rm", "--name", containerName}
 	args = append(args, extraArgs...)
 	args = append(args, "claude")
 	args = append(args, claudeArgs...)

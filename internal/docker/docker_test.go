@@ -127,7 +127,7 @@ func TestComposeRun(t *testing.T) {
 	}
 
 	args := strings.Join(call.Args, " ")
-	if !strings.Contains(args, "compose -f /path/to/compose.yml run --rm --name claude-run-myapp") {
+	if !strings.Contains(args, "compose -p "+core.ComposeProject+" -f /path/to/compose.yml run --rm --name claude-run-myapp") {
 		t.Errorf("unexpected compose command: %s", args)
 	}
 	if !strings.Contains(args, "claude --resume abc123") {

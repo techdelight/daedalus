@@ -217,11 +217,11 @@ func TestStart_PassesRunnerEnv(t *testing.T) {
 	// classic path and the runner socket never appears — the exact bug
 	// this guards against.
 	want := map[string]bool{
-		"DAEDALUS_RUNNER=1":                                  false,
+		"DAEDALUS_RUNNER=1": false,
 		"DAEDALUS_SOCKET=/home/claude/.daedalus/runner.sock": false,
-		"DAEDALUS_DEBUG=1":                                   false,
-		"DAEDALUS_RESUME=abc123":                             false,
-		"DAEDALUS_PROMPT=fix the bug":                        false,
+		"DAEDALUS_DEBUG=1":            false,
+		"DAEDALUS_RESUME=abc123":      false,
+		"DAEDALUS_PROMPT=fix the bug": false,
 	}
 	for i, a := range capturedArgs {
 		if a == "-e" && i+1 < len(capturedArgs) {
@@ -563,5 +563,51 @@ func TestStart_RealUnixSocketSatisfiesWait(t *testing.T) {
 
 	if _, err := c.Start(cfg); err != nil {
 		t.Fatalf("Start: %v", err)
+	}
+}
+
+// TestStart_PinsTheComposeProject.
+//
+// The coordinator is the path every launch takes, so this is where the leak
+// actually bit. Without -p, compose derives the project from the directory
+// holding the compose file — the VERSIONED install dir — and each upgrade brings
+// a new `<project>_default` network that nothing removes. 21 of them exhausted
+// Docker's address pools on the operator's host and every project stopped
+// starting. See core.ComposeProject.
+func TestStart_PinsTheComposeProject(t *testing.T) {
+	cfg := configFor(t, "my-app")
+	exec := newSpyExec()
+	exec.onRunWithEnv = func(_ []string, _ string, _ ...string) {
+		touchSocket(t, cfg.RunnerSocketPath())
+	}
+	c := newTestCoordinator(t, exec)
+
+	if _, err := c.Start(cfg); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	// Start's FIRST docker call is the stale-container reap (`docker rm`), so the
+	// compose invocation has to be picked out rather than assumed.
+	var compose []string
+	for _, call := range exec.FindCalls("docker") {
+		if len(call.Args) > 0 && call.Args[0] == "compose" {
+			compose = call.Args
+		}
+	}
+	if compose == nil {
+		t.Fatal("no `docker compose` call")
+	}
+	var project string
+	for i, a := range compose {
+		if a == "run" {
+			break // -p after the subcommand would be a different flag entirely
+		}
+		if a == "-p" && i+1 < len(compose) {
+			project = compose[i+1]
+		}
+	}
+	if project != core.ComposeProject {
+		t.Errorf("compose project = %q, want %q — an unpinned project leaks a network per install: %v",
+			project, core.ComposeProject, compose)
 	}
 }

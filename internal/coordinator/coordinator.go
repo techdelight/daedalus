@@ -200,7 +200,11 @@ func (c *Coordinator) Start(cfg *core.Config) (*Session, error) {
 	// out). The coordinator owns the container lifecycle itself instead:
 	// Stop removes it, and the stale-container reap above clears any
 	// leftover before the next Start.
-	args := []string{"compose", "-f", c.composeFile, "run", "--detach"}
+	// -p pins the compose project. Without it compose names the project after the
+	// directory holding the compose file — which is the VERSIONED install dir — so
+	// every upgrade minted a new project and leaked its `_default` network until
+	// Docker ran out of subnets and nothing could start. See core.ComposeProject.
+	args := []string{"compose", "-p", core.ComposeProject, "-f", c.composeFile, "run", "--detach"}
 	// The DAEDALUS_* vars must reach the CONTAINER, so they are -e flags,
 	// not process env: docker-compose.yml interpolates none of them, so
 	// composeEnv alone would leave the entrypoint on the classic path.

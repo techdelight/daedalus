@@ -97,6 +97,30 @@ func (c *Config) BuildTarget() string {
 // don't collide with a production install.
 const DefaultContainerPrefix = "claude-run-"
 
+// ComposeProject is the docker-compose project name every invocation runs
+// under. It is pinned rather than derived, and that is the whole point.
+//
+// Compose defaults the project name to the basename of the directory holding
+// the compose file. setup.sh installs one full payload per version at
+// $PREFIX/versions/<version>/docker-compose.yml, and a dev build's version is a
+// timestamp (`dev_20260821134040`), so an UNPINNED project name changes with
+// every install — and compose creates a fresh `<project>_default` network for
+// each one and never removes it.
+//
+// Measured on the operator's host, 2026-08-21: 21 orphaned `dev_*_default`
+// networks, which with the rest exhausted Docker's default address pools
+// (172.16.0.0/12 in /16s plus 192.168.0.0/16 in /20s — roughly 31 bridge
+// networks). Every project then failed to start with "all predefined address
+// pools have been fully subnetted", and the coordinator retried forever. The
+// error named a network and said nothing about daedalus, so it read as a Docker
+// problem, or as a problem with whichever project was being opened at the time.
+//
+// Pinning costs nothing: the container name is passed explicitly with --name,
+// so the project name governs only network and volume naming. What it buys is
+// that upgrading cannot leak a network, because there is one project for every
+// version that will ever be installed.
+const ComposeProject = "daedalus"
+
 // ContainerName returns the Docker container name for this project.
 func (c *Config) ContainerName() string {
 	return ContainerNameFor(c.ContainerPrefix, c.ProjectName)
