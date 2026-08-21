@@ -132,6 +132,19 @@ var legalTransitions = map[State]map[State]bool{
 	},
 	StateCandidate: {
 		StateVerifying: true, StateRejected: true,
+		// candidate → planned: REPLANNING WORK NOBODY HAS GRADED YET (#84's
+		// sibling). Until this edge existed the only ways out of `candidate` were
+		// to grade it, reject it, or cancel it — so an operator who realised the
+		// INSTRUCTION was wrong while the work sat ungraded had to run a
+		// verification they did not care about, purely to reach the `rejected`
+		// state the ladder opens from. Spending a review cycle to earn permission
+		// to say "I asked for the wrong thing" is a toll, not a safeguard.
+		//
+		// Plane-only, and a DOWNGRADE: absent from workerReachable, it brings
+		// nothing closer to `verified`. It throws away an attempt the operator has
+		// already decided was aimed at the wrong target, which is the one direction
+		// that can never launder anything.
+		StatePlanned:   true,
 		StateCancelled: true, StateExpired: true, StateFailed: true,
 	},
 	StateVerifying: {

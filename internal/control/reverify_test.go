@@ -476,3 +476,63 @@ func TestReplan_WithoutRebaseLeavesTheBaseAlone(t *testing.T) {
 		t.Errorf("base moved to %s without --rebase; re-pinning must stay opt-in", replanned.BaseSHA)
 	}
 }
+
+// TestReplan_WorksOnAnUngradedCandidate.
+//
+// Until the candidate → planned edge existed, an operator who realised the
+// INSTRUCTION was wrong while the work sat ungraded had to run a verification
+// they did not care about — purely to reach the `rejected` state the ladder
+// opens from. Spending a review cycle to earn permission to say "I asked for the
+// wrong thing" is a toll, not a safeguard.
+func TestReplan_WorksOnAnUngradedCandidate(t *testing.T) {
+	repo := gitRepo(t)
+	svc, _, store := newService(t, mapResolver{"app": repo},
+		StubRunner{Result: ExecSuccess, WriteFile: true, MarkerName: "a.txt"}, nil,
+		StubVerifyRunner{Pass: true})
+
+	task, err := svc.CreateTask(CreateTaskRequest{Project: "app", Objective: "push it somewhere"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.DispatchTask(task.ID); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := store.GetTask(task.ID)
+	if got.State != StateCandidate {
+		t.Fatalf("state = %q, want candidate", got.State)
+	}
+	cyclesBefore, _ := store.CountReviewCycles(task.ID)
+
+	replanned, err := svc.ReplanTask(task.ID, ReplanRequest{Objective: "prepare it on a branch"})
+	if err != nil {
+		t.Fatalf("replanning an ungraded candidate = %v, want it allowed", err)
+	}
+	if replanned.State != StatePlanned || replanned.Objective != "prepare it on a branch" {
+		t.Errorf("task = %+v, want planned with the new objective", replanned)
+	}
+	// No verification was run to earn the right to do it.
+	if after, _ := store.CountReviewCycles(task.ID); after != cyclesBefore {
+		t.Errorf("review cycles went %d → %d; replanning must not cost a grading",
+			cyclesBefore, after)
+	}
+
+	// The ungraded attempt is SET ASIDE rather than left live: a Job in
+	// `candidate` under a `planned` Task is an attempt nothing will ever move,
+	// and candidateJob would keep offering it to a verify about a different
+	// objective.
+	jobs, _ := store.ListJobsForTask(task.ID)
+	if len(jobs) != 1 {
+		t.Fatalf("%d jobs, want 1", len(jobs))
+	}
+	if jobs[0].State != StateRejected {
+		t.Errorf("job state = %q, want it set aside as rejected", jobs[0].State)
+	}
+	if _, ok, _ := svc.candidateJob(task.ID); ok {
+		t.Error("a candidate job survived the replan; a later verify would grade the wrong objective")
+	}
+
+	// And the new objective can actually run.
+	if _, err := svc.DispatchTask(task.ID); err != nil {
+		t.Errorf("dispatch after replanning a candidate: %v", err)
+	}
+}

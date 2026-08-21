@@ -21,7 +21,11 @@ func TestCanTransition_Exhaustive(t *testing.T) {
 		// it is deliberately absent from the workerReachable table below.
 		StateWorking:       {StateCandidate, StateInputRequired, StateRejected, StateCancelled, StateExpired, StateFailed},
 		StateInputRequired: {StateWorking, StateCancelled, StateExpired, StateFailed},
-		StateCandidate:     {StateVerifying, StateRejected, StateCancelled, StateExpired, StateFailed},
+		// candidate → planned is the replan-an-ungraded-attempt edge (#84's
+		// sibling): the operator realised the OBJECTIVE was wrong before anybody
+		// graded the work. Plane-only and a downgrade, so it appears here and not
+		// in the worker table below.
+		StateCandidate: {StateVerifying, StateRejected, StatePlanned, StateCancelled, StateExpired, StateFailed},
 		// verifying → candidate is the interrupted-verification recovery edge
 		// (Sprint 58 fix): plane-only, and deliberately NOT worker-reachable.
 		StateVerifying: {StateVerified, StateRejected, StateCandidate, StateCancelled, StateExpired, StateFailed},

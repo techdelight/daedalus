@@ -203,7 +203,9 @@
       done: regrade,
     },
     {
-      key: 'replan', label: 'Replan', states: ['rejected'],
+      // Offered on an ungraded `candidate` too: realising the objective was wrong
+      // before anybody graded the work should not require grading it first.
+      key: 'replan', label: 'Replan', states: ['rejected', 'candidate'],
       prompt: {
         title: 'Replan', label: 'A new objective for this task',
         multiline: true, fill: function (t) { return t.objective; },
@@ -216,7 +218,7 @@
       // oracle, which is a governance act rather than a detail of rewording an
       // objective, and burying it in the same button would make the more
       // consequential option the easier one to reach.
-      key: 'replan-rebase', label: 'Replan · rebase', states: ['rejected'], confirm: true,
+      key: 'replan-rebase', label: 'Replan · rebase', states: ['rejected', 'candidate'], confirm: true,
       hint: 'New objective AND re-pin to the project tip, re-freezing the acceptance policy there.',
       prompt: {
         title: 'Replan and rebase', label: 'A new objective for this task',

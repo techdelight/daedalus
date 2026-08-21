@@ -150,6 +150,15 @@ All notable changes to this project will be documented in this file.
     leave a Task that reads as fixed and is not.
   - Opt-in by name, as on every path that adopts a newer oracle, and offered in
     the Ledger as its own **Replan · rebase** plate rather than a checkbox.
+  - **And `replan` now opens from `candidate` as well as `rejected`.** It used to
+    require a verdict, so realising the objective was wrong while the work sat
+    ungraded meant running a verification you did not care about just to reach the
+    state the ladder opens from — spending a review cycle to earn permission to say
+    "I asked for the wrong thing". A new plane-only `candidate → planned` edge, a
+    downgrade absent from `workerReachable`, so it can launder nothing. The
+    ungraded Job is set aside as rejected rather than left live: a Job in
+    `candidate` under a `planned` Task is an attempt nothing will ever move, and
+    the next verify would have graded it against a different objective.
 - **A Job is told what it cannot do, instead of discovering it (#83).** A Job
   container has no git credentials — it cannot push, clone a private repository,
   or create one — and until now nothing said so. A repository-split Task spent its

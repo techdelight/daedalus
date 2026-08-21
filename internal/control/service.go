@@ -1628,8 +1628,14 @@ func (s *Service) replanTask(caller Caller, id string, req ReplanRequest) (Task,
 	if err != nil {
 		return Task{}, err
 	}
-	if task.State != StateRejected {
-		return Task{}, fmt.Errorf("%w: task %s is %s, not replannable (want rejected)", ErrWrongState, id, task.State)
+	// `rejected` is the ordinary case: the work was graded and found wanting.
+	// `candidate` is the one that was missing — the work is done, nobody has
+	// graded it, and the operator has realised the question was wrong. Making them
+	// grade it first to unlock the ladder taught them nothing and cost a review
+	// cycle.
+	if task.State != StateRejected && task.State != StateCandidate {
+		return Task{}, fmt.Errorf("%w: task %s is %s, not replannable (want rejected or candidate)",
+			ErrWrongState, id, task.State)
 	}
 	// A replan that could never be dispatched is worth refusing now rather than
 	// leaving a `planned` task that only fails at the next dispatch.
@@ -1654,6 +1660,19 @@ func (s *Service) replanTask(caller Caller, id string, req ReplanRequest) (Task,
 			return Task{}, err
 		}
 		task, rebased = updated, did
+	}
+	// An ungraded attempt does not just stay behind: a Job left in `candidate`
+	// under a `planned` Task is a live attempt nothing will ever move, and
+	// `candidateJob` would keep offering it to a verify that is now about a
+	// different objective. It is set aside as rejected — the state the ladder
+	// already understands for "this attempt is not going anywhere" — and its
+	// branch survives, so the work is still readable afterwards.
+	if task.State == StateCandidate {
+		if job, ok, err := s.candidateJob(id); err == nil && ok {
+			s.driveJob(job.ID, []State{StateRejected}, EventMeta{Kind: EventGovernance},
+				fmt.Sprintf("set aside: the task's objective was replaced (%q → %q)",
+					task.Objective, req.Objective))
+		}
 	}
 	note := fmt.Sprintf("replan: objective %q → %q", task.Objective, req.Objective)
 	if rebased {
