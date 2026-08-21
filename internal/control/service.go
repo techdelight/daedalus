@@ -741,6 +741,18 @@ type PlaneStatus struct {
 	GlobalRunning  int             `json:"globalRunning"`
 	ProjectRunning map[string]int  `json:"projectRunning"`
 	Waiting        []string        `json:"waiting"`
+	// ProgrammeRunning and ProgrammeWaiting are the same two numbers per
+	// PROGRAMME (M22), keyed by programme id.
+	//
+	// Reporting only. The scheduler admits on the global and per-project limits and
+	// has never heard of a programme, and this does not change that — it answers
+	// "which shared intent is the machine actually spending itself on", which
+	// nothing could answer before. Making it a scheduling INPUT waits on backlog
+	// #70: `waiting` is an in-memory map a restart erases, and fairness built over
+	// something that forgets is worse than no fairness, because it looks like a
+	// guarantee.
+	ProgrammeRunning map[string]int `json:"programmeRunning,omitempty"`
+	ProgrammeWaiting map[string]int `json:"programmeWaiting,omitempty"`
 }
 
 // PlaneStatus reports what is actually running, per project and globally.
@@ -766,6 +778,23 @@ func (s *Service) PlaneStatus() (PlaneStatus, error) {
 		seen[t.Project] = true
 		if n, err := s.store.CountRunningJobsForProject(t.Project); err == nil && n > 0 {
 			out.ProjectRunning[t.Project] = n
+		}
+	}
+	// Per programme. A failure here costs the two extra maps and never the
+	// answer: "what is running" must not stop being answerable because a
+	// reporting roll-up could not be computed.
+	if byProg, err := s.store.CountRunningJobsByProgramme(); err == nil && len(byProg) > 0 {
+		out.ProgrammeRunning = byProg
+	}
+	if len(out.Waiting) > 0 {
+		waiting := map[string]int{}
+		for _, id := range out.Waiting {
+			if t, err := s.store.GetTask(id); err == nil && t.ProgrammeID != "" {
+				waiting[t.ProgrammeID]++
+			}
+		}
+		if len(waiting) > 0 {
+			out.ProgrammeWaiting = waiting
 		}
 	}
 	return out, nil

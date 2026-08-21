@@ -131,89 +131,107 @@ test.describe('Web UI — Project API', () => {
   });
 });
 
-test.describe('Web UI — Programme API CRUD', () => {
+// Programmes, against the CONTROL PLANE (M20, Sprint 66).
+//
+// These tests used to drive `/api/programmes` — the file-backed CRUD that was
+// DELETED when a programme became plane state. They followed the deleted routes
+// instead of being deleted with them, so every one of them had been asserting a
+// 200 from a handler that no longer exists. Nobody noticed because the e2e suite
+// needs a browser and a running server, and neither is present in the
+// development environment.
+//
+// They now drive `/api/control/programmes`, which needs the control daemon —
+// which the Web UI deliberately never spawns. So each test SKIPS when the plane
+// is down rather than failing: "I could not ask" is not "it is broken", which is
+// the same distinction the page itself makes.
+test.describe('Web UI — Programmes (control plane)', () => {
   const progName = 'e2e-test-prog';
 
-  test('can create a programme', async ({ request }) => {
-    const resp = await request.post('/api/programmes', {
-      data: { name: progName, description: 'E2E test programme', projects: ['proj-a'], deps: [] },
-    });
-    expect(resp.status()).toBe(201);
+  // Returns the programme list when the plane is reachable, or null when it is
+  // not. The response is 200 either way; `available` is the field that answers.
+  async function programmes(request: any): Promise<any[] | null> {
+    const resp = await request.get('/api/control/programmes');
+    if (resp.status() !== 200) return null;
     const body = await resp.json();
-    expect(body.name).toBe(progName);
-    expect(body.description).toBe('E2E test programme');
-  });
+    return body.available ? (body.programmes || []) : null;
+  }
 
-  test('can get the created programme', async ({ request }) => {
-    // Ensure it exists
-    await request.post('/api/programmes', {
-      data: { name: progName, description: 'E2E test', projects: [], deps: [] },
+  async function form(request: any, name: string, description: string): Promise<any> {
+    const resp = await request.post('/api/control/programmes', {
+      data: { name, description },
       failOnStatusCode: false,
     });
-    const resp = await request.get(`/api/programmes/${progName}`);
+    return resp.status() === 201 || resp.status() === 200 ? await resp.json() : null;
+  }
+
+  // Programmes are keyed by ID, not by name — that is the whole reason they moved
+  // into the plane, so the tests address them the way a client has to.
+  async function dissolve(request: any, id: string) {
+    await request.delete(`/api/control/programmes/${id}`, { failOnStatusCode: false });
+  }
+
+  test('a programme can be formed, read back, amended and dissolved', async ({ request }) => {
+    const before = await programmes(request);
+    test.skip(before === null, 'the control plane is not running');
+
+    const formed = await form(request, progName, 'E2E test programme');
+    expect(formed).not.toBeNull();
+    expect(formed.id).toMatch(/^PR-\d+$/);
+    expect(formed.name).toBe(progName);
+
+    const read = await request.get(`/api/control/programmes/${formed.id}`);
+    expect(read.status()).toBe(200);
+    expect((await read.json()).description).toBe('E2E test programme');
+
+    const listed = await programmes(request);
+    expect((listed || []).some((p: any) => p.id === formed.id)).toBe(true);
+
+    const amended = await request.post(`/api/control/programmes/${formed.id}`, {
+      data: { name: progName, description: 'amended description' },
+    });
+    expect(amended.status()).toBe(200);
+    expect((await amended.json()).description).toBe('amended description');
+
+    await dissolve(request, formed.id);
+    const gone = await request.get(`/api/control/programmes/${formed.id}`, { failOnStatusCode: false });
+    expect(gone.status()).toBe(404);
+  });
+
+  test('the roll-up answers what a programme is waiting on', async ({ request }) => {
+    const before = await programmes(request);
+    test.skip(before === null, 'the control plane is not running');
+
+    const formed = await form(request, `${progName}-status`, 'for the roll-up');
+    expect(formed).not.toBeNull();
+
+    const resp = await request.get(`/api/control/programmes/${formed.id}/status`);
     expect(resp.status()).toBe(200);
     const body = await resp.json();
-    expect(body.name).toBe(progName);
+    expect(body.programme.id).toBe(formed.id);
+    // No work yet, so no tasks and nothing outside to wait on. The shape is what
+    // is being asserted: the page reads `open`, `landed` and `external`.
+    expect(body.open).toBe(0);
+    expect(body.landed).toBe(0);
+
+    await dissolve(request, formed.id);
   });
 
-  test('can list programmes and find the created one', async ({ request }) => {
-    await request.post('/api/programmes', {
-      data: { name: progName, description: 'E2E test', projects: [], deps: [] },
-      failOnStatusCode: false,
-    });
-    const resp = await request.get('/api/programmes');
-    expect(resp.status()).toBe(200);
-    const body = await resp.json();
-    expect(body.some((p: any) => p.name === progName)).toBe(true);
-  });
+  test('an unknown programme is 404, not an empty programme', async ({ request }) => {
+    const before = await programmes(request);
+    test.skip(before === null, 'the control plane is not running');
 
-  test('can update a programme', async ({ request }) => {
-    await request.post('/api/programmes', {
-      data: { name: progName, description: 'old', projects: [], deps: [] },
-      failOnStatusCode: false,
-    });
-    const resp = await request.put(`/api/programmes/${progName}`, {
-      data: { name: progName, description: 'updated description', projects: ['a', 'b'], deps: [] },
-    });
-    expect(resp.status()).toBe(200);
-    const body = await resp.json();
-    expect(body.description).toBe('updated description');
-  });
-
-  test('can delete a programme', async ({ request }) => {
-    await request.post('/api/programmes', {
-      data: { name: progName, description: 'to delete', projects: [], deps: [] },
-      failOnStatusCode: false,
-    });
-    const delResp = await request.delete(`/api/programmes/${progName}`);
-    expect(delResp.status()).toBe(200);
-
-    const getResp = await request.get(`/api/programmes/${progName}`, { failOnStatusCode: false });
-    expect(getResp.status()).toBe(404);
-  });
-
-  test('GET nonexistent programme returns 404', async ({ request }) => {
-    const resp = await request.get('/api/programmes/does-not-exist', { failOnStatusCode: false });
+    const resp = await request.get('/api/control/programmes/PR-99999', { failOnStatusCode: false });
     expect(resp.status()).toBe(404);
   });
 
-  test('DELETE nonexistent programme returns 404', async ({ request }) => {
-    const resp = await request.delete('/api/programmes/does-not-exist', { failOnStatusCode: false });
-    expect(resp.status()).toBe(404);
-  });
-
-  test('creating duplicate programme returns 409', async ({ request }) => {
-    await request.post('/api/programmes', {
-      data: { name: 'dup-test', description: 'first', projects: [], deps: [] },
-      failOnStatusCode: false,
-    });
-    const resp = await request.post('/api/programmes', {
-      data: { name: 'dup-test', description: 'second', projects: [], deps: [] },
-      failOnStatusCode: false,
-    });
-    expect([400, 409, 500]).toContain(resp.status());
-    // Cleanup
-    await request.delete('/api/programmes/dup-test', { failOnStatusCode: false });
+  test('with the plane down the list says unavailable, and does not 500', async ({ request }) => {
+    const resp = await request.get('/api/control/programmes');
+    expect(resp.status()).toBe(200);
+    const body = await resp.json();
+    // Whichever way it goes, the page can render it: `programmes` is always an
+    // array, and `available` says whether the emptiness means anything.
+    expect(Array.isArray(body.programmes)).toBe(true);
+    if (!body.available) expect(body.reason).toBeTruthy();
   });
 });
 

@@ -140,7 +140,8 @@ daedalus config <name> [--set key=value] [--unset key]
 daedalus skills [add <file> | remove <name> | show <name>]
 daedalus runners [list | show <name>]
 daedalus personas [list | show <name> | create <name> | remove <name>]
-daedalus programmes [list | show <name> | create <name> | add-project <prog> <proj> | add-dep <prog> <up> <down> | remove <name>]
+daedalus programmes [list | show <name> | status <name> [--suggest-deps] | create <name> <what-it-is-for> |
+                     add-project <prog> <proj> | add-dep <prog> <up> <down> | remove <name>]
 daedalus coordinator [start | stop | status]
 daedalus task [create | list | status <id> | dispatch <id> | verify <id> | approve <id> |
                integrate <id> | board | approvals | proposals | depends <id> | steer <job-id>]
@@ -165,7 +166,7 @@ daedalus --help
 | `skills` | List, add, remove, or show skills in the shared catalog |
 | `runners` | List or show built-in runner profiles (`claude`, `copilot`) |
 | `personas` | List, show, create, or remove named persona configurations |
-| `programmes` | List, show, create, or remove multi-project programmes with dependencies |
+| `programmes` | The shared intent several projects serve: list, show, roll up (`status`), create, amend or dissolve |
 | `coordinator` | Manage the host-side runner daemon (`start`, `stop`, `status`) — see [Runner Path](#runner-path) |
 | `task` | Host-side control-plane work: create, dispatch, verify, approve and land Tasks — see [Control Plane](#control-plane) |
 | `guild-master` | Open the built-in cross-project overseer — see [Guild Master](#guild-master) |
@@ -661,19 +662,32 @@ Click any project name in the Web UI to see the project dashboard with progress 
 
 ## Programmes
 
-Programmes group multiple projects with dependency relationships for coordinated orchestration.
+A programme is the shared intent several projects serve — what the work is *for*.
+Since M20 it is control-plane state (a `PR-n` row in `control.db`), Tasks point at
+one, and these commands need the control daemon, which the CLI starts on demand.
 
 ```bash
 daedalus programmes                                    # List all programmes
-daedalus programmes create my-platform                 # Create a programme
+daedalus programmes create my-platform "one login everywhere"
 daedalus programmes add-project my-platform api        # Add a project
 daedalus programmes add-project my-platform frontend   # Add another project
-daedalus programmes add-dep my-platform api frontend   # Declare dependency
-daedalus programmes show my-platform                   # Show with status
-daedalus programmes remove my-platform                 # Delete
+daedalus programmes add-dep my-platform api frontend   # Declare an ORDER (gates nothing)
+daedalus programmes show my-platform                   # Definition + per-project progress
+daedalus programmes status my-platform                 # The work, and what it waits on
+daedalus programmes status my-platform --suggest-deps  # …plus the commands that would enforce the order
+daedalus programmes remove my-platform                 # Dissolve
 ```
 
-Programmes capture project dependency topology (upstream → downstream) for future orchestration features.
+**Two graphs, and only one has teeth.** `add-dep` declares an order between
+*projects*: it is a plan, and it gates nothing. What makes a landing wait is the
+Task→Task graph (`daedalus task depends <id> --on <other>`). `programmes status`
+reports the distance between the two — declared edges nothing enforces, and
+enforced edges the plan never mentioned — and `--suggest-deps` prints the commands
+that would close the gap without running any of them.
+
+The Web UI's Ledger shows programmes too, read-only: forming, amending and
+dissolving stay at the CLI or come through an agent's proposal that a human
+confirms.
 
 ## Persona Configurations
 

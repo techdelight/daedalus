@@ -45,6 +45,18 @@
   let message = null;         // {text, kind} — the last thing that happened
   let proposals = [];
   let targets = [];
+  // The programmes the plane holds, and why they are polled alongside the board
+  // rather than fetched when one is opened: every Task entry wants to name its
+  // programme, and a Task carries the ID. Holding the list means the name is
+  // there when the entry paints, instead of a second request per selection that
+  // renders "PR-3" for a beat and then the name.
+  let programmes = [];
+  let programmesReason = '';       // why the list is empty, when it is empty for a reason
+  // Running and queued Jobs per programme id, off the board (M22). Reporting
+  // only — the scheduler admits on the global and per-project limits and has
+  // never heard of a programme.
+  let programmeRunning = {};
+  let programmeWaiting = {};
   let archive = [];           // terminal tasks; only fetched when asked for
   let showArchive = false;
   let busy = false;           // one command at a time
@@ -536,6 +548,8 @@
     }
     closed.style.display = 'none';
     if (body) body.style.display = '';
+    programmeRunning = data.programmeRunning || {};
+    programmeWaiting = data.programmeWaiting || {};
 
     if (sub) {
       const limit = data.globalLimit > 0 ? String(data.globalLimit) : '∞';
@@ -574,6 +588,31 @@
         }));
     }
 
+    // Programmes: the shared intents the work above serves. They are entries in
+    // the same ledger for the same reason proposals are — the ledger is where you
+    // read what the plane holds, and a programme you can only see by running a CLI
+    // command is a programme the person deciding does not see at all.
+    //
+    // Last, deliberately. The board is about what is in flight; this is about what
+    // it is all for, which is the thing you go looking for rather than the thing
+    // you are interrupted by.
+    if (programmes.length || programmesReason) {
+      const sec = section(list, 'Programmes — what the work is for', programmes.length,
+        programmes.map(function (p) {
+          if (current && current.kind === 'programme' && p.id === current.id) {
+            restored = { programme: p };
+          }
+          const n = (p.projects || []).length;
+          return entry(p.id, p.name + (p.description ? ' — ' + p.description : ''),
+            [n + (n === 1 ? ' project' : ' projects'), 'is-working'],
+            function () { selectProgramme(p); });
+        }));
+      if (!programmes.length && programmesReason) {
+        const none = sec.querySelector('.ledger-none');
+        if (none) none.textContent = programmesReason;
+      }
+    }
+
     // The archive is off by default: the board is about what is in flight, and a
     // list that grows forever would bury it. It is one command away because the
     // record of a landed task is exactly what you want when asking what happened.
@@ -602,6 +641,8 @@
       paintEntry();
     } else if (restored && restored.proposal) {
       paintEntry();
+    } else if (restored && restored.programme) {
+      paintEntry();
     } else if (current) {
       clearEntry();
     } else {
@@ -618,6 +659,8 @@
     // is not. Guarded by the early return above, so it never lands mid-interaction.
     if (current && current.kind === 'task') {
       loadDetail(current.id);
+    } else if (current && current.kind === 'programme') {
+      loadProgramme(current.id);
     }
   }
 
@@ -645,6 +688,34 @@
     message = null;
     tab = 'entry';
     paintEntry();
+  }
+
+  // A programme is selected like anything else, and its roll-up is a second
+  // request for the same reason a task's is: the list is a summary, and the
+  // answer worth having — what serves this, and what is it waiting on that nobody
+  // put in it — is computed by the plane from the Task graph.
+  function selectProgramme(p) {
+    const same = current && current.kind === 'programme' && current.id === p.id;
+    current = { kind: 'programme', id: p.id };
+    currentCard = null;
+    currentKey = null;
+    if (!same) {
+      detail = null;
+      message = null;
+      tab = 'entry';
+    }
+    paintEntry();
+    loadProgramme(p.id);
+  }
+
+  function loadProgramme(id) {
+    get('/programmes/' + enc(id) + '/status').then(function (view) {
+      if (!current || current.kind !== 'programme' || current.id !== id) return; // moved on
+      if (view && view.programme) {
+        detail = view;
+        paintEntry();
+      }
+    }).catch(function () { /* the entry renders from the list row alone */ });
   }
 
   function clearEntry() {
@@ -694,6 +765,7 @@
     }
 
     if (current.kind === 'proposal') return paintProposal();
+    if (current.kind === 'programme') return paintProgramme();
 
     const task = detail && detail.task;
     const state = task ? task.state : (currentCard ? currentCard.state : '');
@@ -741,6 +813,7 @@
     const task = detail && detail.task;
     host.appendChild(text('div', 'ledger-prose', task ? task.objective :
       (currentCard ? currentCard.objective : '')));
+    paintIntent(host, task);
     // Say that a reading exists. The findings live on RECORD, and an operator
     // with no reason to look there would never learn an agent had read their
     // work — which is indistinguishable from the review not having happened.
@@ -768,6 +841,45 @@
         fact(facts, 'unsatisfiable', deps.status.unsatisfiable.join(' '));
       }
       host.appendChild(facts);
+    }
+  }
+
+  // WHY THIS WORK EXISTS, beside what it is.
+  //
+  // The reviewer agent is handed the diff, the objective, the RATIONALE and the
+  // PROGRAMME (internal/control/review.go). Until M21 this page handed the person
+  // holding the seal an objective and a base SHA. The party that only reports was
+  // being shown more of the intent than the party with the authority to act, which
+  // is backwards — the rationale was recorded so a human could weigh it, and it
+  // was recorded with its AUTHOR so an agent-drafted reason does not silently read
+  // as the operator's own.
+  //
+  // Said plainly when it is absent, and only where the absence matters: a task
+  // being decided on with no recorded reason is a fact about the decision, not an
+  // empty field to skip over.
+  function paintIntent(host, task) {
+    if (!task) return;
+    const prog = programmes.filter(function (p) { return p.id === task.programmeId; })[0];
+    const facts = document.createElement('dl');
+    facts.className = 'ledger-facts';
+    let any = false;
+    if (task.programmeId) {
+      fact(facts, 'for', (prog ? prog.name : task.programmeId) +
+        (prog && prog.description ? ' — ' + prog.description : ''));
+      any = true;
+    }
+    if (task.rationale) {
+      fact(facts, 'reason', task.rationale +
+        (task.rationaleBy ? '  (' + task.rationaleBy + ')' : ''));
+      any = true;
+    }
+    if (any) {
+      host.appendChild(facts);
+      return;
+    }
+    if (task.state === 'approval_required' || task.state === 'candidate' || task.state === 'verified') {
+      host.appendChild(text('div', 'ledger-desc-note',
+        'No programme, and no recorded reason. You are deciding on the objective alone.'));
     }
   }
 
@@ -953,6 +1065,148 @@
       });
       anchor.remove();
     }).catch(function () { anchor.remove(); });
+  }
+
+  // A programme reads as: what it is for, what serves it, and what it is waiting
+  // on. No commands — forming, amending and dissolving one are deliberate acts at
+  // a CLI or a confirmed proposal, and a page that could dissolve a programme
+  // between two clicks would make the easiest gesture the most consequential one.
+  function paintProgramme() {
+    const row = programmes.filter(function (p) { return p.id === current.id; })[0] || {};
+    const st = detail && detail.programme ? detail : null;
+    const p = st ? st.programme : row;
+    const bodyEl = el('ledger-desc-body');
+
+    el('ledger-desc-id').textContent = p.id || current.id;
+    el('ledger-desc-project').textContent = p.name || '';
+    const status = el('ledger-desc-status');
+    const open = st ? st.open : null;
+    status.textContent = st ? (open + ' open · ' + st.landed + ' landed') : 'reading…';
+    status.className = 'ledger-desc-status ledger-row-status ' + (open ? 'is-working' : 'is-passed');
+    el('ledger-tabs').innerHTML = '';
+    bodyEl.className = 'ledger-desc-body';
+    bodyEl.innerHTML = '';
+
+    // What it is FOR, first and in its own words. A programme with no stated
+    // purpose cannot tell you later whether it was worth forming, and the page
+    // says that where it is true rather than leaving a blank line.
+    bodyEl.appendChild(text('div', 'ledger-prose', p.description ||
+      'No stated purpose. `daedalus programmes create` takes a description.'));
+
+    const facts = document.createElement('dl');
+    facts.className = 'ledger-facts';
+    fact(facts, 'projects', (p.projects || []).length ? p.projects.join(' · ') : 'none yet');
+    if (st) fact(facts, 'work', st.tasks.length + ' task(s) — ' + st.open + ' open, ' + st.landed + ' landed');
+    bodyEl.appendChild(facts);
+
+    // How much of the machine this programme is holding right now. Reporting
+    // only: the scheduler admits on the global and per-project limits and has
+    // never heard of a programme, which the line says rather than implies.
+    const running = (programmeRunning || {})[p.id] || 0;
+    const queued = (programmeWaiting || {})[p.id] || 0;
+    if (running || queued) {
+      const sf = document.createElement('dl');
+      sf.className = 'ledger-facts';
+      fact(sf, 'running now', running + ' job(s)' + (queued ? ', ' + queued + ' queued for a slot' : ''));
+      bodyEl.appendChild(sf);
+    }
+
+    // The declared order, graded against the graph that actually gates (M22).
+    // Both graphs stay: one plans and one enforces. What was missing is that
+    // nothing ever compared them, so a declared order was a claim the system
+    // never checked.
+    const declared = st ? (st.declared || []) : [];
+    if (declared.length) {
+      bodyEl.appendChild(text('div', 'ledger-sub', 'Declared order, and what enforces it'));
+      declared.forEach(function (d) {
+        const r = document.createElement('div');
+        r.className = 'ledger-log-row';
+        r.appendChild(text('span', 'ledger-log-id', d.upstream + ' → ' + d.downstream));
+        r.appendChild(text('span', 'ledger-log-what ' + (d.enforced ? 'is-passed' : 'is-waiting'),
+          d.enforced ? 'enforced by ' + (d.enforcedBy || []).join(', ') : 'not enforced'));
+        bodyEl.appendChild(r);
+        if (d.enforced) return;
+        // Why not, because the two reasons need different answers: work on both
+        // sides is a missing declaration; an empty side is work that does not
+        // exist yet.
+        const up = d.upstreamTasks || [], down = d.downstreamTasks || [];
+        let why;
+        if (!up.length && !down.length) why = 'no open work on either side yet';
+        else if (!up.length) why = 'nothing open in ' + d.upstream + ' to wait for';
+        else if (!down.length) why = 'nothing open in ' + d.downstream + ' to do the waiting';
+        else why = down.join(' ') + ' could wait for ' + up.join(' ') +
+          ' — `daedalus programmes status ' + p.name + ' --suggest-deps`';
+        bodyEl.appendChild(text('div', 'ledger-log-note', why));
+      });
+      bodyEl.appendChild(text('div', 'ledger-advisory',
+        'Declared order plans; it gates nothing. What makes a landing wait is the task graph.'));
+    } else if ((p.deps || []).length) {
+      // The roll-up has not arrived yet, so the edges are shown ungraded rather
+      // than withheld.
+      bodyEl.appendChild(text('div', 'ledger-sub', 'Declared project order'));
+      (p.deps || []).forEach(function (d) {
+        bodyEl.appendChild(text('div', 'ledger-log-row', d.upstream + ' → ' + d.downstream));
+      });
+    }
+
+    if (st && (st.undeclared || []).length) {
+      bodyEl.appendChild(text('div', 'ledger-sub', 'Enforced, but never declared'));
+      st.undeclared.forEach(function (u) {
+        const r = document.createElement('div');
+        r.className = 'ledger-log-row';
+        r.appendChild(text('span', 'ledger-log-id', u.taskId + ' waits for ' + u.dependsOn));
+        r.appendChild(text('span', 'ledger-log-what', u.downstream + ' ← ' + u.upstream));
+        bodyEl.appendChild(r);
+      });
+      bodyEl.appendChild(text('div', 'ledger-log-note',
+        'The work found a dependency the plan does not mention. Either the plan is out of date, ' +
+        'or this edge is wrong.'));
+    }
+
+    if (!st) {
+      bodyEl.appendChild(text('div', 'ledger-prose is-empty', 'Reading the roll-up…'));
+      el('ledger-desc-note').textContent = '';
+      el('ledger-commands').innerHTML = '';
+      paintMessage();
+      paintFoot();
+      return;
+    }
+
+    bodyEl.appendChild(text('div', 'ledger-sub', 'The work that serves it'));
+    if (!st.tasks.length) {
+      bodyEl.appendChild(text('div', 'ledger-prose is-empty',
+        'Nothing serves this programme yet.'));
+    } else {
+      st.tasks.forEach(function (t) {
+        const r = document.createElement('div');
+        r.className = 'ledger-log-row';
+        r.appendChild(text('span', 'ledger-log-id', t.id));
+        r.appendChild(text('span', 'ledger-log-what', t.state + ' · ' + t.project + ' · ' + t.objective));
+        bodyEl.appendChild(r);
+        if (t.rationale) bodyEl.appendChild(text('div', 'ledger-log-note', 'for: ' + t.rationale));
+      });
+    }
+
+    // The part no per-project view can show, and the reason the roll-up exists:
+    // work this programme waits on that nobody put in it.
+    if ((st.external || []).length) {
+      bodyEl.appendChild(text('div', 'ledger-sub', 'Waiting on work outside this programme'));
+      st.external.forEach(function (e) {
+        const r = document.createElement('div');
+        r.className = 'ledger-log-row';
+        r.appendChild(text('span', 'ledger-log-id', e.taskId + ' → ' + e.dependsOn));
+        const where = e.project + (e.programme ? ' · ' + e.programme : ' · no programme');
+        r.appendChild(text('span', 'ledger-log-what ' + (e.satisfied ? 'is-passed' : 'is-waiting'),
+          e.state + ' · ' + (e.satisfied ? 'landed' : 'unmet') + ' · ' + where));
+        bodyEl.appendChild(r);
+      });
+    }
+
+    el('ledger-desc-note').textContent =
+      'Formed, amended and dissolved from the CLI, or by confirming an agent’s proposal.';
+    el('ledger-commands').innerHTML = '';
+    paintMessage();
+    paintFoot();
   }
 
   function paintProposal() {
@@ -1349,6 +1603,20 @@
     }).catch(function () { proposals = []; });
   }
 
+  // Polled with the board rather than fetched once at open: a programme formed
+  // in a terminal, or by a proposal confirmed on this very page, must appear
+  // without a reload. The list is small and this is the same argument the board
+  // itself makes about looking live while being frozen.
+  function refreshProgrammes() {
+    return get('/programmes').then(function (data) {
+      programmes = (data && data.available && data.programmes) || [];
+      programmesReason = data && !data.available ? (data.reason || '') : '';
+    }).catch(function () {
+      programmes = [];
+      programmesReason = 'The programmes could not be read.';
+    });
+  }
+
   function refreshTargets() {
     return get('/targets').then(function (data) {
       targets = (data && data.available && data.targets) || [];
@@ -1382,7 +1650,7 @@
   function start() {
     stop();
     const cycle = function () {
-      return Promise.all([refreshProposals(), refreshArchive()]).then(refreshBoard);
+      return Promise.all([refreshProposals(), refreshArchive(), refreshProgrammes()]).then(refreshBoard);
     };
     refreshApprovals();
     refreshTargets();

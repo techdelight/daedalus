@@ -193,6 +193,29 @@ type ProposeProgrammeInput struct {
 	Projects    []string `json:"projects,omitempty" jsonschema:"the projects it draws on"`
 }
 
+// AmendProgrammeInput changes a programme that already exists.
+//
+// Every field except the reference is optional, and an omitted field is LEFT
+// ALONE rather than blanked. The agent is describing a change, not restating the
+// whole programme, and a tool that silently dropped the projects because the
+// caller only wanted to fix a description would be a data-loss bug wearing the
+// shape of an update.
+//
+// The merge happens here, at proposal time, so the human confirming it sees the
+// finished programme in the argument rather than a patch they have to apply in
+// their head.
+type AmendProgrammeInput struct {
+	Programme   string   `json:"programme" jsonschema:"the programme id (PR-3) or its name"`
+	Name        string   `json:"name,omitempty" jsonschema:"a new name, if the name is what is wrong"`
+	Description string   `json:"description,omitempty" jsonschema:"what this programme is FOR, restated"`
+	Projects    []string `json:"projects,omitempty" jsonschema:"the full project list, replacing the old one"`
+}
+
+// DissolveProgrammeInput names a programme that should stop existing.
+type DissolveProgrammeInput struct {
+	Programme string `json:"programme" jsonschema:"the programme id (PR-3) or its name"`
+}
+
 type BoardOutput struct {
 	Columns          []BoardColumnLine `json:"columns"`
 	GlobalRunning    int               `json:"globalRunning"`
@@ -311,10 +334,18 @@ func registerControlTools(server *mcp.Server, api control.TaskAPI) {
 			Detail: fmt.Sprintf("rejected (%s): %s", res.Reason, res.Detail), Reason: string(res.Reason)}, nil
 	})
 
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "programme_board",
-		Description: "The cross-project programme board: what is running, queued, blocked (and on what), in verification, awaiting approval, and what landed. Read-only. Repository paths are never included; tasks sharing a queueId will serialize against each other at integration.",
-	}, func(ctx context.Context, req *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, BoardOutput, error) {
+	// THE BOARD IS A BOARD OF TASKS, and its name used to say otherwise (#86).
+	// `programme_board` predates programmes being a thing the plane owns, and once
+	// they were, an agent had two tools whose names promised the same subject and
+	// which shared no data at all: this one groups Tasks by whose move it is, and
+	// `list_programmes` lists the shared intents. The collision cost a whole
+	// backlog entry's worth of confusion (#82 had to say in as many words that
+	// `programme_board` is a red herring), so the tool is now called `task_board`.
+	//
+	// The old name is kept, registered to the same handler and marked deprecated,
+	// because a Guild Master's CLAUDE.md may name it and a rename that breaks a
+	// running agent's instructions is a rename that gets reverted.
+	board := func(ctx context.Context, req *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, BoardOutput, error) {
 		view, err := api.ProgrammeBoard()
 		if err != nil {
 			return errResult(err), BoardOutput{}, nil
@@ -337,7 +368,15 @@ func registerControlTools(server *mcp.Server, api control.TaskAPI) {
 			out.Columns = append(out.Columns, line)
 		}
 		return nil, out, nil
-	})
+	}
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "task_board",
+		Description: "The cross-project board of TASKS: what is running, queued, blocked (and on what), in verification, awaiting approval, and what landed. Read-only. Repository paths are never included; tasks sharing a queueId will serialize against each other at integration. For the shared intents several projects serve, use list_programmes instead.",
+	}, board)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "programme_board",
+		Description: "DEPRECATED — the old name for task_board, kept so existing instructions keep working. It is the cross-project board of TASKS and has nothing to do with programmes. Use task_board.",
+	}, board)
 
 	// --- proposal-tier tools ----------------------------------------------------
 	//
@@ -405,9 +444,8 @@ func registerControlTools(server *mcp.Server, api control.TaskAPI) {
 	// statement about what the work is FOR and a human agreeing is what turns a
 	// noticing into one.
 	//
-	// NOTE for whoever reads this next to `programme_board`: that tool is the
-	// cross-project TASK board and has nothing to do with programmes. The
-	// collision is historical and is exactly what M20 set out to undo.
+	// The tool that used to be called `programme_board` is now `task_board` (#86),
+	// so the two names above this line no longer promise the same subject.
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "list_programmes",
 		Description: "The programmes the control plane holds: the shared intents that several projects serve. Read-only, allowed directly — noticing what projects have in common is what this agent is for.",
@@ -429,24 +467,9 @@ func registerControlTools(server *mcp.Server, api control.TaskAPI) {
 		Name:        "get_programme",
 		Description: "One programme, with what it is for and the projects it draws on. Read-only.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in ProgrammeRef) (*mcp.CallToolResult, ProgrammeLine, error) {
-		p, err := api.GetProgramme(in.Programme)
+		p, err := findProgramme(api, in.Programme)
 		if err != nil {
-			// A name is what a person types and an id is what a client stores; accept
-			// either here too, or this tool disagrees with every other surface.
-			progs, lerr := api.ListProgrammes()
-			if lerr != nil {
-				return errResult(err), ProgrammeLine{}, nil
-			}
-			found := false
-			for _, cand := range progs {
-				if cand.Name == in.Programme {
-					p, found = cand, true
-					break
-				}
-			}
-			if !found {
-				return errResult(err), ProgrammeLine{}, nil
-			}
+			return errResult(err), ProgrammeLine{}, nil
 		}
 		return nil, ProgrammeLine{
 			ID: p.ID, Name: p.Name, Description: p.Description, Projects: p.Projects,
@@ -468,6 +491,63 @@ func registerControlTools(server *mcp.Server, api control.TaskAPI) {
 		}
 		return nil, OutcomeOutput{Executed: true,
 			Detail: "programme created (this caller was not treated as an agent)"}, nil
+	})
+
+	// Amend and dissolve. Both were tiered when programmes landed and both had a
+	// case in `executeProposal` from #82 — they were reachable from a human's CLI
+	// and from nowhere else, so the Guild Master could propose a programme into
+	// existence and then never say a word about it again. That is the wrong half
+	// to build: noticing that a programme has drifted from what it was formed for
+	// is the same act as noticing it should exist.
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "propose_programme_amendment",
+		Description: "Propose a change to a programme that already exists — usually because what it is FOR has been overtaken by what the work turned out to be. NOT executed: it is recorded for a human to confirm. Fields you leave out are kept as they are.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in AmendProgrammeInput) (*mcp.CallToolResult, OutcomeOutput, error) {
+		cur, err := findProgramme(api, in.Programme)
+		if err != nil {
+			return errResult(err), OutcomeOutput{}, nil
+		}
+		// Read-then-write, and the read is what makes an omitted field mean "leave
+		// it" instead of "clear it". The window between the two is real but is the
+		// same window every proposal has: what a human confirms is what the agent
+		// proposed, and the plane refuses the result if it has since become invalid.
+		next := control.ProgrammeRequest{
+			Name: cur.Name, Description: cur.Description, Projects: cur.Projects, Deps: cur.Deps,
+		}
+		if strings.TrimSpace(in.Name) != "" {
+			next.Name = in.Name
+		}
+		if strings.TrimSpace(in.Description) != "" {
+			next.Description = in.Description
+		}
+		if in.Projects != nil {
+			next.Projects = in.Projects
+		}
+		if _, err := api.UpdateProgramme(cur.ID, next); err != nil {
+			return nil, outcomeFor(err), nil
+		}
+		return nil, OutcomeOutput{Executed: true,
+			Detail: "programme amended (this caller was not treated as an agent)"}, nil
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "propose_programme_dissolution",
+		Description: "Propose that a programme should stop existing, because the common interest that formed it is gone or was never real. NOT executed: it is recorded for a human to confirm. A programme that still has tasks pointing at it will be refused even after confirmation — those tasks record it as their reason, and dissolving it would erase that.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in DissolveProgrammeInput) (*mcp.CallToolResult, OutcomeOutput, error) {
+		cur, err := findProgramme(api, in.Programme)
+		if err != nil {
+			return errResult(err), OutcomeOutput{}, nil
+		}
+		// The proposal carries the programme id and nothing else — `callerScope`
+		// builds its argument as "dissolve <id>", with no room for a reason. So this
+		// tool does not offer one: a `why` field that the record silently dropped
+		// would be worse than the absent field, because the agent would believe it
+		// had explained itself to whoever has to decide.
+		if err := api.DeleteProgramme(cur.ID); err != nil {
+			return nil, outcomeFor(err), nil
+		}
+		return nil, OutcomeOutput{Executed: true,
+			Detail: "programme dissolved (this caller was not treated as an agent)"}, nil
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -499,6 +579,30 @@ func registerControlTools(server *mcp.Server, api control.TaskAPI) {
 				return nil, OutcomeOutput{Executed: true, Detail: what + " executed directly"}, nil
 			})
 	}
+}
+
+// findProgramme resolves what the agent typed — an id or a name — to a
+// programme.
+//
+// Both are accepted for the same reason the CLI accepts both: a person types the
+// name and a client stores the id, and a surface that took only one of them
+// would disagree with every other surface about what a programme reference is.
+// It lives here, once, because three tools need it and three copies of a
+// fallback is how they drift.
+func findProgramme(api control.TaskAPI, ref string) (control.Programme, error) {
+	if p, err := api.GetProgramme(ref); err == nil {
+		return p, nil
+	}
+	progs, err := api.ListProgrammes()
+	if err != nil {
+		return control.Programme{}, err
+	}
+	for _, p := range progs {
+		if p.Name == ref {
+			return p, nil
+		}
+	}
+	return control.Programme{}, fmt.Errorf("no programme %q — list_programmes shows what exists", ref)
 }
 
 // summarise flattens a Task for the agent view.

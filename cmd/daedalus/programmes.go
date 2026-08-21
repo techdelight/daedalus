@@ -52,10 +52,14 @@ func manageProgrammes(cfg *core.Config) error {
 		}
 		return showProgramme(api, args[1], reg, mcpclient.New())
 	case "status":
-		if len(args) < 2 {
-			return fmt.Errorf("usage: daedalus programmes status <name|id>")
+		// --suggest-deps is read out of the argument list rather than through a
+		// flag set, which is what every other `programmes` subcommand does with its
+		// arguments. It is a READ that prints commands; it never runs one.
+		rest, suggest := takeFlag(args[1:], "--suggest-deps")
+		if len(rest) < 1 {
+			return fmt.Errorf("usage: daedalus programmes status <name|id> [--suggest-deps]")
 		}
-		return programmeStatus(api, args[1])
+		return programmeStatus(api, rest[0], suggest)
 	case "create":
 		if len(args) < 2 {
 			return fmt.Errorf("usage: daedalus programmes create <name> [description...]")
@@ -178,9 +182,26 @@ func showProgramme(api control.TaskAPI, ref string, reg *registry.Registry, clie
 	return nil
 }
 
-// programmeStatus prints the roll-up: the work serving a programme, and what it
-// is waiting on.
-func programmeStatus(api control.TaskAPI, ref string) error {
+// takeFlag removes a bare flag from an argument list and reports whether it was
+// there. Order-independent, because `status --suggest-deps fluency` and
+// `status fluency --suggest-deps` are the same request and refusing one of them
+// teaches nothing.
+func takeFlag(args []string, flag string) ([]string, bool) {
+	out := make([]string, 0, len(args))
+	found := false
+	for _, a := range args {
+		if a == flag {
+			found = true
+			continue
+		}
+		out = append(out, a)
+	}
+	return out, found
+}
+
+// programmeStatus prints the roll-up: the work serving a programme, what it is
+// waiting on, and where its declared order and the enforcing graph disagree.
+func programmeStatus(api control.TaskAPI, ref string, suggest bool) error {
 	p, err := findProgramme(api, ref)
 	if err != nil {
 		return err
@@ -198,16 +219,21 @@ func programmeStatus(api control.TaskAPI, ref string) error {
 	if len(st.Tasks) == 0 {
 		fmt.Println("Nothing serves this programme yet. `daedalus task create --programme " +
 			st.Programme.Name + " …`")
-		return nil
-	}
-	fmt.Printf("  %-6s  %-16s  %-18s  %s\n", color.Bold("TASK"), color.Bold("PROJECT"),
-		color.Bold("STATE"), color.Bold("OBJECTIVE"))
-	for _, t := range st.Tasks {
-		fmt.Printf("  %-6s  %-16s  %-18s  %s\n", t.ID, truncate(t.Project, 16), t.State, truncate(t.Objective, 44))
-		if t.Rationale != "" {
-			fmt.Printf("          %s %s\n", color.Dim("for:"), truncate(t.Rationale, 70))
+		// Deliberately NOT a return. A programme with a declared order and no work is
+		// exactly the case the divergence report has something to say about — every
+		// edge is unenforced and the reason is that the work does not exist yet.
+	} else {
+		fmt.Printf("  %-6s  %-16s  %-18s  %s\n", color.Bold("TASK"), color.Bold("PROJECT"),
+			color.Bold("STATE"), color.Bold("OBJECTIVE"))
+		for _, t := range st.Tasks {
+			fmt.Printf("  %-6s  %-16s  %-18s  %s\n", t.ID, truncate(t.Project, 16), t.State, truncate(t.Objective, 44))
+			if t.Rationale != "" {
+				fmt.Printf("          %s %s\n", color.Dim("for:"), truncate(t.Rationale, 70))
+			}
 		}
 	}
+
+	printDivergence(st, suggest)
 
 	// The part a per-project view cannot show: work this programme waits on that
 	// nobody put in it.
@@ -228,6 +254,70 @@ func programmeStatus(api control.TaskAPI, ref string) error {
 		}
 	}
 	return nil
+}
+
+// printDivergence reports the distance between the order a programme DECLARES
+// and the graph that actually makes a landing wait (M22).
+//
+// Both graphs stay. One plans and one enforces, which is how programme
+// management has always worked — what was missing is that nothing ever compared
+// them, so a declared order was a claim the system never checked. The comparison
+// is what turns the declared graph into something you can be wrong about.
+//
+// With `suggest`, the exact `task depends` command is printed for each edge
+// nothing enforces. It is printed, never run: an edge decides what must happen
+// before a Task is graded, and a tool that quietly added them would be writing
+// the enforcing graph on the strength of somebody's plan.
+func printDivergence(st control.ProgrammeStatus, suggest bool) {
+	if len(st.Declared) == 0 && len(st.Undeclared) == 0 {
+		return
+	}
+	if len(st.Declared) > 0 {
+		fmt.Printf("\n%s\n", color.Bold("Declared order, and what enforces it:"))
+		for _, d := range st.Declared {
+			// Padded as ONE field, not two. Padding only the downstream name lines the
+			// arrows up and leaves the verdicts ragged, which is the wrong column to
+			// align: the eye is scanning for "not enforced".
+			pair := d.Upstream + " → " + d.Downstream
+			if d.Enforced {
+				fmt.Printf("  %-26s %s  %s\n", pair,
+					color.Green("enforced"), color.Dim("by "+strings.Join(d.EnforcedBy, ", ")))
+				continue
+			}
+			fmt.Printf("  %-26s %s\n", pair, color.Yellow("not enforced"))
+			// WHY it is not enforced, because the two reasons need different answers.
+			// With work on both sides it is a missing declaration; with a side empty
+			// there is nothing to declare yet, and telling someone to declare an edge
+			// between tasks that do not exist is how a report earns being ignored.
+			switch {
+			case len(d.UpstreamTasks) == 0 && len(d.DownstreamTasks) == 0:
+				fmt.Printf("      %s\n", color.Dim("no open work on either side yet"))
+			case len(d.UpstreamTasks) == 0:
+				fmt.Printf("      %s\n", color.Dim("nothing open in "+d.Upstream+" to wait for"))
+			case len(d.DownstreamTasks) == 0:
+				fmt.Printf("      %s\n", color.Dim("nothing open in "+d.Downstream+" to do the waiting"))
+			case suggest:
+				for _, down := range d.DownstreamTasks {
+					for _, up := range d.UpstreamTasks {
+						fmt.Printf("      daedalus task depends %s --on %s\n", down, up)
+					}
+				}
+			default:
+				fmt.Printf("      %s\n", color.Dim(strings.Join(d.DownstreamTasks, " ")+
+					" could wait for "+strings.Join(d.UpstreamTasks, " ")+
+					" — re-run with --suggest-deps for the commands"))
+			}
+		}
+	}
+	if len(st.Undeclared) > 0 {
+		fmt.Printf("\n%s\n", color.Bold("Enforced, but never declared:"))
+		for _, u := range st.Undeclared {
+			fmt.Printf("  %s waits for %s  %s\n", u.TaskID, u.DependsOn,
+				color.Dim("("+u.Downstream+" ← "+u.Upstream+")"))
+		}
+		fmt.Printf("  %s the work found a dependency the plan does not mention. Either the plan is "+
+			"out of date, or this edge is wrong.\n", color.Cyan("Note:"))
+	}
 }
 
 // createProgramme forms a programme.

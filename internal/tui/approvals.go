@@ -23,10 +23,20 @@ import (
 // "nothing needs you" and "I could not ask" are very different answers.
 
 // approvalRow is one task awaiting a human decision.
+//
+// It carries the PROGRAMME and the RATIONALE as well as the objective (M21). The
+// reviewer agent is given all three before it writes a word; this queue used to
+// give the person who actually decides only the last one.
 type approvalRow struct {
 	id        string
 	project   string
 	objective string
+	programme string // the programme's NAME, resolved; empty when it serves none
+	rationale string
+	// rationaleBy is the caller class that authored the reason. It is shown, not
+	// hidden, because a reason an agent drafted is weaker evidence of intent than
+	// one a human wrote, and the person deciding is the one who should weigh that.
+	rationaleBy string
 }
 
 // approvalsLoadedMsg carries the result of a refresh, plus the plane's
@@ -94,9 +104,28 @@ func loadApprovals(api control.TaskAPI) tea.Cmd {
 		if err != nil {
 			return approvalsLoadedMsg{available: false, reason: err.Error()}
 		}
+		// One list call for the names, and a failure to read them costs a name
+		// rather than the queue: an approval that vanished because a lookup failed
+		// would read as "nothing needs you".
+		names := map[string]string{}
+		if progs, perr := api.ListProgrammes(); perr == nil {
+			for _, p := range progs {
+				names[p.ID] = p.Name
+			}
+		}
 		rows := make([]approvalRow, 0, len(tasks))
 		for _, t := range tasks {
-			rows = append(rows, approvalRow{id: t.ID, project: t.Project, objective: t.Objective})
+			row := approvalRow{
+				id: t.ID, project: t.Project, objective: t.Objective,
+				rationale: t.Rationale, rationaleBy: string(t.RationaleBy),
+			}
+			if t.ProgrammeID != "" {
+				row.programme = names[t.ProgrammeID]
+				if row.programme == "" {
+					row.programme = t.ProgrammeID
+				}
+			}
+			rows = append(rows, row)
 		}
 		msg := approvalsLoadedMsg{rows: rows, available: true}
 		if st, err := api.PlaneStatus(); err == nil {
@@ -262,6 +291,30 @@ func (m tuiModel) viewApprovals() string {
 			add(normalStyle.Render(line))
 		}
 		add("\n")
+		// Why this work exists, under the row the cursor is on. Under one row and
+		// not all of them: a queue where every entry is three lines is a queue you
+		// scroll rather than read, and the intent matters at the moment of
+		// deciding, which is where the cursor is.
+		if i == m.approvalCursor {
+			if row.programme != "" {
+				add(helpStyle.Render("      for: " + truncateTUI(row.programme, 60)))
+				add("\n")
+			}
+			if row.rationale != "" {
+				by := ""
+				if row.rationaleBy != "" {
+					by = "  (" + row.rationaleBy + ")"
+				}
+				add(helpStyle.Render("      reason: " + truncateTUI(row.rationale, 56) + by))
+				add("\n")
+			}
+			if row.programme == "" && row.rationale == "" {
+				// Stated rather than left blank: deciding on the objective alone is a
+				// fact about the decision, not an empty field.
+				add(helpStyle.Render("      no programme, no recorded reason"))
+				add("\n")
+			}
+		}
 	}
 	add("\n")
 	add(helpStyle.Render("  [a]pprove  [x] reject  [r]efresh  [q] back"))

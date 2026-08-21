@@ -187,6 +187,14 @@ type approvalsResponse struct {
 	Tasks []approvalTask `json:"tasks"`
 }
 
+// approvalTask is one task awaiting a human decision.
+//
+// M21: it carries the PROGRAMME and the RATIONALE, and that is the whole point
+// of the milestone rather than a field or two more. `AgentReviewer` is handed the
+// diff, the objective, the rationale and the programme (`review.go`); this
+// struct used to hand the human an objective and a SHA. The party that reports
+// was being shown more of the intent than the party with the authority to act,
+// which inverts what the rationale was recorded for.
 type approvalTask struct {
 	ID        string `json:"id"`
 	Project   string `json:"project"`
@@ -194,6 +202,14 @@ type approvalTask struct {
 	BaseSHA   string `json:"baseSha"`
 	State     string `json:"state"`
 	CreatedAt string `json:"createdAt"`
+	// Programme is resolved to a NAME here rather than passed through as an id.
+	// The id is what the Task stores and what a client should key on; a person
+	// deciding whether to seal something has no use for "PR-3".
+	ProgrammeID  string `json:"programmeId,omitempty"`
+	Programme    string `json:"programme,omitempty"`
+	ProgrammeFor string `json:"programmeFor,omitempty"`
+	Rationale    string `json:"rationale,omitempty"`
+	RationaleBy  string `json:"rationaleBy,omitempty"`
 }
 
 // handleApprovals serves the queue of tasks awaiting a human decision.
@@ -205,12 +221,28 @@ func (ws *WebServer) handleApprovals(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				return nil, err
 			}
+			// One list call, not one lookup per task: the queue is short and the
+			// programmes are fewer still, and a failure to read them must not empty
+			// the approval queue — a gate that vanishes because a name could not be
+			// resolved is a worse bug than a gate with no name on it.
+			names := map[string]control.Programme{}
+			if progs, perr := api.ListProgrammes(); perr == nil {
+				for _, p := range progs {
+					names[p.ID] = p
+				}
+			}
 			resp := approvalsResponse{unavailable: unavailable{Available: true}, Tasks: []approvalTask{}}
 			for _, t := range tasks {
-				resp.Tasks = append(resp.Tasks, approvalTask{
+				row := approvalTask{
 					ID: t.ID, Project: t.Project, Objective: t.Objective,
 					BaseSHA: t.BaseSHA, State: string(t.State), CreatedAt: t.CreatedAt,
-				})
+					ProgrammeID: t.ProgrammeID, Rationale: t.Rationale,
+					RationaleBy: string(t.RationaleBy),
+				}
+				if p, ok := names[t.ProgrammeID]; ok {
+					row.Programme, row.ProgrammeFor = p.Name, p.Description
+				}
+				resp.Tasks = append(resp.Tasks, row)
 			}
 			return resp, nil
 		})
@@ -225,6 +257,10 @@ type planeStatusResponse struct {
 	PerProjectLmt  int            `json:"perProjectLimit"`
 	ProjectRunning map[string]int `json:"projectRunning"`
 	Waiting        []string       `json:"waiting"`
+	// Per programme (M22). Reporting only — the scheduler admits on the global and
+	// per-project limits and knows nothing about programmes.
+	ProgrammeRunning map[string]int `json:"programmeRunning,omitempty"`
+	ProgrammeWaiting map[string]int `json:"programmeWaiting,omitempty"`
 }
 
 // handlePlaneStatus serves the scheduler's view of what is running and queued.
@@ -242,6 +278,7 @@ func (ws *WebServer) handlePlaneStatus(w http.ResponseWriter, r *http.Request) {
 			GlobalRunning: st.GlobalRunning, GlobalLimit: st.Limits.Global,
 			PerProjectLmt:  st.Limits.PerProject,
 			ProjectRunning: st.ProjectRunning, Waiting: st.Waiting,
+			ProgrammeRunning: st.ProgrammeRunning, ProgrammeWaiting: st.ProgrammeWaiting,
 		}
 		if resp.ProjectRunning == nil {
 			resp.ProjectRunning = map[string]int{}
@@ -266,6 +303,11 @@ type boardResponse struct {
 	GlobalLimit      int           `json:"globalLimit"`
 	PendingApprovals int           `json:"pendingApprovals"`
 	PendingProposals int           `json:"pendingProposals"`
+	// Running and waiting Jobs per programme (M22), carried on the board because
+	// the Ledger already polls it — a second poll for two numbers would be a second
+	// thing that can be stale in a different way from the first.
+	ProgrammeRunning map[string]int `json:"programmeRunning,omitempty"`
+	ProgrammeWaiting map[string]int `json:"programmeWaiting,omitempty"`
 }
 
 type boardColumn struct {
@@ -300,6 +342,8 @@ func (ws *WebServer) handleBoard(w http.ResponseWriter, r *http.Request) {
 				GlobalLimit:      view.Plane.Limits.Global,
 				PendingApprovals: view.PendingApprovals,
 				PendingProposals: view.PendingProposals,
+				ProgrammeRunning: view.Plane.ProgrammeRunning,
+				ProgrammeWaiting: view.Plane.ProgrammeWaiting,
 			}
 			for _, col := range view.Columns {
 				out := boardColumn{Key: col.Key, Title: col.Title, Cards: []boardCard{}}

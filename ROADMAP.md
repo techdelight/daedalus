@@ -203,6 +203,43 @@ One design constraint, and it is not a detail: **the rationale must be the human
 
 Deliberately out of scope: making the machine verify gate authoritative again (blocked on #74 — the verifier cannot run a project's real build or tests with the network off and no dependency cache); real execution termination (#69); a durable scheduler (#70). If this proves too large for one milestone the split line is part one, then part two — part two reviews against the rationale part one records, so the order is fixed.
 
+### Milestone 21: The Programme, Read by the Person Deciding (Done)
+
+M20 put intent in the plane. Nothing showed it to the human.
+
+Measured, 2026-08-21: `internal/web/static/control.js` contained **no reference to `programme` and none to `rationale`**. The REST routes existed and nothing consumed them, and the approvals payload the page polls (`approvalTask`) carried an id, a project, an objective, a base SHA and a state. Meanwhile `AgentReviewer` is handed the diff, the objective, the **rationale** and the **programme** (`internal/control/review.go`). So the party that only reports was shown more of the intent than the party with the authority to act. That is backwards, and it makes the rationale a field the system collects and never spends.
+
+The approval literature says the same thing from the other side: approvals fail when the reviewer is asked to approve blind, and the evidence pack is the difference between a fifteen-second decision and a fifteen-minute investigation. Here the evidence already exists, recorded, one struct away from the person deciding.
+
+There is a second reason this is a milestone rather than a chore. M20's own verification playbook claimed *"you can see a Task's programme in its entry"* — in a document whose purpose is to catch prose claiming more than the code. Building the surface and correcting the claim belong together.
+
+Deliverables:
+
+- A **programme view in the Ledger**: what it is for, the projects, the work serving it by state, and the edges that leave it — against `/api/control/programmes*`, which already existed and had no consumer
+- **Programme and rationale on the Task entry and in the approval queue**, with the rationale's author shown, so an agent-drafted reason does not read as the operator's
+- The **same intent in the TUI** approvals queue, under the row the cursor is on
+- The **plane-unreachable path designed rather than discovered**: a programme surface that renders blank when the daemon is not running would be worse than one that says so
+- Three small things that were too small to be milestones and too real to leave: the Guild Master's missing **amend and dissolve** tools (#85), the **`programme_board` → `task_board`** rename (#86), and the false claim in `docs/m20-verification.md` (#87)
+
+Deliberately out of scope: programme CRUD in the browser. Reading is what was missing. Forming, amending and dissolving stay deliberate acts at a CLI or a confirmed proposal, and a page that could dissolve a programme between two clicks would make the most consequential gesture the easiest one to reach.
+
+### Milestone 22: Two Graphs, and the Distance Between Them (Done)
+
+A programme has project→project edges that order a plan. The plane has Task→Task edges that gate landings. They have never been compared.
+
+**The two graphs stay.** The instinct is to merge them, and it is wrong. Programme management has run on exactly this split for as long as the discipline has existed: MSP's benefits dependency map plans, and the delivery plan gates. Merging them here would be worse than untidy — an agent that can draft a plan would gain the power to gate work, which is the authority the proposal tier exists to withhold. Linear's own argument for a two-level hierarchy is the same one in a different vocabulary: a third edge kind is how a model turns into sprawl.
+
+The defect was never that `Deps` gate nothing. It is that **a programme could declare `web` follows `api` while no Task edge made any landing wait, and nothing in the system would ever mention it.** `add-dep` prints the caveat once, at write time, to whoever already knew. So the declared order was a claim that could not be wrong — which is another way of saying it could not be useful.
+
+Deliverables:
+
+- A **divergence report** in `programmes status`, in the API and in the Ledger: declared edges nothing enforces, and enforced cross-project edges nobody declared
+- Each unenforced edge says **why** — work on both sides is a missing declaration; an empty side is work that does not exist yet, and those need different answers
+- **`programmes status --suggest-deps`** prints the exact `task depends` commands. It prints them; it never runs one. A dependency edge decides what must happen before a Task is graded, so a tool that added them quietly would be writing the enforcing graph from somebody's plan
+- **Per-programme running and queued counts**, so "which shared intent is the machine actually spending itself on" is answerable
+
+Deliberately out of scope, with a precondition rather than a preference: **programme-aware admission** — fair-share or priority across programmes — waits on **#70, a durable scheduler**. Capacity today lives in an in-memory `waiting` map that a restart erases, and fairness policy built over something that forgets is worse than none, because it looks like a guarantee. The numbers this milestone adds are reporting, and every surface that shows them says so.
+
 ## Phasing
 
 ```
@@ -218,14 +255,24 @@ The "controlling Guild Master" control-plane arc
 Then M18 Control-Plane Hardening (Done) — the correctable findings of the post-arc
 external review; NOT the two milestone-sized ones (real termination #69, a durable
 scheduler #70), which stay in the backlog until they are chosen.
-Still Planned: M10 Homebrew Distribution, and M20 Programmes in the Plane &
-a Reviewer at the Gate — the first milestone above the control-plane arc rather
-than inside it.
+Above the arc (programmes, and the people reading them):
+  M20 Programmes in the Plane & a Reviewer at the Gate (Done)
+   ─► M21 The Programme, Read by the Person Deciding (Done — the surface M20 did not build)
+   ─► M22 Two Graphs, and the Distance Between Them (Done — the declared order,
+          graded against the graph that gates). Programme-aware ADMISSION is not
+          here and waits on #70.
+Still Planned: M10 Homebrew Distribution.
 ```
 
 ## Current Focus
 
-**No milestone is in progress. Milestone 20 (Programmes in the Plane & a Reviewer at the Gate) closed with Sprints 66 and 67** — the first milestone that sat *above* the control-plane arc rather than inside it. M13–M19 made the plane trustworthy about one attempt at one repository; M20 asked the two questions no exit code answers.
+**No milestone is in progress. Milestones 21 and 22 closed on 2026-08-21 with Sprints 68–71**, and they finish what M20 started: M20 made intent structural, M21 put it in front of the person deciding, and M22 made the declared order something the system checks rather than stores.
+
+**What M21 fixed is worth stating as a defect rather than a feature.** The reviewer agent was handed the objective, the rationale and the programme; the approvals payload handed the human an objective and a base SHA, and the Ledger's JavaScript mentioned neither word. The machine saw more of the "why" than the person with the authority to act on it. The Ledger now has a programme view, the Task entry and both approval queues carry the programme and the rationale with its author, and a task being decided with neither says so in as many words instead of leaving a blank. Three smaller things closed with it: the Guild Master can now amend and dissolve a programme as well as form one (#85), the board tool is `task_board` rather than `programme_board` (#86), and M20's verification playbook no longer claims a surface that did not exist (#87).
+
+**M22 kept both graphs and measured the gap between them.** A programme's project→project edges plan; `task_dependencies` gates. That split is the standard shape and merging it would hand an agent that can draft a plan the power to gate work. What was missing is that nothing ever compared the two, so a declared order was a claim nobody checked. `programmes status` now reports declared edges nothing enforces, enforced cross-project edges nobody declared, and why each unenforced edge is unenforced; `--suggest-deps` prints the commands that would enforce one and runs none of them. Per-programme running and queued counts answer which shared intent is spending the machine. **Programme-aware admission is deliberately absent and waits on #70** — the queue it would have to be fair over does not survive a restart.
+
+**The previous focus statement, kept because it is still true.** Milestone 20 closed with Sprints 66 and 67 — the first milestone that sat *above* the control-plane arc rather than inside it. M13–M19 made the plane trustworthy about one attempt at one repository; M20 asked the two questions no exit code answers.
 
 **Intent is structural now.** A **Programme** is a row in `control.db` rather than a JSON file the plane had never read, a Task points at one by ID, and a Task records its **rationale** with the caller class that authored it — so an agent-drafted reason reads as the agent's rather than silently as the operator's. The two hierarchies that never touched now do: `programmes status` rolls the *existing* Task→Task graph up to the programme and reports the part no per-project view can show, the edges that leave it. The file-backed store was collapsed in rather than left beside the new one; no double-write survived the sprint.
 

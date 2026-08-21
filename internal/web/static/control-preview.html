@@ -84,12 +84,18 @@
     <div class="ledger-section">
       <div class="ledger-section-head">
         <span class="ledger-section-title">Awaiting your approval</span>
-        <span class="ledger-section-count">1</span>
+        <span class="ledger-section-count">2</span>
       </div>
       <button type="button" class="ledger-row is-current" data-entry-id="T-12">
         <span class="ledger-cursor">▶</span>
         <span class="ledger-row-id">T-12</span>
         <span class="ledger-row-objective">Promote the ad-hoc colour literals introduced by T-8 into shared custom properties, so the sidebar and the Guild view draw from one palette</span>
+        <span class="ledger-row-status is-waiting">awaiting seal</span>
+      </button>
+      <button type="button" class="ledger-row" data-entry-id="T-17">
+        <span class="ledger-cursor">▶</span>
+        <span class="ledger-row-id">T-17</span>
+        <span class="ledger-row-objective">Cache the deck index so the review screen stops re-reading every card file on each keystroke</span>
         <span class="ledger-row-status is-waiting">awaiting seal</span>
       </button>
     </div>
@@ -125,6 +131,21 @@
         <span class="ledger-row-id">P-3</span>
         <span class="ledger-row-objective">dispatch task · T-16</span>
         <span class="ledger-row-status is-waiting">proposed</span>
+      </button>
+    </div>
+
+    <!-- Programmes sit last: the board is what interrupts you, a programme is
+         what you go looking for. -->
+    <div class="ledger-section">
+      <div class="ledger-section-head">
+        <span class="ledger-section-title">Programmes — what the work is for</span>
+        <span class="ledger-section-count">1</span>
+      </div>
+      <button type="button" class="ledger-row" data-entry-id="PR-1">
+        <span class="ledger-cursor">▶</span>
+        <span class="ledger-row-id">PR-1</span>
+        <span class="ledger-row-objective">fluency — one way to theme, everywhere</span>
+        <span class="ledger-row-status is-working">2 projects</span>
       </button>
     </div>
 
@@ -231,11 +252,79 @@
       body: 'Publish the Homebrew formula from the release workflow and check it against the bundled archive.',
       note: 'stuck — T-11 can never complete', cmds: ['Checks', 'Depends on', '!Cancel'], msg: null
     },
+    // The M21 state, and the one most worth eyeballing: a task at the gate, with
+    // the programme and the recorded reason beside the objective. Until M21 this
+    // window held the objective alone, while the reviewer agent was handed all
+    // three.
     'T-12': {
       project: 'daedalus', mark: ['awaiting seal', 'is-waiting'],
-      body: 'Promote the ad-hoc colour literals introduced by T-8 in internal/web/static/style.css into shared custom properties, so the sidebar and the Guild view draw from one palette. These are not arbitrary colours: almost every one is a lighter or darker variant of an existing --mana-* variable, invented at the call site because the palette has a base tier and no highlight/shade tier.',
-      note: '', cmds: ['Review', '+Approve', '!Reject', 'Integrate', 'Integrate · branch', 'Depends on', '!Cancel'],
+      bodyHTML:
+        '<div class="ledger-prose">Promote the ad-hoc colour literals introduced by T-8 in ' +
+        'internal/web/static/style.css into shared custom properties, so the sidebar and the Guild ' +
+        'view draw from one palette. These are not arbitrary colours: almost every one is a lighter ' +
+        'or darker variant of an existing --mana-* variable, invented at the call site because the ' +
+        'palette has a base tier and no highlight/shade tier.</div>' +
+        '<dl class="ledger-facts">' +
+        '<dt class="ledger-fact-k">for</dt>' +
+        '<dd class="ledger-fact-v">fluency — one way to theme, everywhere</dd>' +
+        '<dt class="ledger-fact-k">reason</dt>' +
+        '<dd class="ledger-fact-v">three projects each grew their own theming  (agent)</dd>' +
+        '</dl>',
+      body: '', note: '',
+      cmds: ['Review', '+Approve', '!Reject', 'Integrate', 'Integrate · branch', 'Depends on', '!Cancel'],
       msg: null
+    },
+    // A task at the same gate with NO programme and NO reason. The absence is
+    // stated, because deciding on the objective alone is a fact about the
+    // decision and a blank line says nothing at all.
+    'T-17': {
+      project: 'flashcards', mark: ['awaiting seal', 'is-waiting'],
+      bodyHTML:
+        '<div class="ledger-prose">Cache the deck index so the review screen stops re-reading every ' +
+        'card file on each keystroke.</div>' +
+        '<div class="ledger-desc-note">No programme, and no recorded reason. You are deciding on ' +
+        'the objective alone.</div>',
+      body: '', note: '',
+      cmds: ['Review', '+Approve', '!Reject', 'Integrate', 'Depends on', '!Cancel'], msg: null
+    },
+    // A programme (M21) with the divergence report (M22). No commands: forming,
+    // amending and dissolving stay at a CLI or a confirmed proposal.
+    'PR-1': {
+      project: 'fluency', mark: ['3 open · 1 landed', 'is-working'],
+      bodyHTML:
+        '<div class="ledger-prose">one way to theme, everywhere</div>' +
+        '<dl class="ledger-facts">' +
+        '<dt class="ledger-fact-k">projects</dt>' +
+        '<dd class="ledger-fact-v">daedalus · flashcards</dd>' +
+        '<dt class="ledger-fact-k">work</dt>' +
+        '<dd class="ledger-fact-v">4 task(s) — 3 open, 1 landed</dd>' +
+        '<dt class="ledger-fact-k">running now</dt>' +
+        '<dd class="ledger-fact-v">1 job(s), 1 queued for a slot</dd>' +
+        '</dl>' +
+        '<div class="ledger-sub">Declared order, and what enforces it</div>' +
+        '<div class="ledger-log-row"><span class="ledger-log-id">daedalus → flashcards</span>' +
+        '<span class="ledger-log-what is-passed">enforced by T-12 → T-8</span></div>' +
+        '<div class="ledger-log-row"><span class="ledger-log-id">flashcards → langlearn</span>' +
+        '<span class="ledger-log-what is-waiting">not enforced</span></div>' +
+        '<div class="ledger-log-note">nothing open in langlearn to do the waiting</div>' +
+        '<div class="ledger-advisory">Declared order plans; it gates nothing. What makes a landing ' +
+        'wait is the task graph.</div>' +
+        '<div class="ledger-sub">Enforced, but never declared</div>' +
+        '<div class="ledger-log-row"><span class="ledger-log-id">T-16 waits for T-11</span>' +
+        '<span class="ledger-log-what">daedalus ← flashcards</span></div>' +
+        '<div class="ledger-log-note">The work found a dependency the plan does not mention. Either ' +
+        'the plan is out of date, or this edge is wrong.</div>' +
+        '<div class="ledger-sub">The work that serves it</div>' +
+        '<div class="ledger-log-row"><span class="ledger-log-id">T-12</span>' +
+        '<span class="ledger-log-what">approval_required · daedalus · Promote the ad-hoc colour ' +
+        'literals into shared custom properties</span></div>' +
+        '<div class="ledger-log-note">for: three projects each grew their own theming</div>' +
+        '<div class="ledger-sub">Waiting on work outside this programme</div>' +
+        '<div class="ledger-log-row"><span class="ledger-log-id">T-16 → T-11</span>' +
+        '<span class="ledger-log-what is-waiting">rejected · unmet · flashcards · no programme</span></div>',
+      body: '', noTabs: true,
+      note: 'Formed, amended and dissolved from the CLI, or by confirming an agent’s proposal.',
+      cmds: [], msg: null
     },
     'T-13': {
       project: 'flashcards', mark: ['refused', 'is-refused'],
@@ -302,10 +391,18 @@
     var body = el('ledger-desc-body');
     body.className = 'ledger-desc-body';
     body.innerHTML = '';
-    var prose = document.createElement('div');
-    prose.className = 'ledger-prose';
-    prose.textContent = e.body;
-    body.appendChild(prose);
+    if (e.bodyHTML) {
+      // The richer entries — a programme, and a task carrying its intent — are
+      // markup rather than a paragraph. Written out in full here on purpose: this
+      // file exists to be LOOKED at, so what it renders has to be what the page
+      // renders, not a simplification of it.
+      body.innerHTML = e.bodyHTML;
+    } else {
+      var prose = document.createElement('div');
+      prose.className = 'ledger-prose';
+      prose.textContent = e.body;
+      body.appendChild(prose);
+    }
 
     var note = el('ledger-desc-note');
     note.textContent = e.note;

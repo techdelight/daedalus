@@ -4,6 +4,7 @@ package web
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -18,10 +19,20 @@ import (
 type fakeControl struct {
 	control.TaskAPI // the rest is unused and must never be called
 	pending         []control.Task
+	programmes      []control.Programme
+	progErr         error
 	approved        []string
 	rejected        []string
 	notes           []string
 	err             error
+}
+
+// The approvals queue resolves each task's programme to a NAME (M21), so this
+// double answers the list call too. progErr is separate from err on purpose: a
+// programme list that cannot be read must not empty the approval queue, which is
+// what TestApprovals_ProgrammeUnreadable asserts.
+func (f *fakeControl) ListProgrammes() ([]control.Programme, error) {
+	return f.programmes, f.progErr
 }
 
 func (f *fakeControl) PlaneStatus() (control.PlaneStatus, error) {
@@ -106,6 +117,84 @@ func TestApprovals_ListsPending(t *testing.T) {
 	}
 	if got.Tasks[0].ID != "T-1" || got.Tasks[1].Project != "api" {
 		t.Errorf("tasks not carried through: %+v", got.Tasks)
+	}
+}
+
+// M21: the person holding the seal is shown what the work is FOR.
+//
+// The reviewer agent has been handed the objective, the rationale and the
+// programme since Sprint 67; this queue handed the human an objective and a base
+// SHA. The asymmetry is the bug — a rationale is recorded so that a human can
+// weigh it, and it is recorded WITH ITS AUTHOR so an agent-drafted reason does
+// not read as the operator's own.
+func TestApprovals_CarryProgrammeAndRationale(t *testing.T) {
+	fake := &fakeControl{
+		pending: []control.Task{{
+			ID: "T-1", Project: "app", Objective: "add dark mode",
+			State: control.StateApprovalRequired, ProgrammeID: "PR-1",
+			Rationale: "three projects grew their own theming", RationaleBy: control.CallerAgent,
+		}},
+		programmes: []control.Programme{
+			{ID: "PR-1", Name: "fluency", Description: "one way to theme, everywhere"},
+		},
+	}
+	rec := httptest.NewRecorder()
+	approvalsMux(&WebServer{control: fake}).ServeHTTP(rec,
+		httptest.NewRequest(http.MethodGet, "/api/control/approvals", nil))
+
+	var got approvalsResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(got.Tasks) != 1 {
+		t.Fatalf("got %d tasks, want 1", len(got.Tasks))
+	}
+	row := got.Tasks[0]
+	if row.ProgrammeID != "PR-1" || row.Programme != "fluency" {
+		t.Errorf("programme = %q/%q, want PR-1/fluency", row.ProgrammeID, row.Programme)
+	}
+	// The description travels too: "what this is for" is the sentence a rationale
+	// is judged against, and an operator who has to go and look it up elsewhere is
+	// an operator deciding without it.
+	if row.ProgrammeFor != "one way to theme, everywhere" {
+		t.Errorf("programmeFor = %q, want the programme's description", row.ProgrammeFor)
+	}
+	if row.Rationale == "" || row.RationaleBy != string(control.CallerAgent) {
+		t.Errorf("rationale = %q by %q, want the reason and its author",
+			row.Rationale, row.RationaleBy)
+	}
+}
+
+// A programme list that cannot be read must cost the queue a NAME, never a ROW.
+// The gate is the thing that must not vanish: an approval that disappears because
+// a lookup failed reads as "nothing needs you", which is the one answer this
+// surface must never give wrongly.
+func TestApprovals_ProgrammeUnreadable(t *testing.T) {
+	fake := &fakeControl{
+		pending: []control.Task{{
+			ID: "T-1", Project: "app", Objective: "add dark mode",
+			State: control.StateApprovalRequired, ProgrammeID: "PR-1",
+			Rationale: "still recorded", RationaleBy: control.CallerHuman,
+		}},
+		progErr: errors.New("programmes table is unreadable"),
+	}
+	rec := httptest.NewRecorder()
+	approvalsMux(&WebServer{control: fake}).ServeHTTP(rec,
+		httptest.NewRequest(http.MethodGet, "/api/control/approvals", nil))
+
+	var got approvalsResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !got.Available || len(got.Tasks) != 1 {
+		t.Fatalf("got %+v, want the queue to survive an unreadable programme list", got)
+	}
+	if got.Tasks[0].Programme != "" || got.Tasks[0].ProgrammeID != "PR-1" {
+		t.Errorf("want the id with no name, got %q/%q",
+			got.Tasks[0].ProgrammeID, got.Tasks[0].Programme)
+	}
+	if got.Tasks[0].Rationale != "still recorded" {
+		t.Error("the rationale comes from the Task and must not depend on the programme lookup")
 	}
 }
 

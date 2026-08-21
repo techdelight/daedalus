@@ -238,6 +238,217 @@ func TestProgrammeStatus_ReportsEdgesLeavingTheProgramme(t *testing.T) {
 	}
 }
 
+// M22: the declared order is graded against the graph that actually gates.
+//
+// A programme could declare that `app` follows `other` while no Task edge made
+// any landing wait, and nothing in the system ever mentioned it. The declared
+// graph was a claim nobody checked — so it could not be wrong, which is another
+// way of saying it could not be useful.
+func TestProgrammeStatus_ADeclaredEdgeNobodyEnforces(t *testing.T) {
+	svc, st := newProgrammeService(t)
+	prog, err := svc.CreateProgramme(ProgrammeRequest{
+		Name: "fluency", Description: "get fluent",
+		Projects: []string{"other", "app"},
+		Deps:     []core.DependencyEdge{{Upstream: "other", Downstream: "app"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	downstream := seedTaskForProgramme(t, st, "app", prog.ID)
+	upstream := seedTaskForProgramme(t, st, "other", prog.ID)
+
+	status, err := svc.ProgrammeStatusFor(prog.ID)
+	if err != nil {
+		t.Fatalf("ProgrammeStatusFor: %v", err)
+	}
+	if len(status.Declared) != 1 {
+		t.Fatalf("%d declared edges, want 1: %+v", len(status.Declared), status.Declared)
+	}
+	edge := status.Declared[0]
+	if edge.Enforced {
+		t.Error("an edge with no task dependency behind it must not report as enforced")
+	}
+	// The candidates are the point of reporting it: an unenforced edge with work on
+	// both sides is a missing declaration, and one with no work on a side is simply
+	// waiting for the work to exist. Those need different answers from an operator.
+	if len(edge.UpstreamTasks) != 1 || edge.UpstreamTasks[0] != upstream.ID {
+		t.Errorf("upstream candidates = %v, want [%s]", edge.UpstreamTasks, upstream.ID)
+	}
+	if len(edge.DownstreamTasks) != 1 || edge.DownstreamTasks[0] != downstream.ID {
+		t.Errorf("downstream candidates = %v, want [%s]", edge.DownstreamTasks, downstream.ID)
+	}
+
+	// Declare it in the graph that has teeth, and the same edge reports enforced —
+	// naming the Task edge that does it, so the claim can be checked rather than
+	// taken.
+	if _, err := st.AddDependency(downstream.ID, upstream.ID); err != nil {
+		t.Fatal(err)
+	}
+	status, err = svc.ProgrammeStatusFor(prog.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	edge = status.Declared[0]
+	if !edge.Enforced {
+		t.Fatal("a task edge across the declared projects must make the edge enforced")
+	}
+	if len(edge.EnforcedBy) != 1 || edge.EnforcedBy[0] != downstream.ID+" → "+upstream.ID {
+		t.Errorf("enforcedBy = %v, want the task edge that does it", edge.EnforcedBy)
+	}
+	if len(edge.UpstreamTasks) != 0 || len(edge.DownstreamTasks) != 0 {
+		t.Error("candidates are for an edge that needs one; an enforced edge should carry none")
+	}
+	if len(status.Undeclared) != 0 {
+		t.Errorf("a declared edge must not also be reported as undeclared: %+v", status.Undeclared)
+	}
+}
+
+// The other direction, and the more interesting one: work that turned out to
+// depend on something the plan never anticipated. A declared edge nobody enforces
+// is a plan not carried out; an enforced edge nobody declared is a plan that was
+// wrong.
+func TestProgrammeStatus_ReportsAnEnforcedEdgeNobodyDeclared(t *testing.T) {
+	svc, st := newProgrammeService(t)
+	prog, err := svc.CreateProgramme(ProgrammeRequest{
+		Name: "fluency", Projects: []string{"app", "other"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waits := seedTaskForProgramme(t, st, "app", prog.ID)
+	waitedOn := seedTaskForProgramme(t, st, "other", prog.ID)
+	if _, err := st.AddDependency(waits.ID, waitedOn.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	status, err := svc.ProgrammeStatusFor(prog.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(status.Undeclared) != 1 {
+		t.Fatalf("%d undeclared edges, want 1: %+v", len(status.Undeclared), status.Undeclared)
+	}
+	u := status.Undeclared[0]
+	if u.TaskID != waits.ID || u.DependsOn != waitedOn.ID {
+		t.Errorf("undeclared edge = %s → %s, want %s → %s", u.TaskID, u.DependsOn, waits.ID, waitedOn.ID)
+	}
+	if u.Upstream != "other" || u.Downstream != "app" {
+		t.Errorf("direction = %s → %s, want other → app (the waiter is downstream)", u.Upstream, u.Downstream)
+	}
+}
+
+// Two Tasks in the SAME project depending on each other is an ordinary task
+// dependency, not a statement about the programme's shape. Reporting it as an
+// undeclared cross-project edge would bury the real ones in noise.
+func TestProgrammeStatus_SameProjectEdgesAreNotADivergence(t *testing.T) {
+	svc, st := newProgrammeService(t)
+	prog, err := svc.CreateProgramme(ProgrammeRequest{Name: "fluency", Projects: []string{"app"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := seedTaskForProgramme(t, st, "app", prog.ID)
+	second := seedTaskForProgramme(t, st, "app", prog.ID)
+	if _, err := st.AddDependency(first.ID, second.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	status, err := svc.ProgrammeStatusFor(prog.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(status.Undeclared) != 0 {
+		t.Errorf("same-project edges must not be reported: %+v", status.Undeclared)
+	}
+}
+
+// An edge onto work OUTSIDE the programme still makes the landing wait, so it
+// still enforces the declared order. Counting only edges between programme
+// members would report an ordering as unenforced while the plane was enforcing
+// it — a false alarm, and the fastest way to make a report worth ignoring.
+func TestProgrammeStatus_AnEdgeLeavingTheProgrammeStillEnforces(t *testing.T) {
+	svc, st := newProgrammeService(t)
+	prog, err := svc.CreateProgramme(ProgrammeRequest{
+		Name: "fluency", Projects: []string{"app"},
+		Deps: []core.DependencyEdge{{Upstream: "other", Downstream: "app"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	downstream := seedTaskForProgramme(t, st, "app", prog.ID)
+	outside := seedTaskForProgramme(t, st, "other", "") // in no programme at all
+	if _, err := st.AddDependency(downstream.ID, outside.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	status, err := svc.ProgrammeStatusFor(prog.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !status.Declared[0].Enforced {
+		t.Error("an edge onto work outside the programme still gates the landing")
+	}
+	// And it is STILL reported as an external dependency: the two reports answer
+	// different questions and the same edge is a true answer to both.
+	if len(status.External) != 1 {
+		t.Errorf("%d external edges, want the same edge reported as leaving: %+v",
+			len(status.External), status.External)
+	}
+}
+
+// M22, Sprint 71: which shared intent the machine is actually spending itself on.
+//
+// The plane could say how many Jobs were running globally and per project, and
+// nothing could say how many were running for a programme — so a programme could
+// be occupying every runner on the host and no surface would connect the two.
+// This is REPORTING: the scheduler still admits on the global and per-project
+// limits alone, which is a limit the docs state rather than a gap the numbers
+// imply is closed.
+func TestCountRunningJobsByProgramme_CountsOnlyRunningAndOnlyProgrammes(t *testing.T) {
+	st := openTestStore(t)
+	prog, err := st.CreateProgramme(Programme{Name: "fluency"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	inProgramme := seedTaskForProgramme(t, st, "app", prog.ID)
+	unattached := seedTaskForProgramme(t, st, "app", "")
+
+	mustTransition(t, st, inProgramme.ID, StateQueued, false)
+	mustTransition(t, st, inProgramme.ID, StateWorking, false)
+	job, err := st.CreateJob(inProgramme.ID, "sha", "claude", 0, StateWorking)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustTransition(t, st, unattached.ID, StateQueued, false)
+	mustTransition(t, st, unattached.ID, StateWorking, false)
+	if _, err := st.CreateJob(unattached.ID, "sha", "claude", 0, StateWorking); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := st.CountRunningJobsByProgramme()
+	if err != nil {
+		t.Fatalf("CountRunningJobsByProgramme: %v", err)
+	}
+	if got[prog.ID] != 1 {
+		t.Errorf("%s counted %d, want 1", prog.ID, got[prog.ID])
+	}
+	// A Task serving no programme must not appear under an empty key. A bucket
+	// named "" in a report gets read as a programme.
+	if _, ok := got[""]; ok {
+		t.Errorf(`unattached work counted under "": %+v`, got)
+	}
+
+	// Idle-but-non-terminal states hold no runner slot, exactly as the per-project
+	// count has always had it. The two must agree or the same Job is running in one
+	// report and not the other.
+	if _, err := st.TransitionJob(job.ID, StateCandidate, false, ""); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = st.CountRunningJobsByProgramme()
+	if got[prog.ID] != 0 {
+		t.Errorf("a candidate job counted %d as running, want 0", got[prog.ID])
+	}
+}
+
 // --- helpers ------------------------------------------------------------------
 
 // newProgrammeService wires a Service whose projects resolve to real git repos,

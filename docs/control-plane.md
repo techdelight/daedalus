@@ -735,7 +735,9 @@ two combined.
 
 ### The reviewer, and what `verified` is worth (M20, Sprint 67)
 
-> Verification runbook: [`m20-verification.md`](m20-verification.md) — what is
+> Verification runbooks: [`m21-m22-verification.md`](m21-m22-verification.md) for
+> the programme surface and the divergence report, and
+> [`m20-verification.md`](m20-verification.md) — what is
 > proven, what is only argued for, and `scripts/verify-m20.sh` (19 assertions, no
 > Docker) for the half a host is not needed to check.
 
@@ -898,7 +900,76 @@ on that nobody put in it.
 Forming a programme stays a human act because it is a statement about what the
 work is *for* — the Guild Master is expected to notice common interest across
 projects and propose one, and a human agreeing is what turns a noticing into a
-programme.
+programme. Since M21 the agent can also propose an **amendment** and a
+**dissolution**, because noticing that a programme has drifted from what it was
+formed for is the same act as noticing it should exist.
+
+### The distance between the two graphs (M22, Sprint 70)
+
+**Both graphs stay.** The declared order plans and the Task graph gates, which is
+the standard shape — MSP's benefits dependency map plans and the delivery plan
+gates. Merging them here would be worse than untidy: an agent that can draft a
+plan would gain the power to gate work, which is the authority the proposal tier
+exists to withhold.
+
+What was missing is that **nothing ever compared them**. A programme could declare
+that `web` follows `api` while no Task edge made any landing wait, and the only
+mention of that was a Note printed once, at write time, to whoever already knew. A
+declared order nobody checks is a claim that cannot be wrong, which is another way
+of saying it cannot be useful.
+
+`ProgrammeStatus` now carries two more findings, printed by `programmes status`,
+served over HTTP and rendered in the Ledger:
+
+- **`declared`** — every declared edge with whether the Task graph enforces it,
+  and the Task edges that do. An edge onto work **outside** the programme counts:
+  it still makes the landing wait, and refusing to count it would report an
+  ordering as unenforced while the plane was enforcing it.
+- **`undeclared`** — every cross-project Task edge the plan does not mention. The
+  more interesting direction: the work found a dependency the plan did not
+  anticipate, so either the plan is out of date or the edge is wrong.
+
+An unenforced edge says **why**, because the reasons need different answers: work
+open on both sides is a missing declaration, while an empty side is work that does
+not exist yet. `programmes status <name> --suggest-deps` prints the exact
+`daedalus task depends` commands for the first case. It prints them and runs none
+— a dependency edge decides what must happen before a Task is graded, so a tool
+that added them from somebody's plan would be writing the enforcing graph on the
+wrong authority.
+
+**Per-programme numbers, and what they are not.** `PlaneStatus` reports running
+and queued Jobs per programme, so "which shared intent is the machine spending
+itself on" is answerable. **This is reporting.** The scheduler admits on the
+global and per-project limits and knows nothing about programmes.
+Programme-aware admission — fair-share or priority across programmes — waits on
+backlog **#70**: capacity lives in an in-memory `waiting` map that a restart
+erases, and fairness policy built over something that forgets is worse than none,
+because it looks like a guarantee.
+
+### What the person deciding is shown (M21, Sprints 68–69)
+
+The reviewer agent is handed the diff, the objective, the **rationale** and the
+**programme**. Until M21 the human at the approval gate was handed an objective
+and a base SHA: the Ledger's JavaScript contained no reference to `programme` or
+`rationale`, and the approvals payload carried neither field. The party that only
+reports was being shown more of the intent than the party with the authority to
+act, which makes the rationale a field the system collects and never spends.
+
+Now:
+
+- The **Ledger has a programme view** — what it is for, its projects, the work
+  serving it by state, the edges that leave it, and the divergence report above.
+  It is **read-only**: forming, amending and dissolving a programme stay at a CLI
+  or a confirmed proposal, because a page that could dissolve one between two
+  clicks would make the most consequential gesture the easiest to reach.
+- The **Task entry and both approval queues** (browser and TUI) carry the
+  programme, its description, the rationale and **who authored it**.
+- A Task at a gate with **neither** a programme nor a reason says so in a
+  sentence. Deciding on the objective alone is a fact about the decision, not an
+  empty field to skip past.
+- A programme list that cannot be read costs a **name**, never a **row**. An
+  approval that vanished because a lookup failed would read as "nothing needs
+  you".
 
 ### Driving the plane from the Web UI and TUI
 

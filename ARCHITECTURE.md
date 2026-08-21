@@ -405,6 +405,17 @@ guild-control-mcp ──► control-agent.sock ┘         │
   same one that keys the integration target by canonical repo path — a reference
   whose only identity is a filename can be renamed out from under whatever points
   at it. Verification runbook: [docs/m20-verification.md](docs/m20-verification.md).
+- **The programme reaches the person deciding, and the declared order is graded
+  (M21, M22).** The Ledger has a programme view, and the Task entry and both
+  approval queues carry the programme and the rationale with its author — the
+  reviewer agent had been given all of it since Sprint 67 while the human at the
+  gate got an objective and a base SHA. A programme's project→project edges plan
+  and the Task graph gates; **both stay**, and `programmes status` now reports the
+  distance between them: declared edges nothing enforces, and enforced
+  cross-project edges the plan never mentioned. Per-programme running counts are
+  reporting only — admission is still global and per-project, and programme-aware
+  scheduling waits on a durable queue (backlog #70). Verification runbook:
+  [docs/m21-m22-verification.md](docs/m21-m22-verification.md).
 - **The Web UI's Ledger is a full client.** `/api/control/*` mirrors the daemon's
   own route table one for one, so every `daedalus task` operation is reachable
   from the browser — through the same human socket, with the same authority and

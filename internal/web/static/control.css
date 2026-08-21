@@ -626,6 +626,12 @@
     text-shadow: 1px 1px 0 var(--mana-ink);
 }
 
+/* A verdict word inside a log row: whether a declared edge is enforced (M22),
+   and whether an external dependency has landed. Same two colours the row status
+   uses in the list, so "waiting" reads the same wherever it appears. */
+.ledger-log-what.is-waiting { color: var(--mana-hp-mid); }
+.ledger-log-what.is-passed  { color: var(--mana-hp-hi); }
+
 .ledger-log-note,
 .ledger-logpath {
     padding: 0 0 4px 6ch;

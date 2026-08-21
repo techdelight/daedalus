@@ -14,10 +14,18 @@ import (
 // fakeControl is a TaskAPI double exposing only what the approvals view uses.
 type fakeControl struct {
 	control.TaskAPI
-	pending  []control.Task
-	approved []string
-	rejected []string
-	err      error
+	pending    []control.Task
+	programmes []control.Programme
+	approved   []string
+	rejected   []string
+	err        error
+}
+
+// ListProgrammes resolves a Task's programme id to a name for the queue (M21).
+// It deliberately ignores f.err: a programme list that cannot be read must cost
+// the row a name and never the row itself.
+func (f *fakeControl) ListProgrammes() ([]control.Programme, error) {
+	return f.programmes, nil
 }
 
 func (f *fakeControl) PlaneStatus() (control.PlaneStatus, error) {
@@ -62,6 +70,58 @@ func (f *fakeControl) RejectApproval(id, _ string) (control.Task, error) {
 }
 
 func key(s string) tea.KeyMsg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)} }
+
+// M21: the row under the cursor says what the work is FOR.
+//
+// The reviewer is handed the objective, the rationale and the programme; this
+// queue handed the human the objective. The author of the reason is shown with
+// it, because "the agent said this was worth doing" and "you said so" are
+// different pieces of evidence and the queue must not blur them.
+func TestApprovals_ShowIntentUnderTheCursor(t *testing.T) {
+	fake := &fakeControl{
+		pending: []control.Task{
+			{ID: "T-1", Project: "app", Objective: "add dark mode", ProgrammeID: "PR-1",
+				Rationale: "three projects grew their own theming", RationaleBy: control.CallerAgent},
+			{ID: "T-2", Project: "api", Objective: "fix the leak"},
+		},
+		programmes: []control.Programme{{ID: "PR-1", Name: "fluency"}},
+	}
+	msg := loadApprovals(fake)().(approvalsLoadedMsg)
+	if msg.rows[0].programme != "fluency" {
+		t.Errorf("programme = %q, want the NAME resolved from PR-1", msg.rows[0].programme)
+	}
+
+	m := tuiModel{control: fake, approving: true}
+	updated, _ := m.Update(msg)
+	view := updated.(tuiModel).viewApprovals()
+	for _, want := range []string{"for: fluency", "three projects grew their own theming", "(agent)"} {
+		if !contains(view, want) {
+			t.Errorf("view missing %q:\n%s", want, view)
+		}
+	}
+
+	// Move to the task with no programme and no reason. The absence is STATED:
+	// deciding on the objective alone is a fact about the decision, and a blank
+	// space says nothing at all.
+	moved, _ := updated.(tuiModel).Update(key("j"))
+	view = moved.(tuiModel).viewApprovals()
+	if !contains(view, "no programme, no recorded reason") {
+		t.Errorf("an unattributed task should say so:\n%s", view)
+	}
+}
+
+// An unresolvable programme id must still appear. Showing "PR-3" is worse than
+// showing "fluency" and far better than showing nothing, which would report a
+// task that serves a programme as one that serves none.
+func TestApprovals_UnknownProgrammeShowsItsID(t *testing.T) {
+	fake := &fakeControl{pending: []control.Task{
+		{ID: "T-1", Project: "app", Objective: "x", ProgrammeID: "PR-9"},
+	}}
+	msg := loadApprovals(fake)().(approvalsLoadedMsg)
+	if msg.rows[0].programme != "PR-9" {
+		t.Errorf("programme = %q, want the id to stand in for the missing name", msg.rows[0].programme)
+	}
+}
 
 func TestApprovals_LoadAndRender(t *testing.T) {
 	fake := &fakeControl{pending: []control.Task{

@@ -197,9 +197,17 @@ Stated here so it is not discovered later:
   verifier cannot run a real build or test suite, so it falls back to grading
   documents. The tally — one verdict in seven was about the work being graded —
   is in `docs/control-plane.md`.
-- **The Ledger has no programme surface.** You can read programmes from the CLI
-  and see a Task's programme in its entry, but there is no view of a programme
-  itself in the browser.
+- **The Ledger had no programme surface, and this entry overstated what it did
+  have (#87).** The sentence here used to read *"you can see a Task's programme in
+  its entry"*. You could not: `control.js` contained no reference to `programme`
+  or to `rationale`, so the browser showed neither — and the approvals payload the
+  page polls (`approvalTask`) carried neither field to show. What was true is that
+  the CLI printed both and the plane's REST routes served them, which is a
+  different claim. **Left recorded rather than edited away**, for the same reason
+  the #82 entry below it is: this document exists to catch prose claiming more
+  than the code, and it did it in its own known-gaps list. Fixed in M21, which
+  built the surface and put the programme and the rationale in front of the person
+  holding the seal.
 - **The Guild Master's programme path was missing and is now built (#82).** The
   first version of this document said it was "built but unexercised", which was
   false: `form_programme` was *tiered*, and tiering is not building.

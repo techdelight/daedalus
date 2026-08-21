@@ -63,7 +63,7 @@ _daedalus() {
             COMPREPLY=($(compgen -W "list show create remove" -- "${cur}"))
             ;;
         programmes)
-            COMPREPLY=($(compgen -W "list show create add-project add-dep remove" -- "${cur}"))
+            COMPREPLY=($(compgen -W "list show status create add-project add-dep remove" -- "${cur}"))
             ;;
         docs)
             COMPREPLY=($(compgen -W "lint --ci" -- "${cur}"))
@@ -161,7 +161,7 @@ _daedalus() {
                     _values 'action' list show create remove
                     ;;
                 programmes)
-                    _values 'action' list show create add-project add-dep remove
+                    _values 'action' list show status create add-project add-dep remove
                     ;;
                 docs)
                     _values 'action' lint --ci
@@ -260,7 +260,7 @@ complete -c daedalus -n '__fish_seen_subcommand_from runners' -a 'list show'
 complete -c daedalus -n '__fish_seen_subcommand_from personas' -a 'list show create remove'
 
 # Programmes subcommand
-complete -c daedalus -n '__fish_seen_subcommand_from programmes' -a 'list show create add-project add-dep remove'
+complete -c daedalus -n '__fish_seen_subcommand_from programmes' -a 'list show status create add-project add-dep remove'
 
 # Dynamic project names for remove and config
 complete -c daedalus -n '__fish_seen_subcommand_from remove rename config' -a '(daedalus list 2>/dev/null | tail -n +3 | string match -r "^\S+")'

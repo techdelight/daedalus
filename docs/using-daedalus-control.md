@@ -571,6 +571,60 @@ plane as unreachable rather than editing a file the plane will not read. And
 `add-dep` declares an *order between projects*; it does not gate anything. To make
 a landing actually wait, use `daedalus task depends <id> --on <other>`.
 
+#### Where the plan and the enforcement disagree
+
+`add-dep` says "app follows other". Nothing checks that anything makes it true.
+`programmes status` now does:
+
+```
+Declared order, and what enforces it:
+  other → app                enforced  by T-1 → T-2
+  api → web                  not enforced
+      T-5 could wait for T-9 — re-run with --suggest-deps for the commands
+```
+
+```bash
+daedalus programmes status fluency --suggest-deps
+#   → daedalus task depends T-5 --on T-9
+```
+
+It **prints** the command and never runs it. A dependency edge decides what must
+happen before a Task is graded, so a tool that added edges from your plan would be
+writing the graph that gates on the strength of the graph that does not.
+
+An unenforced edge always says *why*, because the two reasons need different
+answers from you: work open on both sides is a declaration you have not made; a
+side with nothing open is work that does not exist yet.
+
+The report has a second half, and it is the one worth reading first:
+
+```
+Enforced, but never declared:
+  T-1 waits for T-2  (app ← other)
+  Note: the work found a dependency the plan does not mention. Either the plan is
+  out of date, or this edge is wrong.
+```
+
+Both graphs stay. One plans, one gates. What changed is that the difference is now
+something the system tells you rather than something you have to go and check.
+
+#### Programmes in the browser
+
+The Ledger lists programmes alongside tasks and proposals. Opening one shows what
+it is for, its projects, the work serving it, the divergence report above, and the
+edges that leave it. It is **read-only** — form, amend and dissolve at a CLI or by
+confirming an agent's proposal.
+
+The Task entry and the approval queue now carry the programme and the rationale,
+with the author beside it, and a task at a gate with neither says so rather than
+leaving a blank. That is the point of recording a reason at all: the reviewer agent
+has been given it since Sprint 67, and until M21 the person holding the seal had
+not.
+
+You will also see, on a programme that is currently busy, how many Jobs are running
+and queued for it. That is **reporting**: the scheduler admits work on the global
+and per-project limits and knows nothing about programmes.
+
 ### What a Job cannot do: reach a git remote
 
 **A Job container has no git credentials, and this is deliberate rather than
@@ -711,8 +765,10 @@ This is the piece that would let the Guild Master *act*, and it is worth being
 precise about its status.
 
 **Built and shipped:** `guild-control-mcp`, an intent-level MCP client — it
-exposes `list_tasks`, `get_task`, `task_events`, `programme_board`, `create_task`,
-`request_verification` and `request_steering`, and
+exposes `list_tasks`, `get_task`, `task_events`, `task_board`, `create_task`,
+`request_verification`, `request_steering`, and for programmes `list_programmes`,
+`get_programme`, `propose_programme`, `propose_programme_amendment` and
+`propose_programme_dissolution` — and
 **nothing** resembling `run_shell`, `docker_run`, `git_exec` or `mount`. It talks
 only to the **restricted agent socket**, never to `coordinator.sock`. The daemon
 derives caller class from *which socket a request arrived on*, so an agent cannot
@@ -720,9 +776,9 @@ claim to be human, and the tiers are:
 
 | Tier | Operations | An agent… |
 |---|---|---|
-| Read | list/get tasks, events, approvals, queues | executes |
+| Read | list/get tasks, events, approvals, queues, **programmes** | executes |
 | Bounded write | create task, request verification, request review | executes |
-| Consequential | dispatch, retry, replan, cancel, integrate, approve/reject, target resync, **declare a dependency**, **steer or withdraw a steer** | gets a **proposal**, not an action |
+| Consequential | dispatch, retry, replan, cancel, integrate, approve/reject, target resync, **declare a dependency**, **steer or withdraw a steer**, **form / amend / dissolve a programme** | gets a **proposal**, not an action |
 | Human-only | confirming or denying a proposal | is refused |
 
 Two of those may look over-restricted until you consider the attack: a

@@ -5,6 +5,102 @@ All notable changes to this project will be documented in this file.
 ## [0.54.0] - 2026-08-18
 
 ### Added
+- **The Ledger has a programme surface, and the person deciding is shown what the
+  work is for (M21).** M20 made intent structural and then showed it to nobody:
+  `control.js` contained no reference to `programme` and none to `rationale`, so
+  the browser displayed neither, and the approvals payload the page polls carried
+  neither field to display. Meanwhile the REVIEWER agent has been handed the diff,
+  the objective, the rationale and the programme since Sprint 67. **The party that
+  only reports was being shown more of the intent than the party with the
+  authority to act.**
+  - **A programme is an entry in the Ledger**, alongside tasks and proposals:
+    what it is for, its projects, the work serving it by state, and the edges that
+    leave it. It uses `/api/control/programmes*`, which had existed since
+    Sprint 66 with nothing consuming it. Last in the list on purpose — the board
+    is what interrupts you, a programme is what you go looking for.
+  - **No commands on it.** Forming, amending and dissolving stay at a CLI or a
+    confirmed proposal. A page that could dissolve a programme between two clicks
+    would make the most consequential gesture the easiest one to reach.
+  - **The Task entry and both approval queues carry the programme and the
+    reason**, with the reason's AUTHOR shown, so an agent-drafted rationale does
+    not read as the operator's own. A task at a gate with neither says so in a
+    sentence instead of leaving a blank: deciding on the objective alone is a fact
+    about the decision.
+  - A programme list that cannot be read costs a NAME and never a ROW. An approval
+    that vanished because a lookup failed would read as "nothing needs you", which
+    is the one answer that surface must never give wrongly — asserted by a test.
+- **The declared order is now graded against the graph that actually gates
+  (M22).** A programme's project→project edges plan; `task_dependencies` gates.
+  **Both stay** — that split is how programme management has always worked, and
+  merging them would hand an agent that can draft a plan the power to gate work.
+  The defect was that nothing ever compared them, so a programme could declare
+  that `app` follows `other` while no Task edge made any landing wait, and the
+  only mention of it was a Note printed once, at write time, to whoever already
+  knew. A declared order nobody checks is a claim that cannot be wrong.
+  - `programmes status` and the Ledger now report **declared edges nothing
+    enforces** and **enforced cross-project edges nobody declared**. The second is
+    the more interesting direction: the work found a dependency the plan does not
+    mention, so either the plan is out of date or the edge is wrong.
+  - **Each unenforced edge says why.** Work open on both sides is a missing
+    declaration; an empty side is work that does not exist yet. Telling someone to
+    declare an edge between tasks that do not exist is how a report earns being
+    ignored.
+  - **`programmes status <name> --suggest-deps`** prints the exact
+    `daedalus task depends` commands. It prints them and runs none: a dependency
+    edge decides what must happen before a Task is graded, so a tool that added
+    them from somebody's plan would be writing the enforcing graph on the wrong
+    authority.
+  - An edge onto work OUTSIDE the programme still counts as enforcing, because it
+    still makes the landing wait. Counting only edges between members would report
+    an ordering as unenforced while the plane was enforcing it. Both directions of
+    that rule are verified by reverting.
+  - **Per-programme running and queued counts** in `PlaneStatus`, on the board
+    response and on the programme entry — which shared intent the machine is
+    actually spending itself on, answerable for the first time.
+  - **Programme-aware ADMISSION is deliberately not here** and waits on backlog
+    **#70**. The scheduler still admits on the global and per-project limits alone.
+    Capacity lives in an in-memory `waiting` map that a restart erases, and
+    fairness over something that forgets is worse than none, because it looks like
+    a guarantee. Every surface that shows the numbers says they are reporting.
+- **The Guild Master can amend and dissolve a programme, not only form one
+  (#85).** Both operations were tiered when programmes landed and both gained an
+  `executeProposal` case in #82; only the agent-facing tools were missing — #82's
+  own shape, one notch smaller. `propose_programme_amendment` MERGES rather than
+  replaces, so an omitted field is left alone instead of blanked, and the merge
+  happens at proposal time so the confirming human sees the finished programme
+  rather than a patch. `propose_programme_dissolution` carries no reason field,
+  because `callerScope` builds its argument as `dissolve <id>` with no room for
+  one and a reason the record silently dropped would be worse than an absent
+  field. `scripts/verify-guild-control.sh static` drives both over the real
+  sockets.
+
+### Changed
+- **The MCP tool `programme_board` is now `task_board` (#86).** It groups TASKS by
+  whose move it is and has never had anything to do with programmes; the name cost
+  #82 a paragraph explaining that the tool is a red herring. The old name is kept,
+  registered to the same handler and marked deprecated, because a Guild Master's
+  instructions may name it. `OpBoard` was renamed with it — safe because it is
+  `TierAllowed` and a read is never recorded as a proposal, so no stored row
+  carries the old string.
+
+### Fixed
+- **`docs/m20-verification.md` claimed a surface that did not exist (#87).** Its
+  known-gaps list said you could see a Task's programme in its Ledger entry. You
+  could not. Corrected and **left recorded rather than edited away**, because that
+  document exists to catch prose claiming more than the code and it did it about
+  itself.
+- **The e2e suite was testing routes deleted three sprints ago.** Found while
+  building the Ledger surface: `e2e/web-ui.spec.ts` still drove `/api/programmes`,
+  the file-backed CRUD removed in Sprint 66 — nine tests asserting 200s from
+  handlers that no longer exist. Rewritten against `/api/control/programmes`,
+  addressing programmes by ID and SKIPPING when the control daemon is not running,
+  since the Web UI deliberately never spawns one. **Not run here**: the suite
+  needs a browser and a live server, which is exactly why the dead tests survived
+  unnoticed.
+- **`programmes status` was missing from every shell completion.** Added in
+  Sprint 66 and never wired into bash, zsh or fish.
+
+### Added
 - **`daedalus-reclaim.sh` — clears what earlier versions left behind.** The three
   leaks fixed below stop *accumulation*; they do nothing about what has already
   piled up, and the host that prompted all this was carrying 21 orphaned networks

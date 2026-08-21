@@ -1191,6 +1191,37 @@ func (s *Store) CountRunningJobsForProject(project string) (int, error) {
 	return n, nil
 }
 
+// CountRunningJobsByProgramme returns how many Jobs are running per programme,
+// keyed by programme id (M22, Sprint 71). Tasks serving no programme are not
+// counted under a key at all — an empty programme id is not a programme, and a
+// bucket named "" in a report would be read as one.
+//
+// This is REPORTING and nothing more. It does not feed admission: the scheduler
+// still decides on the global and per-project limits alone. Programme-aware
+// admission needs a queue that survives a restart (backlog #70), and fairness
+// policy over an in-memory `waiting` map would be a policy that forgets.
+func (s *Store) CountRunningJobsByProgramme() (map[string]int, error) {
+	rows, err := s.db.Query(
+		`SELECT t.programme_id, COUNT(*) FROM jobs j JOIN tasks t ON t.id = j.task_id
+		 WHERE t.programme_id != '' AND j.state IN (?, ?, ?) GROUP BY t.programme_id`,
+		string(StateQueued), string(StateWorking), string(StateInputRequired),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("counting running jobs by programme: %w", err)
+	}
+	defer rows.Close()
+	out := map[string]int{}
+	for rows.Next() {
+		var id string
+		var n int
+		if err := rows.Scan(&id, &n); err != nil {
+			return nil, err
+		}
+		out[id] = n
+	}
+	return out, rows.Err()
+}
+
 // CountRunningJobs returns how many Jobs are running across EVERY project — the
 // host-wide figure the scheduler's global limit is checked against, since each
 // running Job is a container on this machine.

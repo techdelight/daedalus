@@ -116,6 +116,18 @@ phase_static() {
         && pass "guild-control-mcp is in Dockerfile, build.sh and package-release.sh" \
         || fail "guild-control-mcp missing from the distribution chain"
 
+    # The tool NAMES, checked in the source. The socket checks below prove the
+    # plane honours each operation; they cannot prove the agent has a tool with
+    # which to ask, and #82 was exactly that gap — an operation reachable from
+    # everywhere except the agent that was supposed to use it.
+    local mcp_src="$REPO_ROOT/cmd/guild-control-mcp/main.go" missing=""
+    for tool in list_programmes get_programme propose_programme \
+                propose_programme_amendment propose_programme_dissolution task_board; do
+        grep -q "\"$tool\"" "$mcp_src" || missing="$missing $tool"
+    done
+    [[ -z "$missing" ]] && pass "guild-control-mcp registers every programme tool, and the board is task_board" \
+        || fail "guild-control-mcp is missing:$missing"
+
     hdr "the plane's two sockets"
     local proj="$WORK/proj"; new_git_repo "$proj"; register demo "$proj"
     dae task list >/dev/null 2>&1   # auto-spawns daedalus-control
@@ -178,6 +190,42 @@ phase_static() {
     else
         fail "programme missing or its description was mangled: $r"
     fi
+
+    # Amending and dissolving (#85). Both were tiered from the day programmes
+    # landed and both gained an executeProposal case in #82, so the plane could
+    # run them — and the Guild Master had no tool with which to ask, which is the
+    # same half-built shape #82 was about. The agent can now propose the other two
+    # thirds of a programme's life.
+    r="$(api "$AGENT_SOCK" POST /programmes/PR-1 '{"name":"fluency","description":"amended: by summer"}')"
+    if [[ "$r" == 422* && "$r" == *proposal_recorded* ]]; then
+        pass "agent: amending a programme becomes a PROPOSAL"
+    else
+        fail "agent amend_programme: $r"
+    fi
+    r="$(api "$HUMAN_SOCK" GET /programmes)"
+    [[ "$r" != *"amended: by summer"* ]] && pass "…and the amendment did not take effect unconfirmed" \
+        || fail "an agent amended a programme directly"
+    r="$(api "$HUMAN_SOCK" POST /proposals/P-3/confirm)"
+    [[ "$r" == 200* ]] && pass "human: confirming the amendment executes it" \
+        || fail "human confirm of P-3: $r"
+    r="$(api "$HUMAN_SOCK" GET /programmes)"
+    [[ "$r" == *"amended: by summer"* ]] && pass "…and the programme now reads as amended" \
+        || fail "amendment did not land: $r"
+    r="$(api "$AGENT_SOCK" DELETE /programmes/PR-1)"
+    if [[ "$r" == 422* && "$r" == *proposal_recorded* ]]; then
+        pass "agent: dissolving a programme becomes a PROPOSAL"
+    else
+        fail "agent dissolve_programme: $r"
+    fi
+    r="$(api "$HUMAN_SOCK" GET /programmes)"
+    [[ "$r" == *fluency* ]] && pass "…and the programme still exists until a human says otherwise" \
+        || fail "an agent dissolved a programme directly"
+    r="$(api "$HUMAN_SOCK" POST /proposals/P-4/confirm)"
+    [[ "$r" == 200* ]] && pass "human: confirming the dissolution executes it" \
+        || fail "human confirm of P-4: $r"
+    r="$(api "$HUMAN_SOCK" GET /programmes)"
+    [[ "$r" != *fluency* ]] && pass "…and only then is the programme gone" \
+        || fail "confirmed dissolution did not execute: $r"
 
     hdr "what remains host-only"
     info "the socket arriving INSIDE the container, the entrypoint wiring"

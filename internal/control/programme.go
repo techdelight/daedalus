@@ -314,6 +314,69 @@ type ProgrammeStatus struct {
 	// fully staffed while blocked on something outside itself is exactly the
 	// situation an operator needs told rather than left to discover.
 	External []ExternalDependency `json:"external,omitempty"`
+	// Declared is every project→project edge the programme declares, each carrying
+	// whether the Task graph actually enforces it (M22).
+	Declared []DeclaredEdge `json:"declared,omitempty"`
+	// Undeclared is every cross-project Task edge the programme did NOT declare.
+	Undeclared []UndeclaredEdge `json:"undeclared,omitempty"`
+}
+
+// The two graphs, and the distance between them (M22, Sprint 70).
+//
+// A programme has project→project edges that ORDER A PLAN and gate nothing, and
+// the plane has Task→Task edges that gate landings. That split is not a mistake
+// to merge away — it is how programme management has worked for as long as the
+// discipline has existed. MSP's benefits dependency map plans; the delivery plan
+// gates. Merging them would give the agent that can draft a plan the power to
+// gate work, which is exactly the authority the proposal tier exists to withhold.
+//
+// The defect was never the two graphs. It was that NOTHING EVER COMPARED THEM. A
+// programme could declare that `web` follows `api` while no Task edge made any
+// landing wait, and the only place that fact was ever mentioned was a Note printed
+// once, at write time, to whoever already knew. So a declared order was a claim
+// the system never checked — which is the same class of defect this repository
+// keeps catching in its prose.
+//
+// Reporting the distance turns the declared graph into something you can be
+// WRONG about, which is the only way it earns its keep.
+
+// DeclaredEdge is one edge from the programme's declared order, with whether the
+// Task graph enforces it.
+type DeclaredEdge struct {
+	Upstream   string `json:"upstream"`
+	Downstream string `json:"downstream"`
+	// Enforced is true when at least one Task in the downstream project depends on
+	// at least one Task in the upstream project. One edge is enough: the declared
+	// order is a statement about the projects, and a single enforced pair means the
+	// ordering has been expressed somewhere the plane will act on.
+	Enforced bool `json:"enforced"`
+	// EnforcedBy names the Task edges that do it, as "T-4 → T-2".
+	EnforcedBy []string `json:"enforcedBy,omitempty"`
+	// The open Tasks on each side, populated only when nothing enforces the edge.
+	// They are what a suggestion is built from, and they are also the honest answer
+	// to "why is this not enforced": an edge with no candidate on one side is not
+	// waiting for someone to declare it, it is waiting for the work to exist.
+	//
+	// Scoped to Tasks IN THE PROGRAMME. A Task elsewhere in the upstream project
+	// might satisfy the ordering too, but suggesting an edge onto work nobody put
+	// in the programme would quietly widen it.
+	UpstreamTasks   []string `json:"upstreamTasks,omitempty"`
+	DownstreamTasks []string `json:"downstreamTasks,omitempty"`
+}
+
+// UndeclaredEdge is a cross-project Task dependency the programme's declared
+// order does not mention.
+//
+// It is the more interesting direction of the two. A declared edge nobody
+// enforces is a plan that has not been carried out; an enforced edge nobody
+// declared is work that turned out to depend on something the plan did not
+// anticipate — which is a fact about the plan being wrong, and the kind of thing
+// a programme exists to notice.
+type UndeclaredEdge struct {
+	TaskID     string `json:"taskId"`     // the Task that waits
+	DependsOn  string `json:"dependsOn"`  // the Task it waits for
+	Upstream   string `json:"upstream"`   // the project it waits for
+	Downstream string `json:"downstream"` // the project that waits
 }
 
 // ExternalDependency is one edge from a Task inside a programme to a Task that
@@ -346,10 +409,23 @@ func (s *Service) ProgrammeStatusFor(id string) (ProgrammeStatus, error) {
 		return ProgrammeStatus{}, err
 	}
 	out := ProgrammeStatus{Programme: prog, Tasks: tasks, ByState: map[State]int{}}
-	inside := map[string]bool{}
-	for _, t := range tasks {
-		inside[t.ID] = true
+	// Indexed by id rather than a set of booleans: the enforcement map below needs
+	// the PROJECT of every dependency, including the ones inside the programme,
+	// and those are already in hand. Looking them up again would be a store read
+	// per internal edge for data sitting in this slice.
+	inside := map[string]*Task{}
+	for i := range tasks {
+		inside[tasks[i].ID] = &tasks[i]
 	}
+	// The edges the Task graph actually holds, keyed "upstream→downstream" BY
+	// PROJECT — the same node type the declared order uses, which is what makes
+	// the two comparable at all. Built from the same walk the external-edge
+	// report below already performs, rather than a second pass over the graph.
+	enforced := map[string][]string{}
+	// Cross-project edges in the order they were found, so an undeclared one can
+	// be reported with the Tasks that make it real rather than as a project pair.
+	type crossEdge struct{ taskID, dependsOn, upstream, downstream string }
+	var crossings []crossEdge
 	for _, t := range tasks {
 		out.ByState[t.State]++
 		if IsTerminal(t.State) {
@@ -368,15 +444,35 @@ func (s *Service) ProgrammeStatusFor(id string) (ProgrammeStatus, error) {
 			return ProgrammeStatus{}, err
 		}
 		for _, dep := range deps {
-			if inside[dep] {
-				continue
+			other, isInside := inside[dep], true
+			if other == nil {
+				isInside = false
+				fetched, err := s.store.GetTask(dep)
+				if err != nil {
+					// A dependency the plane cannot read is still worth reporting: saying
+					// nothing would make a blocked programme look unblocked. It contributes
+					// nothing to the enforcement map — an edge whose far end cannot be read
+					// has no project, so it can neither enforce nor contradict an ordering.
+					out.External = append(out.External, ExternalDependency{
+						TaskID: t.ID, DependsOn: dep, State: "unknown"})
+					continue
+				}
+				other = &fetched
 			}
-			other, err := s.store.GetTask(dep)
-			if err != nil {
-				// A dependency the plane cannot read is still worth reporting: saying
-				// nothing would make a blocked programme look unblocked.
-				out.External = append(out.External, ExternalDependency{
-					TaskID: t.ID, DependsOn: dep, State: "unknown"})
+			// Enforcement is recorded for EVERY edge, inside the programme or not. An
+			// edge onto work outside the programme still makes the landing wait, which
+			// is what the declared order was asking for — refusing to count it would
+			// report an ordering as unenforced while the plane was enforcing it.
+			key := other.Project + "\x00" + t.Project
+			enforced[key] = append(enforced[key], t.ID+" → "+dep)
+			if other.Project != t.Project {
+				crossings = append(crossings, crossEdge{
+					taskID: t.ID, dependsOn: dep, upstream: other.Project, downstream: t.Project,
+				})
+			}
+			if isInside {
+				// Edges that stay inside are already visible in each Task's own
+				// dependency view; only the ones that leave are new information.
 				continue
 			}
 			out.External = append(out.External, ExternalDependency{
@@ -385,6 +481,36 @@ func (s *Service) ProgrammeStatusFor(id string) (ProgrammeStatus, error) {
 				Satisfied: other.State == StateIntegrated,
 			})
 		}
+	}
+
+	// The declared order, graded against what the plane will actually enforce.
+	openByProject := map[string][]string{}
+	for _, t := range tasks {
+		if !IsTerminal(t.State) {
+			openByProject[t.Project] = append(openByProject[t.Project], t.ID)
+		}
+	}
+	declaredPairs := map[string]bool{}
+	for _, d := range prog.Deps {
+		key := d.Upstream + "\x00" + d.Downstream
+		declaredPairs[key] = true
+		edge := DeclaredEdge{Upstream: d.Upstream, Downstream: d.Downstream}
+		if by := enforced[key]; len(by) > 0 {
+			edge.Enforced, edge.EnforcedBy = true, by
+		} else {
+			edge.UpstreamTasks = openByProject[d.Upstream]
+			edge.DownstreamTasks = openByProject[d.Downstream]
+		}
+		out.Declared = append(out.Declared, edge)
+	}
+	for _, c := range crossings {
+		if declaredPairs[c.upstream+"\x00"+c.downstream] {
+			continue
+		}
+		out.Undeclared = append(out.Undeclared, UndeclaredEdge{
+			TaskID: c.taskID, DependsOn: c.dependsOn,
+			Upstream: c.upstream, Downstream: c.downstream,
+		})
 	}
 	return out, nil
 }
