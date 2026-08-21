@@ -4,6 +4,12 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 VERSION=$(cat VERSION)
+# The commit, because VERSION is release granularity and does not move between
+# releases — a rebuilt binary at the same unreleased number is indistinguishable
+# from the old one without it. `go build` would stamp this itself, but the build
+# below runs with -buildvcs=false (the source is bind-mounted into a container
+# where git ownership checks fail), so it is passed explicitly.
+COMMIT=$(git rev-parse HEAD 2>/dev/null || echo "")
 
 # ── Expected build outputs ────────────────────────────────────────────────
 # Kept as a single list so the build step below and the post-build
@@ -27,7 +33,7 @@ REQUIRED_BINARIES=(
 docker run --rm -v "$PWD":/src -w /src \
   --user "$(id -u):$(id -g)" -e HOME=/tmp \
   golang:1.25-bookworm \
-  sh -c "go build -buildvcs=false -ldflags '-X github.com/techdelight/daedalus/core.Version=$VERSION' -o daedalus ./cmd/daedalus && \
+  sh -c "go build -buildvcs=false -ldflags "-X github.com/techdelight/daedalus/core.Version=$VERSION -X github.com/techdelight/daedalus/core.Commit=$COMMIT" -o daedalus ./cmd/daedalus && \
          go build -buildvcs=false -o skill-catalog-mcp ./cmd/skill-catalog-mcp && \
          go build -buildvcs=false -o project-mgmt-mcp ./cmd/project-mgmt-mcp && \
          go build -buildvcs=false -o guild-mcp ./cmd/guild-mcp && \

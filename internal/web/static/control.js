@@ -63,6 +63,39 @@
 
   function el(id) { return document.getElementById(id); }
 
+  // WHICH BUILD IS THIS. The page carries the build that served it, in a meta
+  // tag; the server reports its own. Normally they match and the header just
+  // says which code you are looking at — the question that was previously
+  // answered by the version alone, which is release granularity and stayed at
+  // 0.54.0 through a fortnight of changes. A correct "I am on the latest
+  // version" and a surface missing a button written an hour ago were
+  // indistinguishable, and that cost a cancelled Task.
+  //
+  // When they DIFFER the page is the stale one — the browser is holding assets
+  // from a previous build — and it says so, because that is the case nobody can
+  // deduce and everybody hits.
+  function pageBuild() {
+    const meta = document.querySelector('meta[name="daedalus-build"]');
+    return (meta && meta.getAttribute('content')) || 'unknown';
+  }
+
+  function paintBuild() {
+    const host = el('ledger-build');
+    if (!host) return;
+    const mine = pageBuild();
+    host.textContent = mine;
+    host.title = 'The build serving this page';
+    host.classList.remove('is-stale');
+    fetch('/api/version').then(function (res) { return res.json(); }).then(function (b) {
+      if (!b || !b.version) return;
+      const theirs = b.version + (b.commit ? '+' + b.commit : '') + (b.modified ? '+dirty' : '');
+      if (theirs === mine) return;
+      host.textContent = mine + ' → server ' + theirs;
+      host.title = 'This page came from an older build than the server is running. Reload it.';
+      host.classList.add('is-stale');
+    }).catch(function () { /* the build line is not worth an error */ });
+  }
+
   // Which sections carry a seal. The board's column keys are stable strings
   // (board.go says so), and this is the only place the Ledger cares which is
   // which — everything else renders whatever columns the plane sends, so a new
@@ -1348,6 +1381,7 @@
     });
     view.classList.add('active');
     document.title = 'The Ledger — Daedalus';
+    paintBuild();
     start();
   };
 

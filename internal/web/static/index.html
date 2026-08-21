@@ -102,6 +102,11 @@
                 <button class="ff-cmd is-seal" onclick="ledgerNewTask()">New entry</button>
                 <button class="btn btn-back" onclick="hideControlView(); showProjectList();">Back</button>
             </div>
+            <!-- Which build is serving this. Not decoration: "am I looking at the
+                 code we just changed" was previously answerable only by the
+                 version, which is release granularity and does not move between
+                 releases. -->
+            <div class="ledger-build" id="ledger-build"></div>
             <!-- List left, entry right. An objective is a paragraph and a row is
                  one line, so the row carries what fits and the entry window
                  carries the rest — the job the item description does in a SNES

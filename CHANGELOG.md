@@ -132,6 +132,25 @@ All notable changes to this project will be documented in this file.
     them would only make people invent programmes to satisfy a field.
 
 ### Added
+- **The Ledger shows which build is serving it**, and says when the page is older
+  than the server. `Version` alone could not answer *"am I looking at the code we
+  just changed"* — it is release granularity, and this project routinely lands
+  dozens of commits under one unreleased number; it read `0.54.0` through twelve
+  of them in a day. So a correct *"I am on the latest version"* and a surface
+  missing a button written an hour earlier were indistinguishable, and that cost a
+  cancelled Task.
+  - `core.ReadBuildInfo()` reports version + short commit + a **dirty** marker,
+    from `-ldflags` where a release sets it and otherwise from Go's own
+    `vcs.revision`, which `go build` stamps for free. `build.sh` now passes the
+    commit explicitly, because it builds with `-buildvcs=false`.
+  - `GET /api/version` reports the running build; the page carries the build that
+    served it in a meta tag; the Ledger header shows it, quietly, and turns amber
+    with **`<page> → server <build>`** when they differ — the one case nobody can
+    deduce and everybody eventually hits.
+  - **Assets are now stamped with the build rather than the version.** The
+    previous `?v=0.54.0` was a cache key that did not change across a fortnight of
+    changes, so a browser could keep a cached script across exactly the change it
+    was meant to pick up.
 - **`daedalus task replan <id> --objective <text> --rebase` (#84).** `replan`
   corrected the instruction and left the Task pinned to the tree it was created
   on; `retry --rebase` moved the base and carried the old instruction; and they

@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1294,11 +1295,14 @@ func TestRenderIndexHTML_StampsLocalAssets(t *testing.T) {
 		`</head></html>`)
 
 	out := renderIndexHTML(raw, "0.54.0")
+	// The stamp is the BUILD, not the version — see
+	// TestRenderIndexHTML_StampsWithTheBuildNotTheVersion for why.
+	stamp := "?v=" + url.QueryEscape(core.BuildID())
 
-	if !strings.Contains(out, `href="/static/control.css?v=0.54.0"`) {
+	if !strings.Contains(out, `href="/static/control.css`+stamp+`"`) {
 		t.Errorf("stylesheet not stamped:\n%s", out)
 	}
-	if !strings.Contains(out, `src="/static/control.js?v=0.54.0"`) {
+	if !strings.Contains(out, `src="/static/control.js`+stamp+`"`) {
 		t.Errorf("script not stamped:\n%s", out)
 	}
 	// A CDN URL carries its version in its own path; rewriting it would be
@@ -1313,6 +1317,34 @@ func TestRenderIndexHTML_StampsLocalAssets(t *testing.T) {
 	// The title substitution it already did must survive.
 	if !strings.Contains(out, ">Daedalus [0.54.0]<") {
 		t.Errorf("the version is no longer injected into the title:\n%s", out)
+	}
+	// And the page carries the BUILD that served it, so a surface can say which
+	// code it is rather than which release it belongs to.
+	if !strings.Contains(out, `<meta name="daedalus-build"`) {
+		t.Errorf("the page does not carry its build:\n%s", out)
+	}
+}
+
+// TestRenderIndexHTML_StampsWithTheBuildNotTheVersion.
+//
+// Stamping with the version alone had already failed: this project lands dozens
+// of commits under one unreleased number, so a rebuilt binary at 0.54.0 served
+// byte-identical asset URLs and a browser kept a cached script across exactly
+// the change it was meant to pick up.
+func TestRenderIndexHTML_StampsWithTheBuildNotTheVersion(t *testing.T) {
+	raw := []byte(`<html><head><title>Daedalus</title>` +
+		`<script src="/static/control.js"></script></head></html>`)
+	out := renderIndexHTML(raw, "0.54.0")
+
+	build := core.BuildID()
+	if !strings.Contains(out, "?v="+url.QueryEscape(build)) {
+		t.Errorf("assets are not stamped with the build %q:\n%s", build, out)
+	}
+	// If this build knows its commit, the stamp must carry it — that is the whole
+	// difference between this and stamping the version.
+	if info := core.ReadBuildInfo(); info.Commit != "" && !strings.Contains(out, info.Commit) {
+		t.Errorf("the stamp does not include the commit %q, so two builds of one "+
+			"release would share a URL:\n%s", info.Commit, out)
 	}
 }
 

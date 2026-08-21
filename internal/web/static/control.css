@@ -968,3 +968,20 @@
     color: var(--mana-frame-pale);
     text-shadow: 1px 1px 0 var(--mana-ink);
 }
+
+/* The build line. Quiet by default — it is reference, not news — and loud only
+   when the page is older than the server it is talking to, which is the one
+   case an operator cannot deduce and everybody eventually hits. */
+.ledger-build {
+    flex: none;
+    margin: -6px 0 0 14px;
+    font-size: 10px;
+    letter-spacing: 1px;
+    color: var(--mana-text-dim);
+    text-shadow: 1px 1px 0 var(--mana-ink);
+}
+
+.ledger-build.is-stale {
+    color: var(--mana-hp-mid);
+    font-weight: 700;
+}

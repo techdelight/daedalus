@@ -4,6 +4,7 @@ package web
 
 import (
 	"fmt"
+	"html"
 	"io/fs"
 	"log"
 	"net"
@@ -56,7 +57,18 @@ func dialControlPlane(cfg *core.Config) control.TaskAPI {
 // must be left alone.
 func renderIndexHTML(raw []byte, version string) string {
 	out := strings.Replace(string(raw), ">Daedalus<", ">Daedalus ["+version+"]<", 1)
-	stamp := "?v=" + url.QueryEscape(version)
+	// The page carries the build that served it, so a surface can say which code
+	// it is. `version` alone cannot: it is release granularity, and this project
+	// routinely lands dozens of commits under one unreleased number — which is how
+	// an operator came to cancel a Task over a button that had not been written
+	// yet, while correctly believing they were "on the latest version".
+	build := core.BuildID()
+	out = strings.Replace(out, "</head>",
+		`<meta name="daedalus-build" content="`+html.EscapeString(build)+`"></head>`, 1)
+	// Stamping with the BUILD and not the version, for the same reason: a rebuilt
+	// binary at 0.54.0 served byte-identical URLs, so a browser kept a cached
+	// script across exactly the change it was meant to pick up.
+	stamp := "?v=" + url.QueryEscape(build)
 	for _, attr := range []string{`href="`, `src="`} {
 		out = stampAssets(out, attr+"/static/", stamp)
 	}
@@ -244,6 +256,11 @@ func (ws *WebServer) RegisterRoutes(mux *http.ServeMux) {
 	//
 	// Reads the page polls. Each answers "I could not ask" as data rather than as
 	// an empty list, because those are different facts about the same plane.
+	// What is actually running. Cheap, unauthenticated-adjacent (it sits behind
+	// the same middleware as everything else) and the answer to "is this page the
+	// code we just changed".
+	mux.HandleFunc("GET /api/version", handleBuildVersion)
+
 	mux.HandleFunc("GET /api/control/status", ws.handlePlaneStatus)
 	mux.HandleFunc("GET /api/control/board", ws.handleBoard)
 	mux.HandleFunc("GET /api/control/approvals", ws.handleApprovals)

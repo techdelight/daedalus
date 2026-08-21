@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/techdelight/daedalus/core"
 	"github.com/techdelight/daedalus/internal/control"
 )
 
@@ -678,4 +679,15 @@ func (ws *WebServer) handleDeleteProgramme(w http.ResponseWriter, r *http.Reques
 		}
 		return map[string]string{"deleted": id}, nil
 	})
+}
+
+// handleBuildVersion reports the build actually serving this page.
+//
+// It answers a question that was being answered wrongly: "am I looking at the
+// code we just changed". The version alone could not — it is release
+// granularity, unchanged across every commit of an unreleased cycle — so a
+// correct "I am on the latest version" and a stale surface were indistinguishable
+// until this existed.
+func handleBuildVersion(w http.ResponseWriter, r *http.Request) {
+	writeControlJSON(w, http.StatusOK, core.ReadBuildInfo())
 }
