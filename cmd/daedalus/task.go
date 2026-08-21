@@ -468,6 +468,7 @@ func taskVerify(api control.TaskAPI, args []string) error {
 		if res.Artifact != nil {
 			fmt.Printf("     artifact %s verify=%s\n", res.Artifact.ID, res.Artifact.Verify)
 		}
+		printPreExisting(res.PreExisting)
 		return nil
 	}
 	by := "the verifier"
@@ -490,6 +491,7 @@ func taskVerify(api control.TaskAPI, args []string) error {
 	}
 	fmt.Printf("%s task %s REJECTED by %s [%s] — job %s → %s (%s)\n",
 		color.Yellow("Reject:"), args[0], by, res.Reason, res.Job.ID, res.Job.State, res.Detail)
+	printPreExisting(res.PreExisting)
 	if res.Reason == control.ReasonStaleBase {
 		// Deliberately not a one-liner to copy-paste: the tip may have moved because
 		// a Job moved it, and --rebase re-freezes the acceptance oracle there. Look
@@ -506,6 +508,25 @@ func taskVerify(api control.TaskAPI, args []string) error {
 		}
 	}
 	return nil
+}
+
+// printPreExisting reports project checks that failed against the artifact AND
+// against the Job's base.
+//
+// They took no part in the verdict — a check that was already failing says
+// nothing about a change — but they are still broken, and a pass that mentioned
+// nothing would be how a repository quietly rots. Printed after the verdict on
+// both paths, so it never reads as the reason for either.
+func printPreExisting(checks []string) {
+	if len(checks) == 0 {
+		return
+	}
+	fmt.Printf("%s %d project check(s) were ALREADY failing at this job's base, so they were not\n",
+		color.Yellow("Note:"), len(checks))
+	fmt.Println("     counted against this change — but they are still failing, and nobody is assigned to them:")
+	for _, c := range checks {
+		fmt.Printf("       %s\n", c)
+	}
 }
 
 // taskChecks implements `task checks <id> [--set <cmd>]... | --clear`: show or

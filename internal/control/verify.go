@@ -9,15 +9,35 @@ import "context"
 // Sprint 57 the real runner checks out HeadSHA into a clean container and runs
 // Policy.Checks; here it is a stub.
 type VerifySpec struct {
-	TaskID      string
-	JobID       string
-	Project     string
-	RepoDir     string
-	BaseSHA     string
-	HeadSHA     string // the artifact's committed tree (output_snapshot)
-	Branch      string
-	Policy      AcceptancePolicy // frozen at base_sha
-	ImageDigest string           // pinned project image (sha256:...); may be "" if uncaptured
+	TaskID  string
+	JobID   string
+	Project string
+	RepoDir string
+	// BaseSHA is the JOB's base — the tree the Job was actually handed — not the
+	// Task's, which `reverify --amended` can re-pin to a commit the Job never saw.
+	// It is what the baseline in CleanVerifier measures against, and the whole
+	// value of that baseline depends on it being the Job's starting point: against
+	// a re-pinned Task base, a check that trunk fixed after the fact would read as
+	// a check this change broke. Same reasoning as the integrity gate's, which
+	// picked the Job's base for the same reason.
+	BaseSHA string
+	HeadSHA string // the artifact's committed tree (output_snapshot)
+	Branch  string
+	// Policy is the PROJECT's policy, frozen at base_sha. Its checks describe the
+	// repository's health, so they are baselineable.
+	Policy AcceptancePolicy
+	// TaskChecks are the Task's OWN acceptance commands, kept apart from Policy
+	// rather than appended to it — the split is the load-bearing part.
+	//
+	// A project check ("go test ./...") asserts something that was true before the
+	// change and must still be true after it, so "it was already failing" is a real
+	// answer. A per-task check asserts something the change was supposed to MAKE
+	// true, so it is EXPECTED to fail at the base — that is what it is for.
+	// Baselining one would read "the feature does not work at the base either" as
+	// an excuse and pass a Job for not doing its job, which is the exact inverse of
+	// the bug the baseline exists to fix.
+	TaskChecks  []string
+	ImageDigest string // pinned project image (sha256:...); may be "" if uncaptured
 }
 
 // ImageDigester captures a project's image identity as an immutable sha256:
@@ -34,6 +54,15 @@ type ImageDigester interface {
 type VerifyOutcome struct {
 	Passed bool
 	Detail string
+	// PreExisting names the project checks that failed against the artifact AND
+	// against the base — already broken when the Job was handed the repository.
+	//
+	// They do not make Passed false, and that is the point: a verdict is a
+	// statement about a change, and a check that was failing before the change
+	// says nothing about it. They are not discarded either, because somebody still
+	// has to fix them — they ride along as a fact about the repository, reported
+	// next to the verdict rather than as one.
+	PreExisting []string
 }
 
 // VerifyRunner runs the project's frozen verify policy against an artifact in an

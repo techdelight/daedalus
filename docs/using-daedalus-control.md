@@ -221,6 +221,36 @@ Commit `.daedalus/verify.json` to the project:
   you cannot grade your own exam. Frontier agents edit tests to pass in a large
   fraction of adversarial runs; this is the gate for that.
 
+### A check that was already failing is not this change's fault
+
+A verdict is a statement about a **change**, not about a repository. So when a
+project check fails against the artifact, the verifier runs **the same check
+against the Job's base** before deciding what that means:
+
+| at the base | at the artifact | verdict |
+|---|---|---|
+| passes | fails | **rejected** — this change broke it, and the detail says so |
+| fails | fails | **not counted** — already broken; reported next to the verdict as a fact about the repository |
+| — (base could not be checked out) | fails | **rejected**, and the detail says the comparison could not be made |
+
+This exists because the alternative was measured five times. T-13 and T-16 were
+both rejected on a `daedalus docs lint` error in a `SPRINTS.md` that neither
+Job's diff touched; T-8 was rejected on a roadmap warning while changing only
+CSS. Each verdict was true about the checkout and worthless about the work, and
+each looked like a criticism of the agent.
+
+Two details worth knowing:
+
+- The baseline is the **Job's** base, not the Task's. `reverify --amended`
+  re-pins a Task while keeping its existing artifact, and grading against the new
+  base would read a fix *trunk* made as a check *this artifact* broke.
+- It costs nothing when everything passes — the base is only ever checked out to
+  answer a question a failure has already asked.
+
+A pass with pre-existing failures still tells you about them, in `task verify`
+output and in the Ledger. Nobody is assigned to them; that is the point of
+saying so.
+
 ### What `verify.json` cannot tell you
 
 `verify.json` is **project-level and task-independent**. It answers *"does this
@@ -250,6 +280,11 @@ daedalus task create --project my-app \
   objective and let a human write the check.
 - **Outside the frozen hash.** They are the task's addition, not the project's
   policy, so they do not read as policy drift at verify time.
+- **Never baselined.** The rule above — "already failing at the base doesn't
+  count" — applies to the *project's* checks and to those only. A per-task check
+  asserts what this change was supposed to *make* true, so it is expected to fail
+  at the base; excusing it for that would pass a Job precisely for not doing the
+  thing it was sent to do.
 - They are stored on the task, shown by `task status`, and — like everything else
   about a task — fixed once it is created.
 

@@ -4,6 +4,47 @@ All notable changes to this project will be documented in this file.
 
 ## [0.54.0] - 2026-08-18
 
+### Changed
+- **A verify verdict is now a statement about the change, not about the
+  repository.** When a project check fails against the artifact, the clean
+  verifier runs the same check against the **Job's base** before deciding what
+  that means. Failing at both is a fact about the repository the Job was handed:
+  reported, not charged. Failing only at the artifact is a regression and rejects
+  as it always did. If the base cannot be checked out there is no evidence either
+  way, so the failure still stands as the verdict — but the detail says the
+  comparison could not be made, because "this change broke it" and "we could not
+  tell" must not read identically.
+  - Measured five times, which is the reason this is a change of shape rather
+    than a fifth instance fix. **T-13** and **T-16** were both rejected on a
+    `daedalus docs lint` error in a `SPRINTS.md` that neither Job's diff touched
+    — T-16 after a review that reproduced every measured number in its docs from
+    the history and found no blocker. **T-8** was rejected on a roadmap warning
+    while changing only CSS. **T-11** was rejected as an empty change because Jobs
+    had no git mount. **T-15** was killed terminally by an expired OAuth login
+    four seconds into a run. Every one of those verdicts was true about the
+    checkout and worthless about the work, and each read as a criticism of the
+    agent.
+  - **Per-task checks are never baselined**, and the split is why they now travel
+    in `VerifySpec.TaskChecks` instead of being appended into the policy by
+    `withTaskChecks`. A project check asserts something that was true before the
+    change and must still be true; a per-task check asserts what the change was
+    supposed to MAKE true, so it fails at the base by construction. Baselining one
+    would excuse a Job for not doing the thing it was sent to do — the same bug
+    inverted, and the more expensive direction. Both properties the old merge
+    carried (append-never-replace, project checks first) are preserved by the two
+    loops that replaced it, and pinned by a test.
+  - The baseline is the **Job's** base, not the Task's — the same choice the
+    integrity gate above it already made. `reverify --amended` re-pins a Task
+    while keeping its existing artifact, so against the Task's base a check that
+    trunk FIXED would read as a check this artifact broke.
+  - It costs nothing when the checks pass: the base is checked out only to answer
+    a question a failure has already asked, once per verify however many checks
+    fail.
+  - Pre-existing failures are reported next to the verdict — in `task verify`
+    output, in the Ledger, and on the transition event — on the pass path and the
+    reject path both. They are still broken and nobody is assigned to them; a pass
+    that mentioned nothing is how a repository rots quietly.
+
 ### Added
 - **Click an entry in the Ledger to pin it.** The left list moved the entry
   window on hover, which is right for scanning and wrong for reading: crossing the

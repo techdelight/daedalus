@@ -69,7 +69,22 @@ func (p VerifierEnvPolicy) DockerRunArgs(image, hostCheckoutDir, shellCmd string
 //  2. runs each frozen policy.Checks command inside a container built from the
 //     project's image PINNED BY DIGEST, with only that clean checkout mounted and
 //     the env policy applied (network off, no creds, no /opt/tools);
-//  3. returns Passed only if every check exits zero (first failure short-circuits).
+//  3. returns Passed only if every check that the change is answerable for exits
+//     zero.
+//
+// That last clause is the baseline, and it is what makes the verdict a statement
+// about the CHANGE rather than about the repository. When a project check fails
+// against the artifact, the same check is run against the Job's base. If it fails
+// there too it was already broken, is reported as a fact about the repository and
+// does not reject the Task; if it passes there, the change is what broke it and
+// the Task is rejected saying so.
+//
+// Measured, five times: T-8 (rejected on a warning, CSS-only change), T-11, T-13,
+// T-15 and T-16 were all rejected for the state of the repository they were handed
+// rather than for the work they did — T-13 and T-16 on the same `daedalus docs
+// lint` error, in a SPRINTS.md neither diff touched. Every one of those verdicts
+// was true about the checkout and worthless about the change, and four earlier
+// fixes each removed one instance without touching the shape.
 //
 // It needs a Docker daemon + git and is therefore NOT unit-tested here; the
 // pure pieces (DockerRunArgs, the null-agent floor, digest plumbing) are
@@ -100,17 +115,106 @@ func (v CleanVerifier) Verify(_ context.Context, spec VerifySpec) VerifyOutcome 
 	}
 	defer func() { _, _ = runGit(spec.RepoDir, "worktree", "remove", "--force", checkout) }()
 
-	checks := spec.Policy.Checks
-	for i, check := range checks {
-		args := v.Policy.DockerRunArgs(spec.ImageDigest, checkout, check)
-		out, err := v.Exec.Output("docker", args...)
+	run := func(dir, check string) (string, error) {
+		return v.Exec.Output("docker", v.Policy.DockerRunArgs(spec.ImageDigest, dir, check)...)
+	}
+
+	// The base checkout is built at most once, and only if a check actually fails
+	// — the common case (everything passes) costs exactly what it did before.
+	var baseDir string
+	defer func() {
+		if baseDir != "" {
+			_, _ = runGit(spec.RepoDir, "worktree", "remove", "--force", baseDir)
+		}
+	}()
+	baseline := newBaseline(spec, parent, &baseDir)
+
+	total := len(spec.Policy.Checks) + len(spec.TaskChecks)
+	var preExisting []string
+
+	// PROJECT checks — baselineable. See VerifySpec.TaskChecks for why the two
+	// loops cannot be one.
+	for i, check := range spec.Policy.Checks {
+		out, err := run(checkout, check)
+		if err == nil {
+			continue
+		}
+		failed := fmt.Sprintf("check %d/%d failed: %q: %v\n%s",
+			i+1, total, check, err, strings.TrimSpace(out))
+
+		dir, berr := baseline()
+		if berr != nil {
+			// No baseline, so no evidence either way. The failure stands as a verdict
+			// — the gate is not dropped on a maybe — but the detail says the
+			// comparison could not be made, because "this change broke it" and "we
+			// could not tell" must not read identically to whoever picks this up.
+			return VerifyOutcome{Passed: false, PreExisting: preExisting, Detail: failed + fmt.Sprintf(
+				"\n\nGRADED AGAINST THIS CHANGE, but the comparison could not be made: the same check "+
+					"could not be run against the base %s (%v). If it was already failing there, this "+
+					"verdict is about the repository, not about the work.", shortSHA(spec.BaseSHA), berr)}
+		}
+		if _, err := run(dir, check); err != nil {
+			// Failing at the base too: a fact about the repository the Job was handed.
+			// Recorded, not charged.
+			preExisting = append(preExisting, check)
+			continue
+		}
+		return VerifyOutcome{Passed: false, PreExisting: preExisting, Detail: failed + fmt.Sprintf(
+			"\n\nThis check PASSES at the base %s, so the change is what broke it.", shortSHA(spec.BaseSHA))}
+	}
+
+	// PER-TASK checks — never baselined, and a failure here is always the verdict.
+	for j, check := range spec.TaskChecks {
+		out, err := run(checkout, check)
 		if err != nil {
-			return VerifyOutcome{Passed: false, Detail: fmt.Sprintf(
-				"check %d/%d failed: %q: %v\n%s", i+1, len(checks), check, err, strings.TrimSpace(out))}
+			return VerifyOutcome{Passed: false, PreExisting: preExisting, Detail: fmt.Sprintf(
+				"check %d/%d failed: %q: %v\n%s\n\nThis is one of the TASK's own acceptance checks — "+
+					"it describes what this change was supposed to make true, so there is no earlier "+
+					"state in which failing it would be excusable.",
+				len(spec.Policy.Checks)+j+1, total, check, err, strings.TrimSpace(out))}
 		}
 	}
-	return VerifyOutcome{Passed: true, Detail: fmt.Sprintf(
-		"%d check(s) passed in a clean checkout of %s against %s", len(checks), shortSHA(spec.HeadSHA), spec.ImageDigest)}
+
+	detail := fmt.Sprintf("%d check(s) passed in a clean checkout of %s against %s",
+		total-len(preExisting), shortSHA(spec.HeadSHA), spec.ImageDigest)
+	if len(preExisting) > 0 {
+		detail += fmt.Sprintf("\n\n%d check(s) failed against BOTH the artifact and the base %s — "+
+			"already broken when this Job was handed the repository, so not counted against it: %s",
+			len(preExisting), shortSHA(spec.BaseSHA), strings.Join(preExisting, "; "))
+	}
+	return VerifyOutcome{Passed: true, Detail: detail, PreExisting: preExisting}
+}
+
+// newBaseline returns a function that yields a clean checkout of the Job's base,
+// creating it on first call and reporting the same answer to every later one.
+//
+// Lazy because the base is only ever needed to answer "was this already broken",
+// a question that only arises once something has broken; memoised because several
+// checks can fail in one run and a second `git worktree add` of the same commit
+// would be pure cost. dir is written through so the caller's deferred cleanup can
+// see it without this owning the lifetime.
+func newBaseline(spec VerifySpec, parent string, dir *string) func() (string, error) {
+	var done bool
+	var err error
+	return func() (string, error) {
+		if done {
+			return *dir, err
+		}
+		done = true
+		if spec.BaseSHA == "" || spec.BaseSHA == spec.HeadSHA {
+			// head == base is the null-agent floor's business and is rejected long
+			// before here; an empty base means the Job never recorded one.
+			err = fmt.Errorf("the job has no distinct base to compare against")
+			return "", err
+		}
+		candidate := filepath.Join(parent, "base")
+		if out, gerr := runGit(spec.RepoDir, "worktree", "add", "--detach", candidate, spec.BaseSHA); gerr != nil {
+			err = fmt.Errorf("clean checkout of the base failed: %v: %s", gerr, strings.TrimSpace(out))
+			return "", err
+		}
+		*dir = candidate
+		return candidate, nil
+	}
 }
 
 // shortSHA abbreviates a sha for detail messages.

@@ -265,29 +265,19 @@ func wrapGit(what, out string, err error) error {
 	return fmt.Errorf("%s: %v\n%s", what, err, msg)
 }
 
-// withTaskChecks returns the policy with a Task's own acceptance commands
-// APPENDED. Two properties are load-bearing, and both are about what a per-task
-// check may not do:
+// A Task's own acceptance commands used to be APPENDED to the project policy
+// here, by withTaskChecks. They now travel beside it as VerifySpec.TaskChecks,
+// because the baseline has to tell the two apart — a project check may excusably
+// have been failing before the change, and a per-task check may not.
 //
-//   - **Append, never replace.** The project's checks always run; a Task can only
-//     add to the bar it is graded against. There is no request shape that lowers
-//     it, so "this task was graded more leniently" is not a state that exists.
+// Both properties that merge carried are preserved by the split, in
+// CleanVerifier.Verify's two loops:
+//
+//   - **Append, never replace.** Both loops always run, and TaskChecks cannot
+//     reach Policy.Checks from a different field. There is still no request shape
+//     that lowers the bar, so "this task was graded more leniently" remains a
+//     state that does not exist.
 //   - **Project checks run FIRST.** The verifier mounts the checkout read-write
-//     and runs the checks in sequence, so a command could in principle mutate the
-//     tree a later command sees. Ordering makes that harmless: by the time a
-//     task-supplied check runs, the project's own checks have already passed
-//     against an unmutated checkout. A task check can therefore only ever
-//     sabotage itself, which is nobody else's problem.
-//
-// The receiver is untouched (Checks is copied), because the caller still needs
-// the frozen policy for the drift comparison and the integrity gate.
-func (p AcceptancePolicy) withTaskChecks(checks []string) AcceptancePolicy {
-	if len(checks) == 0 {
-		return p
-	}
-	combined := make([]string, 0, len(p.Checks)+len(checks))
-	combined = append(combined, p.Checks...)
-	combined = append(combined, checks...)
-	p.Checks = combined
-	return p
-}
+//     and runs checks in sequence, so a command could in principle mutate the tree
+//     a later one sees. The project loop precedes the task loop, so a task-supplied
+//     check can still only ever sabotage itself.

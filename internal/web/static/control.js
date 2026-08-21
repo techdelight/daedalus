@@ -403,9 +403,21 @@
   function enc(s) { return encodeURIComponent(s); }
 
   function verdict(r) {
-    if (r.verified) return 'Verified.';
-    if (r.waived) return 'Waived — recorded as ' + (r.reason || 'failed') + '; ' + (r.detail || '');
-    return 'Refused — ' + (r.reason || '') + ' ' + (r.detail || '');
+    if (r.verified) return 'Verified.' + alreadyBroken(r);
+    if (r.waived) return 'Waived — recorded as ' + (r.reason || 'failed') + '; ' + (r.detail || '') + alreadyBroken(r);
+    return 'Refused — ' + (r.reason || '') + ' ' + (r.detail || '') + alreadyBroken(r);
+  }
+
+  // Checks that failed against the artifact AND against the job's base. They are
+  // not why the verdict went either way — that is the whole point of the baseline
+  // — but they ARE still broken, and a verified task that mentioned nothing is how
+  // a repository rots quietly. Appended after the verdict so it can never be
+  // misread as the reason for it.
+  function alreadyBroken(r) {
+    const pre = r && r.preExisting;
+    if (!pre || !pre.length) return '';
+    return ' — note: ' + pre.length + ' project check(s) were ALREADY failing at this job’s base, ' +
+      'so they were not counted against this change, and are still failing: ' + pre.join('; ');
   }
 
   function regrade(r) {

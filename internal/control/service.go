@@ -206,6 +206,11 @@ type VerifyResult struct {
 	VerifierCalled bool   `json:"verifierCalled"` // false when the gate short-circuited
 	Verified       bool   `json:"verified"`       // final verdict: reached `verified`
 	Detail         string `json:"detail"`
+	// PreExisting names project checks that failed against BOTH the artifact and
+	// the Job's base. They did not affect the verdict — they were already failing
+	// when the Job was handed the repository — but they are somebody's problem, and
+	// a pass that quietly swallowed them would be how a repository rots.
+	PreExisting []string `json:"preExisting,omitempty"`
 }
 
 // TaskAPI is the surface the CLI drives and the daemon serves. Both the
@@ -1346,10 +1351,20 @@ func (s *Service) verifyTaskLocked(caller Caller, id string, req VerifyRequest) 
 	// across it for the same reason as runner.Run — otherwise cancel and reconcile
 	// are dead for the duration. The in-flight claim above keeps reconcile from
 	// mistaking this live verify for a stranded one.
+	// jobBase, not task.BaseSHA — the same choice the integrity gate makes above,
+	// and for the same reason. The verifier's baseline asks "was this check already
+	// failing on the tree this Job was handed", and only the Job's own base answers
+	// that. After `reverify --amended` the Task's base can be a commit the Job never
+	// saw, and a check trunk FIXED there would then look like a check this artifact
+	// broke — the failure mode inverted, but the same mistake.
+	//
+	// The Task's checks travel separately rather than through withTaskChecks: a
+	// per-task check is meant to fail at the base, so it must never be baselined.
 	spec := VerifySpec{
 		TaskID: id, JobID: job.ID, Project: task.Project, RepoDir: repoDir,
-		BaseSHA: task.BaseSHA, HeadSHA: job.OutputSnapshot,
-		Branch: BranchName(id, job.ID), Policy: policy.withTaskChecks(task.Checks), ImageDigest: task.ImageDigest,
+		BaseSHA: jobBase, HeadSHA: job.OutputSnapshot,
+		Branch: BranchName(id, job.ID), Policy: policy, TaskChecks: task.Checks,
+		ImageDigest: task.ImageDigest,
 	}
 	// The claim and the unlock are both scoped helpers (claim.go): the claim is
 	// released on every exit including a panic, and the mutex is re-taken the same
@@ -1377,6 +1392,11 @@ func (s *Service) verifyTaskLocked(caller Caller, id string, req VerifyRequest) 
 		res := s.doReject(task, job, art, repoDir, ReasonVerifyFailed, withDetail("verify failed", outcome.Detail))
 		res.VerifierCalled = true
 		res.Detail = outcome.Detail
+		// Anything already broken at the base is reported even when the verdict is a
+		// rejection. It played no part in the rejection, and dropping it would make
+		// the report of a repository's condition depend on whether some other check
+		// happened to fail in the same run.
+		res.PreExisting = outcome.PreExisting
 		if req.IgnoreResult {
 			// The rejection above STANDS: it is on the record, the artifact keeps
 			// verify=fail, and nothing here claims the checks passed. The waiver adds
@@ -1417,7 +1437,8 @@ func (s *Service) verifyTaskLocked(caller Caller, id string, req VerifyRequest) 
 			log.Printf("control: moving %s to approval_required: %v", id, err)
 		}
 	}
-	return VerifyResult{Job: jb, Task: tk, Artifact: art, VerifierCalled: true, Verified: true, Detail: outcome.Detail}, nil
+	return VerifyResult{Job: jb, Task: tk, Artifact: art, VerifierCalled: true, Verified: true,
+		Detail: outcome.Detail, PreExisting: outcome.PreExisting}, nil
 }
 
 // recoverStrandedVerify returns a job+task that entered `verifying` but never
