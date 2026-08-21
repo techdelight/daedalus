@@ -28,11 +28,13 @@ package control
 // the Job's home dies with the Job.
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 // claudeConfigDirName is the container's CLAUDE_CONFIG_DIR, relative to the
@@ -101,6 +103,62 @@ func SeedJobHome(dataDir, project, jobProject string) error {
 	if copied == 0 {
 		return fmt.Errorf("no agent credentials found under %s — "+
 			"log in once with `daedalus %s` so Jobs can inherit it", src, project)
+	}
+	// Copying is not the same as copying something usable, and the difference is
+	// four seconds of Job followed by `exit status 1`. Say so here, where the fix
+	// is a sentence, rather than leaving it to be read out of a container's log.
+	return checkSeededCredentials(src, project)
+}
+
+// credentialExpiry is the part of a Claude credentials file worth reading before
+// handing it to a Job.
+type credentialExpiry struct {
+	ClaudeAiOauth struct {
+		// ExpiresAt is the ACCESS token's expiry, in milliseconds. Deliberately not
+		// checked: an expired access token is the ordinary state of affairs — the
+		// CLI refreshes it on demand — so warning about it would cry wolf on every
+		// dispatch and teach an operator to ignore the one warning that matters.
+		ExpiresAt int64 `json:"expiresAt"`
+		// RefreshTokenExpiresAt is the one that matters. Past it, nothing can be
+		// refreshed and the login is genuinely dead.
+		RefreshTokenExpiresAt int64 `json:"refreshTokenExpiresAt"`
+	} `json:"claudeAiOauth"`
+}
+
+// checkSeededCredentials reports a login that cannot be refreshed.
+//
+// A Job inherits a COPY of the project's home, so an expired login is copied
+// just as faithfully as a live one and the seeding step reports success either
+// way. That is how T-15 died: seeded, dispatched, dead in four seconds with
+// `authentication_failed`, and nothing between the operator and that log line.
+//
+// Unreadable or unrecognised credentials are NOT an error. This file's format is
+// the CLI's, not ours, and refusing to seed because a field moved would break
+// dispatch over a change in somebody else's schema. Silence means "no opinion",
+// which is the only honest answer when the shape is not the one we know.
+func checkSeededCredentials(src, project string) error {
+	for _, rel := range jobHomeSeedFiles {
+		if filepath.Base(rel) != ".credentials.json" {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Join(src, rel))
+		if err != nil {
+			continue
+		}
+		var c credentialExpiry
+		if json.Unmarshal(raw, &c) != nil {
+			continue
+		}
+		exp := c.ClaudeAiOauth.RefreshTokenExpiresAt
+		if exp == 0 {
+			continue // no opinion: this file does not carry the field we know
+		}
+		if when := time.UnixMilli(exp); time.Now().After(when) {
+			return fmt.Errorf("%s's login expired on %s and cannot be refreshed — "+
+				"the Job will fail within seconds with an authentication error; "+
+				"run `daedalus %s` once and complete /login",
+				project, when.UTC().Format("2006-01-02"), project)
+		}
 	}
 	return nil
 }

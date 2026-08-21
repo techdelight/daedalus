@@ -226,6 +226,26 @@ All notable changes to this project will be documented in this file.
   judged against.
 
 ### Fixed
+- **An expired login is reported at dispatch, not four seconds into a Job.**
+  Seeding copies the project's credentials into the Job's throwaway home, and it
+  copied a dead login as faithfully as a live one — reporting success either way.
+  That is how T-15 died: seeded, dispatched, gone in four seconds with an
+  authentication error, and nothing between the operator and a container's log.
+  The seed step now reads `refreshTokenExpiresAt` and names the problem, the date,
+  and the fix.
+  - **The access token's expiry is deliberately ignored.** It expires hourly and
+    the CLI refreshes it on demand, so warning about it would cry wolf on every
+    dispatch and teach an operator to ignore the one warning that matters. Only an
+    expired *refresh* token means the login is genuinely dead.
+  - Credentials it cannot parse get **no opinion**. The format belongs to the CLI,
+    and refusing to dispatch because a field moved would break the plane over
+    somebody else's schema change.
+  - It still seeds and still dispatches: this is a named cause, not a new gate.
+  - **Worth knowing, and not fixed here:** a Job refreshes its token inside a
+    throwaway home that is then deleted, so Job activity never refreshes the
+    *project's* credentials. A project driven only through the control plane will
+    drift to expiry however often it runs; launching it interactively is what
+    keeps it alive.
 - **A failed attempt no longer kills the Task (#80).** An agent that exited
   non-zero drove its Task to `failed`, which is terminal — no `dispatch`, no
   `retry`, no `replan`, no `reverify` — so the objective and every unspent attempt

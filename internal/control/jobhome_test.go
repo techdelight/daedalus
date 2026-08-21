@@ -3,11 +3,13 @@
 package control
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 )
 
 // projectHome builds a project home under dataDir holding the given relative
@@ -137,5 +139,79 @@ func TestJobHomeSeedPathsMatchTheDockerfile(t *testing.T) {
 	}
 	if got := filepath.Base(string(m[1])); got != claudeConfigDirName {
 		t.Errorf("Dockerfile CLAUDE_CONFIG_DIR basename = %q, but jobhome.go seeds %q", got, claudeConfigDirName)
+	}
+}
+
+// TestSeedJobHome_ReportsALoginThatCannotBeRefreshed.
+//
+// A Job inherits a COPY of the project's home, so an expired login is copied as
+// faithfully as a live one and seeding reports success either way. That is how
+// T-15 died: seeded, dispatched, dead in four seconds with an authentication
+// error, and nothing between the operator and a container's log.
+func TestSeedJobHome_ReportsALoginThatCannotBeRefreshed(t *testing.T) {
+	write := func(t *testing.T, dataDir, project string, refreshExpiry time.Time) {
+		t.Helper()
+		dir := filepath.Join(dataDir, project, claudeConfigDirName)
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		body := fmt.Sprintf(
+			`{"claudeAiOauth":{"accessToken":"x","expiresAt":%d,"refreshTokenExpiresAt":%d}}`,
+			// The ACCESS token is expired in both cases, deliberately: that is the
+			// ordinary state of affairs and must never be what triggers a warning.
+			time.Now().Add(-time.Hour).UnixMilli(), refreshExpiry.UnixMilli())
+		if err := os.WriteFile(filepath.Join(dir, ".credentials.json"), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// A live refresh token: seeded without comment, even though the access token
+	// has expired. Warning here would cry wolf on every dispatch.
+	live := t.TempDir()
+	write(t, live, "app", time.Now().Add(30*24*time.Hour))
+	if err := SeedJobHome(live, "app", "daedalus-job-J-1"); err != nil {
+		t.Errorf("a refreshable login was reported as a problem: %v", err)
+	}
+
+	// A dead one: named, dated, with the fix in the message.
+	dead := t.TempDir()
+	write(t, dead, "app", time.Now().Add(-24*time.Hour))
+	err := SeedJobHome(dead, "app", "daedalus-job-J-2")
+	if err == nil {
+		t.Fatal("an expired login seeded silently; the Job would die in seconds with no cause on the record")
+	}
+	for _, want := range []string{"expired", "/login", "app"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the warning does not mention %q: %v", want, err)
+		}
+	}
+	// It still SEEDS. Refusing to dispatch over a credential the plane cannot
+	// really adjudicate would be worse than a Job that fails with a named cause.
+	if _, statErr := os.Stat(filepath.Join(dead, "daedalus-job-J-2",
+		claudeConfigDirName, ".credentials.json")); statErr != nil {
+		t.Errorf("the credentials were not copied: %v", statErr)
+	}
+}
+
+// A credentials file whose shape we do not recognise gets NO opinion. The format
+// belongs to the CLI, not to us, and refusing to seed because a field moved
+// would break dispatch over somebody else's schema change.
+func TestSeedJobHome_SaysNothingAboutCredentialsItCannotRead(t *testing.T) {
+	for _, body := range []string{
+		`{"claudeAiOauth":{"accessToken":"x"}}`, // no expiry field at all
+		`{"somethingElse":true}`,
+		`not json`,
+	} {
+		dir := t.TempDir()
+		cfg := filepath.Join(dir, "app", claudeConfigDirName)
+		if err := os.MkdirAll(cfg, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(cfg, ".credentials.json"), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := SeedJobHome(dir, "app", "daedalus-job-J-3"); err != nil {
+			t.Errorf("seeding complained about credentials it cannot read (%s): %v", body, err)
+		}
 	}
 }
