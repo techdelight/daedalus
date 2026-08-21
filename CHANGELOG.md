@@ -226,6 +226,26 @@ All notable changes to this project will be documented in this file.
   judged against.
 
 ### Fixed
+- **A failed attempt no longer kills the Task (#80).** An agent that exited
+  non-zero drove its Task to `failed`, which is terminal — no `dispatch`, no
+  `retry`, no `replan`, no `reverify` — so the objective and every unspent attempt
+  died with one bad run. It happened five times before this changed: four Tasks in
+  the `Not logged in` era, for an environment fault that had nothing to do with
+  any of their objectives, and then T-15, four seconds into a run with two of
+  three attempts left, immediately after being created to replace a cancelled Task.
+  - The **Job** goes to `failed`; the **Task** goes to `rejected` with reason
+    `execution_failed`. That is the asymmetry `reapJob` has used since Sprint 65,
+    for the same reason: *"did this attempt finish"* and *"is this work still
+    worth doing"* are different questions, and the old code answered the first and
+    applied it to both.
+  - **The attempt is still charged.** The plane cannot tell a broken environment
+    from a genuinely bad run, and refunding on an unsure reading would make a Job
+    that fails instantly free to repeat forever.
+  - `ExecTimeout` routes the same way: a wall-clock overrun is a budget verdict
+    about one attempt, and `retry` re-checks the budget anyway.
+  - Almost nothing reaches `failed` now, and that is the intended answer to the
+    question the backlog entry raised: `failed` is for *"the plane cannot carry
+    this out"*, and every execution outcome feeds the ladder.
 - **The Ledger's entry window was frozen while the board beside it was live.**
   `detail` — the jobs, the artifacts, the terms, and since M20 the reviews — was
   fetched **once**, when a row was selected, and never again. The board polled
