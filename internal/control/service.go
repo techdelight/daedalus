@@ -1001,7 +1001,28 @@ func (s *Service) runDispatch(prep dispatchPrep) (DispatchResult, error) {
 	case ExecCancelled:
 		s.terminate(task.ID, job.ID, prep.repoDir, StateCancelled, note(outcome, "cancelled"))
 	default: // ExecFailed, ExecTimeout
-		s.terminate(task.ID, job.ID, prep.repoDir, StateFailed, note(outcome, "failed"))
+		// The JOB failed; the TASK did not (#80). An agent that exits non-zero is a
+		// legitimate attempt that did not work, and retrying is the textbook
+		// remedy — so the objective and its remaining attempts must survive it.
+		//
+		// This used to drive BOTH to `failed`, which is terminal: one bad exit and
+		// the Task was unreachable by dispatch, retry, replan and reverify alike,
+		// with its budget unspent. Measured twice. The `Not logged in` era killed
+		// four Tasks that way for an environment fault that had nothing to do with
+		// any of their objectives; T-15 was killed by a four-second exit with two
+		// of three attempts left. Every one had to be recreated by hand, losing its
+		// history and its reviews.
+		//
+		// The asymmetry is the same one reapJob already uses, and for the same
+		// reason: the two entities answer different questions. "Did this attempt
+		// finish?" — no, and nothing will resume it, so the Job is `failed`. "Is
+		// this work still worth doing?" — nobody has said otherwise, so the Task is
+		// `rejected`, the state the retry/replan ladder is built on.
+		//
+		// The attempt is still charged. The plane cannot tell a broken environment
+		// from a genuinely bad run, and refunding on an unsure reading is the worse
+		// error: it would make a Job that fails instantly free to repeat forever.
+		s.failJobRejectTask(task.ID, job.ID, prep.repoDir, note(outcome, "failed"))
 	}
 
 	j, _ := s.store.GetJob(job.ID)
@@ -1736,6 +1757,29 @@ func (s *Service) terminate(taskID, jobID, repoDir string, term State, note stri
 	}
 	if _, err := s.store.TransitionTask(taskID, term, false, note); err != nil {
 		log.Printf("control: terminate task %s → %s: %v", taskID, term, err)
+	}
+	if err := s.worktrees.Remove(repoDir, jobID); err != nil {
+		log.Printf("control: remove worktree %s: %v", jobID, err)
+	}
+}
+
+// failJobRejectTask settles a Job whose run reported failure: the JOB goes to
+// `failed`, the TASK to `rejected` (#80).
+//
+// It is terminate's asymmetric sibling, and the asymmetry is the point — see the
+// call site. The worktree is reclaimed either way: a retry checks out a fresh
+// one, and the branch survives, so whatever the failed attempt did commit is
+// still reachable.
+func (s *Service) failJobRejectTask(taskID, jobID, repoDir, note string) {
+	// A Task that is not running releases its place in line with its capacity.
+	s.sched.Forget(taskID)
+	meta := EventMeta{Kind: EventRejection, Reason: ReasonExecutionFailed}
+	if _, err := s.store.TransitionJobWith(jobID, StateFailed, false, meta, note); err != nil {
+		log.Printf("control: failing job %s: %v", jobID, err)
+	}
+	if _, err := s.store.TransitionTaskWith(taskID, StateRejected, false, meta,
+		note+" — the attempt failed; the task is still worth doing (retry, replan, or cancel)"); err != nil {
+		log.Printf("control: rejecting task %s after a failed job: %v", taskID, err)
 	}
 	if err := s.worktrees.Remove(repoDir, jobID); err != nil {
 		log.Printf("control: remove worktree %s: %v", jobID, err)

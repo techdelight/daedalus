@@ -181,13 +181,22 @@ func TestDispatch_Failure_NotCandidate(t *testing.T) {
 	if len(arts) != 0 {
 		t.Errorf("failed job has %d artifacts, want 0", len(arts))
 	}
-	// Task is failed (terminal), worktree reclaimed.
+	// The JOB failed; the TASK is REJECTED, not failed (#80). The two answer
+	// different questions: nothing will resume this attempt, but nobody has said
+	// the work is not worth doing — and `failed` is terminal, so routing the Task
+	// there killed the objective and its unspent attempts over one bad exit. It
+	// happened five times before this changed: four Tasks in the `Not logged in`
+	// era, and T-15 four seconds into a run with two of three attempts left.
 	got, _ := store.GetTask(task.ID)
-	if got.State != StateFailed {
-		t.Errorf("task state = %q, want failed", got.State)
+	if got.State != StateRejected {
+		t.Errorf("task state = %q, want rejected — a failed attempt must leave the ladder reachable", got.State)
+	}
+	// And the ladder actually works from here, which is the whole point.
+	if _, err := svc.RetryTask(task.ID, RetryRequest{}); err != nil {
+		t.Errorf("retry after a failed job: %v", err)
 	}
 	if wt.Exists(res.Job.ID) {
-		t.Error("worktree should be removed on terminal (failed)")
+		t.Error("worktree should be removed when the attempt ends")
 	}
 }
 

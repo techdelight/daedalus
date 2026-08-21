@@ -52,6 +52,12 @@ const (
 	// ReasonJoblessTask: a Task was left non-terminal with no Job at all — the
 	// dispatch died between the state transition and the Job insert.
 	ReasonJoblessTask RejectionReason = "jobless_task"
+	// ReasonExecutionFailed: the attempt itself failed — the agent exited
+	// non-zero, or ran past its wall clock. A statement about the RUN and not
+	// about the work: the objective may be perfectly good and the environment
+	// broken, which is how four Tasks died in the `Not logged in` era. The Task is
+	// rejected rather than failed so the retry/replan ladder can pick it up (#80).
+	ReasonExecutionFailed RejectionReason = "execution_failed"
 	// ReasonQueuedBehind: capacity exists, but an older Task is waiting for it.
 	// This is the anti-starvation rule doing its job, not a fault.
 	ReasonQueuedBehind RejectionReason = "queued_behind"
@@ -156,7 +162,7 @@ func AllRejectionReasons() []RejectionReason {
 	return []RejectionReason{
 		ReasonOverBudget, ReasonInvalidBudget, ReasonAttemptsExhausted,
 		ReasonReviewCyclesExhausted, ReasonConcurrencyExceeded, ReasonSchedulerSaturated,
-		ReasonQueuedBehind, ReasonJoblessTask, ReasonDependenciesUnmet, ReasonUnsafeRebase,
+		ReasonQueuedBehind, ReasonJoblessTask, ReasonExecutionFailed, ReasonDependenciesUnmet, ReasonUnsafeRebase,
 		ReasonOperationInFlight, ReasonProposalRecorded, ReasonForbidden,
 		ReasonNotSteerable, ReasonApprovalRequired, ReasonReviewRequired,
 		ReasonIntegrationRaced, ReasonStaleBase, ReasonNullAgentFloor,

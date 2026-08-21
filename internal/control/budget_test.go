@@ -583,9 +583,13 @@ func TestDispatch_WallClockTimeout_FailsJob(t *testing.T) {
 	if res.Job.Budget != 1 {
 		t.Errorf("job budget = %d, want 1", res.Job.Budget)
 	}
+	// The JOB is failed; the TASK is REJECTED (#80). A wall-clock overrun is a
+	// budget verdict about one attempt, not a statement that the work is not worth
+	// doing — and `retry` re-checks the budget anyway, so nothing is bypassed by
+	// leaving the ladder reachable.
 	got, _ := store.GetTask(task.ID)
-	if got.State != StateFailed {
-		t.Errorf("task state = %q, want failed", got.State)
+	if got.State != StateRejected {
+		t.Errorf("task state = %q, want rejected — a timeout must not kill the objective", got.State)
 	}
 	if wt.Exists(res.Job.ID) {
 		t.Error("a timed-out job's worktree should be reclaimed")
