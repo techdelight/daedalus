@@ -212,6 +212,22 @@
       done: function () { return 'Objective replaced; the task is planned again.'; },
     },
     {
+      // Its own plate, like `retry · rebase`: re-pinning adopts a newer acceptance
+      // oracle, which is a governance act rather than a detail of rewording an
+      // objective, and burying it in the same button would make the more
+      // consequential option the easier one to reach.
+      key: 'replan-rebase', label: 'Replan · rebase', states: ['rejected'], confirm: true,
+      hint: 'New objective AND re-pin to the project tip, re-freezing the acceptance policy there.',
+      prompt: {
+        title: 'Replan and rebase', label: 'A new objective for this task',
+        multiline: true, fill: function (t) { return t.objective; },
+      },
+      run: function (id, value) {
+        return send('POST', '/tasks/' + enc(id) + '/replan', { objective: value, rebase: true });
+      },
+      done: function (t) { return 'Objective replaced and re-pinned to ' + short(t.baseSha) + '.'; },
+    },
+    {
       key: 'checks', label: 'Checks', states: ['planned', 'blocked', 'queued', 'candidate', 'rejected'],
       hint: 'Per-task acceptance commands, appended to the project policy. One per line; empty clears.',
       prompt: {

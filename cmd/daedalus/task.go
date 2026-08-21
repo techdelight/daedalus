@@ -664,12 +664,14 @@ func attemptOf(res control.RetryResult) string {
 // the attempt counter — is preserved, so replanning never buys extra attempts.
 func taskReplan(api control.TaskAPI, args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: daedalus task replan <id> --objective <text>")
+		return fmt.Errorf("usage: daedalus task replan <id> --objective <text> [--rebase]")
 	}
 	id := args[0]
 	var req control.ReplanRequest
 	for i := 1; i < len(args); i++ {
 		switch args[i] {
+		case "--rebase":
+			req.Rebase = true
 		case "--objective", "-o":
 			if i+1 >= len(args) {
 				return fmt.Errorf("--objective requires text")
@@ -677,7 +679,7 @@ func taskReplan(api control.TaskAPI, args []string) error {
 			i++
 			req.Objective = args[i]
 		default:
-			return fmt.Errorf("task replan: unknown flag %q\n%s usage: daedalus task replan <id> --objective <text>", args[i], color.Cyan("Hint:"))
+			return fmt.Errorf("task replan: unknown flag %q\n%s usage: daedalus task replan <id> --objective <text> [--rebase]", args[i], color.Cyan("Hint:"))
 		}
 	}
 	if req.Objective == "" {
@@ -692,6 +694,9 @@ func taskReplan(api control.TaskAPI, args []string) error {
 	}
 	fmt.Printf("%s task %s replanned → %s\n", color.Green("OK:"), color.Bold(t.ID), t.State)
 	fmt.Printf("     objective: %s\n", t.Objective)
+	if req.Rebase {
+		fmt.Printf("     base: %s (acceptance policy re-frozen there)\n", t.BaseSHA)
+	}
 	fmt.Printf("     dispatch it with `daedalus task dispatch %s`\n", t.ID)
 	return nil
 }

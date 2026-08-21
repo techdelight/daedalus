@@ -365,3 +365,114 @@ func TestReverify_AmendedConsumesAReviewCycle(t *testing.T) {
 		t.Errorf("review cycles = %d, want 2 — an amended re-grade runs a real oracle and is charged", spent)
 	}
 }
+
+// TestReplan_CanRebaseInOneStep is #84: replan corrected the instruction and left
+// the base alone; retry moved the base and carried the old instruction; and
+// neither could be chained, because both refuse from any state but `rejected`.
+//
+// A Task asked the wrong question against a tree that has since moved on
+// therefore had no door at all — the advice was to abandon it and create a new
+// one, which works and quietly discards the history, the reviews, and every
+// recorded reason the first attempt was wrong.
+func TestReplan_CanRebaseInOneStep(t *testing.T) {
+	repo := gitRepo(t)
+	svc, _, store := newService(t, mapResolver{"app": repo},
+		StubRunner{Result: ExecSuccess, WriteFile: true, MarkerName: "a.txt"}, nil,
+		StubVerifyRunner{Pass: false, Detail: "the oracle said no"})
+
+	task, err := svc.CreateTask(CreateTaskRequest{Project: "app", Objective: "the wrong question"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	originalBase, originalHash := task.BaseSHA, task.AcceptanceHash
+	if _, err := svc.DispatchTask(task.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.VerifyTask(task.ID, VerifyRequest{}); err != nil {
+		t.Fatal(err)
+	}
+
+	// The project moves on, and the plane's target with it — which is what makes
+	// the Task's base stale. It also gains an acceptance policy, so the re-freeze
+	// below has something to re-freeze TO: with no `.daedalus/verify.json` at
+	// either commit the default policy applies to both and an unchanged hash is
+	// the correct answer, which would make the assertion prove nothing.
+	writeFileForTest(t, repo, "moved-on.txt", "the world changed")
+	if err := os.MkdirAll(filepath.Join(repo, ".daedalus"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFileForTest(t, repo, ".daedalus/verify.json", `{"checks":["true"]}`)
+	git(t, repo, "add", "-A")
+	git(t, repo, "commit", "-m", "the world changed")
+	if _, err := svc.SyncTarget("app"); err != nil {
+		t.Fatalf("SyncTarget: %v", err)
+	}
+
+	// One command: new instruction AND a new base.
+	replanned, err := svc.ReplanTask(task.ID, ReplanRequest{
+		Objective: "the right question", Rebase: true,
+	})
+	if err != nil {
+		t.Fatalf("ReplanTask --rebase: %v", err)
+	}
+	if replanned.Objective != "the right question" {
+		t.Errorf("objective = %q, want it replaced", replanned.Objective)
+	}
+	if replanned.BaseSHA == originalBase {
+		t.Error("base_sha is unchanged; the rebase half did nothing")
+	}
+	if replanned.State != StatePlanned {
+		t.Errorf("state = %q, want planned", replanned.State)
+	}
+	// Re-pinning re-freezes the acceptance oracle at the new base — the property
+	// that makes this a governance act rather than a wording change, and the
+	// reason it reuses retry's helper rather than reimplementing it.
+	if replanned.AcceptanceHash == originalHash {
+		t.Error("the acceptance policy was not re-frozen at the new base")
+	}
+	// And the lineage is on the record, because a policy amended after an attempt
+	// existed is a fact somebody will need later.
+	events, _ := store.ListEventsForTask(task.ID)
+	found := false
+	for _, e := range events {
+		if strings.Contains(e.Note, "re-pinned to") || strings.Contains(e.Note, "acceptance policy re-frozen") {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("the rebase is not visible in the event log")
+	}
+}
+
+// Without --rebase, replan leaves the base exactly where it was. The default has
+// to stay unchanged: adopting a newer oracle is opt-in by name on every path
+// that can do it.
+func TestReplan_WithoutRebaseLeavesTheBaseAlone(t *testing.T) {
+	repo := gitRepo(t)
+	svc, _, _ := newService(t, mapResolver{"app": repo},
+		StubRunner{Result: ExecSuccess, WriteFile: true, MarkerName: "a.txt"}, nil,
+		StubVerifyRunner{Pass: false})
+
+	task, _ := svc.CreateTask(CreateTaskRequest{Project: "app", Objective: "x"})
+	base := task.BaseSHA
+	if _, err := svc.DispatchTask(task.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.VerifyTask(task.ID, VerifyRequest{}); err != nil {
+		t.Fatal(err)
+	}
+	writeFileForTest(t, repo, "moved-on.txt", "changed")
+	git(t, repo, "add", "-A")
+	git(t, repo, "commit", "-m", "changed")
+	if _, err := svc.SyncTarget("app"); err != nil {
+		t.Fatal(err)
+	}
+
+	replanned, err := svc.ReplanTask(task.ID, ReplanRequest{Objective: "y"})
+	if err != nil {
+		t.Fatalf("ReplanTask: %v", err)
+	}
+	if replanned.BaseSHA != base {
+		t.Errorf("base moved to %s without --rebase; re-pinning must stay opt-in", replanned.BaseSHA)
+	}
+}

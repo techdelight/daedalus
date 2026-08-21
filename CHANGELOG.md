@@ -132,6 +132,24 @@ All notable changes to this project will be documented in this file.
     them would only make people invent programmes to satisfy a field.
 
 ### Added
+- **`daedalus task replan <id> --objective <text> --rebase` (#84).** `replan`
+  corrected the instruction and left the Task pinned to the tree it was created
+  on; `retry --rebase` moved the base and carried the old instruction; and they
+  could not be chained, because both refuse from any state but `rejected`. So a
+  Task asked the wrong question against a tree that has since moved on had **no
+  door at all** — the advice was to abandon it and create a new one, which works
+  and quietly discards the history, the reviews, and every recorded reason the
+  first attempt was wrong.
+  - It reuses the same `rebaseTaskToTip` as `retry --rebase` and
+    `reverify --amended`. This is its third caller, which is exactly when a copy
+    starts to look reasonable and stops being so: one place re-freezes the
+    acceptance oracle, so there is no third copy of the Sprint-59 laundering fix
+    to forget.
+  - **The re-pin happens first**, so a refused rebase leaves the objective
+    untouched. Correcting the instruction and then failing to move the base would
+    leave a Task that reads as fixed and is not.
+  - Opt-in by name, as on every path that adopts a newer oracle, and offered in
+    the Ledger as its own **Replan · rebase** plate rather than a checkbox.
 - **A Job is told what it cannot do, instead of discovering it (#83).** A Job
   container has no git credentials — it cannot push, clone a private repository,
   or create one — and until now nothing said so. A repository-split Task spent its

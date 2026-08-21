@@ -112,6 +112,21 @@ type RetryRequest struct {
 // ReplanRequest is the input to Service.ReplanTask (and POST /tasks/{id}/replan).
 type ReplanRequest struct {
 	Objective string `json:"objective"`
+	// Rebase re-pins the task to the project's current target and re-freezes the
+	// acceptance policy there, before the new objective is dispatched (#84).
+	//
+	// It exists because replan and retry each did half of what a wrong Task needs:
+	// replan corrected the instruction and left the Task pinned to the tree it was
+	// created on, retry moved the base and carried the old instruction, and neither
+	// could be chained because both refuse from any state but `rejected`. A Task
+	// that was asked the wrong question against a tree that has since moved on had
+	// no door at all — the advice was to abandon it and create a new one, which
+	// works and quietly discards the history, the reviews, and every recorded
+	// reason the first attempt was wrong.
+	//
+	// Opt-in by name for the same reason it is on retry: adopting a newer oracle is
+	// a governance act, not a detail of correcting an objective.
+	Rebase bool `json:"rebase,omitempty"`
 }
 
 // RetryResult reports a retry attempt: the dispatch outcome plus the governance
@@ -1621,8 +1636,30 @@ func (s *Service) replanTask(caller Caller, id string, req ReplanRequest) (Task,
 	if err := s.checkDispatchBudget(task); err != nil {
 		return Task{}, err
 	}
-	return s.store.ReplanTask(id, req.Objective, governanceMetaFor(caller),
-		fmt.Sprintf("replan: objective %q → %q", task.Objective, req.Objective))
+	// Re-pin FIRST, so a refused rebase leaves the objective alone. The order
+	// matters: correcting the instruction and then failing to move the base would
+	// leave a Task that reads as fixed and is not.
+	rebased := false
+	if req.Rebase {
+		repoDir, err := s.projects.ProjectDir(task.Project)
+		if err != nil {
+			return Task{}, err
+		}
+		// The SAME helper retry and `reverify --amended` use. A second copy would be
+		// a second place for the Sprint-59 laundering fix to be forgotten, and this
+		// is the third caller — which is exactly when a copy starts to look
+		// reasonable and stops being so.
+		updated, did, err := s.rebaseTaskToTip(caller, task, repoDir)
+		if err != nil {
+			return Task{}, err
+		}
+		task, rebased = updated, did
+	}
+	note := fmt.Sprintf("replan: objective %q → %q", task.Objective, req.Objective)
+	if rebased {
+		note += fmt.Sprintf(" (re-pinned to %s)", shortSHA(task.BaseSHA))
+	}
+	return s.store.ReplanTask(id, req.Objective, governanceMetaFor(caller), note)
 }
 
 // TaskEvents returns the control-plane-managed event log for a task: its own
