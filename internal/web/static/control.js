@@ -60,6 +60,14 @@
   // The list keeps refreshing while this is true; only the ENTRY is left alone,
   // because the entry is the thing being interacted with.
   let awaiting = false;
+  // The entry the cursor is LOCKED to, or null when hovering drives the window.
+  //
+  // Pointing is a fast way to read and a terrible way to hold your place: move
+  // the mouse to reach a command and the entry you were reading is gone. So a
+  // click pins the row — hovering stops moving the window until the same row is
+  // clicked again. Both modes exist because they are good at different things,
+  // and the click is what says which one you are in.
+  let pinned = null;
 
   function el(id) { return document.getElementById(id); }
 
@@ -134,6 +142,32 @@
   }
 
   function short(sha) { return sha ? sha.slice(0, 7) : ''; }
+
+  // Which row the cursor is on, and whether it is being HELD there. Called from
+  // every path that repaints, because the list is rebuilt on every poll and a
+  // pin that vanished when the board refreshed would be worse than no pin.
+  // Ids here are plane-issued (T-14, PR-1, RV-2), so this never has real work to
+  // do — it is here so that a selector built from data can never become one.
+  function cssEscape(v) {
+    if (window.CSS && CSS.escape) return CSS.escape(v);
+    return String(v).replace(/[^\w-]/g, '\\$&');
+  }
+
+  function markRows() {
+    // A pin on a row that has left the board would disable hovering for good:
+    // nothing could move the window, and nothing could release the pin either,
+    // because the only release is a click on a row that is no longer there. Work
+    // that lands, is cancelled, or drops out of the archive filter does exactly
+    // that — so the pin goes when its row does, rather than stranding the list.
+    if (pinned !== null && !document.querySelector('.ledger-row[data-entry-id="' + cssEscape(pinned) + '"]')) {
+      pinned = null;
+    }
+    document.querySelectorAll('.ledger-row').forEach(function (r) {
+      const id = r.dataset.entryId;
+      r.classList.toggle('is-current', !!current && id === current.id);
+      r.classList.toggle('is-pinned', pinned !== null && id === pinned);
+    });
+  }
 
   // --- talking to the plane -------------------------------------------------
 
@@ -429,9 +463,29 @@
     row.appendChild(text('span', 'ledger-row-objective', label));
     row.appendChild(text('span', 'ledger-row-status ' + mark[1], mark[0]));
 
-    row.addEventListener('mouseenter', onShow);
-    row.addEventListener('focus', onShow);
-    row.addEventListener('click', onShow);
+    // Hover previews, but only while nothing is pinned. Focus follows the same
+    // rule as hover: tabbing past a row should no more steal the window than
+    // sweeping the mouse over it, and a keyboard user still selects with Enter,
+    // which fires the click below.
+    const preview = function () {
+      if (pinned === null) onShow();
+    };
+    row.addEventListener('mouseenter', preview);
+    row.addEventListener('focus', preview);
+    row.addEventListener('click', function () {
+      if (pinned === id) {
+        // Clicking the pinned row again releases it. The entry stays on screen —
+        // you asked to stop holding it, not to stop reading it.
+        pinned = null;
+      } else {
+        // A click on any other row moves the pin rather than doing nothing. A
+        // pinned list that ignores clicks reads as broken, and "unpin, then pin"
+        // is two gestures for one intention.
+        pinned = id;
+      }
+      onShow();
+    });
+    row.title = 'Click to keep this entry open; click again to release';
     return row;
   }
 
@@ -524,9 +578,7 @@
     // re-marked so the list still shows where you are, but the command row — which
     // may be holding a confirmation — is left exactly as the operator left it.
     if (awaiting || busy) {
-      document.querySelectorAll('.ledger-row').forEach(function (r) {
-        r.classList.toggle('is-current', !!current && r.dataset.entryId === current.id);
-      });
+      markRows();
       return;
     }
 
@@ -614,9 +666,7 @@
     const tabs = el('ledger-tabs');
     if (!head || !bodyEl) return;
 
-    document.querySelectorAll('.ledger-row').forEach(function (r) {
-      r.classList.toggle('is-current', !!current && r.dataset.entryId === current.id);
-    });
+    markRows();
 
     if (!current) {
       head.textContent = '—';
@@ -1393,6 +1443,7 @@
     // matters: carried into the next visit it would freeze the entry forever,
     // and a stuck page is a worse bug than the one this guard fixes.
     awaiting = false;
+    pinned = null;
     const overlay = el('ledger-prompt');
     if (overlay) overlay.classList.remove('is-open');
     stop();

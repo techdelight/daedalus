@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 ## [0.54.0] - 2026-08-18
 
 ### Added
+- **Click an entry in the Ledger to pin it.** The left list moved the entry
+  window on hover, which is right for scanning and wrong for reading: crossing the
+  list to reach the commands, or to a finding's file and line, swapped the entry
+  out from under the cursor on the way. Clicking a row now pins it — hover stops
+  moving the window, and the entry stays put until it is released. Clicking the
+  **same** row again releases it and hovering resumes; clicking a **different**
+  row moves the pin rather than doing nothing, since a pinned list whose rows are
+  inert reads as broken.
+  - A pinned row stops bobbing and takes an inset left rule, so the state is
+    visible without a legend, and the 15s poll no longer disturbs it.
+  - The pin is dropped when its row leaves the board — landed, cancelled, or
+    filtered out by the archive toggle. Without that, the only gesture that
+    releases a pin is a click on a row that no longer exists, and the list would
+    stay frozen with no way back short of a reload.
 - **The Guild Master can propose a programme (#82).** M20 tiered
   `form_programme`, `amend_programme` and `dissolve_programme` for it — and
   stopped there. `guild-control-mcp` exposed no programme tool of any kind, so the

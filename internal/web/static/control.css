@@ -985,3 +985,34 @@
     color: var(--mana-hp-mid);
     font-weight: 700;
 }
+
+/* A PINNED row. The cursor stops bobbing, because the bob means "this follows
+   your pointer" and a pinned row does not — an animation that kept running would
+   be saying the opposite of what is true. It gains the frame colour and a left
+   rule instead: held, not hovered. */
+.ledger-row.is-pinned {
+    background: rgba(255, 255, 255, 0.10);
+    box-shadow: inset 3px 0 0 var(--mana-frame);
+}
+
+.ledger-row.is-pinned .ledger-cursor {
+    opacity: 1;
+    animation: none;
+    color: var(--mana-frame-pale);
+}
+
+.ledger-row.is-pinned .ledger-row-id {
+    color: var(--mana-frame-pale);
+}
+
+/* While a row is pinned, the others stop offering themselves: no hover tint, no
+   cursor. The list still scrolls and still updates — it just is not steering the
+   window any more, and it should not look as though it might. */
+.ledger-list:has(.ledger-row.is-pinned) .ledger-row:not(.is-pinned):hover {
+    background: transparent;
+}
+
+.ledger-list:has(.ledger-row.is-pinned) .ledger-row:not(.is-pinned):hover .ledger-cursor {
+    opacity: 0;
+    animation: none;
+}
