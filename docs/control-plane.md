@@ -192,12 +192,28 @@ committed-test edits, but a sufficiently adversarial agent that writes weakened
 }
 ```
 
-`checks` are the commands the clean verifier runs; `acceptanceGlobs` are the paths
-whose edits invalidate a Job. `ReadAcceptancePolicy` reads it from a checkout; a
-project that declares none gets a built-in default (`daedalus docs lint --ci` —
-daedalus is language-agnostic and cannot know a project's build/test command, so
-those are declared per-project — plus the conventional test/fixture globs and the
-verify config itself).
+`checks` are the commands the clean verifier runs; `acceptanceGlobs` are the
+paths that make up the **oracle**, restored to their base state before grading.
+`ReadAcceptancePolicy` reads it from a checkout; a project that declares none gets
+a built-in default (`daedalus docs lint` — daedalus is language-agnostic and
+cannot know a project's build/test command, so those are declared per-project —
+plus the conventional test/fixture globs and the verify config itself).
+
+**A glob should name a file that encodes the requirement independently of the
+work**, which is narrower than "a file the checks read". `go test ./...` makes
+`**/*_test.go` an oracle: the test states the requirement. `daedalus docs lint`
+does *not* make ROADMAP.md one, even though that is exactly what it reads — the
+requirement lives in the linter, and a Job making the documents well-formed is
+complying with the check rather than evading it. Freezing them would restore away
+the work and leave the check grading the base's documents, which is a green
+verdict about nothing.
+
+Getting this wrong is cheap in one direction and quiet in the other: freezing
+files no check reads protects nothing and discards work at grade time, while
+leaving a genuine oracle unfrozen lets a Job rewrite what it is being asked to do.
+Daedalus's own policy did the first (it froze `**/*_test.go` while running only
+`docs lint`) and `TestOwnAcceptancePolicy_GlobsMatchTheChecks` now derives both
+rules from the declared checks, so the two cannot drift apart silently again.
 
 **Per-task checks (post-v0.53.0).** The policy above is project-level and
 task-independent: it answers *"does this artifact still meet the project's

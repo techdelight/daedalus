@@ -347,3 +347,71 @@ func TestRestoreAcceptanceFiles_NoChangesIsANoop(t *testing.T) {
 		t.Errorf("no changes should be a no-op, got %v", err)
 	}
 }
+
+// THIS REPOSITORY'S OWN POLICY MUST STAY COHERENT WITH ITS OWN CHECKS.
+//
+// The globs and the checks were wrong in both directions at once, and each
+// direction is a different bug:
+//
+//   - `**/*_test.go` was frozen while no check ever ran a test, so the freeze
+//     protected nothing and (before restoration existed) refused every Job that
+//     wrote one.
+//   - ROADMAP.md and SPRINTS.md are the entire subject of `daedalus docs lint`
+//     and were NOT frozen — which is correct, and worth pinning so nobody
+//     "fixes" it: the requirement lives in the linter, so a Job making the
+//     documents well-formed is complying, not cheating. Freezing them would
+//     restore away the work and grade the base's documents instead.
+//
+// The test derives both rules from the declared checks, so it stands down or
+// fires on its own when the checks change — which is the point. When #74 closes
+// and `go test ./...` joins the checks, this fails until the test globs come
+// back.
+func TestOwnAcceptancePolicy_GlobsMatchTheChecks(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", ".daedalus", "verify.json"))
+	if err != nil {
+		t.Skipf("this repository's verify.json is not readable from here: %v", err)
+	}
+	policy, err := parseAcceptance(data)
+	if err != nil {
+		t.Fatalf("this repository's verify.json does not parse: %v", err)
+	}
+
+	frozen := func(path string) bool { return pathMatchesAny(path, policy.AcceptanceGlobs) }
+
+	// The policy file always belongs: swapping the checks swaps the oracle,
+	// whatever the checks happen to be.
+	if !frozen(".daedalus/verify.json") {
+		t.Error("the policy file must freeze itself, or the oracle can be swapped wholesale")
+	}
+
+	runsTests := false
+	gradesDocs := false
+	for _, c := range policy.Checks {
+		if strings.Contains(c, "go test") || strings.Contains(c, "npm test") ||
+			strings.Contains(c, "pytest") || strings.Contains(c, "mvn verify") {
+			runsTests = true
+		}
+		if strings.Contains(c, "docs lint") {
+			gradesDocs = true
+		}
+	}
+
+	// A check that runs tests makes the tests the requirement, so they must be
+	// frozen. Without this, an agent asked to fix a failing test can delete it.
+	if runsTests && !frozen("internal/foo_test.go") {
+		t.Errorf("checks %v run tests, so **/*_test.go must be in acceptanceGlobs", policy.Checks)
+	}
+	// And the inverse: freezing tests when nothing runs them is a freeze that
+	// protects nothing and restores real work away for no reason.
+	if !runsTests && frozen("internal/foo_test.go") {
+		t.Errorf("acceptanceGlobs freeze test files but no check runs them (%v) — "+
+			"the freeze protects nothing and discards the Job's tests at grade time",
+			policy.Checks)
+	}
+	// The documents are docs lint's SUBJECT, not its oracle. Freezing them would
+	// grade the base's documents and call that a verdict about the change.
+	if gradesDocs && (frozen("ROADMAP.md") || frozen("SPRINTS.md")) {
+		t.Error("ROADMAP.md/SPRINTS.md must NOT be frozen: `docs lint` grades them, " +
+			"and a Job making them well-formed is complying with the check, not evading it")
+	}
+}

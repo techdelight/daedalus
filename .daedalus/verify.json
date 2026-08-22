@@ -1,5 +1,8 @@
 {
   "checks": [
     "daedalus docs lint"
+  ],
+  "acceptanceGlobs": [
+    ".daedalus/verify.json"
   ]
 }

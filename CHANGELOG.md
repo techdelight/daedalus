@@ -75,6 +75,37 @@ All notable changes to this project will be documented in this file.
   sockets.
 
 ### Changed
+- **This repository's own `acceptanceGlobs` were wrong in both directions, and
+  the rule for choosing them is now written down and tested.**
+  `.daedalus/verify.json` declared only `checks`, so it silently inherited the
+  default globs — freezing `**/*_test.go` in a project whose only check is
+  `daedalus docs lint`, which never reads a test file. The freeze protected
+  nothing and (before restoration) refused every Job that wrote a test.
+  - **The rule: a glob should name a file that encodes the requirement
+    *independently of the work*.** That is narrower than "a file the checks read".
+    `go test ./...` makes `**/*_test.go` an oracle — the test states the
+    requirement. `daedalus docs lint` does **not** make ROADMAP.md one, even
+    though that is exactly what it reads: the requirement lives in the linter, and
+    a Job making the documents well-formed is *complying* with the check, not
+    evading it. Freezing them would restore the work away and leave the check
+    grading the base's documents — a green verdict about nothing. The policy file
+    always belongs, because swapping the checks swaps the oracle.
+  - Daedalus now declares `[".daedalus/verify.json"]` explicitly.
+  - **`TestOwnAcceptancePolicy_GlobsMatchTheChecks` derives both rules from the
+    declared checks**, so this cannot drift again silently: it fails if tests are
+    frozen while nothing runs them, if tests are run while nothing freezes them
+    (which is what will happen the day **#74** closes and `go test` joins the
+    checks), or if the documents are ever frozen. All three directions verified by
+    reverting.
+  - **Existing Tasks are unaffected.** The policy is read at each Task's own
+    `base_sha`, so a Task pinned before this commit still reads the old file and
+    still matches its frozen hash — no `policy_drift`. The new globs apply to
+    Tasks created at, or rebased onto, a base containing this change.
+  - The honest limit is recorded rather than papered over: a check implemented
+    *in* the repository can be weakened by the work. `docs lint`'s rules are Go
+    source here, so a Job could soften them. Freezing them is not the answer —
+    they are ordinary code that legitimate tasks change — the answer is a
+    host-side held-out oracle the Job never sees (**#76**).
 - **The frozen oracle is now RESTORED before grading, instead of the Job being
   refused for touching it.** The integrity gate rejected any Job whose diff edited
   a frozen acceptance file, on the argument that a Job which can edit the files

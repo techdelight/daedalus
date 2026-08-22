@@ -70,6 +70,37 @@ type AcceptancePolicy struct {
 // itself. A Job's edits to any of them are RESTORED to the base's version before
 // grading, so the work is judged by the oracle it was given rather than by one it
 // wrote.
+//
+// WHICH FILES BELONG IN THAT LIST, because getting it wrong is easy in both
+// directions and this repository managed both at once.
+//
+// A glob should name a file that ENCODES THE REQUIREMENT INDEPENDENTLY of the
+// work being graded. That is a narrower thing than "a file the checks read", and
+// much narrower than "a file that looks like a test".
+//
+//   - `go test ./...` in the checks → `**/*_test.go` belongs. The test states the
+//     requirement, and a Job that rewrites it has changed what it is being asked
+//     to do.
+//   - `daedalus docs lint` in the checks → ROADMAP.md and SPRINTS.md do NOT
+//     belong, even though they are exactly what that check reads. The requirement
+//     lives in the LINTER, not in the documents; a Job making the documents
+//     well-formed is complying with the check, not evading it. Freezing them
+//     would restore away the very work being asked for and leave the check
+//     grading the base's documents — a green verdict about nothing.
+//   - The policy file itself always belongs. Swapping the checks swaps the oracle
+//     whatever the checks are.
+//
+// This default is a good guess for a project that will declare real build/test
+// commands, and it is deliberately NOT a good guess for the default CHECK above
+// — a project graded only by `docs lint` should declare a narrower set, as this
+// repository now does in its own `.daedalus/verify.json`.
+//
+// The honest limit: a check implemented IN the repository can be weakened by the
+// work. `docs lint`'s rules live in core/doclint.go and core/validate.go, so a
+// Job could soften them and pass. Freezing them is not the answer — they are
+// ordinary source that legitimate tasks change — and the real answer is a
+// host-side held-out oracle the Job never sees (backlog #76). Recorded here
+// rather than papered over.
 func DefaultAcceptancePolicy() AcceptancePolicy {
 	return AcceptancePolicy{
 		Checks: []string{"daedalus docs lint"},

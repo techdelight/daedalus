@@ -235,10 +235,33 @@ Commit `.daedalus/verify.json` to the project:
   environment: `--network none`, no credentials, no `/opt/tools`, nothing mounted
   but the checkout. If a check needs the network, it will fail here, and that is
   the design rather than a bug to work around.
-- **`acceptanceGlobs`** are the files a Job may not touch. If the Job's diff
-  edits any of them, the Task is **rejected before the verifier is ever called** —
-  you cannot grade your own exam. Frontier agents edit tests to pass in a large
-  fraction of adversarial runs; this is the gate for that.
+- **`acceptanceGlobs`** are the files that make up the **oracle**. A Job's edits
+  to them are **undone in the verifier's clean checkout before any check runs**,
+  so the work is graded by the policy as frozen. Frontier agents edit tests to
+  pass in a large fraction of adversarial runs; this is what makes that
+  pointless. The Job's edits still land — they simply do not count towards its
+  own verdict.
+
+  **Choosing them is easy to get wrong in both directions.** The rule: a glob
+  should name a file that **encodes the requirement independently of the work**.
+
+  | Your checks | Freeze | Do not freeze |
+  |---|---|---|
+  | `go test ./...` | `**/*_test.go`, `testdata/**` — the test *is* the requirement | — |
+  | `daedalus docs lint` | — | `ROADMAP.md`, `SPRINTS.md`. The linter holds the requirement; the documents are its *subject*. A Job making them well-formed is complying, not cheating — and freezing them would restore the work away and grade the base's documents instead |
+  | any | `.daedalus/verify.json` — swapping the checks swaps the oracle | — |
+
+  Freezing files no check reads protects nothing and quietly discards work at
+  grade time. This repository froze `**/*_test.go` while running only
+  `docs lint`, which does not read them — and did not freeze the policy file's
+  companions it *does* read. Both are fixed, and a test now derives the rule
+  from the declared checks so it fails if they drift apart again.
+
+  **A limit worth knowing:** a check implemented *in* the repository can be
+  weakened by the work. `docs lint`'s rules are Go source here, so a Job could
+  soften them. Freezing them is not the answer — they are ordinary code that
+  legitimate tasks change — the answer is a host-side held-out oracle the Job
+  never sees (backlog #76).
 
 ### A check that was already failing is not this change's fault
 
