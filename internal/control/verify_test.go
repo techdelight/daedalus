@@ -71,35 +71,46 @@ func TestVerify_GateClean_Passes(t *testing.T) {
 	}
 }
 
-func TestVerify_IntegrityGate_RejectsWithoutVerifier(t *testing.T) {
-	rv := &recordingVerifier{pass: true} // would pass — but must never be called
+// A Job that touches an acceptance file is GRADED, not refused — and the files
+// it touched are reported either way.
+//
+// This test asserted the opposite until the oracle became restorable. The gate
+// used to reject before the verifier ran, on the argument that a Job which can
+// edit the files grading it can pass by changing the grader. The argument holds;
+// the enforcement read a diff, and a diff cannot tell "added the test that pins
+// this fix" from "deleted the assertion that was failing" — so it refused both,
+// and a repository whose practice is to land a change with its test could not use
+// the plane at all.
+//
+// The protection now lives in CleanVerifier, which restores every acceptance file
+// to its base state before grading. The edit is undone rather than punished.
+func TestVerify_AcceptanceFileEditsAreGradedNotRefused(t *testing.T) {
+	rv := &recordingVerifier{pass: true}
 	svc, store, task := dispatchToCandidate(t, "sneaky_test.go", rv)
 
 	res, err := svc.VerifyTask(task.ID, VerifyRequest{})
 	if err != nil {
 		t.Fatalf("VerifyTask: %v", err)
 	}
-	if rv.called {
-		t.Error("integrity gate must short-circuit BEFORE the verifier — it was called")
+	if !rv.called {
+		t.Error("the verifier must run: the artifact is judged, against the frozen oracle")
 	}
-	if !res.GateTouched {
-		t.Error("expected the integrity gate to trip")
+	if !res.Verified {
+		t.Errorf("a job that edited a test should still be gradable: %+v", res)
 	}
-	if res.Verified {
-		t.Error("a gate-tripped job must not be verified")
-	}
+	// Reported, because a human deciding should know the change rewrites part of
+	// the oracle — even though the grading did not use it.
 	if len(res.TouchedFiles) == 0 {
-		t.Error("expected the touched files to be reported")
+		t.Error("the acceptance files the job touched must still be reported")
+	}
+	// GateTouched now means "the oracle could not be restored", which is not what
+	// happened here.
+	if res.GateTouched {
+		t.Error("GateTouched should be reserved for an oracle that could not be established")
 	}
 	gotTask, _ := store.GetTask(task.ID)
-	if gotTask.State != StateRejected {
-		t.Errorf("task state = %s, want rejected", gotTask.State)
-	}
-	if res.Job.State != StateRejected {
-		t.Errorf("job state = %s, want rejected", res.Job.State)
-	}
-	if res.Artifact != nil && res.Artifact.Verify != VerifyFail {
-		t.Errorf("artifact verify = %v, want fail", res.Artifact.Verify)
+	if gotTask.State != StateVerified {
+		t.Errorf("task state = %s, want verified", gotTask.State)
 	}
 }
 

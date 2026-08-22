@@ -115,6 +115,29 @@ func (v CleanVerifier) Verify(_ context.Context, spec VerifySpec) VerifyOutcome 
 	}
 	defer func() { _, _ = runGit(spec.RepoDir, "worktree", "remove", "--force", checkout) }()
 
+	// THE ORACLE IS RESTORED BEFORE ANYTHING IS GRADED.
+	//
+	// The artifact may have edited its own acceptance files; those edits are undone
+	// here, so what runs is the Job's work judged by the oracle frozen at its base.
+	// This is what makes "the oracle lives outside the agent's write scope" true at
+	// the moment it matters, rather than enforced earlier by refusing the Job.
+	//
+	// Fails CLOSED. A tree that could not be normalised is a tree whose verdict
+	// means nothing, and reporting it as a check failure would blame the change for
+	// a harness fault — so it is reported as its own thing and the caller rejects
+	// it as an integrity failure.
+	changes, err := AcceptanceFileChanges(spec.RepoDir, spec.BaseSHA, spec.HeadSHA, spec.Policy.AcceptanceGlobs)
+	if err != nil {
+		return VerifyOutcome{Passed: false, OracleUnrestorable: true,
+			Detail: "could not read which acceptance files this change touched: " + err.Error()}
+	}
+	if len(changes) > 0 {
+		if err := RestoreAcceptanceFiles(checkout, spec.BaseSHA, changes); err != nil {
+			return VerifyOutcome{Passed: false, OracleUnrestorable: true,
+				Detail: "could not restore the frozen acceptance files before grading: " + err.Error()}
+		}
+	}
+
 	run := func(dir, check string) (string, error) {
 		return v.Exec.Output("docker", v.Policy.DockerRunArgs(spec.ImageDigest, dir, check)...)
 	}

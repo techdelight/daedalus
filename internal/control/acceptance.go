@@ -27,14 +27,18 @@ import (
 const acceptanceFile = ".daedalus/verify.json"
 
 // AcceptancePolicy is a project's verify contract: the check commands the clean
-// verifier will run (§6) and the acceptance-file globs whose edits must
-// invalidate a Job (the test-integrity gate — "the oracle must live outside the
-// agent's write scope").
+// verifier will run (§6) and the acceptance-file globs that make up the ORACLE —
+// "the oracle must live outside the agent's write scope".
 type AcceptancePolicy struct {
 	// Checks are the commands the (Sprint-57) clean verifier runs, in order.
 	Checks []string `json:"checks"`
-	// AcceptanceGlobs are paths whose edits (relative to base_sha) reject a Job
-	// before the verifier is even consulted.
+	// AcceptanceGlobs are the paths that GRADE the work: tests, fixtures, and the
+	// verify config itself.
+	//
+	// A Job's edits to them are undone in the verifier's clean checkout before any
+	// check runs, so the artifact is judged by the oracle frozen at base_sha. They
+	// used to reject the Job outright instead; the rule was the same and the
+	// enforcement could not tell a test being added from a test being neutered.
 	AcceptanceGlobs []string `json:"acceptanceGlobs"`
 }
 
@@ -63,7 +67,9 @@ type AcceptancePolicy struct {
 // own .daedalus/verify.json is one line. The default must not assume it.
 //
 // AcceptanceGlobs: the conventional test/fixture locations plus the verify config
-// itself — editing any of these in a Job is a self-grading attempt and rejects it.
+// itself. A Job's edits to any of them are RESTORED to the base's version before
+// grading, so the work is judged by the oracle it was given rather than by one it
+// wrote.
 func DefaultAcceptancePolicy() AcceptancePolicy {
 	return AcceptancePolicy{
 		Checks: []string{"daedalus docs lint"},
@@ -144,36 +150,113 @@ func (p AcceptancePolicy) Hash() string {
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
-// DiffTouchesAcceptanceFiles reports whether the diff base..head changes any path
-// matching the frozen acceptance globs — the test-integrity gate. It is pure
-// git-diff logic (shelling to the host git via the existing helper): a Job that
-// edits its own tests/fixtures/verify-config is self-grading and must be rejected
-// before the verifier is consulted.
+// AcceptanceFileChange is one acceptance-file path the Job's diff touched, with
+// what it did to it.
+type AcceptanceFileChange struct {
+	Path string
+	// Added is true when the path does not exist at the base at all. The
+	// distinction matters only to the restoration below — an added file is
+	// removed, an edited or deleted one is put back — and NOT to whether the Job
+	// is trusted, because that question is no longer asked.
+	Added bool
+}
+
+// AcceptanceFileChanges lists every acceptance-file path the diff base..head
+// touches, classified for restoration.
 //
-// Returns (touched, matchedPaths, err). base==head short-circuits to false.
-func DiffTouchesAcceptanceFiles(repoDir, baseSHA, headSHA string, globs []string) (bool, []string, error) {
+// WHY THIS REPLACED A REFUSAL. The integrity gate used to reject any Job whose
+// diff touched a frozen acceptance file, on the argument that a Job which can
+// edit the files that grade it can pass by changing the grader. The argument is
+// right; the enforcement was reading a diff and guessing intent from it, and a
+// diff cannot tell "added a test that pins the fix" from "deleted the assertion
+// that was failing" — they are the same operation to anything reading file names.
+//
+// So the gate refused BOTH, which made the repository's own practice (every
+// change lands with a test) unlandable by any Job, while a determined agent lost
+// nothing it could not have achieved by simply not touching the tests.
+//
+// The fix is to stop deciding from the diff. The verifier now RESTORES every
+// acceptance file to its base state before grading, so the artifact is judged by
+// the oracle as it was frozen: neutering a test has no effect because the
+// neutered file is not what runs, and adding one has no effect either. Cheating
+// becomes ineffective rather than forbidden, which is the same protection
+// without the collateral refusal.
+func AcceptanceFileChanges(repoDir, baseSHA, headSHA string, globs []string) ([]AcceptanceFileChange, error) {
 	if baseSHA == "" || headSHA == "" || baseSHA == headSHA {
-		return false, nil, nil
+		return nil, nil
 	}
-	// --no-renames disables git's default rename detection so a rename surfaces as
-	// delete(old)+add(new) — a renamed test file is then caught on its old path
-	// too, closing the "rename an acceptance file to dodge the gate" hole.
-	// --name-only lists every changed path.
-	out, err := runGit(repoDir, "diff", "--no-renames", "--name-only", baseSHA, headSHA)
+	// --no-renames so a rename surfaces as delete(old)+add(new): the old path is
+	// then restored and the new one removed, which is what "the oracle as frozen"
+	// means for a renamed acceptance file. Rename detection would report one path
+	// and leave the other unhandled.
+	out, err := runGit(repoDir, "diff", "--no-renames", "--name-status", baseSHA, headSHA)
 	if err != nil {
-		return false, nil, wrapGit("git diff --name-only", out, err)
+		return nil, wrapGit("git diff --name-status", out, err)
 	}
-	var matched []string
+	var changes []AcceptanceFileChange
 	for _, line := range strings.Split(out, "\n") {
-		path := strings.TrimSpace(line)
-		if path == "" {
+		fields := strings.SplitN(strings.TrimSpace(line), "\t", 2)
+		if len(fields) != 2 {
 			continue
 		}
-		if pathMatchesAny(path, globs) {
-			matched = append(matched, path)
+		status, path := strings.TrimSpace(fields[0]), strings.TrimSpace(fields[1])
+		if path == "" || !pathMatchesAny(path, globs) {
+			continue
 		}
+		changes = append(changes, AcceptanceFileChange{
+			Path: path, Added: strings.HasPrefix(status, "A"),
+		})
 	}
-	return len(matched) > 0, matched, nil
+	return changes, nil
+}
+
+// Paths returns just the touched paths, for reporting.
+func AcceptancePaths(changes []AcceptanceFileChange) []string {
+	out := make([]string, 0, len(changes))
+	for _, c := range changes {
+		out = append(out, c.Path)
+	}
+	return out
+}
+
+// RestoreAcceptanceFiles rewrites a checkout so its acceptance files are exactly
+// the base's: edited and deleted ones are put back, added ones are removed.
+//
+// The graded tree is then "the Job's work, judged by the frozen oracle" —
+// which is what the acceptance freeze always claimed to mean and previously
+// achieved by forbidding the edit instead of undoing it.
+//
+// ADDED files are removed rather than kept, and that is the subtle half. An
+// added test looks harmless — it can only add failures to a suite, not remove
+// them — but "add a file that changes how the suite runs" is a real move in most
+// languages: a Go TestMain that exits 0 without running anything, a pytest
+// conftest.py, a jest setup file. Keeping additions would leave exactly the hole
+// the freeze exists to close, so the rule is the simple one: at grade time the
+// oracle is the base's, entirely.
+//
+// Any failure here is reported to the caller and must fail the verification
+// closed. A tree we could not normalise is a tree whose verdict means nothing.
+func RestoreAcceptanceFiles(checkoutDir, baseSHA string, changes []AcceptanceFileChange) error {
+	var restore []string
+	for _, c := range changes {
+		if c.Added {
+			// os.Remove rather than `git rm`: the checks read FILES, and the index of
+			// a throwaway worktree we are about to delete is not worth a subprocess.
+			if err := os.Remove(filepath.Join(checkoutDir, filepath.FromSlash(c.Path))); err != nil && !os.IsNotExist(err) {
+				return fmt.Errorf("removing added acceptance file %s: %w", c.Path, err)
+			}
+			continue
+		}
+		restore = append(restore, c.Path)
+	}
+	if len(restore) == 0 {
+		return nil
+	}
+	args := append([]string{"checkout", baseSHA, "--"}, restore...)
+	if out, err := runGit(checkoutDir, args...); err != nil {
+		return wrapGit("git checkout <base> -- <acceptance files>", out, err)
+	}
+	return nil
 }
 
 // pathMatchesAny reports whether path matches any glob.

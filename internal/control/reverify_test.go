@@ -97,25 +97,31 @@ func TestReverify_ReplayGradesTheSameArtifactWithoutANewJob(t *testing.T) {
 	}
 }
 
-// TestReverify_RefusesUnappealableRejections pins the trust boundary. The
-// integrity gate exists to refuse a self-grading diff; a re-verification that
-// could set it aside would let the same diff through on the second ask, which
-// would make the gate advisory rather than structural.
+// TestReverify_RefusesUnappealableRejections pins the trust boundary.
+//
+// An integrity rejection now means the frozen oracle could not be established,
+// so nothing was graded. Re-grading would produce the same nothing, and letting
+// it through on a second ask is exactly what would make the boundary advisory
+// rather than structural — the same argument as when this reason meant "the diff
+// touched an acceptance file", which it no longer does.
 func TestReverify_RefusesUnappealableRejections(t *testing.T) {
-	sv := &sequenceVerifier{verdicts: []VerifyOutcome{{Passed: true}}}
-	svc, store, task := dispatchToCandidate(t, "sneaky_test.go", sv)
+	sv := &sequenceVerifier{verdicts: []VerifyOutcome{
+		{Passed: false, OracleUnrestorable: true, Detail: "could not restore the frozen acceptance files"},
+		{Passed: true},
+	}}
+	svc, store, task := dispatchToCandidate(t, "AGENT_RAN.txt", sv)
 
 	res, err := svc.VerifyTask(task.ID, VerifyRequest{})
 	if err != nil {
 		t.Fatalf("verify: %v", err)
 	}
 	if !res.GateTouched {
-		t.Fatalf("precondition: expected the integrity gate to trip")
+		t.Fatalf("precondition: expected an unrestorable oracle to be reported as one")
 	}
 
 	_, err = svc.ReverifyTask(task.ID, ReverifyRequest{})
 	if err == nil {
-		t.Fatal("re-verifying an integrity-gate rejection must be refused")
+		t.Fatal("re-verifying an integrity rejection must be refused")
 	}
 	var rej *RejectionError
 	if !errors.As(err, &rej) {
@@ -127,8 +133,10 @@ func TestReverify_RefusesUnappealableRejections(t *testing.T) {
 	if got, _ := store.GetTask(task.ID); got.State != StateRejected {
 		t.Errorf("a refused re-verification must leave the task rejected, got %s", got.State)
 	}
-	if sv.calls() != 0 {
-		t.Errorf("the verifier ran %d time(s) — a refusal must never reach it", sv.calls())
+	// One call — the verify that produced the verdict. The refusal must not reach
+	// the verifier a second time.
+	if sv.calls() != 1 {
+		t.Errorf("the verifier ran %d time(s); the refusal must never reach it again", sv.calls())
 	}
 }
 

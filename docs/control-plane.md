@@ -249,10 +249,29 @@ host test.
    value (a drift → straight to `rejected`).
 2. **Null-agent floor.** If `head_sha == base_sha` (the Job made no change at all),
    reject with an "empty change" note — a do-nothing job can never verify as done.
-3. **Test-integrity gate.** `DiffTouchesAcceptanceFiles(base..head, globs)`
-   (`git diff --no-renames --name-only`, `**`-aware glob match) — if the Job's diff
-   edits any frozen acceptance file, it goes **straight to `rejected`** and **the
-   `VerifyRunner` is never called** (you cannot grade your own exam).
+3. **The oracle is restored, not defended.** `AcceptanceFileChanges(base..head,
+   globs)` lists every frozen acceptance file the Job touched, and the verifier
+   puts each one back to its **base** state inside the clean checkout before a
+   single check runs: edited and deleted files are restored, added ones removed.
+   The artifact is therefore graded by the oracle as frozen, and an edit to it
+   **cannot influence the verdict** — you cannot grade your own exam because your
+   answers to it are not the ones marked.
+
+   This *replaced a refusal* (M22, after T-17). The gate used to reject any Job
+   whose diff touched an acceptance file. The rule was right and the enforcement
+   was reading a diff, which cannot tell *"added the test that pins this fix"*
+   from *"deleted the assertion that was failing"* — they are the same operation
+   to anything reading file names. So it refused both, and a repository whose
+   practice is to land a change with its test could not use the plane at all,
+   while a determined agent lost nothing it could not have got by simply not
+   touching the tests. Making the edit **ineffective** is the same protection
+   without the collateral refusal. Added files are removed rather than kept
+   because "add a file that changes how the suite runs" is a real move: a Go
+   `TestMain` that exits 0, a `conftest.py`, a jest setup file.
+
+   The paths are still **reported** — on a pass as well as a rejection — because a
+   human deciding should know the change rewrites part of the oracle, and will do
+   so from the next base onward.
 4. Otherwise `candidate → verifying → VerifyRunner → verified | rejected`. The
    **real `CleanVerifier`** checks out the artifact's `head_sha` into a **fresh,
    separate clean worktree** (never the Job's mutable worktree), runs each
@@ -369,12 +388,12 @@ Two shapes of "no" share one machine-readable vocabulary:
 | `stale_base` | verdict | the candidate's `base_sha` is no longer the project's target tip |
 | `null_agent_floor` | verdict | `head_sha == base_sha` — an empty change |
 | `policy_drift` | verdict | the acceptance policy at `base_sha` no longer hashes to the frozen value |
-| `integrity_gate` | verdict | the Job's diff edits frozen acceptance files |
+| `integrity_gate` | verdict | the frozen oracle could not be established, so nothing was graded |
 | `verify_failed` | verdict | the clean verifier ran and reported failure |
 
 **Stale base.** An artifact built on a base the plane has moved past proves
 something about a tree nobody will integrate, so it is rejected **before** the
-integrity gate or the verifier — a doomed artifact never costs a verifier
+the oracle restoration or the verifier — a doomed artifact never costs a verifier
 container. Since Sprint 59 "the tip" is the **plane-owned integration target**
 (see below), so a stale base means *another integration landed*, not *somebody
 moved a branch*: recommending a rebase is safe again, because the commit being
@@ -447,11 +466,10 @@ budget. Re-verification creates no Job, so it can consume no *attempt* either �
 that falls out of `Attempt = CountJobsForTask + 1` rather than being enforced.
 
 **What it must never become is an appeal.** Two rejections are refused outright
-(`unappealable`): the **integrity gate** and the **null-agent floor**. Both are
-findings about the artifact rather than about the way it was graded — and
-allowing "grade that again" against the integrity gate would let a self-grading
-diff through on the second ask, which is the entire failure that gate exists to
-prevent. `verify_failed` *is* appealable, because from outside it cannot be told
+(`unappealable`): an **integrity** rejection and the **null-agent floor**. An
+integrity rejection means the frozen oracle could not be established, so nothing
+was graded — re-grading would produce the same nothing. The null-agent floor
+means there is no change to grade, and no number of re-gradings will make one. `verify_failed` *is* appealable, because from outside it cannot be told
 apart from a broken oracle; the answer to that ambiguity is that the operation is
 tiered (agents propose, humans confirm) and every re-grading is recorded with the
 verdict it set aside.
@@ -1602,8 +1620,9 @@ missed.
   defence-in-depth; the absence of a writable ref is the mechanism.
 - **Verification is independent.** A clean checkout of the artifact's `head_sha`,
   in a digest-pinned container, with no worker state, no ambient credentials and no
-  inherited tools; plus a test-integrity gate that rejects any diff touching the
-  frozen acceptance files, and a null-agent floor that fails an empty change.
+  inherited tools; the frozen acceptance files restored to their base state before
+  any check runs, so a Job's edits to the oracle cannot reach the verdict; and a
+  null-agent floor that fails an empty change.
 - **Landing is a transaction.** Serialize per repository → rebase onto the current
   target → **re-verify the merged result** → compare-and-swap. A semantic conflict
   that passes alone and fails merged is caught. Any step failing leaves the target
@@ -1646,8 +1665,9 @@ missed.
 ### What it explicitly does not guarantee
 
 - **"Verified" is evidence, not proof.** Tests are an incomplete oracle. A change
-  can pass every frozen check and still be wrong; the integrity gate stops a worker
-  editing the checks, it does not make the checks sufficient.
+  can pass every frozen check and still be wrong; restoring the oracle stops a
+  worker's edits to the checks from counting, it does not make the checks
+  sufficient.
 - **The event log is control-plane-managed, not tamper-proof.** There is no
   update or delete path in the API — that is what "immutable" means here. Anyone
   with the SQLite file can edit it. Hash-chaining remains an optional later

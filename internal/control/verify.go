@@ -63,6 +63,13 @@ type VerifyOutcome struct {
 	// has to fix them — they ride along as a fact about the repository, reported
 	// next to the verdict rather than as one.
 	PreExisting []string
+	// OracleUnrestorable is set when the verifier could not put the frozen
+	// acceptance files back before grading. It is NOT a statement about the change
+	// — nothing was graded — so the caller rejects it as an integrity failure
+	// rather than as a failed check, and that rejection stays unappealable: a tree
+	// whose oracle could not be normalised is one whose verdict would mean nothing,
+	// and re-grading it would produce the same nothing.
+	OracleUnrestorable bool
 }
 
 // VerifyRunner runs the project's frozen verify policy against an artifact in an

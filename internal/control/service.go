@@ -191,11 +191,15 @@ type DispatchResult struct {
 
 // VerifyResult is the outcome of a plane-owned verify pass over a candidate Job.
 type VerifyResult struct {
-	Job          Job       `json:"job"`
-	Task         Task      `json:"task"`
-	Artifact     *Artifact `json:"artifact,omitempty"`
-	GateTouched  bool      `json:"gateTouched"` // integrity gate matched → rejected without the verifier
-	TouchedFiles []string  `json:"touchedFiles,omitempty"`
+	Job      Job       `json:"job"`
+	Task     Task      `json:"task"`
+	Artifact *Artifact `json:"artifact,omitempty"`
+	// GateTouched now means the frozen oracle could NOT be restored, so nothing
+	// was graded. It no longer means "the Job edited an acceptance file" — that is
+	// TouchedFiles, which is reported on a pass as well as a rejection and costs
+	// the Job nothing, because the verifier grades against the restored oracle.
+	GateTouched  bool     `json:"gateTouched"`
+	TouchedFiles []string `json:"touchedFiles,omitempty"`
 	// Reason is the machine-readable "why" of a negative verdict (stale_base,
 	// null_agent_floor, policy_drift, integrity_gate, verify_failed) and is empty
 	// on a pass — so a client never has to parse Detail to know what happened.
@@ -1331,20 +1335,29 @@ func (s *Service) verifyTaskLocked(caller Caller, id string, req VerifyRequest) 
 		return res, nil
 	}
 
-	// INTEGRITY GATE FIRST — before any VerifyRunner call.
-	touched, files, err := DiffTouchesAcceptanceFiles(repoDir, jobBase, job.OutputSnapshot, policy.AcceptanceGlobs)
+	// THE ACCEPTANCE FILES THE JOB TOUCHED — noted, not refused.
+	//
+	// This used to reject the Job outright. The rule it enforced is right — a Job
+	// that can edit the files grading it can pass by changing the grader — but the
+	// enforcement was reading a diff, and a diff cannot tell "added the test that
+	// pins this fix" from "deleted the assertion that was failing". They are the
+	// same operation to anything reading file names, so the gate refused both, and
+	// the repository's own practice of landing a change with its test became
+	// unlandable by any Job.
+	//
+	// The oracle is now RESTORED to its frozen state inside the verifier's clean
+	// checkout, before a single check runs (CleanVerifier.Verify). An edit to an
+	// acceptance file therefore cannot influence the verdict, which is the whole
+	// protection — achieved by making the edit ineffective rather than fatal.
+	//
+	// The paths are still recorded and reported: a human deciding, and the reviewer
+	// reading the diff, should both know the change touched the oracle, even though
+	// the grading did not use it.
+	changes, err := AcceptanceFileChanges(repoDir, jobBase, job.OutputSnapshot, policy.AcceptanceGlobs)
 	if err != nil {
 		return VerifyResult{}, err
 	}
-	if touched {
-		note := "integrity gate: job diff edits frozen acceptance files: " + strings.Join(files, ", ")
-		res := s.doReject(task, job, art, repoDir, ReasonIntegrityGate, note)
-		res.GateTouched = true
-		res.TouchedFiles = files
-		res.VerifierCalled = false
-		res.Detail = note
-		return res, nil
-	}
+	touchedFiles := AcceptancePaths(changes)
 
 	// Gate clean → candidate → verifying (job + task), then run the verifier.
 	if _, err := s.store.TransitionJob(job.ID, StateVerifying, false, "integrity gate passed → verifying"); err != nil {
@@ -1418,9 +1431,20 @@ func (s *Service) verifyTaskLocked(caller Caller, id string, req VerifyRequest) 
 
 	if !outcome.Passed {
 		stranded = false
-		res := s.doReject(task, job, art, repoDir, ReasonVerifyFailed, withDetail("verify failed", outcome.Detail))
+		// A tree whose frozen oracle could not be restored was never graded, so the
+		// verdict is not about the change and must not be recorded as one. It keeps
+		// the integrity reason, and with it the unappealable status: re-grading a
+		// tree we could not normalise produces the same nothing.
+		reason := ReasonVerifyFailed
+		label := "verify failed"
+		if outcome.OracleUnrestorable {
+			reason, label = ReasonIntegrityGate, "integrity"
+		}
+		res := s.doReject(task, job, art, repoDir, reason, withDetail(label, outcome.Detail))
 		res.VerifierCalled = true
 		res.Detail = outcome.Detail
+		res.GateTouched = outcome.OracleUnrestorable
+		res.TouchedFiles = touchedFiles
 		// Anything already broken at the base is reported even when the verdict is a
 		// rejection. It played no part in the rejection, and dropping it would make
 		// the report of a repository's condition depend on whether some other check
@@ -1466,8 +1490,12 @@ func (s *Service) verifyTaskLocked(caller Caller, id string, req VerifyRequest) 
 			log.Printf("control: moving %s to approval_required: %v", id, err)
 		}
 	}
+	// A pass carries the acceptance files the Job touched, which the grading
+	// deliberately ignored. Silence here would be the wrong kind: the human at the
+	// gate should know the change rewrites part of the oracle and will do so from
+	// the NEXT base onwards, even though it earned nothing on this one.
 	return VerifyResult{Job: jb, Task: tk, Artifact: art, VerifierCalled: true, Verified: true,
-		Detail: outcome.Detail, PreExisting: outcome.PreExisting}, nil
+		Detail: outcome.Detail, PreExisting: outcome.PreExisting, TouchedFiles: touchedFiles}, nil
 }
 
 // recoverStrandedVerify returns a job+task that entered `verifying` but never

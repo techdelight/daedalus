@@ -125,7 +125,8 @@ daedalus task status T-7        # budget, jobs, artifacts
 daedalus task board                # everything, across every project
 daedalus task events T-7        # the append-only decision log
 
-# 4. Grade it. Integrity gate → clean verifier container → verified | rejected.
+# 4. Grade it. The frozen oracle is restored, then a clean verifier container
+#    runs the checks → verified | rejected.
 daedalus task verify T-7
 
 # 5. A human decides. (Optional: `daedalus task review T-7` first, for an
@@ -365,7 +366,7 @@ Refusals are typed, so you can act on them without reading prose:
 |---|---|---|
 | `over_budget` | You asked to widen a ceiling | Edit `budgets.json`, or ask for less |
 | stale base | The target moved under you | `task retry <id> --rebase` |
-| integrity gate | The diff touched a frozen acceptance file | Land the test change separately (**not** re-gradable) |
+| integrity | The frozen oracle could not be established, so nothing was graded | Fix the repository state and `retry` (**not** re-gradable) |
 | empty change | `head_sha == base_sha` — the Job did nothing | `retry`, or `replan` with a clearer objective (**not** re-gradable) |
 | `unappealable` | You asked to re-grade a finding about the artifact itself | Produce a different artifact — `retry` or `replan` |
 | `artifact_gone` | The artifact's commit is no longer reachable | Nothing to re-grade; `retry` |
@@ -424,9 +425,10 @@ log. It exists because the alternative is a database that carries a claim anyone
 can see is false, which would leave dependent Tasks waiting forever on work that
 already shipped.
 
-Two rejections cannot be re-graded at all — the **integrity gate** and the
-**null-agent floor**. Both are findings about the artifact rather than about the
-grading, and re-grading them would be an appeal rather than a correction.
+Two rejections cannot be re-graded at all — an **integrity** failure and the
+**null-agent floor**. Neither produced a verdict to correct: the first means the
+frozen oracle could not be established so nothing was graded, the second that
+there is no change to grade. Re-grading either produces the same nothing.
 
 ### Dependencies across projects
 

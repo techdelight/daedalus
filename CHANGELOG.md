@@ -74,6 +74,47 @@ All notable changes to this project will be documented in this file.
   field. `scripts/verify-guild-control.sh static` drives both over the real
   sockets.
 
+### Changed
+- **The frozen oracle is now RESTORED before grading, instead of the Job being
+  refused for touching it.** The integrity gate rejected any Job whose diff edited
+  a frozen acceptance file, on the argument that a Job which can edit the files
+  grading it can pass by changing the grader. The argument is right. The
+  enforcement was reading a diff — and **a diff cannot tell "added the test that
+  pins this fix" from "deleted the assertion that was failing"**. They are the
+  same operation to anything reading file names, so the gate refused both.
+  - What that cost: this repository's own practice is that every change lands with
+    a test, so **no Job could ever land one**. Every task was either testless or
+    dead on arrival. Measured on T-17, which was refused for
+    `cmd/guild-control-mcp/main_test.go` and `internal/control/programme_test.go`
+    — while the reviewer, reading the same artifact, had no blocker.
+  - What it bought: nothing a determined agent could not have had by simply not
+    touching the tests.
+  - **`CleanVerifier` now restores every acceptance file to its base state inside
+    the clean checkout before a single check runs** — edited and deleted files put
+    back, added ones removed. The artifact is graded by the oracle as frozen, so a
+    neutered test is not what runs and cheating becomes *ineffective* rather than
+    *forbidden*. Same protection, no collateral refusal.
+  - **Added files are removed, not kept**, and that is the subtle half. An added
+    test looks harmless — it can only add failures to a suite — but "add a file
+    that changes how the suite runs" is a real move in most languages: a Go
+    `TestMain` that exits 0 without running anything, a `conftest.py`, a jest
+    setup file. At grade time the oracle is the base's, entirely.
+  - **Fails closed.** If the acceptance files cannot be listed or restored,
+    nothing is graded and the rejection keeps the integrity reason — and with it
+    its unappealable status, because re-grading a tree we could not normalise
+    produces the same nothing. `integrity_gate` now means exactly that, and
+    nothing else.
+  - The touched paths are still **reported, on a pass as well as a rejection**: a
+    human deciding should know the change rewrites part of the oracle, and will do
+    so from the next base onward, even though it earned nothing on this one.
+  - Pinned by a test that neuters one test, deletes another, adds a third and
+    edits real source, then asserts the graded tree has the base's oracle and the
+    Job's work — verified by reverting. `TestBaseline_WhenItCannotBeEstablished…`
+    now uses a **tree sha** rather than an unreachable one, so `git diff` and
+    `git checkout` succeed and only `git worktree add` fails: that isolates the
+    missing-baseline property from the missing-oracle one, which are different
+    findings with different verdicts.
+
 ### Fixed
 - **The man page described a tool that stopped existing fifteen releases ago.**
   `daedalus.1` was generated at **v0.39.0** and never regenerated: no `task`, no

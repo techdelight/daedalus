@@ -286,19 +286,55 @@ func TestBaseline_IsBuiltOnceForSeveralFailures(t *testing.T) {
 // identically to whoever picks it up — the whole class of bug this fixes came
 // from a verdict that sounded like a judgement of the work and was not.
 func TestBaseline_WhenItCannotBeEstablishedTheFailureStands(t *testing.T) {
-	repo, _, head := baseAndHead(t,
+	repo, base, head := baseAndHead(t,
 		map[string]string{"lint": "ok"},
 		map[string]string{"lint": "broken"})
 
 	exec := &fakeDocker{}
-	// A base sha that is not in the repository: the worktree add fails.
+	// A TREE sha, not a commit — chosen so exactly one thing fails.
+	//
+	// git diff and git checkout accept a tree, so the acceptance-file restoration
+	// that now runs first succeeds and has nothing to do; git worktree add refuses
+	// one, so the BASELINE is the only thing unavailable. An unreachable sha (which
+	// this test used to use) breaks both, and the verdict would then be about the
+	// oracle rather than about the baseline — a different property, tested below.
+	treeSHA := trim(mustGit(t, repo, "rev-parse", base+"^{tree}"))
 	out := verifierFor(exec).Verify(context.Background(),
-		specFor(repo, "0000000000000000000000000000000000000000", head, []string{"lint"}, nil))
+		specFor(repo, treeSHA, head, []string{"lint"}, nil))
 
 	if out.Passed {
 		t.Fatal("an unverifiable baseline waved a failing check through")
 	}
 	if !strings.Contains(out.Detail, "comparison could not be made") {
 		t.Errorf("detail must say the baseline was unavailable, not imply a judgement:\n%s", out.Detail)
+	}
+}
+
+// The other half of an unusable base: the frozen ORACLE cannot be established.
+//
+// Failing closed here is the deliberate answer, and it is not the same call as
+// the baseline's. A missing baseline means "we cannot tell whether this was
+// already broken" — the verdict still describes the artifact, just with less
+// context. An unestablishable oracle means we cannot know the tree being graded
+// is the one the policy was frozen against, so any verdict would be a statement
+// about nothing. It is reported as an integrity failure and stays unappealable,
+// because re-grading produces the same nothing.
+func TestVerify_FailsClosedWhenTheOracleCannotBeRestored(t *testing.T) {
+	repo, _, head := baseAndHead(t,
+		map[string]string{"lint": "ok"},
+		map[string]string{"lint": "ok", "work": "ok"})
+
+	out := verifierFor(&fakeDocker{}).Verify(context.Background(),
+		specFor(repo, "0000000000000000000000000000000000000000", head, []string{"lint"}, nil))
+
+	if out.Passed {
+		t.Fatal("a tree whose oracle could not be established must not pass")
+	}
+	if !out.OracleUnrestorable {
+		t.Error("the outcome must say the ORACLE failed, not that a check did — " +
+			"the caller rejects the two with different reasons")
+	}
+	if !strings.Contains(out.Detail, "acceptance files") {
+		t.Errorf("detail should name what could not be established:\n%s", out.Detail)
 	}
 }

@@ -120,62 +120,73 @@ func commitFile(t *testing.T, dir, name, content string) string {
 	return trim(out)
 }
 
-func TestDiffTouchesAcceptanceFiles(t *testing.T) {
+func TestAcceptanceFileChanges(t *testing.T) {
 	repo := gitRepo(t)
 	base, _ := ReadHeadSHA(repo)
 	globs := DefaultAcceptancePolicy().AcceptanceGlobs
 
-	// 1. A commit editing only non-test src → not touched.
+	// 1. A commit editing only non-test src → nothing to restore.
 	headSrc := commitFile(t, repo, "internal/foo.go", "package foo\n")
-	touched, files, err := DiffTouchesAcceptanceFiles(repo, base, headSrc, globs)
+	changes, err := AcceptanceFileChanges(repo, base, headSrc, globs)
 	if err != nil {
 		t.Fatalf("diff: %v", err)
 	}
-	if touched {
-		t.Errorf("src-only diff should not touch acceptance files, matched %v", files)
+	if len(changes) != 0 {
+		t.Errorf("src-only diff touches no acceptance files, got %v", AcceptancePaths(changes))
 	}
 
-	// 2. A commit adding a _test.go → touched.
+	// 2. A commit adding a _test.go → reported, and classified as ADDED so the
+	// restoration removes it rather than trying to check it out from a base where
+	// it does not exist.
 	headTest := commitFile(t, repo, "internal/foo_test.go", "package foo\n")
-	touched, files, err = DiffTouchesAcceptanceFiles(repo, base, headTest, globs)
+	changes, err = AcceptanceFileChanges(repo, base, headTest, globs)
 	if err != nil {
 		t.Fatalf("diff: %v", err)
 	}
-	if !touched {
-		t.Error("adding a _test.go should touch acceptance files")
-	}
-	found := false
-	for _, f := range files {
-		if f == "internal/foo_test.go" {
-			found = true
+	var found *AcceptanceFileChange
+	for i := range changes {
+		if changes[i].Path == "internal/foo_test.go" {
+			found = &changes[i]
 		}
 	}
-	if !found {
-		t.Errorf("matched files %v should include the test file", files)
+	if found == nil {
+		t.Fatalf("changes %v should include the test file", AcceptancePaths(changes))
+	}
+	if !found.Added {
+		t.Error("a file absent at the base must be classified as added")
 	}
 
-	// 3. base == head → false.
-	if touched, _, _ := DiffTouchesAcceptanceFiles(repo, base, base, globs); touched {
-		t.Error("base==head should never be touched")
+	// 3. base == head → nothing.
+	if c, _ := AcceptanceFileChanges(repo, base, base, globs); len(c) != 0 {
+		t.Error("base==head touches nothing")
 	}
 }
 
-func TestDiffTouchesAcceptanceFiles_Rename(t *testing.T) {
+// A rename is delete(old) + add(new) with --no-renames, and BOTH halves have to
+// be handled: the old path restored, the new one removed. Rename detection would
+// report one path and leave the other in place, which is a hole in the shape of a
+// renamed test file.
+func TestAcceptanceFileChanges_Rename(t *testing.T) {
 	repo := gitRepo(t)
-	// Seed a test file, then rename it away — the rename still counts as touching
-	// an acceptance path (the old path matched).
 	commitFile(t, repo, "pkg/bar_test.go", "package pkg\n")
 	base, _ := ReadHeadSHA(repo)
-	git(t, repo, "mv", "pkg/bar_test.go", "pkg/renamed.go")
-	git(t, repo, "commit", "-m", "rename test away")
+	git(t, repo, "mv", "pkg/bar_test.go", "pkg/renamed_test.go")
+	git(t, repo, "commit", "-m", "rename test")
 	head, _ := ReadHeadSHA(repo)
 
-	touched, files, err := DiffTouchesAcceptanceFiles(repo, base, head, DefaultAcceptancePolicy().AcceptanceGlobs)
+	changes, err := AcceptanceFileChanges(repo, base, head, DefaultAcceptancePolicy().AcceptanceGlobs)
 	if err != nil {
 		t.Fatalf("diff: %v", err)
 	}
-	if !touched {
-		t.Errorf("renaming a _test.go should be caught, matched=%v", files)
+	byPath := map[string]bool{}
+	for _, c := range changes {
+		byPath[c.Path] = c.Added
+	}
+	if added, ok := byPath["pkg/bar_test.go"]; !ok || added {
+		t.Errorf("the old path should be reported as a deletion to restore: %v", changes)
+	}
+	if added, ok := byPath["pkg/renamed_test.go"]; !ok || !added {
+		t.Errorf("the new path should be reported as an addition to remove: %v", changes)
 	}
 }
 
@@ -267,5 +278,72 @@ func TestDefaultPolicyDoesNotGateOnAdvisoryFindings(t *testing.T) {
 					"work the Task did", check, fatal, warns, errs)
 			}
 		}
+	}
+}
+
+// RESTORATION IS THE PROTECTION, and this is the test that carries the argument.
+//
+// A Job that deletes the assertion failing it must gain nothing. Before this, the
+// plane refused such a Job by reading its diff — which also refused the Job that
+// added a test, because a diff cannot tell the two apart. Now the edit is simply
+// undone before grading, so the neutered file is not what runs.
+func TestRestoreAcceptanceFiles_UndoesWhatTheJobDidToTheOracle(t *testing.T) {
+	repo := gitRepo(t)
+	commitFile(t, repo, "pkg/keep_test.go", "package pkg\n// the assertion that fails\n")
+	base, _ := ReadHeadSHA(repo)
+
+	// The Job: neuters one test, deletes another, adds a third, and edits real
+	// source. Only the last of those should survive into the graded tree.
+	commitFile(t, repo, "pkg/keep_test.go", "package pkg\n// gutted\n")
+	commitFile(t, repo, "pkg/added_test.go", "package pkg\n// a new test\n")
+	commitFile(t, repo, "pkg/real.go", "package pkg\n// the actual work\n")
+	git(t, repo, "rm", "-q", "pkg/keep_test.go")
+	git(t, repo, "commit", "-m", "job: delete the inconvenient test")
+	head, _ := ReadHeadSHA(repo)
+
+	checkout := filepath.Join(t.TempDir(), "checkout")
+	if out, err := runGit(repo, "worktree", "add", "--detach", checkout, head); err != nil {
+		t.Fatalf("worktree add: %v\n%s", err, out)
+	}
+	defer runGit(repo, "worktree", "remove", "--force", checkout)
+
+	changes, err := AcceptanceFileChanges(repo, base, head, DefaultAcceptancePolicy().AcceptanceGlobs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := RestoreAcceptanceFiles(checkout, base, changes); err != nil {
+		t.Fatalf("RestoreAcceptanceFiles: %v", err)
+	}
+
+	// The deleted test is back, with its original content — not the gutted one.
+	restored, err := os.ReadFile(filepath.Join(checkout, "pkg", "keep_test.go"))
+	if err != nil {
+		t.Fatalf("the deleted acceptance file was not restored: %v", err)
+	}
+	if !strings.Contains(string(restored), "the assertion that fails") {
+		t.Errorf("restored content is the Job's, not the base's:\n%s", restored)
+	}
+
+	// The added test is gone. It is removed rather than kept because "add a file
+	// that changes how the suite runs" is a real move — a Go TestMain that exits 0,
+	// a conftest.py, a jest setup file — and keeping additions would leave exactly
+	// the hole the freeze exists to close.
+	if _, err := os.Stat(filepath.Join(checkout, "pkg", "added_test.go")); !os.IsNotExist(err) {
+		t.Error("an added acceptance file must not survive into the graded tree")
+	}
+
+	// The actual work is untouched. This is the half the old gate destroyed: the
+	// change is still graded, in full.
+	work, err := os.ReadFile(filepath.Join(checkout, "pkg", "real.go"))
+	if err != nil || !strings.Contains(string(work), "the actual work") {
+		t.Errorf("non-oracle work must survive restoration: %v %s", err, work)
+	}
+}
+
+// Restoring nothing is not an error, and must not cost a git call. The common
+// case is a Job that never touched an acceptance file at all.
+func TestRestoreAcceptanceFiles_NoChangesIsANoop(t *testing.T) {
+	if err := RestoreAcceptanceFiles(t.TempDir(), "deadbeef", nil); err != nil {
+		t.Errorf("no changes should be a no-op, got %v", err)
 	}
 }
