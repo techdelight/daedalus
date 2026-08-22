@@ -3,6 +3,9 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -80,57 +83,93 @@ func TestGenerateManpage_ContainsAllSections(t *testing.T) {
 	}
 }
 
-func TestGenerateManpage_ContainsAllCommands(t *testing.T) {
-	// Arrange
-	version := "0.8.2"
-	date := "2026-03-07"
-	commands := []string{
-		"list",
-		"prune",
-		"remove",
-		"config",
-		"tui",
-		"web",
-		"completion",
+// TestGenerateManpage_ContainsEverySubcommandTheCLIDispatches DERIVES the
+// requirement from the CLI's own dispatch switch instead of restating a list.
+//
+// The list it replaced named seven commands and was written when there were
+// seven. The CLI grew to nineteen, and the man page shipped for fifteen releases
+// describing a tool that no longer existed — no `task`, no `programmes`, no
+// `docs`, no `version`, no daemons. A test that enumerates what it checks can
+// only ever be as current as the day somebody last remembered it; this one fails
+// the moment a command is added without an entry.
+func TestGenerateManpage_ContainsEverySubcommandTheCLIDispatches(t *testing.T) {
+	src, err := os.ReadFile(filepath.Join("..", "daedalus", "main.go"))
+	if err != nil {
+		t.Fatalf("reading the CLI's main.go: %v", err)
+	}
+	body := string(src)
+	i := strings.Index(body, "switch cfg.Subcommand {")
+	if i < 0 {
+		t.Fatal("the dispatch switch has moved; this test can no longer find what to check")
+	}
+	cases := regexp.MustCompile(`case "([a-z-]+)":`).FindAllStringSubmatch(body[i:], -1)
+	if len(cases) < 10 {
+		t.Fatalf("found %d subcommands, which cannot be right", len(cases))
 	}
 
-	// Act
-	output := generateManpage(version, date)
-
-	// Assert
-	for _, cmd := range commands {
-		if !strings.Contains(output, cmd) {
-			t.Errorf("man page missing command: %s", cmd)
+	output := generateManpage("0.8.2", "2026-03-07")
+	for _, m := range cases {
+		name := m[1]
+		if name == "help" {
+			continue // documented as a flag, not a command
+		}
+		// The COMMANDS section marks each entry in bold, so this looks for the
+		// entry rather than for the word appearing anywhere in the prose — which
+		// is how the old check passed for commands that had no entry.
+		if !strings.Contains(output, `\fB`+name+`\fR`) {
+			t.Errorf("`daedalus %s` is dispatched but has no COMMANDS entry in the man page", name)
 		}
 	}
 }
 
-func TestGenerateManpage_ContainsAllFlags(t *testing.T) {
-	// Arrange
-	version := "0.8.2"
-	date := "2026-03-07"
-	flags := []string{
-		"\\-\\-build",
-		"\\-\\-target",
-		"\\-\\-resume",
-		"\\-p",
-		"\\-\\-debug",
-		"\\-\\-dind",
-		"\\-\\-display",
-		"\\-\\-runner",
-		"\\-\\-force",
-		"\\-\\-no\\-color",
-		"\\-\\-port",
-		"\\-\\-host",
+// The checked-in daedalus.1 must be what the generator produces.
+//
+// Nothing regenerates it — no build step, no workflow — so it is a build
+// artifact committed by hand, and the two drifted apart for fifteen releases
+// without anything noticing. Comparing them makes the file's staleness a test
+// failure instead of a discovery.
+//
+// The .TH line carries the date and version, which move for reasons that are not
+// drift, so the comparison regenerates using the values the checked-in file
+// itself declares.
+func TestCheckedInManpage_MatchesTheGenerator(t *testing.T) {
+	onDisk, err := os.ReadFile(filepath.Join("..", "..", "daedalus.1"))
+	if err != nil {
+		t.Fatalf("reading daedalus.1: %v", err)
+	}
+	head := regexp.MustCompile(`^\.TH DAEDALUS 1 "([^"]+)" "daedalus ([^"]+)"`).
+		FindStringSubmatch(string(onDisk))
+	if head == nil {
+		t.Fatal("daedalus.1 has no .TH header to read the date and version from")
+	}
+	want := generateManpage(head[2], head[1])
+	if string(onDisk) != want {
+		t.Errorf("daedalus.1 is not what the generator produces — regenerate it:\n" +
+			"    go run ./cmd/generate-manpage > daedalus.1\n" +
+			"(it is a committed build artifact and nothing regenerates it for you)")
+	}
+}
+
+// Derived from the help text, for the same reason the command check above is:
+// the hand-written list this replaced named twelve flags and had missed
+// --auth, --no-auth and --container-log. A list of what to check is a list that
+// has to be remembered, and it was not.
+func TestGenerateManpage_ContainsEveryFlagTheHelpLists(t *testing.T) {
+	usage, err := os.ReadFile(filepath.Join("..", "daedalus", "usage.go"))
+	if err != nil {
+		t.Fatalf("reading usage.go: %v", err)
+	}
+	flags := regexp.MustCompile(`"  (--[a-z-]+)`).FindAllStringSubmatch(string(usage), -1)
+	if len(flags) < 8 {
+		t.Fatalf("found %d flags in the help, which cannot be right", len(flags))
 	}
 
-	// Act
-	output := generateManpage(version, date)
-
-	// Assert
-	for _, flag := range flags {
-		if !strings.Contains(output, flag) {
-			t.Errorf("man page missing flag: %s", flag)
+	output := generateManpage("0.8.2", "2026-03-07")
+	for _, m := range flags {
+		// Hyphens are escaped in roff so they cannot be read as request syntax.
+		roff := `\fB` + strings.ReplaceAll(m[1], "-", `\-`) + `\fR`
+		if !strings.Contains(output, roff) {
+			t.Errorf("`%s` is in --help but has no OPTIONS entry in the man page", m[1])
 		}
 	}
 }

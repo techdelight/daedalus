@@ -89,6 +89,31 @@ func writeSynopsis(b *strings.Builder) {
 	b.WriteString(".B daedalus completion\n")
 	b.WriteString("<\\fBbash\\fR|\\fBzsh\\fR|\\fBfish\\fR>\n")
 	b.WriteString(".br\n")
+	b.WriteString(".B daedalus init\n")
+	b.WriteString("[\\fB\\-\\-force\\fR] [\\fB\\-\\-no\\-scaffold\\fR] [\\fIdir\\fR]\n")
+	b.WriteString(".br\n")
+	b.WriteString(".B daedalus docs\n")
+	b.WriteString("[\\fBlint\\fR | \\fBscaffold\\fR] [\\fIdir\\fR]\n")
+	b.WriteString(".br\n")
+	b.WriteString(".B daedalus version\n")
+	b.WriteString("[\\fBlist\\fR | \\fBuse\\fR \\fIversion\\fR | \\fBrollback\\fR | \\fBprune\\fR]\n")
+	b.WriteString(".br\n")
+	b.WriteString(".B daedalus programmes\n")
+	b.WriteString("[\\fBlist\\fR | \\fBshow\\fR | \\fBstatus\\fR | \\fBcreate\\fR | \\fBadd\\-project\\fR | \\fBadd\\-dep\\fR | \\fBremove\\fR]\n")
+	b.WriteString(".br\n")
+	b.WriteString(".B daedalus task\n")
+	b.WriteString("<\\fIsubcommand\\fR>\n")
+	b.WriteString(".br\n")
+	b.WriteString(".B daedalus coordinator\n")
+	b.WriteString("[\\fBstart\\fR | \\fBstop\\fR | \\fBstatus\\fR]\n")
+	b.WriteString(".br\n")
+	b.WriteString(".B daedalus control\n")
+	b.WriteString("[\\fBstart\\fR | \\fBstop\\fR | \\fBrestart\\fR | \\fBstatus\\fR]\n")
+	b.WriteString(".br\n")
+	b.WriteString(".B daedalus guild-master\n")
+	b.WriteString(".br\n")
+	b.WriteString(".B daedalus build\n")
+	b.WriteString(".br\n")
 	b.WriteString(".B daedalus \\-\\-help\n")
 }
 
@@ -172,6 +197,42 @@ func writeCommands(b *strings.Builder) {
 		"List, show, create, or remove named persona configurations.")
 
 	writeCommand(b,
+		"\\fBbuild\\fR",
+		"Rebuild the Docker image for every registered project. Equivalent to \\fB\\-\\-build\\fR without a project name.")
+
+	writeCommand(b,
+		"\\fBinit\\fR [\\fB\\-\\-force\\fR] [\\fB\\-\\-no\\-scaffold\\fR] [\\fIdir\\fR]",
+		"Scaffold the required project documents (VISION, ROADMAP, SPRINTS, BACKLOG and the rest) into \\fIdir\\fR and print a getting-started guide. \\fB\\-\\-no\\-scaffold\\fR prints the guidance without writing files.")
+
+	writeCommand(b,
+		"\\fBdocs\\fR [\\fBlint\\fR [\\fB\\-\\-ci\\fR] [\\fIdir\\fR] | \\fBscaffold\\fR [\\fB\\-\\-force\\fR] [\\fIdir\\fR]]",
+		"Check a project's ROADMAP.md and SPRINTS.md against the structured-document format, or write conformant skeletons. \\fBlint\\fR exits non-zero on errors; \\fB\\-\\-ci\\fR makes warnings fatal too.")
+
+	writeCommand(b,
+		"\\fBversion\\fR [\\fBlist\\fR | \\fBuse\\fR \\fIversion\\fR | \\fBrollback\\fR | \\fBprune\\fR [\\fB\\-\\-keep\\fR \\fIn\\fR]]",
+		"Manage side-by-side installed versions. Installs live under \\fIversions/<version>/\\fR with a \\fIcurrent\\fR symlink, so switching takes effect immediately and never re-downloads. \\fBprune\\fR never removes the active version.")
+
+	writeCommand(b,
+		"\\fBprogrammes\\fR [\\fBlist\\fR | \\fBshow\\fR \\fIname\\fR | \\fBstatus\\fR \\fIname\\fR [\\fB\\-\\-suggest\\-deps\\fR] | \\fBcreate\\fR \\fIname\\fR \\fIdescription\\fR | \\fBadd\\-project\\fR \\fIprogramme\\fR \\fIproject\\fR | \\fBadd\\-dep\\fR \\fIprogramme\\fR \\fIupstream\\fR \\fIdownstream\\fR | \\fBremove\\fR \\fIname\\fR]",
+		"Manage programmes \\(em the shared intent several projects serve. \\fBstatus\\fR rolls up the tasks serving a programme, what it is waiting on outside itself, and where its declared project order and the task graph that actually gates disagree. \\fBadd\\-dep\\fR declares an order; it gates nothing (see \\fBtask depends\\fR). Requires the control plane, which is started on demand.")
+
+	writeCommand(b,
+		"\\fBtask\\fR <\\fIsubcommand\\fR>",
+		"Host-side control-plane work: \\fBcreate\\fR, \\fBlist\\fR, \\fBstatus\\fR, \\fBdispatch\\fR, \\fBverify\\fR, \\fBreview\\fR, \\fBreverify\\fR, \\fBretry\\fR, \\fBreplan\\fR, \\fBchecks\\fR, \\fBdepends\\fR, \\fBsteer\\fR, \\fBapprove\\fR, \\fBreject\\fR, \\fBintegrate\\fR, \\fBcancel\\fR, \\fBboard\\fR, \\fBapprovals\\fR, \\fBproposals\\fR, \\fBtarget\\fR and \\fBevents\\fR. Ids are prefixed by kind: \\fIT\\-n\\fR task, \\fIJ\\-n\\fR job, \\fIA\\-n\\fR artifact, \\fIRV\\-n\\fR review, \\fIP\\-n\\fR proposal, \\fIPR\\-n\\fR programme, \\fIS\\-n\\fR steering.")
+
+	writeCommand(b,
+		"\\fBcoordinator\\fR [\\fBstart\\fR | \\fBstop\\fR | \\fBstatus\\fR]",
+		"Manage the host-side session daemon that owns container session lifecycles. Started on demand; stop it to pick up a rebuilt image or binary.")
+
+	writeCommand(b,
+		"\\fBcontrol\\fR [\\fBstart\\fR | \\fBstop\\fR | \\fBrestart\\fR | \\fBstatus\\fR]",
+		"Manage the control-plane daemon, the single owner of \\fIcontrol.db\\fR. Started on demand by \\fBtask\\fR and \\fBprogrammes\\fR, so this is needed only to stop it or to \\fBrestart\\fR it after an upgrade \\(em a running daemon serves the routes it was built with, so a newly added operation fails against an old one. \\fBstatus\\fR reports that case.")
+
+	writeCommand(b,
+		"\\fBguild-master\\fR",
+		"Open the built-in cross-project overseer. Every registered project is mounted read-only for it; it can read across the guild, create bounded tasks, and \\fIpropose\\fR programmes and other consequential operations for a human to confirm. It cannot act on them itself.")
+
+	writeCommand(b,
 		"\\fB\\-\\-help\\fR, \\fB\\-h\\fR",
 		"Show the usage message and exit.")
 }
@@ -224,7 +285,13 @@ func writeOptions(b *strings.Builder) {
 		"Port for the web UI server. Default: 3000.")
 
 	writeOption(b, "\\fB\\-\\-host\\fR \\fIhost\\fR",
-		"Host address for the web UI server to bind to. Default: 127.0.0.1.")
+		"Host address for the web UI server to bind to. Default: 127.0.0.1, or 0.0.0.0 when WSL2 is detected.")
+
+	writeOption(b, "\\fB\\-\\-auth\\fR, \\fB\\-\\-no\\-auth\\fR",
+		"Enable or disable token authentication for the web UI. Authentication is on by default. Note that the web UI serves the control plane, so \\fB\\-\\-no\\-auth\\fR on a reachable address gives away the ability to dispatch jobs and land code, not merely a dashboard.")
+
+	writeOption(b, "\\fB\\-\\-container\\-log\\fR",
+		"Write container output to \\fI<data-dir>/<project>/container.log\\fR.")
 }
 
 // writeOption writes a single .TP option entry.
@@ -393,6 +460,15 @@ func writeFiles(b *strings.Builder) {
 	b.WriteString(".TP\n")
 	b.WriteString(".I .cache/<project>/\n")
 	b.WriteString("Per-project persistent home directory, bind-mounted as \\fI/home/claude\\fR inside the container. Stores shell history, Claude session transcripts, tool caches, and per-project MCP/settings overrides.\n")
+	b.WriteString(".TP\n")
+	b.WriteString(".I <data-dir>/.daedalus/control.db\n")
+	b.WriteString("The control plane's database: tasks, jobs, artifacts, reviews, proposals, programmes and the append-only event log. The \\fBdaedalus\\-control\\fR daemon is its only writer.\n")
+	b.WriteString(".TP\n")
+	b.WriteString(".I <data-dir>/.daedalus/control.sock\n")
+	b.WriteString("The control plane's human socket. \\fBcontrol\\-agent.sock\\fR sits beside it: the restricted socket mounted into the Guild Master, whose caller class is decided by which socket a request arrives on. \\fBcontrol.pid\\fR and \\fBcontrol.log\\fR are alongside.\n")
+	b.WriteString(".TP\n")
+	b.WriteString(".I <data-dir>/.daedalus/jobs/<job-id>.log\n")
+	b.WriteString("One log per control-plane job: the agent's own output for that attempt, which is the only account of what it did.\n")
 }
 
 // writeSeeAlso writes the SEE ALSO section.

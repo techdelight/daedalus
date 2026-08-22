@@ -1,4 +1,4 @@
-.TH DAEDALUS 1 "2026-07-30" "daedalus 0.39.0" "User Commands"
+.TH DAEDALUS 1 "2026-08-22" "daedalus 0.54.0" "User Commands"
 .SH NAME
 daedalus \- Docker environment for autonomous Claude Code
 .SH SYNOPSIS
@@ -25,6 +25,31 @@ daedalus \- Docker environment for autonomous Claude Code
 .br
 .B daedalus completion
 <\fBbash\fR|\fBzsh\fR|\fBfish\fR>
+.br
+.B daedalus init
+[\fB\-\-force\fR] [\fB\-\-no\-scaffold\fR] [\fIdir\fR]
+.br
+.B daedalus docs
+[\fBlint\fR | \fBscaffold\fR] [\fIdir\fR]
+.br
+.B daedalus version
+[\fBlist\fR | \fBuse\fR \fIversion\fR | \fBrollback\fR | \fBprune\fR]
+.br
+.B daedalus programmes
+[\fBlist\fR | \fBshow\fR | \fBstatus\fR | \fBcreate\fR | \fBadd\-project\fR | \fBadd\-dep\fR | \fBremove\fR]
+.br
+.B daedalus task
+<\fIsubcommand\fR>
+.br
+.B daedalus coordinator
+[\fBstart\fR | \fBstop\fR | \fBstatus\fR]
+.br
+.B daedalus control
+[\fBstart\fR | \fBstop\fR | \fBrestart\fR | \fBstatus\fR]
+.br
+.B daedalus guild-master
+.br
+.B daedalus build
 .br
 .B daedalus \-\-help
 .SH DESCRIPTION
@@ -87,6 +112,33 @@ List or show built-in runner profiles (claude, copilot).
 \fBpersonas\fR [\fBlist\fR | \fBshow\fR \fIname\fR | \fBcreate\fR \fIname\fR | \fBremove\fR \fIname\fR]
 List, show, create, or remove named persona configurations.
 .TP
+\fBbuild\fR
+Rebuild the Docker image for every registered project. Equivalent to \fB\-\-build\fR without a project name.
+.TP
+\fBinit\fR [\fB\-\-force\fR] [\fB\-\-no\-scaffold\fR] [\fIdir\fR]
+Scaffold the required project documents (VISION, ROADMAP, SPRINTS, BACKLOG and the rest) into \fIdir\fR and print a getting-started guide. \fB\-\-no\-scaffold\fR prints the guidance without writing files.
+.TP
+\fBdocs\fR [\fBlint\fR [\fB\-\-ci\fR] [\fIdir\fR] | \fBscaffold\fR [\fB\-\-force\fR] [\fIdir\fR]]
+Check a project's ROADMAP.md and SPRINTS.md against the structured-document format, or write conformant skeletons. \fBlint\fR exits non-zero on errors; \fB\-\-ci\fR makes warnings fatal too.
+.TP
+\fBversion\fR [\fBlist\fR | \fBuse\fR \fIversion\fR | \fBrollback\fR | \fBprune\fR [\fB\-\-keep\fR \fIn\fR]]
+Manage side-by-side installed versions. Installs live under \fIversions/<version>/\fR with a \fIcurrent\fR symlink, so switching takes effect immediately and never re-downloads. \fBprune\fR never removes the active version.
+.TP
+\fBprogrammes\fR [\fBlist\fR | \fBshow\fR \fIname\fR | \fBstatus\fR \fIname\fR [\fB\-\-suggest\-deps\fR] | \fBcreate\fR \fIname\fR \fIdescription\fR | \fBadd\-project\fR \fIprogramme\fR \fIproject\fR | \fBadd\-dep\fR \fIprogramme\fR \fIupstream\fR \fIdownstream\fR | \fBremove\fR \fIname\fR]
+Manage programmes \(em the shared intent several projects serve. \fBstatus\fR rolls up the tasks serving a programme, what it is waiting on outside itself, and where its declared project order and the task graph that actually gates disagree. \fBadd\-dep\fR declares an order; it gates nothing (see \fBtask depends\fR). Requires the control plane, which is started on demand.
+.TP
+\fBtask\fR <\fIsubcommand\fR>
+Host-side control-plane work: \fBcreate\fR, \fBlist\fR, \fBstatus\fR, \fBdispatch\fR, \fBverify\fR, \fBreview\fR, \fBreverify\fR, \fBretry\fR, \fBreplan\fR, \fBchecks\fR, \fBdepends\fR, \fBsteer\fR, \fBapprove\fR, \fBreject\fR, \fBintegrate\fR, \fBcancel\fR, \fBboard\fR, \fBapprovals\fR, \fBproposals\fR, \fBtarget\fR and \fBevents\fR. Ids are prefixed by kind: \fIT\-n\fR task, \fIJ\-n\fR job, \fIA\-n\fR artifact, \fIRV\-n\fR review, \fIP\-n\fR proposal, \fIPR\-n\fR programme, \fIS\-n\fR steering.
+.TP
+\fBcoordinator\fR [\fBstart\fR | \fBstop\fR | \fBstatus\fR]
+Manage the host-side session daemon that owns container session lifecycles. Started on demand; stop it to pick up a rebuilt image or binary.
+.TP
+\fBcontrol\fR [\fBstart\fR | \fBstop\fR | \fBrestart\fR | \fBstatus\fR]
+Manage the control-plane daemon, the single owner of \fIcontrol.db\fR. Started on demand by \fBtask\fR and \fBprogrammes\fR, so this is needed only to stop it or to \fBrestart\fR it after an upgrade \(em a running daemon serves the routes it was built with, so a newly added operation fails against an old one. \fBstatus\fR reports that case.
+.TP
+\fBguild-master\fR
+Open the built-in cross-project overseer. Every registered project is mounted read-only for it; it can read across the guild, create bounded tasks, and \fIpropose\fR programmes and other consequential operations for a human to confirm. It cannot act on them itself.
+.TP
 \fB\-\-help\fR, \fB\-h\fR
 Show the usage message and exit.
 .SH OPTIONS
@@ -128,7 +180,13 @@ Disable colored output. Also honors the \fBNO_COLOR\fR environment variable.
 Port for the web UI server. Default: 3000.
 .TP
 \fB\-\-host\fR \fIhost\fR
-Host address for the web UI server to bind to. Default: 127.0.0.1.
+Host address for the web UI server to bind to. Default: 127.0.0.1, or 0.0.0.0 when WSL2 is detected.
+.TP
+\fB\-\-auth\fR, \fB\-\-no\-auth\fR
+Enable or disable token authentication for the web UI. Authentication is on by default. Note that the web UI serves the control plane, so \fB\-\-no\-auth\fR on a reachable address gives away the ability to dispatch jobs and land code, not merely a dashboard.
+.TP
+\fB\-\-container\-log\fR
+Write container output to \fI<data-dir>/<project>/container.log\fR.
 .SH ENVIRONMENT
 .TP
 \fBDAEDALUS_DATA_DIR\fR
@@ -247,6 +305,9 @@ Success.
 .TP
 \fB1\fR
 An error occurred (invalid arguments, Docker failure, missing project, etc.).
+.TP
+\fB3\fR
+A \fBtask\fR request was refused by control-plane policy (over budget, attempts exhausted, concurrency exceeded). Distinct from \fB1\fR so a script can tell a policy refusal from a failure; the machine-readable reason is printed on standard error and recorded in \fBdaedalus task events\fR.
 .SH FILES
 .TP
 .I <install-dir>/config.json
@@ -257,6 +318,15 @@ Project registry file containing all registered projects, their directories, tar
 .TP
 .I .cache/<project>/
 Per-project persistent home directory, bind-mounted as \fI/home/claude\fR inside the container. Stores shell history, Claude session transcripts, tool caches, and per-project MCP/settings overrides.
+.TP
+.I <data-dir>/.daedalus/control.db
+The control plane's database: tasks, jobs, artifacts, reviews, proposals, programmes and the append-only event log. The \fBdaedalus\-control\fR daemon is its only writer.
+.TP
+.I <data-dir>/.daedalus/control.sock
+The control plane's human socket. \fBcontrol\-agent.sock\fR sits beside it: the restricted socket mounted into the Guild Master, whose caller class is decided by which socket a request arrives on. \fBcontrol.pid\fR and \fBcontrol.log\fR are alongside.
+.TP
+.I <data-dir>/.daedalus/jobs/<job-id>.log
+One log per control-plane job: the agent's own output for that attempt, which is the only account of what it did.
 .SH SEE ALSO
 .BR docker (1),
 .BR claude (1)

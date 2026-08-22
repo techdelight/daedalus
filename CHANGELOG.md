@@ -74,6 +74,29 @@ All notable changes to this project will be documented in this file.
   field. `scripts/verify-guild-control.sh static` drives both over the real
   sockets.
 
+### Fixed
+- **The man page described a tool that stopped existing fifteen releases ago.**
+  `daedalus.1` was generated at **v0.39.0** and never regenerated: no `task`, no
+  `programmes`, no `docs`, no `version`, no `init`, no `build`, neither daemon,
+  no Guild Master — a page listing thirteen commands for a CLI that has
+  nineteen. `daedalus.1` is a **committed build artifact and nothing regenerates
+  it**, so the file and its generator drifted apart with nothing to notice.
+  - The generator was updated, not the file: COMMANDS gained every missing
+    subcommand, SYNOPSIS the missing lines, OPTIONS the three flags it had never
+    had (`--auth`, `--no-auth`, `--container-log`), and FILES the control plane's
+    `control.db`, its two sockets and the per-job logs.
+  - **The tests that were supposed to catch this could not.** Both restated a
+    hand-written list — seven commands, twelve flags — so they only ever checked
+    what somebody had last remembered to add, and both matched substrings, which
+    would have passed for a command with no entry at all. They now DERIVE the
+    requirement: the command check reads the CLI's own dispatch switch, the flag
+    check reads the help text, and both look for a real bolded entry.
+  - A third test asserts the **checked-in `daedalus.1` is what the generator
+    produces**, regenerating with the date and version the file itself declares
+    so only content drift can fail. The staleness that went unnoticed for fifteen
+    releases is now a test failure. Regenerate with
+    `go run ./cmd/generate-manpage > daedalus.1`.
+
 ### Added
 - **`daedalus control start|stop|restart|status` — an explicit lifecycle for the
   control-plane daemon.** Auto-spawn covers starting and covers nothing else, so
