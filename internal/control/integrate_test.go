@@ -864,9 +864,70 @@ func TestIntegrate_WithoutIntoBranch_LeavesTheCheckoutAlone(t *testing.T) {
 		t.Errorf("nothing should be reported about a branch nobody asked to move: advanced=%v note=%q",
 			res.BranchAdvanced, res.BranchNote)
 	}
+	// Nothing HAPPENED to the branch, but that is not the same as nothing to say.
+	// The result carries the explanation so that every surface gives the same one:
+	// the Ledger and the TUI receive this struct and said only "landed", which is
+	// how "I integrated it and my branch is unchanged" became a question at all.
+	if !strings.Contains(res.BranchAdvice, targetRefName) ||
+		!strings.Contains(res.BranchAdvice, "NOT changed") ||
+		!strings.Contains(res.BranchAdvice, "merge --ff-only") {
+		t.Errorf("BranchAdvice = %q; a landing that moved no branch must say so, name the ref the "+
+			"commit is on, and say how to take it", res.BranchAdvice)
+	}
 	// The landing itself still happened, and is still reachable.
 	if trim(mustGit(t, repo, "rev-parse", targetRefName)) != res.NewTarget {
 		t.Error("the landed commit should be reachable through the projection ref")
+	}
+}
+
+// TestBranchAdviceFor covers the three shapes a landing can leave a branch in.
+// The point of the function is that there is exactly one of it: the CLI printed
+// this and the Ledger and the TUI printed nothing, so "where is my code?" had one
+// answer on one surface and none on the other two.
+func TestBranchAdviceFor(t *testing.T) {
+	if got := BranchAdviceFor(true, "main fast-forwarded to abc1234"); got != "main fast-forwarded to abc1234" {
+		t.Errorf("an advance that worked should say what it did and no more, got %q", got)
+	}
+
+	// A refused courtesy. The landing came FIRST in the sentence, because a note
+	// that opens on a refusal reads as "my code did not land".
+	dirty := "main has uncommitted changes — left untouched; commit or stash, then " +
+		"`git merge --ff-only " + targetRefName + "`"
+	got := BranchAdviceFor(false, dirty)
+	if !strings.HasPrefix(got, "the landing succeeded") {
+		t.Errorf("BranchAdvice = %q; a branch that could not move must not read as a failed landing", got)
+	}
+	if strings.Count(got, "merge --ff-only") != 1 {
+		t.Errorf("BranchAdvice = %q; the note already says how to take the commit, and saying it "+
+			"twice in one sentence is how a sentence stops being read", got)
+	}
+	// A note that does NOT already name the ref still gets the way out.
+	detached := BranchAdviceFor(false, "the checkout has a detached HEAD, so there is no branch to advance")
+	if !strings.Contains(detached, AdoptTarget) {
+		t.Errorf("BranchAdvice = %q; a note that names no remedy must still leave one", detached)
+	}
+}
+
+// TestBranchAdviceFor_AlreadyThereIsNotARefusal (RV-8).
+//
+// The branch being ALREADY at the landed commit was reported as advanced=false,
+// which put it in the "your branch was not moved" branch and appended a remedy.
+// The operator was told their branch lacked the work and handed a `git merge
+// --ff-only` that is a no-op — the one path where the new wording was worse than
+// the bare note it replaced. Hit by a second `integrate --into-branch`, or any
+// project checked out on the branch that just landed.
+func TestBranchAdviceFor_AlreadyThereIsNotARefusal(t *testing.T) {
+	already := "main was already at the landed commit"
+	got := BranchAdviceFor(true, already)
+
+	if got != already {
+		t.Errorf("advice = %q, want the bare note: there is nothing to advise", got)
+	}
+	if strings.Contains(got, "not moved") {
+		t.Error("a branch that HAS the landed commit must not be described as not moved")
+	}
+	if strings.Contains(got, AdoptTarget) {
+		t.Error("a branch already at the landed commit must not be handed a merge that does nothing")
 	}
 }
 

@@ -942,21 +942,65 @@ func taskIntegrate(api control.TaskAPI, args []string) error {
 	if res.Attempts > 1 {
 		fmt.Printf("     took %d attempts — the target moved under us and the transaction recomputed\n", res.Attempts)
 	}
-	switch {
-	case res.BranchAdvanced:
-		fmt.Printf("     %s %s\n", color.Green("branch:"), res.BranchNote)
-	case res.BranchNote != "":
-		// The landing SUCCEEDED; only the courtesy did not. Said in that order, so
-		// nobody reads a yellow line as "my code did not land".
-		fmt.Printf("     %s %s\n", color.Yellow("branch:"), res.BranchNote)
-	default:
-		// The default path, and the answer to "I integrated it, where is my code?".
-		// The plane lands on its own ref precisely so it never touches a working
-		// tree; that is a good default and a surprising one, so it is spelled out.
-		fmt.Printf("     your branch was NOT changed — the landed commit is at refs/daedalus/target.\n")
-		fmt.Printf("     adopt it with `git merge --ff-only refs/daedalus/target`, or pass --into-branch next time\n")
+	// The answer to "I integrated it, where is my code?" — the plane's words, not
+	// this command's, so the Ledger and the TUI give the same one. The fallback is
+	// for a daemon older than the field; the sentence is identical either way.
+	advice := res.BranchAdvice
+	if advice == "" {
+		advice = control.BranchAdviceFor(res.BranchAdvanced, res.BranchNote)
 	}
+	// THREE OUTCOMES, THREE RENDERINGS — and the middle one is why this is not
+	// just `if advanced` (RV-8).
+	//
+	// Yellow means "you asked me to move your branch and I would not". Colouring
+	// the DEFAULT path yellow too — no --into-branch, which is the overwhelmingly
+	// common landing — made yellow mark the entirely normal outcome as well as the
+	// refusal, and an operator who sees yellow on every successful landing stops
+	// reading yellow. That is the same failure this change's own comments argue
+	// against for the board footnote.
+	//
+	// BranchNote is filled only when the branch step actually ran, so its emptiness
+	// is exactly "nobody asked" — no colour, because nothing is wrong.
+	fmt.Printf("     %s %s\n", branchLabel(res.BranchAdvanced, res.BranchNote), advice)
 	return nil
+}
+
+// Three outcomes for the `branch:` line. Named rather than inlined so the
+// DECISION can be tested without depending on whether colour happens to be
+// enabled — internal/color is package-level state another test can flip, so
+// asserting on escape codes would be a test that passes or fails by test order.
+const (
+	branchMoved    = "moved"     // green: the branch is at the landed commit
+	branchRefused  = "refused"   // yellow: you asked, and the plane would not
+	branchNotAsked = "not-asked" // plain: nobody asked for a branch to move
+)
+
+// branchOutcome is the decision. BranchNote is filled only when the branch step
+// actually ran, so its emptiness is exactly "nobody asked".
+func branchOutcome(advanced bool, note string) string {
+	switch {
+	case advanced:
+		return branchMoved
+	case note != "":
+		return branchRefused
+	default:
+		return branchNotAsked
+	}
+}
+
+// branchLabel renders that decision. The CLI's output was the one surface in
+// this change with no test at all (RV-8), which is how yellow drifted into
+// marking the ordinary landing as well as the refusal.
+func branchLabel(advanced bool, note string) string {
+	switch branchOutcome(advanced, note) {
+	case branchMoved:
+		return color.Green("branch:")
+	case branchRefused:
+		return color.Yellow("branch:")
+	default:
+		// Not a warning, so not coloured like one.
+		return "branch:"
+	}
 }
 
 // taskApprovals implements `task approvals`: everything awaiting a human.

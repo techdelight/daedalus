@@ -4,6 +4,7 @@ package tui
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/techdelight/daedalus/internal/control"
@@ -152,6 +153,62 @@ func TestApprovals_LoadAndRender(t *testing.T) {
 		if !contains(view, want) {
 			t.Errorf("view missing board content %q:\n%s", want, view)
 		}
+	}
+}
+
+// TestApprovals_LandedColumnSaysWhereTheWorkIs: the board's one finished-looking
+// column is the one that is not, in the way that matters — the plane lands on
+// refs/daedalus/target and moves no branch, so "Landed 2" over two task ids is
+// how an operator concludes their checkout already has the work. The CLI has
+// explained this at the moment of landing since --into-branch existed; the board
+// said the word and stopped. The words are the plane's, so the three surfaces
+// cannot answer the same question differently.
+func TestApprovals_LandedColumnSaysWhereTheWorkIs(t *testing.T) {
+	board := summariseBoard(control.BoardView{Columns: []control.BoardColumn{
+		{Key: control.BoardQueued, Title: "Queued"},
+		{Key: control.BoardLanded, Title: "Landed", Cards: []control.BoardCard{
+			{TaskID: "T-3", Project: "app", State: "integrated"},
+		}},
+	}})
+	if board[1].key != control.BoardLanded {
+		t.Fatalf("board line key = %q, want the plane's column key", board[1].key)
+	}
+
+	view := tuiModel{approving: true, approvalsAvailable: true, board: board}.viewApprovals()
+	if !contains(view, control.LandedNote) {
+		t.Errorf("a landed column must say where the landed work actually is:\n%s", view)
+	}
+
+	// UNDER THE COLUMN IT EXPLAINS (RV-8). The note used to be emitted after the
+	// whole column loop, so it printed beneath whichever column happened to be
+	// last — up to two rows from its subject.
+	lines := strings.Split(view, "\n")
+	landedAt, noteAt := -1, -1
+	for i, l := range lines {
+		if strings.Contains(l, "Landed") {
+			landedAt = i
+		}
+		if strings.Contains(l, control.LandedNote) {
+			noteAt = i
+		}
+	}
+	if landedAt < 0 || noteAt != landedAt+1 {
+		t.Errorf("the note is at line %d and the Landed column at %d; it belongs directly "+
+			"beneath the column it explains:\n%s", noteAt, landedAt, view)
+	}
+
+	// It is NOT gated on the column being non-empty, and the gate it replaced was
+	// worse than useless: the board has no recency window, so every task ever
+	// integrated stays in the column and `landed > 0` never fired false on a real
+	// project. The gate was justified as avoiding a permanent footnote and produced
+	// one — in the wrong place.
+	empty := summariseBoard(control.BoardView{Columns: []control.BoardColumn{
+		{Key: control.BoardQueued, Title: "Queued"},
+		{Key: control.BoardLanded, Title: "Landed"},
+	}})
+	view = tuiModel{approving: true, approvalsAvailable: true, board: empty}.viewApprovals()
+	if !contains(view, control.LandedNote) {
+		t.Errorf("the column is what needs explaining, empty or not:\n%s", view)
 	}
 }
 

@@ -367,15 +367,29 @@
       note: 'Confirming runs the operation. An agent cannot confirm its own proposal — that is what this queue is for.',
       cmds: ['+Confirm', '!Deny'], msg: null, noTabs: true
     },
+    // Landed work, which is the entry most likely to be misread: the plane lands
+    // on refs/daedalus/target and moves no branch, so `landed` with nothing beside
+    // it reads as "it is in my checkout now". Both the message and the entry note
+    // are here because they have different lifetimes — the message is gone by the
+    // next poll, the question is not.
     'T-10': {
       project: 'daedalus', mark: ['landed', 'is-passed'],
-      body: 'Promote the ad-hoc colour literals into shared Mana variables so the sidebar and the Guild view draw from one palette.',
-      note: '', cmds: [], msg: ['Landed 4f1c9ab onto the target.', 'is-good']
+      bodyHTML:
+        '<div class="ledger-prose">Promote the ad-hoc colour literals into shared Mana variables ' +
+        'so the sidebar and the Guild view draw from one palette.</div>' +
+        '<div class="ledger-desc-note">landed work is at refs/daedalus/target — a landing moves no branch unless it was asked to; adopt it with `git merge --ff-only refs/daedalus/target`</div>',
+      body: '', note: '', cmds: [],
+      msg: ['Landed 4f1c9ab onto the target. Branch: your branch was NOT changed — the landed commit ' +
+            'is at refs/daedalus/target; adopt it with `git merge --ff-only refs/daedalus/target`, ' +
+            'or land it into your branch next time', 'is-good']
     },
     'T-8': {
       project: 'daedalus', mark: ['landed', 'is-passed'],
-      body: 'Restyle the Web UI sidebar to match the classic-JRPG theme of the Guild dashboard, reusing its palette rather than inventing new values.',
-      note: '', cmds: [], msg: null
+      bodyHTML:
+        '<div class="ledger-prose">Restyle the Web UI sidebar to match the classic-JRPG theme of the ' +
+        'Guild dashboard, reusing its palette rather than inventing new values.</div>' +
+        '<div class="ledger-desc-note">landed work is at refs/daedalus/target — a landing moves no branch unless it was asked to; adopt it with `git merge --ff-only refs/daedalus/target`</div>',
+      body: '', note: '', cmds: [], msg: null
     }
   };
 

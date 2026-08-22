@@ -686,3 +686,35 @@ func TestCLI_TaskReverify_FlagsAndRouting(t *testing.T) {
 		t.Errorf("reverify of a planned task: err = %v, want ErrWrongState", err)
 	}
 }
+
+// TestBranchOutcome_YellowStillMeansSomething (RV-8).
+//
+// Yellow means "you asked me to move your branch and I would not". When the
+// DEFAULT landing — no --into-branch, the overwhelmingly common one — was
+// coloured yellow as well, yellow marked the normal outcome and the refusal
+// alike, and an operator who sees it on every successful landing stops reading
+// it. Asserted on the decision rather than on escape codes, because colour is
+// package-level state another test can flip.
+func TestBranchOutcome_YellowStillMeansSomething(t *testing.T) {
+	cases := []struct {
+		name     string
+		advanced bool
+		note     string
+		want     string
+	}{
+		{"it moved", true, "main fast-forwarded to abc1234", branchMoved},
+		{"already there is not a refusal", true, "main was already at the landed commit", branchMoved},
+		{"asked, and refused", false, "main has uncommitted changes — left untouched", branchRefused},
+		{"nobody asked", false, "", branchNotAsked},
+	}
+	for _, c := range cases {
+		if got := branchOutcome(c.advanced, c.note); got != c.want {
+			t.Errorf("%s: outcome = %q, want %q", c.name, got, c.want)
+		}
+	}
+	// The distinction the colour carries: an ordinary landing and a refused one
+	// must never render alike, whatever the palette is doing.
+	if branchOutcome(false, "") == branchOutcome(false, "refused for some reason") {
+		t.Error("a refusal and a landing nobody asked to move a branch for must differ")
+	}
+}

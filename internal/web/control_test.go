@@ -7,6 +7,8 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -812,5 +814,72 @@ func TestControlWrites_NeedTheControlPlane(t *testing.T) {
 		if rec.Code != http.StatusServiceUnavailable {
 			t.Errorf("%s %s = %d, want 503", r.method, r.path, rec.Code)
 		}
+	}
+}
+
+// TestLedger_ExplainsThatLandingMovesNoBranch pins the Ledger's half of one
+// answer given on three surfaces.
+//
+// The plane lands on refs/daedalus/target, which nobody checks out, so a branch
+// never moves on its own. The CLI has said so since --into-branch existed; the
+// Ledger said "Landed <sha> onto the target." and marked the entry `landed`,
+// which is true and reads as "it is in my branch now". The page is JavaScript and
+// cannot call into Go, so this is the only thing standing between three surfaces
+// and three different answers: the transient message must render the sentence the
+// plane sends, and the entry note must be the plane's constant, character for
+// character.
+func TestLedger_ExplainsThatLandingMovesNoBranch(t *testing.T) {
+	src, err := staticFiles.ReadFile("static/control.js")
+	if err != nil {
+		t.Fatalf("reading the Ledger: %v", err)
+	}
+	js := string(src)
+
+	// The field the page reads must be the field the plane marshals.
+	body, err := json.Marshal(control.IntegrationResult{
+		BranchAdvice: control.BranchAdviceFor(false, ""),
+	})
+	if err != nil {
+		t.Fatalf("marshalling a landing: %v", err)
+	}
+	if !strings.Contains(string(body), `"branchAdvice"`) {
+		t.Fatalf("an integration is sent to the Ledger without the explanation: %s", body)
+	}
+	// The CODE, not the identifier (RV-8). `strings.Contains(js, "branchAdvice")`
+	// was satisfied by a COMMENT — the string appears three times in control.js and
+	// twice of those are prose, so deleting the actual render left this green. That
+	// is the third substring-match test in this repository to pass for the wrong
+	// reason; assert on a fragment that only the working code contains.
+	if !strings.Contains(js, "r.branchAdvice ||") {
+		t.Error("the Ledger reports a landing without rendering the plane's branchAdvice, so an " +
+			"operator is told `landed` and left to discover their branch never moved")
+	}
+
+	// And for an entry that is ALREADY landed, where the page has only the state
+	// to go on: the same sentence the TUI board prints, from the same constant.
+	if !strings.Contains(js, control.LandedNote) {
+		t.Errorf("the Ledger has drifted from control.LandedNote — update LANDED_NOTE in "+
+			"internal/web/static/control.js to say, exactly:\n\t%s", control.LandedNote)
+	}
+	// …and that the constant is USED. Pinning the text proves only that it is
+	// declared: remove the line that appends it and the assertion above still
+	// passes, which is the same hole as the one fixed just above.
+	if !strings.Contains(js, "LANDED_NOTE)") {
+		t.Error("LANDED_NOTE is declared but never rendered — a landed entry says the word and " +
+			"explains nothing, which is the gap this change exists to close")
+	}
+
+	// The preview fixture carries the sentence too, and nothing pinned it (RV-8):
+	// the next reword of LandedNote would leave the design preview showing text no
+	// surface produces. It is not operator-facing, so this is a cheap guard rather
+	// than a load-bearing one — but "three surfaces saying nearly the same thing"
+	// is this change's own argument, and the fixture was the unpinned fourth.
+	preview, err := os.ReadFile(filepath.Join("static", "control-preview.html"))
+	if err != nil {
+		t.Skipf("preview not readable: %v", err)
+	}
+	if !strings.Contains(string(preview), control.LandedNote) {
+		t.Errorf("control-preview.html has drifted from control.LandedNote; it should say, exactly:\n\t%s",
+			control.LandedNote)
 	}
 }
