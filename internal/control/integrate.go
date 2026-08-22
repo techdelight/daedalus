@@ -75,6 +75,55 @@ type IntegrationResult struct {
 	Branch         string `json:"branch,omitempty"`
 	BranchAdvanced bool   `json:"branchAdvanced,omitempty"`
 	BranchNote     string `json:"branchNote,omitempty"`
+	// BranchAdvice is the answer to "I integrated it — where is my code?", filled
+	// on EVERY landing, including the default one that was never asked to move a
+	// branch. It exists because that answer used to be assembled by whichever
+	// surface happened to be reporting: the CLI said it, and the Ledger — which
+	// receives this struct as JSON and cannot call into Go — said "landed" and
+	// nothing else.
+	BranchAdvice string `json:"branchAdvice,omitempty"`
+}
+
+// The one explanation of where landed work actually is. Owned by the plane, said
+// by every surface, because the surprising property is the plane's: it lands on
+// refs/daedalus/target, which nobody checks out, so a branch never moves on its
+// own.
+const (
+	// AdoptTarget is how anyone takes a landed commit into a branch of their own.
+	AdoptTarget = "adopt it with `git merge --ff-only " + targetRefName + "`"
+	// LandedNote is for a surface that has only the STATE to go on — a board
+	// column, an archive row — and so cannot know whether that particular landing
+	// was asked to move a branch. It is therefore worded to stay true either way.
+	LandedNote = "landed work is at " + targetRefName +
+		" — a landing moves no branch unless it was asked to; " + AdoptTarget
+)
+
+// BranchAdviceFor renders BranchAdvice from what the branch step actually did.
+//
+// Exported so a caller holding a result from an older daemon — one that predates
+// the field — still says the same sentence rather than falling silent.
+func BranchAdviceFor(advanced bool, note string) string {
+	switch {
+	case advanced:
+		// It moved. The note already says which branch and to what.
+		return note
+	case note != "":
+		// The landing SUCCEEDED and only the courtesy did not. Said in that order,
+		// so a refusal here can never be read as "my code did not land".
+		advice := "the landing succeeded, but your branch was not moved: " + note
+		// Several of those notes already name the ref and the way out — a dirty tree
+		// and a diverged branch both do. Saying it twice in one sentence is how a
+		// sentence stops being read.
+		if !strings.Contains(note, targetRefName) {
+			advice += "; " + AdoptTarget
+		}
+		return advice
+	default:
+		// The default path, and the one that used to be explained on exactly one
+		// surface: nobody asked for a branch to move, so none did.
+		return "your branch was NOT changed — the landed commit is at " + targetRefName +
+			"; " + AdoptTarget + ", or land it into your branch next time"
+	}
 }
 
 // IntegrateTask runs the integration transaction for an approved Task.
@@ -105,6 +154,7 @@ func (s *Service) IntegrateTask(id string, req IntegrateRequest) (IntegrationRes
 			if req.IntoBranch {
 				res.Branch, res.BranchAdvanced, res.BranchNote = s.advanceCheckoutBranch(res.Task.Project, res.NewTarget)
 			}
+			res.BranchAdvice = BranchAdviceFor(res.BranchAdvanced, res.BranchNote)
 			return res, nil
 		}
 		last = fmt.Errorf("target moved during attempt %d", attempt)

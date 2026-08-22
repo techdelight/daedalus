@@ -211,6 +211,14 @@ diverged from the landed commit — and because the branch step runs *after* the
 integration transaction, a refusal never unlands anything. You get a note saying
 what it declined to do and the landed commit is still sitting on the ref.
 
+**Every surface says this, in the same words.** The plane fills
+`branchAdvice` on every landing, so the CLI's `branch:` line and the Ledger's
+message after `Integrate` are the same sentence rather than two accounts of one
+event. Where a surface has only the *state* to go on — the Ledger entry for a
+landed task, the TUI's `Landed` column — it says the version that holds either
+way: landed work is on `refs/daedalus/target`, a landing moves no branch unless
+it was asked to, adopt it with `git merge --ff-only refs/daedalus/target`.
+
 ### Writing an acceptance policy
 
 Commit `.daedalus/verify.json` to the project:

@@ -54,6 +54,11 @@ type approvalsLoadedMsg struct {
 
 // boardLine is one programme-board column, reduced to what fits on a TUI row.
 type boardLine struct {
+	// key is the plane's stable column key (board.go). Kept alongside the title
+	// because one column — the landed one — is worth saying more about than its
+	// count, and matching on a human-readable title would break the moment one is
+	// reworded.
+	key   string
 	title string
 	count int
 	// detail names the first few tasks, so a column is not just a number: "3
@@ -149,7 +154,7 @@ func loadApprovals(api control.TaskAPI) tea.Cmd {
 func summariseBoard(view control.BoardView) []boardLine {
 	out := make([]boardLine, 0, len(view.Columns))
 	for _, col := range view.Columns {
-		line := boardLine{title: col.Title, count: len(col.Cards)}
+		line := boardLine{key: col.Key, title: col.Title, count: len(col.Cards)}
 		for i, c := range col.Cards {
 			if i == 3 {
 				line.detail += fmt.Sprintf(" +%d more", len(col.Cards)-3)
@@ -248,12 +253,26 @@ func (m tuiModel) viewApprovals() string {
 		add(helpStyle.Render(line))
 		add("\n")
 	}
+	landed := 0
 	for _, line := range m.board {
 		row := fmt.Sprintf("  %-22s %3d", line.title, line.count)
 		if line.detail != "" {
 			row += "  " + line.detail
 		}
 		add(normalStyle.Render(row))
+		add("\n")
+		if line.key == control.BoardLanded {
+			landed = line.count
+		}
+	}
+	// "Landed" is the one column that reads as a finished job and is not one:
+	// the plane lands on its own ref, so the work is nowhere the reader's branch
+	// can see it. The CLI says so when it lands; this board said the word and
+	// stopped there, which is exactly how "it landed and nothing changed" happens.
+	// Said in the plane's own words, and only when something is actually sitting
+	// there — a permanent footnote under an empty column is noise.
+	if landed > 0 {
+		add(helpStyle.Render("  " + control.LandedNote))
 		add("\n")
 	}
 	if len(m.board) > 0 {

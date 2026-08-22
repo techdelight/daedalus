@@ -942,20 +942,21 @@ func taskIntegrate(api control.TaskAPI, args []string) error {
 	if res.Attempts > 1 {
 		fmt.Printf("     took %d attempts — the target moved under us and the transaction recomputed\n", res.Attempts)
 	}
-	switch {
-	case res.BranchAdvanced:
-		fmt.Printf("     %s %s\n", color.Green("branch:"), res.BranchNote)
-	case res.BranchNote != "":
-		// The landing SUCCEEDED; only the courtesy did not. Said in that order, so
-		// nobody reads a yellow line as "my code did not land".
-		fmt.Printf("     %s %s\n", color.Yellow("branch:"), res.BranchNote)
-	default:
-		// The default path, and the answer to "I integrated it, where is my code?".
-		// The plane lands on its own ref precisely so it never touches a working
-		// tree; that is a good default and a surprising one, so it is spelled out.
-		fmt.Printf("     your branch was NOT changed — the landed commit is at refs/daedalus/target.\n")
-		fmt.Printf("     adopt it with `git merge --ff-only refs/daedalus/target`, or pass --into-branch next time\n")
+	// The answer to "I integrated it, where is my code?" — the plane's words, not
+	// this command's, so the Ledger and the TUI give the same one. The fallback is
+	// for a daemon older than the field; the sentence is identical either way.
+	advice := res.BranchAdvice
+	if advice == "" {
+		advice = control.BranchAdviceFor(res.BranchAdvanced, res.BranchNote)
 	}
+	// Green only when a branch actually moved. Everything else is yellow and
+	// arrives AFTER the two lines above, so a branch that did not move can never
+	// be read as "my code did not land".
+	label := color.Yellow("branch:")
+	if res.BranchAdvanced {
+		label = color.Green("branch:")
+	}
+	fmt.Printf("     %s %s\n", label, advice)
 	return nil
 }
 

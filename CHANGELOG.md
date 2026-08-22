@@ -220,6 +220,33 @@ All notable changes to this project will be documented in this file.
     findings with different verdicts.
 
 ### Fixed
+- **The Ledger and the TUI said `landed` and left out the part that surprises
+  people.** The plane lands on `refs/daedalus/target`, a ref nobody checks out,
+  so a branch never moves on its own — a deliberate property, and the reason "I
+  integrated it and nothing changed" is a reasonable thing to think. The CLI has
+  explained it at the moment of landing since `--into-branch` existed. The other
+  two surfaces reported the same event and said the word alone, which is true and
+  reads as *it is in my checkout now*.
+  - **One sentence, owned by the plane.** `IntegrationResult.BranchAdvice` is
+    filled on **every** landing, including the default one nobody asked to move a
+    branch, so the CLI's `branch:` line and the Ledger's message after `Integrate`
+    are the same sentence rather than two accounts of one event. The Ledger is
+    JavaScript and cannot call into Go — before this, nothing but care stood
+    between three surfaces and three answers.
+  - **A surface holding only the STATE gets the version that holds either way.**
+    The Ledger's entry for a landed task and the TUI's `Landed` column cannot know
+    whether that particular landing was asked to move a branch, so they say
+    `control.LandedNote`: landed work is on `refs/daedalus/target`, a landing
+    moves no branch unless it was asked to, adopt it with `git merge --ff-only`.
+    The TUI says it only when something is actually sitting in the column — a
+    permanent footnote under an empty column is noise, and noise is how a note
+    stops being read.
+  - A **failed** `--into-branch` now carries the same explanation too: the landing
+    succeeded, the branch did not move, and here is where the commit is. It used
+    to hand over git's refusal and stop.
+  - Pinned by tests in all three places, including a **drift test** — the Ledger's
+    constant must equal the plane's, character for character, or `internal/web`
+    fails with the exact sentence to paste.
 - **The man page described a tool that stopped existing fifteen releases ago.**
   `daedalus.1` was generated at **v0.39.0** and never regenerated: no `task`, no
   `programmes`, no `docs`, no `version`, no `init`, no `build`, neither daemon,

@@ -814,3 +814,44 @@ func TestControlWrites_NeedTheControlPlane(t *testing.T) {
 		}
 	}
 }
+
+// TestLedger_ExplainsThatLandingMovesNoBranch pins the Ledger's half of one
+// answer given on three surfaces.
+//
+// The plane lands on refs/daedalus/target, which nobody checks out, so a branch
+// never moves on its own. The CLI has said so since --into-branch existed; the
+// Ledger said "Landed <sha> onto the target." and marked the entry `landed`,
+// which is true and reads as "it is in my branch now". The page is JavaScript and
+// cannot call into Go, so this is the only thing standing between three surfaces
+// and three different answers: the transient message must render the sentence the
+// plane sends, and the entry note must be the plane's constant, character for
+// character.
+func TestLedger_ExplainsThatLandingMovesNoBranch(t *testing.T) {
+	src, err := staticFiles.ReadFile("static/control.js")
+	if err != nil {
+		t.Fatalf("reading the Ledger: %v", err)
+	}
+	js := string(src)
+
+	// The field the page reads must be the field the plane marshals.
+	body, err := json.Marshal(control.IntegrationResult{
+		BranchAdvice: control.BranchAdviceFor(false, ""),
+	})
+	if err != nil {
+		t.Fatalf("marshalling a landing: %v", err)
+	}
+	if !strings.Contains(string(body), `"branchAdvice"`) {
+		t.Fatalf("an integration is sent to the Ledger without the explanation: %s", body)
+	}
+	if !strings.Contains(js, "branchAdvice") {
+		t.Error("the Ledger reports a landing without rendering the plane's branchAdvice, so an " +
+			"operator is told `landed` and left to discover their branch never moved")
+	}
+
+	// And for an entry that is ALREADY landed, where the page has only the state
+	// to go on: the same sentence the TUI board prints, from the same constant.
+	if !strings.Contains(js, control.LandedNote) {
+		t.Errorf("the Ledger has drifted from control.LandedNote — update LANDED_NOTE in "+
+			"internal/web/static/control.js to say, exactly:\n\t%s", control.LandedNote)
+	}
+}

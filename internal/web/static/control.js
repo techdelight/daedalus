@@ -438,12 +438,29 @@
       ' — ' + verdict(r.verify || {});
   }
 
+  // The plane lands on refs/daedalus/target, which nobody checks out, so a branch
+  // never moves on its own. This page used to say "Landed <sha> onto the target."
+  // and stop — true, and read by an operator as "it is in my branch now". The
+  // sentence that follows is the plane's own (IntegrationResult.branchAdvice), so
+  // the Ledger, the CLI and the TUI cannot answer this differently.
   function landed(r) {
     let out = 'Landed ' + short(r.mergedSha) + ' onto the target' +
       (r.attempts > 1 ? ' after ' + r.attempts + ' rounds' : '') + '.';
-    if (r.branchNote) out += ' Branch: ' + r.branchNote;
+    // Labelled exactly as the CLI labels it, and last, so a branch that did not
+    // move can never be read as work that did not land. branchNote is the
+    // fallback for a plane older than branchAdvice.
+    const advice = r.branchAdvice || r.branchNote;
+    if (advice) out += ' Branch: ' + advice;
     return out;
   }
+
+  // The same explanation, for an entry that is ALREADY landed — where the page
+  // has only the state to go on and cannot know whether that particular landing
+  // was asked to move a branch, so it is worded to hold either way.
+  //
+  // Pinned to internal/control.LandedNote by a test (internal/web/control_test.go):
+  // three surfaces saying nearly the same thing is how one of them ends up wrong.
+  const LANDED_NOTE = 'landed work is at refs/daedalus/target — a landing moves no branch unless it was asked to; adopt it with `git merge --ff-only refs/daedalus/target`';
 
   // --- the list -------------------------------------------------------------
 
@@ -814,6 +831,13 @@
     host.appendChild(text('div', 'ledger-prose', task ? task.objective :
       (currentCard ? currentCard.objective : '')));
     paintIntent(host, task);
+    // An entry marked `landed` is finished work the reader still has to go and
+    // fetch. Said on the entry and not only in the message after the command,
+    // because the message is gone by the next poll and the question outlives it.
+    const state = task ? task.state : (currentCard ? currentCard.state : '');
+    if (state === 'integrated') {
+      host.appendChild(text('div', 'ledger-desc-note', LANDED_NOTE));
+    }
     // Say that a reading exists. The findings live on RECORD, and an operator
     // with no reason to look there would never learn an agent had read their
     // work — which is indistinguishable from the review not having happened.

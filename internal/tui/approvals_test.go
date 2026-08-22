@@ -155,6 +155,41 @@ func TestApprovals_LoadAndRender(t *testing.T) {
 	}
 }
 
+// TestApprovals_LandedColumnSaysWhereTheWorkIs: the board's one finished-looking
+// column is the one that is not, in the way that matters — the plane lands on
+// refs/daedalus/target and moves no branch, so "Landed 2" over two task ids is
+// how an operator concludes their checkout already has the work. The CLI has
+// explained this at the moment of landing since --into-branch existed; the board
+// said the word and stopped. The words are the plane's, so the three surfaces
+// cannot answer the same question differently.
+func TestApprovals_LandedColumnSaysWhereTheWorkIs(t *testing.T) {
+	board := summariseBoard(control.BoardView{Columns: []control.BoardColumn{
+		{Key: control.BoardQueued, Title: "Queued"},
+		{Key: control.BoardLanded, Title: "Landed", Cards: []control.BoardCard{
+			{TaskID: "T-3", Project: "app", State: "integrated"},
+		}},
+	}})
+	if board[1].key != control.BoardLanded {
+		t.Fatalf("board line key = %q, want the plane's column key", board[1].key)
+	}
+
+	view := tuiModel{approving: true, approvalsAvailable: true, board: board}.viewApprovals()
+	if !contains(view, control.LandedNote) {
+		t.Errorf("a landed column must say where the landed work actually is:\n%s", view)
+	}
+
+	// And only when something is sitting there: a permanent footnote under an
+	// empty column is noise, and noise is what stops the note being read.
+	empty := summariseBoard(control.BoardView{Columns: []control.BoardColumn{
+		{Key: control.BoardQueued, Title: "Queued"},
+		{Key: control.BoardLanded, Title: "Landed"},
+	}})
+	view = tuiModel{approving: true, approvalsAvailable: true, board: empty}.viewApprovals()
+	if contains(view, control.LandedNote) {
+		t.Errorf("nothing has landed, so there is nothing to explain:\n%s", view)
+	}
+}
+
 // TestApprovals_UnavailableIsNotEmpty: an unreachable control plane must say so,
 // not render as "nothing awaiting approval".
 func TestApprovals_UnavailableIsNotEmpty(t *testing.T) {
