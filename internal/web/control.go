@@ -567,6 +567,20 @@ func (ws *WebServer) handleReplanTask(w http.ResponseWriter, r *http.Request) {
 	ws.act(w, func(api control.TaskAPI) (any, error) { return api.ReplanTask(r.PathValue("id"), req) })
 }
 
+// handleRefineTask arms a Task to continue from its artifact (#91). The Ledger
+// reaches it from a finding, which is where an operator is when they decide the
+// work is nearly right.
+func (ws *WebServer) handleRefineTask(w http.ResponseWriter, r *http.Request) {
+	var req control.RefineRequest
+	if err := bind(r, &req); err != nil {
+		badRequest(w, "malformed refine: "+err.Error())
+		return
+	}
+	ws.act(w, func(api control.TaskAPI) (any, error) {
+		return api.RefineTask(r.PathValue("id"), req)
+	})
+}
+
 func (ws *WebServer) handleReviewTask(w http.ResponseWriter, r *http.Request) {
 	ws.act(w, func(api control.TaskAPI) (any, error) { return api.ReviewTask(r.PathValue("id")) })
 }

@@ -161,6 +161,15 @@ var legalTransitions = map[State]map[State]bool{
 	},
 	StateVerified: {
 		StateApprovalRequired: true,
+		// verified → planned: REFINING WORK THAT PASSED (#91). A review can find
+		// four real things in an artifact the machine oracle was happy with, and
+		// until this edge existed the answer was to throw the work away (replan
+		// re-dispatches from a clean tree) or to leave the plane entirely. A
+		// DOWNGRADE — plane-only, absent from workerReachable — and it brings
+		// nothing closer to `integrated`: the refined attempt is graded from the
+		// same base by the same frozen oracle.
+		StatePlanned: true,
+
 		// A gate AFTER verification can still say no: a failed independent review,
 		// or a human declining at the approval gate. This is a downgrade, never an
 		// escalation — it cannot bring anything closer to `verified`/`approved`/
@@ -210,10 +219,19 @@ var legalTransitions = map[State]map[State]bool{
 	},
 	StateApprovalRequired: {
 		StateApproved: true, StateRejected: true,
+		// approval_required → planned: the state a Task sits in when a human is
+		// reading a review and decides the work needs one more pass (#91). Same
+		// downgrade, same reasoning as verified → planned.
+		StatePlanned:   true,
 		StateCancelled: true, StateExpired: true,
 	},
 	StateApproved: {
 		StateIntegrated: true,
+		// approved → planned: a human approved, then read the review again and
+		// changed their mind before landing (#91). Refusing this would make the
+		// approval the point of no return for a correction, which it is not — the
+		// landing is.
+		StatePlanned: true,
 		// An integration that fails (a rebase conflict, or the MERGED result failing
 		// verification) routes here so the Sprint-58 retry/replan ladder can pick the
 		// Task up. Plane-only, like every edge past `candidate`.
@@ -357,6 +375,30 @@ type Task struct {
 	// serves none. It stores the programme's ID and never its name, so renaming a
 	// programme cannot dangle the work that serves it (programme.go).
 	ProgrammeID string `json:"programmeId,omitempty"`
+	// RefineFrom is the artifact commit the NEXT dispatch starts from, instead of
+	// the clean checkout at BaseSHA every other Job gets (#91).
+	//
+	// It exists because a Job could only ever start from nothing. After a review
+	// found four things wrong with otherwise good work, the only routes were to
+	// re-run the whole objective from a clean tree — throwing away the code to get
+	// the corrections — or to fix it by hand outside the plane. Neither keeps the
+	// work and acts on the findings, which is the ordinary thing to want.
+	//
+	// BaseSHA is deliberately NOT changed by a refine. The Job starts from the
+	// artifact and is still GRADED from the base, so the original work stays inside
+	// the diff the oracle sees. Moving the base would let an artifact carry itself
+	// past the verifier by being declared the new starting point.
+	//
+	// Consumed and cleared by the dispatch that uses it: a continuation applies to
+	// the attempt it was asked for and never silently to the next one.
+	RefineFrom string `json:"refineFrom,omitempty"`
+	// RefineReview is the review whose findings that dispatch is answering, or ""
+	// for a refine with only a note. Kept so the record says the work was corrected
+	// after a reading rather than got right second time.
+	RefineReview string `json:"refineReview,omitempty"`
+	// RefineNote is a human's own instruction for that attempt, carried into the
+	// prompt beside any findings.
+	RefineNote string `json:"refineNote,omitempty"`
 	// Rationale is why this work is worth doing — the answer the record could not
 	// give before M20, when a Task carried an objective and nothing else. An
 	// objective says WHAT to do; this says what it is FOR, and only one of them is

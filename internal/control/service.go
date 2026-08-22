@@ -251,6 +251,8 @@ type TaskAPI interface {
 	RejectApproval(id, note string) (Task, error)
 	IntegrateTask(id string, req IntegrateRequest) (IntegrationResult, error)
 	PendingApprovals() ([]Task, error)
+	// RefineTask arms a Task to continue from its existing artifact (#91).
+	RefineTask(id string, req RefineRequest) (Task, error)
 	ProjectTargets() ([]TargetView, error)
 	// TargetLags reports where the integration target has fallen behind a
 	// project's checkout (#89). A read: it compares two commits and changes
@@ -929,6 +931,59 @@ type dispatchPrep struct {
 	job      Job
 	repoDir  string
 	worktree string
+	// continuation is the prose a REFINED attempt is answering (#91) — the
+	// forwarded findings and the human's note. Empty for every ordinary dispatch.
+	continuation string
+}
+
+// continuationFor renders what a refined attempt is answering: the human's own
+// instruction, then the findings from the named review.
+//
+// FINDINGS ONLY — never the reviewer's reasoning. `what`, `why` and the location
+// are actionable and describe the code. The reasoning is where "here is what
+// would persuade me" lives, and handing that to the party being graded is how an
+// agent starts writing for the reviewer instead of for the change. Same reason
+// the review moves no plane state on its own.
+//
+// s.mu must be held.
+func (s *Service) continuationFor(task Task) string {
+	var b strings.Builder
+	b.WriteString("\n\nYOU ARE CONTINUING EARLIER WORK ON THIS TASK.\n")
+	b.WriteString("The worktree already contains it — read it before changing anything, and " +
+		"CORRECT it rather than starting again. The objective above is unchanged.\n")
+	if strings.TrimSpace(task.RefineNote) != "" {
+		b.WriteString("\nWhat to fix:\n  " + strings.TrimSpace(task.RefineNote) + "\n")
+	}
+	if task.RefineReview == "" {
+		return b.String()
+	}
+	reviews, err := s.store.ReviewsForTask(task.ID)
+	if err != nil {
+		return b.String()
+	}
+	for _, r := range reviews {
+		if r.ID != task.RefineReview || len(r.Findings) == 0 {
+			continue
+		}
+		b.WriteString("\nA reviewer read your change and raised these. Address each, or say plainly " +
+			"why it should stand:\n")
+		for _, f := range r.Findings {
+			where := f.File
+			if where != "" && f.Line > 0 {
+				where = fmt.Sprintf("%s:%d", f.File, f.Line)
+			}
+			b.WriteString(fmt.Sprintf("  - [%s] ", f.Severity))
+			if where != "" {
+				b.WriteString(where + " — ")
+			}
+			b.WriteString(f.What)
+			if f.Why != "" {
+				b.WriteString("\n      why: " + f.Why)
+			}
+			b.WriteString("\n")
+		}
+	}
+	return b.String()
 }
 
 // prepareDispatch does the whole locked half of a dispatch: guards, budget,
@@ -993,14 +1048,38 @@ func (s *Service) prepareDispatch(id string) (dispatchPrep, error) {
 	if err != nil {
 		return dispatchPrep{}, err
 	}
-	// Isolated worktree at base_sha on the deterministic branch.
-	wtPath, err := s.worktrees.Add(repoDir, id, job.ID, task.BaseSHA)
+	// Isolated worktree on the deterministic branch — at base_sha, unless this
+	// Task was armed to CONTINUE from an existing artifact (#91).
+	//
+	// Note what does NOT move: the Job's own base_sha, recorded just above, stays
+	// the Task's. The Job starts from the artifact and is still GRADED from the
+	// base, so the original work remains inside the diff the oracle sees. Setting
+	// the Job's base to the artifact would let it carry itself past the verifier by
+	// being declared the new starting point, which is the laundering shape the
+	// integrity gate and the frozen policy both exist to refuse.
+	startFrom := task.BaseSHA
+	if task.RefineFrom != "" {
+		startFrom = task.RefineFrom
+	}
+	wtPath, err := s.worktrees.Add(repoDir, id, job.ID, startFrom)
 	if err != nil {
 		// Could not even prepare the workspace: fail the job + task, no worktree.
 		s.failJobAndTask(id, job.ID, ExecFailed, "", "worktree add failed: "+err.Error())
 		return dispatchPrep{}, err
 	}
-	return dispatchPrep{task: task, job: job, repoDir: repoDir, worktree: wtPath}, nil
+	prep := dispatchPrep{task: task, job: job, repoDir: repoDir, worktree: wtPath}
+	if task.RefineFrom != "" {
+		prep.continuation = s.continuationFor(task)
+		// CONSUMED HERE. A continuation applies to the attempt it was asked for and
+		// never silently to the next one — a Task that failed and was retried must
+		// not quietly inherit "you are fixing these findings" from an attempt two
+		// ago. Best-effort: the worktree is already made, and failing the dispatch
+		// over the bookkeeping would be a worse trade than a stale flag.
+		if err := s.store.ClearRefineFrom(id); err != nil {
+			log.Printf("control: clearing the refine base for %s: %v", id, err)
+		}
+	}
+	return prep, nil
 }
 
 // runDispatch runs the agent with s.mu RELEASED (process exit is the boundary,
@@ -1023,6 +1102,11 @@ func (s *Service) runDispatch(prep dispatchPrep) (DispatchResult, error) {
 			TaskID: task.ID, JobID: job.ID, Project: task.Project, Objective: task.Objective,
 			Runner: "claude", Budget: task.Budget.WallClockSeconds, BaseSHA: task.BaseSHA,
 			WorktreeDir: prep.worktree, LogPath: logPath,
+			// What this attempt is CONTINUING, when it is one (#91): the findings a
+			// human chose to forward, and their own instruction. Empty for every
+			// ordinary Job, which starts from a clean tree and gets the objective
+			// alone.
+			Continuation: prep.continuation,
 		})
 	})
 

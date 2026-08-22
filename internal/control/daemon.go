@@ -24,6 +24,7 @@ package control
 //	POST   /tasks/{id}/checks     body: AmendChecksRequest → 200 Task
 //	                                                       → 422 attempts budget
 //	POST   /tasks/{id}/replan     body: ReplanRequest     → 200 Task
+//	POST   /tasks/{id}/refine     body: RefineRequest     → 200 Task (#91)
 //	GET    /tasks/{id}/events                             → 200 []Event  (read-only;
 //	                                                          no write verb exists)
 //	POST   /tasks/{id}/review                             → 200 ReviewResult
@@ -108,6 +109,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /tasks/{id}/reverify", s.handleReverify)
 	mux.HandleFunc("POST /tasks/{id}/checks", s.handleAmendChecks)
 	mux.HandleFunc("POST /tasks/{id}/replan", s.handleReplan)
+	mux.HandleFunc("POST /tasks/{id}/refine", s.handleRefine)
 	// GET only, deliberately: the event log has no mutation route because it has
 	// no mutation operation (§6). Any other verb on this path falls through to the
 	// mux's 405.
@@ -263,6 +265,21 @@ func (s *Server) handleReverify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, res)
+}
+
+// handleRefine arms a Task to continue from its existing artifact (#91).
+func (s *Server) handleRefine(w http.ResponseWriter, r *http.Request) {
+	var req RefineRequest
+	if err := decodeOptionalJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	t, err := s.api.RefineTask(r.PathValue("id"), req)
+	if err != nil {
+		writeError(w, StatusFor(err), err)
+		return
+	}
+	writeJSON(w, http.StatusOK, t)
 }
 
 func (s *Server) handleReplan(w http.ResponseWriter, r *http.Request) {

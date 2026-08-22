@@ -30,7 +30,7 @@ func manageTasks(cfg *core.Config) error {
 	args := cfg.TaskArgs
 	if len(args) == 0 {
 		printTaskUsage()
-		return fmt.Errorf("task: subcommand required (create|list|status|dispatch|verify|review|approve|reject|integrate|approvals|proposals|depends|steer|board|target|retry|reverify|checks|replan|events|cancel)")
+		return fmt.Errorf("task: subcommand required (create|list|status|dispatch|verify|review|approve|reject|integrate|approvals|proposals|depends|steer|board|target|retry|reverify|checks|replan|refine|events|cancel)")
 	}
 	if args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
 		printTaskUsage()
@@ -66,6 +66,8 @@ func runTaskCommand(api control.TaskAPI, args []string) error {
 		return taskChecks(api, args[1:])
 	case "replan":
 		return taskReplan(api, args[1:])
+	case "refine":
+		return taskRefine(api, args[1:])
 	case "events", "log":
 		return taskEvents(api, args[1:])
 	case "review":
@@ -91,7 +93,7 @@ func runTaskCommand(api control.TaskAPI, args []string) error {
 	case "cancel":
 		return taskCancel(api, args[1:])
 	default:
-		return fmt.Errorf("task: unknown subcommand %q\n%s daedalus task <create|list|status|dispatch|verify|review|approve|reject|integrate|approvals|proposals|depends|steer|board|target|retry|reverify|checks|replan|events|cancel>", args[0], color.Cyan("Hint:"))
+		return fmt.Errorf("task: unknown subcommand %q\n%s daedalus task <create|list|status|dispatch|verify|review|approve|reject|integrate|approvals|proposals|depends|steer|board|target|retry|reverify|checks|replan|refine|events|cancel>", args[0], color.Cyan("Hint:"))
 	}
 }
 
@@ -1001,6 +1003,64 @@ func branchLabel(advanced bool, note string) string {
 		// Not a warning, so not coloured like one.
 		return "branch:"
 	}
+}
+
+// taskRefine implements `task refine`: continue the existing artifact instead of
+// starting over (#91).
+//
+// The distinction from replan is the whole point and is worth keeping in the
+// help: replan says the INSTRUCTION was wrong and re-dispatches from a clean
+// tree; refine says the instruction was right and the work is nearly there, so
+// the next attempt starts from the artifact and is told what to fix.
+func taskRefine(api control.TaskAPI, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: daedalus task refine <task-id> [--from-review <RV-n>] [--note <text>]")
+	}
+	id := args[0]
+	var req control.RefineRequest
+	for i := 1; i < len(args); i++ {
+		switch args[i] {
+		case "--from-review":
+			if i+1 >= len(args) {
+				return fmt.Errorf("task refine: --from-review needs a review id (e.g. RV-8)")
+			}
+			req.ReviewID = args[i+1]
+			i++
+		case "--note":
+			if i+1 >= len(args) {
+				return fmt.Errorf("task refine: --note needs some text")
+			}
+			req.Note = args[i+1]
+			i++
+		default:
+			return fmt.Errorf("task refine: unknown argument %q", args[i])
+		}
+	}
+	if req.ReviewID == "" && strings.TrimSpace(req.Note) == "" {
+		// Refusing here rather than arming a continuation that says nothing: an
+		// agent handed its own earlier work and no instruction has been told to
+		// change something without being told what, which is how an attempt gets
+		// spent on a guess.
+		return fmt.Errorf("task refine: give --from-review <RV-n>, --note <text>, or both — " +
+			"a continuation with no instruction tells the agent nothing to do differently")
+	}
+	t, err := api.RefineTask(id, req)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("%s %s will CONTINUE from %s (state %s)\n",
+		color.Green("OK:"), color.Bold(t.ID), shortSHA(t.RefineFrom), t.State)
+	if t.RefineReview != "" {
+		fmt.Printf("     answering %s — its findings go to the agent with the objective\n", t.RefineReview)
+	}
+	if t.RefineNote != "" {
+		fmt.Printf("     note: %s\n", t.RefineNote)
+	}
+	fmt.Printf("     the objective is UNCHANGED, and the base it is graded from is still %s —\n",
+		shortSHA(t.BaseSHA))
+	fmt.Printf("     so the whole change is still what the verifier sees.\n")
+	fmt.Printf("%s daedalus task dispatch %s\n", color.Cyan("Next:"), t.ID)
+	return nil
 }
 
 // taskApprovals implements `task approvals`: everything awaiting a human.

@@ -60,6 +60,7 @@ const (
 	OpRetry         = "retry_task"
 	OpReverify      = "reverify_task"
 	OpReplan        = "replan_task"
+	OpRefine        = "refine_task"
 	OpCancel        = "cancel_task"
 	OpApprove       = "approve_task"
 	OpRejectAppr    = "reject_task"
@@ -139,8 +140,12 @@ var agentAuthority = map[string]Tier{
 	// one it may re-roll until a flaky check happens to pass. The `--amended` mode
 	// is more consequential still — it re-freezes the acceptance policy, which is
 	// the same authority as OpSyncTarget and tiered the same way.
-	OpReverify:   TierProposal,
-	OpReplan:     TierProposal,
+	OpReverify: TierProposal,
+	OpReplan:   TierProposal,
+	// Refine re-runs work against its own review. An agent that could arm that
+	// has a write/review/fix loop with no human in it, and the reviewer's verdict
+	// silently becomes the gate M20 established it is not.
+	OpRefine:     TierProposal,
 	OpCancel:     TierProposal,
 	OpIntegrate:  TierProposal,
 	OpApprove:    TierProposal,

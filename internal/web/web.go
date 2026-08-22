@@ -267,6 +267,7 @@ func (ws *WebServer) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/control/tasks", ws.handleControlTasks)
 	mux.HandleFunc("GET /api/control/proposals", ws.handleProposals)
 	mux.HandleFunc("GET /api/control/targets", ws.handleTargets)
+	mux.HandleFunc("POST /api/control/tasks/{id}/refine", ws.handleRefineTask)
 	mux.HandleFunc("GET /api/control/targets/lag", ws.handleTargetLags)
 	mux.HandleFunc("GET /api/control/programmes", ws.handleListProgrammes)
 

@@ -163,6 +163,13 @@ CREATE TABLE IF NOT EXISTS tasks (
     programme_id    TEXT NOT NULL DEFAULT '',
     rationale       TEXT NOT NULL DEFAULT '',
     rationale_by    TEXT NOT NULL DEFAULT '',
+    -- refine_from is the artifact commit the NEXT dispatch should start from
+    -- (#91). Empty for an ordinary Task, which starts clean at base_sha.
+    -- Consumed and cleared by that dispatch, so it can never silently apply to a
+    -- second attempt nobody asked to continue.
+    refine_from     TEXT NOT NULL DEFAULT '',
+    refine_review   TEXT NOT NULL DEFAULT '',
+    refine_note     TEXT NOT NULL DEFAULT '',
     created_at      TEXT NOT NULL,
     updated_at      TEXT NOT NULL
 );
@@ -353,6 +360,15 @@ DROP TABLE IF EXISTS targets;
 	// v0.49.0 control.db opens, migrates, and keeps every existing row (legacy
 	// tasks read back with DefaultBudget(); legacy events with a derived kind).
 	if err := s.addColumnIfMissing("tasks", "task_checks", "task_checks TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := s.addColumnIfMissing("tasks", "refine_from", "refine_from TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := s.addColumnIfMissing("tasks", "refine_review", "refine_review TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := s.addColumnIfMissing("tasks", "refine_note", "refine_note TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
 	}
 	if err := s.addColumnIfMissing("tasks", "budget", "budget TEXT NOT NULL DEFAULT ''"); err != nil {
@@ -783,6 +799,77 @@ func (s *Store) ReplanTask(id, objective string, meta EventMeta, note string) (T
 	return cur, nil
 }
 
+// RefineTask arms a Task to CONTINUE from an existing artifact and returns it to
+// `planned` (#91).
+//
+// The objective is untouched — that is the whole difference from replan. A
+// refine says "the instruction was right and the work is nearly there"; a replan
+// says "the instruction was wrong". Conflating them would lose the distinction
+// the record needs most: whether an attempt was corrected or redirected.
+func (s *Store) RefineTask(id, fromSHA, reviewID string, meta EventMeta, note string) (Task, error) {
+	if fromSHA == "" {
+		return Task{}, fmt.Errorf("control: refine requires the artifact commit to continue from")
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return Task{}, err
+	}
+	defer tx.Rollback()
+
+	cur, err := scanTask(tx.QueryRow(taskSelect+` WHERE id = ?`, id))
+	if err != nil {
+		return Task{}, err
+	}
+	if !CanTransition(cur.State, StatePlanned) {
+		return Task{}, fmt.Errorf("%w: task %s %s → %s (refine)", ErrIllegalTransition, id, cur.State, StatePlanned)
+	}
+	now := s.now()
+	res, err := tx.Exec(
+		`UPDATE tasks SET refine_from = ?, refine_review = ?, state = ?, updated_at = ?
+		 WHERE id = ? AND state = ?`,
+		fromSHA, reviewID, string(StatePlanned), now, id, string(cur.State),
+	)
+	if err != nil {
+		return Task{}, fmt.Errorf("refining task: %w", err)
+	}
+	if n, err := res.RowsAffected(); err != nil {
+		return Task{}, err
+	} else if n != 1 {
+		return Task{}, fmt.Errorf("%w: task %s expected state %s", ErrConflict, id, cur.State)
+	}
+	if err := s.logEvent(tx, "task", id, cur.State, StatePlanned, meta, ActorPlane, note); err != nil {
+		return Task{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Task{}, err
+	}
+	cur.RefineFrom, cur.RefineReview = fromSHA, reviewID
+	cur.State = StatePlanned
+	cur.UpdatedAt = now
+	return cur, nil
+}
+
+// SetRefineNote records a human's own instruction for the next attempt, so the
+// dispatch that consumes the continuation can put it in the prompt.
+func (s *Store) SetRefineNote(id, note string) error {
+	if _, err := s.db.Exec(`UPDATE tasks SET refine_note = ?, updated_at = ? WHERE id = ?`,
+		note, s.now(), id); err != nil {
+		return fmt.Errorf("recording the refine note for %s: %w", id, err)
+	}
+	return nil
+}
+
+// ClearRefineFrom consumes the continuation, so it applies to the attempt it was
+// asked for and never silently to the next one.
+func (s *Store) ClearRefineFrom(id string) error {
+	_, err := s.db.Exec(`UPDATE tasks SET refine_from = '', refine_review = '', refine_note = '', updated_at = ? WHERE id = ?`,
+		s.now(), id)
+	if err != nil {
+		return fmt.Errorf("clearing the refine base for %s: %w", id, err)
+	}
+	return nil
+}
+
 // RebaseTask re-pins a task to a new base_sha and re-freezes its acceptance hash
 // at that commit — the documented remedy for a `stale_base` rejection (§6:
 // "rejected, must rebase + re-verify"). It does not change state; the caller
@@ -826,7 +913,7 @@ func (s *Store) RebaseTask(id, baseSHA, acceptanceHash string, meta EventMeta, n
 	return cur, nil
 }
 
-const taskSelect = `SELECT id, project, objective, acceptance_ref, acceptance_hash, image_digest, task_checks, budget, base_sha, state, programme_id, rationale, rationale_by, created_at, updated_at FROM tasks`
+const taskSelect = `SELECT id, project, objective, acceptance_ref, acceptance_hash, image_digest, task_checks, budget, base_sha, state, programme_id, rationale, rationale_by, refine_from, refine_review, refine_note, created_at, updated_at FROM tasks`
 
 // rowScanner is satisfied by both *sql.Row and *sql.Rows.
 type rowScanner interface {
@@ -836,7 +923,7 @@ type rowScanner interface {
 func scanTask(sc rowScanner) (Task, error) {
 	var t Task
 	var state, budget, checks, rationaleBy string
-	err := sc.Scan(&t.ID, &t.Project, &t.Objective, &t.AcceptanceRef, &t.AcceptanceHash, &t.ImageDigest, &checks, &budget, &t.BaseSHA, &state, &t.ProgrammeID, &t.Rationale, &rationaleBy, &t.CreatedAt, &t.UpdatedAt)
+	err := sc.Scan(&t.ID, &t.Project, &t.Objective, &t.AcceptanceRef, &t.AcceptanceHash, &t.ImageDigest, &checks, &budget, &t.BaseSHA, &state, &t.ProgrammeID, &t.Rationale, &rationaleBy, &t.RefineFrom, &t.RefineReview, &t.RefineNote, &t.CreatedAt, &t.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Task{}, ErrNotFound
 	}

@@ -74,6 +74,46 @@ All notable changes to this project will be documented in this file.
   field. `scripts/verify-guild-control.sh static` drives both over the real
   sockets.
 
+### Added
+- **`daedalus task refine` — continue an existing artifact instead of starting
+  over (#91).** A Job could only ever begin from nothing: `worktrees.Add` checks
+  out clean at the Task's base. That is right for a first attempt and right for a
+  retry, and **wrong for the case a review creates**. Measured on T-18: RV-8 read
+  a good artifact and found four real things. The work was sound. The only routes
+  were `replan`, which re-dispatches from a clean tree so the agent would rebuild
+  the whole feature to get four corrections, or fixing it by hand outside the
+  plane, which leaves the record silent about why the change happened.
+  - `task refine <id> [--from-review RV-n] [--note text]` arms the Task and
+    returns it to `planned`, so it re-enters the ordinary ladder — dispatch,
+    verify, review — rather than growing a lifecycle of its own.
+  - **It starts from the artifact and is still GRADED from the base.** The
+    worktree moves; `job.BaseSHA` does not. The original work therefore stays
+    inside the diff the oracle sees — declaring the artifact the new base would
+    let it carry itself past the verifier, which is the laundering shape the
+    integrity gate and the frozen policy both exist to refuse.
+  - **The objective is untouched.** That is the whole difference from replan, and
+    the record needs it: "the instruction was right and the work was nearly
+    there" is a different fact from "I asked for the wrong thing".
+  - **The findings reach the agent; the reviewer's reasoning does not** (#90).
+    Location, what and why describe the code and are actionable. The reasoning is
+    where "here is what would persuade me" lives, and handing that to the party
+    being graded is how an agent starts writing for the reviewer.
+  - **Never automatic.** A human names the review, and for an agent the whole
+    operation is a **proposal**. Refine-on-failed-review would close the loop into
+    agent writes / agent reviews / agent fixes with nobody in it, and the
+    reviewer's verdict would silently become the gate M20 established it is not.
+  - The continuation is **consumed by the dispatch that uses it**, so a later
+    retry cannot inherit instructions nobody gave it.
+  - New plane-only downgrade edges `verified|approval_required|approved →
+    planned`, absent from `workerReachable`; `approved` included because the point
+    of no return for a correction is the landing, not the approval. The exhaustive
+    transition guard caught all three and had to be updated deliberately, which is
+    what it is for.
+  - **Deliberately deferred**: the null-agent floor is not sharpened for refines.
+    A continuation producing a tree identical to what it started from has ignored
+    the findings — but the obvious check would also reject a legitimate retry that
+    happens to produce an identical tree, and that deserves its own thought.
+
 ### Fixed
 - **The Ledger said nothing while a review ran.** Reported from use: *"when I
   trigger a review it will not show me a review is active — buttons are greyed

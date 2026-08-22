@@ -88,6 +88,16 @@ func (c *callerScope) ProjectTargets() ([]TargetView, error) {
 	return c.svc.projectTargets(c.caller)
 }
 
+// RefineTask re-runs work against its own review, which is precisely the shape
+// the proposal tier exists for: an agent that could arm a continuation from a
+// reading of its own output has a loop with nobody in it. A human confirms.
+func (c *callerScope) RefineTask(id string, req RefineRequest) (Task, error) {
+	if !c.allowed(OpRefine) {
+		return Task{}, c.propose(OpRefine, id, req.ReviewID+" "+req.Note)
+	}
+	return c.svc.refineTask(c.caller, id, req)
+}
+
 // TargetLags is a read, allowed to any caller. It reports how far a checkout has
 // moved past the target and carries no host paths — the project name and two
 // commit ids, all of which an agent can already see on a Task.

@@ -215,6 +215,12 @@ func (c *Client) ProjectTargets() ([]TargetView, error) {
 	return targets, nil
 }
 
+// RefineTask implements TaskAPI.
+func (c *Client) RefineTask(id string, req RefineRequest) (Task, error) {
+	var t Task
+	return t, c.postJSON("/tasks/"+url.PathEscape(id)+"/refine", req, &t)
+}
+
 // TargetLags implements TaskAPI.
 func (c *Client) TargetLags() ([]TargetLag, error) {
 	var lags []TargetLag

@@ -31,6 +31,11 @@ type JobSpec struct {
 	// that cannot honour it simply leaves no file, which is how the caller tells
 	// that there is nothing to point at. See JobLogPath.
 	LogPath string
+	// Continuation is what a REFINED attempt is answering (#91): the worktree
+	// already holds earlier work, plus the findings a human chose to forward and
+	// their own instruction. Empty for every ordinary Job, which starts from a
+	// clean tree and is told the objective alone.
+	Continuation string
 }
 
 // RunOutcome is how a headless Job ended — the "how it ended" axis (§5), distinct
@@ -197,7 +202,11 @@ Your objective follows.
 // about the container it woke up in. The two are different things and only one of
 // them belongs in the event log.
 func jobPrompt(spec JobSpec) string {
-	return jobEnvironmentNote + spec.Objective
+	// The continuation goes AFTER the objective, deliberately. The objective is
+	// what the work is for and has not changed; the findings are corrections to an
+	// attempt at it. Leading with them would read as the new brief and invite an
+	// agent to fix four things and forget what it was building.
+	return jobEnvironmentNote + spec.Objective + spec.Continuation
 }
 
 // CoordinatorRunner is the REAL, HOST-ONLY adapter. It runs the project agent

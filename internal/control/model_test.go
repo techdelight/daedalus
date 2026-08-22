@@ -31,7 +31,15 @@ func TestCanTransition_Exhaustive(t *testing.T) {
 		StateVerifying: {StateVerified, StateRejected, StateCandidate, StateCancelled, StateExpired, StateFailed},
 		// verified → rejected: a post-verification gate (review, human approval)
 		// saying no. A downgrade, so it weakens nothing.
-		StateVerified: {StateApprovalRequired, StateRejected, StateCancelled, StateExpired},
+		// verified/approval_required/approved → planned is REFINE (#91): a review
+		// can find real defects in an artifact the machine oracle passed, and until
+		// these edges existed the only answer was to discard the work (replan
+		// re-dispatches from a clean tree) or leave the plane. All three are
+		// DOWNGRADES — plane-only, absent from workerReachable — and none brings
+		// anything closer to `integrated`: the continued attempt is graded from the
+		// same base against the same frozen oracle. `approved` is included because
+		// the point of no return for a correction is the LANDING, not the approval.
+		StateVerified: {StateApprovalRequired, StateRejected, StatePlanned, StateCancelled, StateExpired},
 		// rejected → candidate is re-verification (Sprint 65): the artifact is
 		// unchanged and it is the GRADING that is being redone. Plane-only, and a
 		// downgrade — it returns an artifact to be judged again by the same
@@ -42,10 +50,10 @@ func TestCanTransition_Exhaustive(t *testing.T) {
 		// answerability for an artifact the oracle refused. It never reaches
 		// `verified`, so the plane never claims a pass it did not observe.
 		StateRejected:         {StateQueued, StatePlanned, StateCandidate, StateApprovalRequired, StateCancelled, StateExpired},
-		StateApprovalRequired: {StateApproved, StateRejected, StateCancelled, StateExpired},
+		StateApprovalRequired: {StateApproved, StateRejected, StatePlanned, StateCancelled, StateExpired},
 		// approved → rejected is the failed-integration route (Sprint 59): a rebase
 		// conflict or a merged-result verification failure feeds the retry ladder.
-		StateApproved: {StateIntegrated, StateRejected, StateCancelled},
+		StateApproved: {StateIntegrated, StateRejected, StatePlanned, StateCancelled},
 		// terminal states: no outgoing edges
 		StateIntegrated: {},
 		StateFailed:     {},

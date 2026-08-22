@@ -461,6 +461,49 @@ Two rejections cannot be re-graded at all — an **integrity** failure and the
 frozen oracle could not be established so nothing was graded, the second that
 there is no change to grade. Re-grading either produces the same nothing.
 
+### Acting on a review: `refine`
+
+A review can find real defects in an artifact the machine oracle was happy with.
+The work is sound; four sentences in it are not. Before `refine` the only routes
+were `replan` — which re-dispatches from a **clean tree**, so the agent rebuilds
+the whole feature to get four corrections — or fixing it by hand outside the
+plane, which leaves the record silent about why the change happened.
+
+```bash
+daedalus task refine T-18 --from-review RV-8
+daedalus task refine T-18 --note "the already-at-landed-commit message is wrong"
+daedalus task dispatch T-18
+```
+
+The Task returns to `planned` and re-enters the ordinary ladder. The next Job's
+worktree starts at **the artifact**, not the base, so the earlier work is there to
+be corrected rather than rebuilt.
+
+| | `retry` | `replan` | `refine` |
+|---|---|---|---|
+| Starts from | the base, clean | the base, clean | **the artifact** |
+| Objective | unchanged | **replaced** | unchanged |
+| Says | "try again" | "I asked for the wrong thing" | "nearly right — fix these" |
+
+**It is still graded from the base.** `refine` moves where the Job *starts*; it
+does not touch `base_sha`, so the whole change — original work included — stays
+inside the diff the verifier and the integrity gate see. Declaring the artifact
+the new base would let it carry itself past the oracle.
+
+**The findings go to the agent; the reviewer's reasoning does not.** Each
+finding's location, what and why are actionable and describe the code. The
+reasoning is where *"here is what would persuade me"* lives, and handing that to
+the party being graded is how an agent starts writing for the reviewer rather
+than for the change.
+
+**Nothing is automatic.** A human names the review. An automatic
+refine-on-failed-review would close the loop into agent writes, agent reviews,
+agent fixes, with nobody in it — and the reviewer's verdict would quietly become
+the gate it is deliberately not. For an agent, `refine` is a **proposal**.
+
+The continuation is consumed by the dispatch that uses it, so a later retry
+cannot inherit instructions nobody gave it.
+
 ### Dependencies across projects
 
 ```bash
