@@ -84,12 +84,18 @@
     <div class="ledger-section">
       <div class="ledger-section-head">
         <span class="ledger-section-title">Awaiting your approval</span>
-        <span class="ledger-section-count">2</span>
+        <span class="ledger-section-count">3</span>
       </div>
       <button type="button" class="ledger-row is-current" data-entry-id="T-12">
         <span class="ledger-cursor">▶</span>
         <span class="ledger-row-id">T-12</span>
         <span class="ledger-row-objective">Promote the ad-hoc colour literals introduced by T-8 into shared custom properties, so the sidebar and the Guild view draw from one palette</span>
+        <span class="ledger-row-status is-waiting">awaiting seal</span>
+      </button>
+      <button type="button" class="ledger-row" data-entry-id="T-18">
+        <span class="ledger-cursor">▶</span>
+        <span class="ledger-row-id">T-18</span>
+        <span class="ledger-row-objective">Restore the frozen acceptance files before grading, so a job that edits its own tests is judged by the oracle it was given</span>
         <span class="ledger-row-status is-waiting">awaiting seal</span>
       </button>
       <button type="button" class="ledger-row" data-entry-id="T-17">
@@ -241,6 +247,26 @@
       body: 'Give the scheduler a durable queue so admission survives a daemon restart, replacing the in-memory waiting map and the retry-driven admission it depends on.',
       note: '', cmds: ['Steer', 'Depends on', '!Cancel'],
       msg: ['S-2 is undeliverable — the shipped runner has no steering boundary', 'is-refused']
+    },
+    // A REVIEW IN FLIGHT — the state that showed nothing at all until now.
+    // Two independent things are on screen: the plane-reported banner under the
+    // objective (survives a reload, shows a review started from the CLI) and the
+    // live message line with its elapsed counter (this page's own command).
+    'T-18': {
+      project: 'daedalus', mark: ['awaiting seal', 'is-waiting'],
+      bodyHTML:
+        '<div class="ledger-prose">Restore the frozen acceptance files before grading, so a job that ' +
+        'edits its own tests is judged by the oracle it was given.</div>' +
+        '<div class="ledger-inflight">A second agent is reading this change in its own container. ' +
+        'Advisory — it moves nothing.  (J-21)</div>' +
+        '<dl class="ledger-facts">' +
+        '<dt class="ledger-fact-k">for</dt>' +
+        '<dd class="ledger-fact-v">clarity — say what landed, on every surface</dd>' +
+        '</dl>',
+      body: '', note: '',
+      cmds: ['Review', '+Approve', '!Reject', 'Integrate', 'Depends on', '!Cancel'],
+      msg: ['▶ A second agent is reading this change in its own container — the diff, the objective ' +
+            'and the reason it was asked for. Minutes, not seconds.  (1m 24s)', 'is-running']
     },
     'T-15': {
       project: 'flashcards', mark: ['running', 'is-working'],

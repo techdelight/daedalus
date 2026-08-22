@@ -74,6 +74,40 @@ All notable changes to this project will be documented in this file.
   field. `scripts/verify-guild-control.sh static` drives both over the real
   sockets.
 
+### Fixed
+- **The Ledger said nothing while a review ran.** Reported from use: *"when I
+  trigger a review it will not show me a review is active — buttons are greyed
+  out, something IS happening, but I'm not seeing any info that it is a review."*
+  A review is a container run of minutes during which **nothing about the Task
+  changes** — no state moves, no Job appears — so the only feedback was disabled
+  plates and `…Review`, the button's own label, in 11px `--mana-text-dim` below
+  the commands. Three things were missing, and each is a different failure:
+  - **What is happening**, in words. "Review" names the verb pressed; it does not
+    say a second agent is now reading the change in its own container. Every long
+    command now has a sentence, and the ones that take minutes say so.
+  - **That it is alive.** A static line cannot be told from a wedged page, and the
+    reasonable response to a wedged page is a reload — which abandons the reading.
+    There is now an elapsed counter, ticking each second, with a pulsing mark
+    (`steps(2)`, like the entry cursor; disabled under `prefers-reduced-motion`).
+    The in-flight style is deliberately **not** the dim one a finished message
+    uses, which is why it was missed.
+  - **That anyone else can see it.** The two above only help whoever clicked. The
+    plane has always recorded an `inflightOp` — `withClaim` uses it to refuse a
+    second operation on the same Task — but **the knowledge existed only to say no
+    to a machine, never to inform a person**. `TaskScheduling` now carries
+    `operation` and `operationJob`, so the Task's entry states what the plane is
+    doing to it **however it was started and after a reload** — including a review
+    launched from the CLI.
+  - **A data race, found and fixed while doing it.** The first version read
+    `s.inflight` from `schedulingFor`, whose only caller (`TaskStatus`)
+    deliberately does not hold `s.mu` so a status read cannot queue behind a
+    running verify. The map is written under `s.mu` by `beginOp`/`endOp` for
+    *other* Tasks concurrently, so the read raced. Guarded by `inFlightFor`, and
+    the regression test had to be corrected too: it first called `withClaim`
+    without the lock the function documents it requires, which manufactured a race
+    in the test instead of exercising the one in the code. With the contract
+    honoured, `-race` fails without the guard and passes with it.
+
 ### Added
 - **The plane now says when its integration target has fallen behind your
   branch (#89).** The target is what every Task is dispatched against, and it

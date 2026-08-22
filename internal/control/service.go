@@ -181,6 +181,21 @@ type TaskScheduling struct {
 	GlobalRunning  int `json:"globalRunning"`
 	// Limits in force.
 	Limits SchedulerLimits `json:"limits"`
+	// Operation is the long plane-owned operation running against this Task right
+	// now — "dispatch", "verify" or "review" — and "" when none is.
+	//
+	// The plane has always known this: `withClaim` records an inflightOp so a
+	// second operation on the same Task is refused with `operation_in_flight`. It
+	// was never reported, so the knowledge existed only to say NO to a machine and
+	// never to inform a person. Reported by a Task that has one because a review
+	// is a container run of MINUTES during which nothing about the Task changes:
+	// no state moves, no job appears, and every surface therefore showed a Task
+	// sitting still while an agent was reading it. Whoever started it saw a
+	// greyed-out button; anybody else — or the same person after a reload — saw
+	// nothing at all.
+	Operation string `json:"operation,omitempty"`
+	// OperationJob is the Job that operation is working on, when there is one.
+	OperationJob string `json:"operationJob,omitempty"`
 }
 
 // DispatchResult is the terminal-of-this-attempt view returned by dispatch.
@@ -741,7 +756,26 @@ func (s *Service) schedulingFor(t Task) TaskScheduling {
 			break
 		}
 	}
+	sched.Operation, sched.OperationJob = s.inFlightFor(t.ID)
 	return sched
+}
+
+// inFlightFor reports the long operation running against a Task, if any, without
+// claiming it — the one caller that wants to know rather than to take.
+//
+// It takes s.mu, and that is not incidental: schedulingFor's only caller is
+// TaskStatus, which deliberately does NOT hold the lock (it reads the store
+// directly so a status read cannot queue behind a running verify). `s.inflight`
+// is written under s.mu by beginOp/endOp, so reading it unguarded from there is
+// a data race. The first version of this did exactly that; `go test -race`
+// is what says otherwise.
+func (s *Service) inFlightFor(taskID string) (kind, jobID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if op, running := s.inflight[taskID]; running {
+		return op.kind, op.jobID
+	}
+	return "", ""
 }
 
 // PlaneStatus is the plane-wide concurrency picture behind `daedalus task list`.

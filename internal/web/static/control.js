@@ -809,10 +809,36 @@
     });
   }
 
+  // What the plane is doing to this Task RIGHT NOW, from the plane rather than
+  // from what this page happens to have started.
+  //
+  // The difference matters: a review is a container run of minutes during which
+  // NOTHING about the Task changes — no state moves, no job appears — so every
+  // surface showed a Task sitting still while an agent was reading it. Whoever
+  // clicked the button saw a greyed-out plate; anyone else, or the same person
+  // after a reload, saw nothing whatever. This is reported by the plane, so it
+  // survives a reload and shows a review somebody started from the CLI.
+  const OPERATION = {
+    review: 'A second agent is reading this change in its own container. Advisory — it moves nothing.',
+    verify: 'Being verified in a clean container against the frozen policy.',
+    dispatch: 'A Job is being started: a container and a clean worktree at the frozen base.',
+  };
+
+  function paintInFlight(host, task) {
+    const op = detail && detail.scheduling && detail.scheduling.operation;
+    if (!op) return;
+    const line = text('div', 'ledger-inflight',
+      (OPERATION[op] || 'The plane is running ' + op + ' against this task.') +
+      (detail.scheduling.operationJob ? '  (' + detail.scheduling.operationJob + ')' : ''));
+    line.title = 'Reported by the control plane, not by this page';
+    host.appendChild(line);
+  }
+
   function paintObjective(host) {
     const task = detail && detail.task;
     host.appendChild(text('div', 'ledger-prose', task ? task.objective :
       (currentCard ? currentCard.objective : '')));
+    paintInFlight(host, task);
     paintIntent(host, task);
     // Say that a reading exists. The findings live on RECORD, and an operator
     // with no reason to look there would never learn an agent had read their
@@ -1315,6 +1341,66 @@
     return null;
   }
 
+  // --- saying what is happening WHILE it happens ------------------------------
+  //
+  // The in-flight message used to be `'…' + cmd.label` in the same dim style a
+  // finished message uses. For `Review` that meant the entire account of a
+  // container starting, an agent checking out a diff and reading it — minutes of
+  // work — was the word "…Review" in 11px grey, below the commands, while the
+  // operator's eye was on the greyed-out buttons. Reported as "something IS
+  // happening, but I cannot see that it is a review".
+  //
+  // Three things were missing and all three matter:
+  //
+  //  1. WHAT is happening, in words rather than a button's label. "Review" names
+  //     the verb the operator pressed; it does not say a second agent is now
+  //     reading their change in its own container.
+  //  2. That it TAKES MINUTES. Without that, a slow command and a wedged page are
+  //     indistinguishable, and the reasonable response to both is to reload —
+  //     which abandons the reading.
+  //  3. That it is ALIVE. A static line proves nothing; a counter that moves is
+  //     the difference between "working" and "stuck", and costs one interval.
+  const RUNNING = {
+    dispatch: 'Starting a Job: a container, a clean worktree at the frozen base, and an agent.',
+    verify: 'Verifying in a clean container against the frozen policy. Minutes, not seconds.',
+    waive: 'Verifying in a clean container. The result is recorded either way; only the consequence is waived.',
+    review: 'A second agent is reading this change in its own container — the diff, the objective and the reason it was asked for. Minutes, not seconds.',
+    reverify: 'Re-grading the existing artifact. No new Job, no attempt spent.',
+    'reverify-amended': 'Re-grading against an amended policy, re-frozen at the current target.',
+    retry: 'Starting a fresh Job for this task.',
+    'retry-rebase': 'Re-pinning to the current target, then starting a fresh Job.',
+    integrate: 'Landing: serialize, rebase onto the target, re-verify the MERGED result, then swap.',
+    'integrate-branch': 'Landing, then fast-forwarding your checkout.',
+    sync: 'Re-pointing the integration target at the checkout’s HEAD.',
+  };
+
+  let runningTimer = null;
+  let runningSince = 0;
+  let runningText = '';
+
+  function startRunning(cmd, id) {
+    runningSince = Date.now();
+    runningText = RUNNING[cmd.key] || cmd.label + ' ' + id + '…';
+    paintRunning();
+    // One second: fast enough to read as live, slow enough that nobody is
+    // watching a number flicker. Cleared on every exit path in execute(), for
+    // the same reason `busy` is — a timer left running would repaint over
+    // whatever the command finally said.
+    runningTimer = setInterval(paintRunning, 1000);
+  }
+
+  function stopRunning() {
+    if (runningTimer) clearInterval(runningTimer);
+    runningTimer = null;
+  }
+
+  function paintRunning() {
+    const secs = Math.round((Date.now() - runningSince) / 1000);
+    const elapsed = secs < 60 ? secs + 's' :
+      Math.floor(secs / 60) + 'm ' + String(secs % 60).padStart(2, '0') + 's';
+    say('▶ ' + runningText + '  (' + elapsed + ')', 'is-running');
+  }
+
   // runCommand walks the three gates a command can have, in order: ask for a
   // value, ask whether you meant it, then do it. Each is optional and most
   // commands have none.
@@ -1374,7 +1460,7 @@
   function execute(cmd, id, value, jobID) {
     busy = true;
     paintCommands(currentState());
-    say('…' + cmd.label, '');
+    startRunning(cmd, id);
     let started;
     try {
       started = cmd.run(id, value, jobID);
@@ -1383,19 +1469,23 @@
       // and release the surface; the alternative is a page that has quietly
       // stopped accepting input.
       busy = false;
+      stopRunning();
       say(cmd.label + ' could not be sent: ' + (e && e.message ? e.message : e), 'is-bad');
       paintEntry();
       return;
     }
     if (!started || typeof started.then !== 'function') {
       busy = false;
+      stopRunning();
       say(cmd.label + ' returned nothing to wait on — this is a bug in the page.', 'is-bad');
       paintEntry();
       return;
     }
     started.then(function (result) {
+      stopRunning();
       say(cmd.done ? cmd.done(result) : 'Done.', 'is-good');
     }).catch(function (err) {
+      stopRunning();
       // A refusal is the plane working. Said differently from a failure, and
       // labelled with the reason code, because the reason is what tells you which
       // command to reach for next.
@@ -1682,6 +1772,7 @@
     if (!view || !view.classList.contains('active')) return;
     busy = false;   // whatever broke, do not leave the surface locked
     awaiting = false;
+    stopRunning();  // …or a live ticker painting over the error
     say('The page hit an error: ' + what + ' — please report it; a reload will unstick it.', 'is-bad');
   }
 
@@ -1724,6 +1815,9 @@
     // and a stuck page is a worse bug than the one this guard fixes.
     awaiting = false;
     pinned = null;
+    // A timer left running would repaint the message line of a view nobody is
+    // looking at, and would still be running when they came back.
+    stopRunning();
     const overlay = el('ledger-prompt');
     if (overlay) overlay.classList.remove('is-open');
     stop();

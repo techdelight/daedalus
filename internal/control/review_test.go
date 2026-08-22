@@ -5,6 +5,7 @@ package control
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 )
 
@@ -319,3 +320,97 @@ func TestReview_RefusesWhenNothingHasBeenProduced(t *testing.T) {
 		t.Errorf("reviewing a planned task = %v, want ErrWrongState", err)
 	}
 }
+
+// A review is a container run of MINUTES during which nothing about the Task
+// changes: no state moves, no job appears. So every surface showed a Task
+// sitting still while an agent was reading it — reported from the Ledger as
+// "something IS happening, but I cannot see that it is a review".
+//
+// The plane always knew: withClaim records an inflightOp so a second operation
+// on the same Task is refused. The knowledge existed only to say no to a
+// machine, never to inform a person. This asserts it now reaches the status a
+// human reads — which is what makes it survive a reload, and show a review
+// somebody started from the CLI.
+func TestTaskStatus_ReportsAReviewInFlight(t *testing.T) {
+	var (
+		duringReview StatusView
+		statusErr    error
+	)
+	// The reviewer reads the status WHILE it runs — the only moment the claim
+	// exists. Asking afterwards would prove nothing.
+	svc, store, task := dispatchToCandidate(t, "AGENT_RAN.txt", &recordingVerifier{pass: true})
+	svc.reviewer = reviewerFunc(func(ctx context.Context, spec ReviewSpec) ReviewOutcome {
+		duringReview, statusErr = svc.TaskStatus(spec.TaskID)
+		// CONCURRENTLY too, because that is the real shape: the daemon serves
+		// status reads from other goroutines while a review holds its claim, and
+		// s.inflight is written under s.mu by beginOp/endOp. Reading it unguarded
+		// is a data race, and a single-goroutine test would never show it — this
+		// makes `go test -race` able to fail, which is the only way the guard is
+		// actually asserted rather than asserted about.
+		var wg sync.WaitGroup
+		for i := 0; i < 8; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				if v, err := svc.TaskStatus(spec.TaskID); err == nil &&
+					v.Scheduling.Operation != "review" {
+					t.Errorf("concurrent status saw operation %q, want review", v.Scheduling.Operation)
+				}
+			}()
+		}
+		// …while ANOTHER task's claim is taken and released. This is the write
+		// half, and it is the half that makes the race real: reading s.inflight
+		// during a review races not with this task's own claim (nothing writes it
+		// then) but with beginOp/endOp for every OTHER task the daemon is handling.
+		// Without that, eight concurrent readers of a map nobody writes prove
+		// nothing at all.
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < 8; i++ {
+				// s.mu HELD, as withClaim documents it must be — every real caller
+				// does this. A bare call would manufacture a race in the test rather
+				// than exercise the one in the code, which is what the first version
+				// of this did and what the detector correctly complained about.
+				svc.mu.Lock()
+				_ = svc.withClaim("T-other", inflightOp{kind: "dispatch"}, func() error { return nil })
+				svc.mu.Unlock()
+			}
+		}()
+		wg.Wait()
+		return ReviewOutcome{Passed: true, Reasoning: "read it", Reviewer: "test"}
+	})
+	if _, err := svc.VerifyTask(task.ID, VerifyRequest{}); err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	if _, err := svc.ReviewTask(task.ID); err != nil {
+		t.Fatalf("review: %v", err)
+	}
+	if statusErr != nil {
+		t.Fatalf("status during review: %v", statusErr)
+	}
+	if duringReview.Scheduling.Operation != "review" {
+		t.Errorf("operation during a review = %q, want %q — the status is where a "+
+			"human finds out the plane is busy with this task",
+			duringReview.Scheduling.Operation, "review")
+	}
+	if duringReview.Scheduling.OperationJob == "" {
+		t.Error("the job being reviewed should be named, so the entry can point at it")
+	}
+
+	// And it is CLEARED afterwards. A stale claim would leave every surface
+	// reporting a review that finished, which is worse than reporting none.
+	after, err := svc.TaskStatus(task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Scheduling.Operation != "" {
+		t.Errorf("operation after the review = %q, want empty", after.Scheduling.Operation)
+	}
+	_ = store
+}
+
+// reviewerFunc adapts a function to ReviewRunner.
+type reviewerFunc func(context.Context, ReviewSpec) ReviewOutcome
+
+func (f reviewerFunc) Review(ctx context.Context, spec ReviewSpec) ReviewOutcome { return f(ctx, spec) }

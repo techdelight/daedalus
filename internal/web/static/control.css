@@ -670,6 +670,55 @@
 .ledger-message.is-refused { color: var(--mana-hp-mid); }
 .ledger-message.is-bad { color: var(--mana-hp-lo-lt); }
 
+/* What the plane is doing to this task right now, reported by the plane.
+   Sits directly under the objective because it is the answer to "why is nothing
+   happening" — during a review the task genuinely does not move for minutes, and
+   without this the surface is indistinguishable from one that is stuck. */
+.ledger-inflight {
+    margin: 8px 0 2px;
+    padding: 6px 8px;
+    border-left: 3px solid var(--mana-hp-hi);
+    background: rgba(0, 0, 0, 0.18);
+    font-size: 11px;
+    line-height: 1.55;
+    color: var(--mana-text);
+    overflow-wrap: anywhere;
+    text-shadow: 1px 1px 0 var(--mana-ink);
+}
+
+/* A command that is RUNNING RIGHT NOW.
+   Deliberately not the dim style a finished message uses: while a verify or a
+   review is in flight this line is the only account of what the machine is
+   doing, and it was previously indistinguishable from the last thing it said.
+   Full-strength text and a pulsing cursor — the operator's question during a
+   two-minute container run is "is this alive or is it stuck", and only movement
+   answers it. */
+.ledger-message.is-running {
+    color: var(--mana-text);
+    font-weight: bold;
+}
+
+.ledger-message.is-running::before {
+    content: "";
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    margin-right: 6px;
+    vertical-align: middle;
+    background: var(--mana-hp-hi);
+    animation: ledger-pulse 1s steps(2) infinite;
+}
+
+/* steps(2), like the entry cursor: SNES UI does not ease. */
+@keyframes ledger-pulse {
+    0%, 49% { opacity: 1; }
+    50%, 100% { opacity: 0.15; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .ledger-message.is-running::before { animation: none; }
+}
+
 /* --- the target strip ---------------------------------------------------- */
 
 /* Where this entry's work would land. It belongs beside the entry rather than in
