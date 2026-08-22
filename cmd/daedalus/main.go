@@ -143,6 +143,9 @@ func run(args []string) error {
 	case "coordinator":
 		logging.Info("subcommand: coordinator")
 		return manageCoordinator(cfg)
+	case "control":
+		logging.Info("subcommand: control")
+		return manageControl(cfg)
 	case "docs":
 		logging.Info("subcommand: docs")
 		return manageDocs(cfg)

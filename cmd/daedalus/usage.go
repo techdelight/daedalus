@@ -32,6 +32,7 @@ func printUsage() {
 	fmt.Println("                           add-project <programme> <project> | add-dep <programme> <up> <down> |")
 	fmt.Println("                           remove <name>]")
 	fmt.Println("       daedalus coordinator [start | stop | status]")
+	fmt.Println("       daedalus control [start | stop | restart | status]")
 	fmt.Println("       daedalus completion <bash|zsh|fish>")
 	fmt.Println("       daedalus version [list | use <version> | rollback | prune [--keep N]]")
 	fmt.Println("       daedalus task [create | list | status <id> | dispatch <id> | verify <id> |")
@@ -48,7 +49,11 @@ func printUsage() {
 	fmt.Println("  init [dir]                    Scaffold project docs and print a getting-started guide")
 	fmt.Println("  <project-name>                Open a registered project (uses stored directory)")
 	fmt.Println("  <project-name> <project-dir>  Register and open a new project")
-	fmt.Println("  --build                       Rebuild images for all registered projects")
+	// `build` is a dispatched subcommand as well as a flag, and only the flag was
+	// listed — so `daedalus build` existed in the code and nowhere a reader could
+	// find it. Found by tightening the test below, which had been satisfied by
+	// "--build" containing the word.
+	fmt.Println("  build | --build               Rebuild images for all registered projects")
 	fmt.Println("  list                          List all registered projects")
 	fmt.Println("  prune                         Remove registry entries with missing directories")
 	fmt.Println("  remove <name> [name...]       Remove named projects from the registry")
@@ -75,6 +80,10 @@ func printUsage() {
 	fmt.Println("                                is waiting on outside itself")
 	fmt.Println("  coordinator start|stop|status Host-side session daemon (auto-spawned; stop it to pick up")
 	fmt.Println("                                a rebuilt image or binary)")
+	fmt.Println("  control start|stop|restart|status")
+	fmt.Println("                                The control-plane daemon (auto-spawned by `task` and")
+	fmt.Println("                                `programmes`). `restart` after an upgrade: a running")
+	fmt.Println("                                daemon serves the routes it was BUILT with")
 	fmt.Println("  guild-master                  Open the built-in cross-project overseer. It reads every")
 	fmt.Println("                                registered project read-only and proposes; it cannot act")
 	fmt.Println()

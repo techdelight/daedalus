@@ -103,7 +103,7 @@ type unavailable struct {
 	Reason    string `json:"reason,omitempty"`
 }
 
-const planeDownReason = "the daedalus-control daemon is not running; start it with `daedalus task list`"
+const planeDownReason = "the daedalus-control daemon is not running; start it with `daedalus control start`"
 
 // collection serves a polled list, reporting unreachability as data.
 func (ws *WebServer) collection(w http.ResponseWriter, empty func(unavailable) any, load func(control.TaskAPI) (any, error)) {

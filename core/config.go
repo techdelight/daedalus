@@ -40,6 +40,7 @@ type Config struct {
 	RunnersArgs     []string // positional args for "runners" subcommand
 	ProgrammesArgs  []string // positional args for "programmes" subcommand
 	CoordinatorArgs []string // positional args for "coordinator" subcommand
+	ControlArgs     []string // positional args for "control" subcommand (the plane daemon)
 	DocsArgs        []string // positional args for "docs" subcommand
 	InitArgs        []string // positional args for "init" subcommand
 	VersionArgs     []string // positional args for "version" subcommand

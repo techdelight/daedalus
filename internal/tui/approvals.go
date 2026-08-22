@@ -97,7 +97,7 @@ func loadApprovals(api control.TaskAPI) tea.Cmd {
 		if api == nil {
 			return approvalsLoadedMsg{
 				available: false,
-				reason:    "daedalus-control is not running (start it with `daedalus task list`)",
+				reason:    "daedalus-control is not running (start it with `daedalus control start`)",
 			}
 		}
 		tasks, err := api.PendingApprovals()

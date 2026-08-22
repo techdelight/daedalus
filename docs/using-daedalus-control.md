@@ -143,25 +143,43 @@ daedalus task integrate T-7 --into-branch    # …and fast-forwards your checkou
 prints the next sensible command when it finishes, so you can follow the pipeline
 without this page open.
 
-### Starting the plane
+### Starting and stopping the plane
 
-There is no `daedalus control start`. The daemon is spawned on demand by any CLI
-call that needs it, so the ordinary way to start it is to ask it something:
+**You do not have to.** The daemon is spawned on demand by any CLI call that
+needs it — `daedalus task list` starts it, reconciling on boot — and for ordinary
+use that is the whole story.
 
-```bash
-daedalus task list      # spawns daedalus-control, which reconciles on boot
-```
-
-It listens on `<data-dir>/.daedalus/control.sock`, writes `<data-dir>/.daedalus/control.log`,
-and records its pid in `control.pid` next to them. To stop it:
+When you do want to say so explicitly:
 
 ```bash
-kill $(cat <data-dir>/.daedalus/control.pid)
+daedalus control start      # spawn it, or report the one already running
+daedalus control status     # pid, both sockets, and what the plane is doing
+daedalus control stop       # SIGTERM, and wait for it to go
+daedalus control restart    # stop then start — see below
 ```
 
-The next CLI call starts it again. Stopping it is also how you pick up a rebuilt
-binary — `EnsureRunning` reuses a live daemon and there is no version handshake,
-so an upgrade does not displace one that is already running.
+It listens on `<data-dir>/.daedalus/control.sock`, mounts the restricted
+`control-agent.sock` beside it for the Guild Master, writes
+`<data-dir>/.daedalus/control.log`, and records its pid in `control.pid`.
+
+Stopping loses nothing: the plane's state is in `control.db`, and a stopped
+daemon is one that is not listening, not a cancelled Task.
+
+**`restart` is the one to remember after an upgrade.** A running daemon serves
+the routes it was *built* with — `EnsureRunning` reuses a live daemon and there
+is no version handshake — so installing a new version and calling a new operation
+gets a `404` from a daemon that is working perfectly. It is simply the old one.
+`daedalus control status` says so when it can tell:
+
+```
+Stale: the running daemon started before …/daedalus-control was installed (2h ago).
+       It serves the routes it was BUILT with, so a command added since then will
+       404. Restart it: `daedalus control restart`.
+```
+
+That check compares the daemon binary's mtime against the pidfile's, which is a
+heuristic and is reported as one — the daemon serves no version of its own to
+ask, which would be the exact answer.
 
 **The Web UI never spawns the daemon**, deliberately: opening a dashboard should
 not start a background process. It looks for one, and re-checks every few seconds

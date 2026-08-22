@@ -143,6 +143,7 @@ daedalus personas [list | show <name> | create <name> | remove <name>]
 daedalus programmes [list | show <name> | status <name> [--suggest-deps] | create <name> <what-it-is-for> |
                      add-project <prog> <proj> | add-dep <prog> <up> <down> | remove <name>]
 daedalus coordinator [start | stop | status]
+daedalus control [start | stop | restart | status]
 daedalus task [create | list | status <id> | dispatch <id> | verify <id> | approve <id> |
                integrate <id> | board | approvals | proposals | depends <id> | steer <job-id>]
 daedalus guild-master
@@ -168,6 +169,7 @@ daedalus --help
 | `personas` | List, show, create, or remove named persona configurations |
 | `programmes` | The shared intent several projects serve: list, show, roll up (`status`), create, amend or dissolve |
 | `coordinator` | Manage the host-side runner daemon (`start`, `stop`, `status`) — see [Runner Path](#runner-path) |
+| `control` | Manage the control-plane daemon (`start`, `stop`, `restart`, `status`). Auto-spawned by `task` and `programmes`; `restart` after an upgrade — see [Control Plane](#control-plane) |
 | `task` | Host-side control-plane work: create, dispatch, verify, approve and land Tasks — see [Control Plane](#control-plane) |
 | `guild-master` | Open the built-in cross-project overseer — see [Guild Master](#guild-master) |
 | `tui` | Interactive dashboard for managing projects |

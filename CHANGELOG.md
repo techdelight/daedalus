@@ -74,6 +74,43 @@ All notable changes to this project will be documented in this file.
   field. `scripts/verify-guild-control.sh static` drives both over the real
   sockets.
 
+### Added
+- **`daedalus control start|stop|restart|status` — an explicit lifecycle for the
+  control-plane daemon.** Auto-spawn covers starting and covers nothing else, so
+  two things an operator genuinely needs had no command at all. **Stopping**: the
+  documented answer was `kill $(cat <data-dir>/.daedalus/control.pid)`, which asks
+  somebody to know a path and reach for `kill(1)` against a daemon they never
+  started by hand. **Restarting after an upgrade**: a running daemon serves the
+  routes it was *built* with — `EnsureRunning` reuses a live one and there is no
+  version handshake — so installing a new version and calling a new operation
+  returns 404 from a daemon that is working perfectly. It is simply the old one,
+  and that has cost real diagnosis time here more than once.
+  - Modelled on `daedalus coordinator` deliberately: same subcommands, same
+    pidfile-liveness rule, same output. Two daemons with two lifecycles to learn
+    would be one more thing to remember for no gain.
+  - `status` prints the pid, **both** sockets (which one a caller reaches decides
+    what it may do, and a missing agent socket is the usual reason a Guild Master
+    starts with no control tools), the log path, and what the plane is doing —
+    jobs running against the limit, tasks awaiting you, proposals pending.
+  - It also reports the **upgrade case by name** rather than leaving it to be
+    diagnosed: if the daemon binary is newer than the running daemon, `status`
+    says the process predates its own binary and names `control restart` as the
+    fix. That compares the binary's mtime against the pidfile's, which is a
+    heuristic and is labelled as one — the daemon serves no version of its own.
+  - `stop` is SIGTERM and never SIGKILL, so the daemon closes its sockets and its
+    database on the way out and leaves no socket file for the next start to reason
+    about. It also says plainly that nothing was lost: the state is in
+    `control.db`, and a stopped daemon is not a cancelled Task.
+  - The three surfaces that told people to run `daedalus task list` to start the
+    plane — the Ledger's closed panel, the web API's unavailable reason, and the
+    TUI's approvals view — now name `daedalus control start`.
+  - **Found while wiring it up: `daedalus build` is dispatched and appears in no
+    help text.** `TestUsage_MentionsEverySubcommandItDispatches` was passing on a
+    substring match — "build" matched the flag `--build`, and "control" would have
+    matched the phrase "control plane". A test that cannot fail for the reason it
+    was written is worse than no test, because it counts as coverage. It now
+    requires the name to BEGIN a line of the help, and both commands got entries.
+
 ### Changed
 - **The MCP tool `programme_board` is now `task_board` (#86).** It groups TASKS by
   whose move it is and has never had anything to do with programmes; the name cost

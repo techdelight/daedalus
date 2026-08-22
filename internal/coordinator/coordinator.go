@@ -476,7 +476,7 @@ func guildControlMountArgs(cfg *core.Config) []string {
 	if len(mount) == 0 {
 		log.Printf("coordinator: no control-plane agent socket at %s — the Guild Master "+
 			"starts WITHOUT the guild-control tools (read-only overseer). Start the plane "+
-			"with `daedalus task list` and relaunch to give it the client.", sock)
+			"with `daedalus control start` and relaunch to give it the client.", sock)
 	}
 	return mount
 }

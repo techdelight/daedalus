@@ -30,7 +30,7 @@ _daedalus() {
     local cur prev words cword
     _init_completion || return
 
-    local subcommands="list prune remove rename config tui web completion skills runners personas programmes docs init version task"
+    local subcommands="list prune remove rename config tui web completion skills runners personas programmes coordinator control docs init version task"
     local flags="--build --target --resume -p --debug --dind --display --force --port --host --no-color --runner --persona --auth --no-auth --help -h"
 
     # Complete subcommands and flags for the first argument
@@ -64,6 +64,12 @@ _daedalus() {
             ;;
         programmes)
             COMPREPLY=($(compgen -W "list show status create add-project add-dep remove" -- "${cur}"))
+            ;;
+        coordinator)
+            COMPREPLY=($(compgen -W "start stop status" -- "${cur}"))
+            ;;
+        control)
+            COMPREPLY=($(compgen -W "start stop restart status" -- "${cur}"))
             ;;
         docs)
             COMPREPLY=($(compgen -W "lint --ci" -- "${cur}"))
@@ -103,6 +109,8 @@ _daedalus() {
         'runners:List or show built-in runner profiles'
         'personas:Manage named persona configurations'
         'programmes:Manage multi-project programmes'
+        'coordinator:Manage the host-side session daemon'
+        'control:Manage the control-plane daemon'
         'docs:Check project documents against the dashboard-arc format'
         'init:Scaffold project docs and print a getting-started guide'
         'version:Manage side-by-side installed versions'
@@ -163,6 +171,12 @@ _daedalus() {
                 programmes)
                     _values 'action' list show status create add-project add-dep remove
                     ;;
+                coordinator)
+                    _values 'action' start stop status
+                    ;;
+                control)
+                    _values 'action' start stop restart status
+                    ;;
                 docs)
                     _values 'action' lint --ci
                     ;;
@@ -202,6 +216,8 @@ complete -c daedalus -n '__fish_use_subcommand' -a 'skills' -d 'Manage shared sk
 complete -c daedalus -n '__fish_use_subcommand' -a 'runners' -d 'List or show built-in runner profiles'
 complete -c daedalus -n '__fish_use_subcommand' -a 'personas' -d 'Manage named persona configurations'
 complete -c daedalus -n '__fish_use_subcommand' -a 'programmes' -d 'Manage multi-project programmes'
+complete -c daedalus -n '__fish_use_subcommand' -a 'coordinator' -d 'Manage the host-side session daemon'
+complete -c daedalus -n '__fish_use_subcommand' -a 'control' -d 'Manage the control-plane daemon'
 complete -c daedalus -n '__fish_use_subcommand' -a 'docs' -d 'Check project documents against the dashboard-arc format'
 complete -c daedalus -n '__fish_seen_subcommand_from docs' -a 'lint' -d 'Check ROADMAP.md/SPRINTS.md against the arc format'
 complete -c daedalus -n '__fish_seen_subcommand_from docs' -l ci -d 'Treat warnings as failures too'
@@ -261,6 +277,8 @@ complete -c daedalus -n '__fish_seen_subcommand_from personas' -a 'list show cre
 
 # Programmes subcommand
 complete -c daedalus -n '__fish_seen_subcommand_from programmes' -a 'list show status create add-project add-dep remove'
+complete -c daedalus -n '__fish_seen_subcommand_from coordinator' -a 'start stop status'
+complete -c daedalus -n '__fish_seen_subcommand_from control' -a 'start stop restart status'
 
 # Dynamic project names for remove and config
 complete -c daedalus -n '__fish_seen_subcommand_from remove rename config' -a '(daedalus list 2>/dev/null | tail -n +3 | string match -r "^\S+")'

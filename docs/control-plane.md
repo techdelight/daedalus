@@ -70,6 +70,17 @@ auto-spawns the daemon detached (ssh-agent style, exactly like
 `daedalus coordinator`) and reuses a running one via a pidfile + live-dial probe.
 Because the daemon is the only writer, there are never two writers on SQLite.
 
+**`daedalus control start|stop|restart|status`** is the explicit lifecycle, added
+because auto-spawn covers starting and covers nothing else. Stopping had no
+command at all — the documented answer was `kill $(cat …/control.pid)`, which
+asks an operator to know a path and reach for `kill(1)` against a daemon they
+never started by hand. And **`restart` is the answer to an upgrade**: a running
+daemon serves the routes it was *built* with, `EnsureRunning` reuses a live one,
+and there is no version handshake — so a new operation returns 404 from a daemon
+that is behaving perfectly. `status` reports that case when it can tell, by
+comparing the daemon binary's mtime against the pidfile's; it is a heuristic and
+says so, because the daemon serves no version of its own to ask.
+
 The whole control-plane logic lives in a host-tested `control.Service`; the
 daemon is a thin HTTP translation over it. Both the in-process `Service` and the
 socket `Client` implement one `TaskAPI`, so the CLI is identical whether it runs

@@ -37,14 +37,31 @@ func TestUsage_MentionsEverySubcommandItDispatches(t *testing.T) {
 		t.Fatalf("found %d subcommands, which cannot be right", len(cases))
 	}
 
+	// The check is that the name STARTS a line in the command table — not that it
+	// appears somewhere in the text.
+	//
+	// A plain substring match is what this test used to do, and it was satisfied
+	// by accident twice: "control" matched the phrase "control plane", and "build"
+	// matched the flag "--build". Both commands were dispatched and neither had an
+	// entry a reader could find, which is precisely what this test exists to
+	// prevent. A test that cannot fail for the reason it was written is worse than
+	// no test, because it is counted as coverage.
 	help := captureUsage(t)
+	listed := map[string]bool{}
+	for _, line := range strings.Split(help, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		listed[fields[0]] = true
+	}
 	for _, m := range cases {
 		name := m[1]
 		if name == "help" {
 			continue // `--help` is listed as a flag, not as a command
 		}
-		if !strings.Contains(help, name) {
-			t.Errorf("`daedalus %s` is dispatched but appears nowhere in --help; "+
+		if !listed[name] {
+			t.Errorf("`daedalus %s` is dispatched but begins no line of --help; "+
 				"a command missing from the help does not exist to anybody reading it", name)
 		}
 	}
