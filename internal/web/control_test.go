@@ -862,6 +862,17 @@ func TestLedger_ExplainsThatLandingMovesNoBranch(t *testing.T) {
 		t.Errorf("the Ledger has drifted from control.LandedNote — update LANDED_NOTE in "+
 			"internal/web/static/control.js to say, exactly:\n\t%s", control.LandedNote)
 	}
+	// The LANDED COLUMN carries it too (RV-8's last note, #79's remaining half).
+	// The entry explains a landing, but the gap #79 names is somebody concluding
+	// FROM A GLANCE that the work is in their checkout — and a glance never
+	// reaches the entry. Asserted on the section footnote's own call, not on the
+	// constant's name, for the reason two assertions in this very test had to be
+	// rewritten: an identifier is satisfied by prose.
+	if !strings.Contains(js, "BOARD_LANDED ? LANDED_NOTE") {
+		t.Error("the Landed column renders no footnote, so a reader scanning the list still " +
+			"sees `landed` and nothing about where the work actually is")
+	}
+
 	// …and that the constant is USED. Pinning the text proves only that it is
 	// declared: remove the line that appends it and the assertion above still
 	// passes, which is the same hole as the one fixed just above.

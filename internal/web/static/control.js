@@ -121,6 +121,10 @@
   // which — everything else renders whatever columns the plane sends, so a new
   // column appears here without a code change.
   const AWAITING_YOU = 'awaiting_approval';
+  // The board's own key for the landed column (board.go's BoardLanded). Named
+  // here for the same reason AWAITING_YOU is: the Ledger renders whatever columns
+  // the plane sends, and these are the only two whose identity it cares about.
+  const BOARD_LANDED = 'landed';
 
   // The status word, coloured like a JRPG status effect. It replaced a note in
   // the section margin naming whose move it was: with a word on every row saying
@@ -530,7 +534,7 @@
     return row;
   }
 
-  function section(list, title, count, rows) {
+  function section(list, title, count, rows, footnote) {
     const sec = document.createElement('div');
     sec.className = 'ledger-section';
     const head = document.createElement('div');
@@ -543,6 +547,9 @@
     } else {
       rows.forEach(function (r) { sec.appendChild(r); });
     }
+    // One sentence for the whole section, not one per row. A footnote repeated
+    // down a list is read once and then becomes the shape of the list.
+    if (footnote) sec.appendChild(text('div', 'ledger-section-note', footnote));
     list.appendChild(sec);
     return sec;
   }
@@ -584,7 +591,19 @@
         }
         return entry(c.taskId, c.objective, markFor(col.key), function () { selectTask(c, col.key); });
       });
-      section(list, col.title, col.cards.length, rows);
+      // LANDED IS THE ONE COLUMN THAT READS AS FINISHED AND IS NOT (RV-8).
+      //
+      // The plane lands on its own ref, so the work is nowhere the reader's branch
+      // can see it. The entry explains that, and the CLI explains it at the moment
+      // of landing — but the gap #79 names is somebody concluding FROM A GLANCE
+      // that the work is in their checkout, and a glance is exactly what the entry
+      // does not get. So the sentence goes where the eye already is.
+      //
+      // On the SECTION, not on each row: a per-row footnote in a list is
+      // unreadable, and the TUI board answers this the same way with the same
+      // words from the same constant.
+      section(list, col.title, col.cards.length, rows,
+        col.key === BOARD_LANDED ? LANDED_NOTE : '');
     });
 
     // Proposals are entries in the same ledger: an agent asked for something and

@@ -367,6 +367,23 @@
     text-shadow: 1px 1px 0 var(--mana-ink);
 }
 
+/* One sentence for a whole SECTION — used by Landed, which is the one column
+   that reads as a finished job and is not: the plane lands on its own ref, so
+   the work is nowhere the reader's branch can see it (#79).
+
+   Indented to the row text rather than the frame so it reads as belonging to the
+   list above it, and dim because it explains the column rather than competing
+   with it. Once per section, never per row: a footnote repeated down a list
+   stops being read and becomes the shape of the list. */
+.ledger-section-note {
+    padding: 2px 8px 6px 46px;
+    font-size: 10px;
+    line-height: 1.5;
+    color: var(--mana-text-dim);
+    overflow-wrap: anywhere;
+    text-shadow: 1px 1px 0 var(--mana-ink);
+}
+
 /* --- commands ----------------------------------------------------------- */
 
 /* A decision is a menu command, and it belongs in the entry window rather than

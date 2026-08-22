@@ -115,6 +115,22 @@ All notable changes to this project will be documented in this file.
     happens to produce an identical tree, and that deserves its own thought.
 
 ### Fixed
+- **The Ledger's Landed column now says where landed work actually is — closing
+  the second half of #79.** The entry explained a landing and the CLI explained it
+  at the moment of landing, but the gap #79 names is somebody concluding **from a
+  glance** that the work is in their checkout, and a glance never reaches the
+  entry. The list row still read `landed` with nothing beside it, which RV-8
+  correctly called out as the exact rendering the issue describes.
+  - One sentence for the **section**, never one per row: a footnote repeated down
+    a list stops being read and becomes the shape of the list. That is the same
+    answer the TUI board gives, in the same words from the same
+    `control.LandedNote`, which is now rendered on three surfaces from one
+    constant.
+  - Pinned by asserting on the footnote's own call (`BOARD_LANDED ? LANDED_NOTE`)
+    rather than on an identifier — the correction two assertions in this same test
+    already needed, since an identifier is satisfied by prose. Verified by
+    removing the footnote and watching it fail.
+
 - **The Ledger said nothing while a review ran.** Reported from use: *"when I
   trigger a review it will not show me a review is active — buttons are greyed
   out, something IS happening, but I'm not seeing any info that it is a review."*
