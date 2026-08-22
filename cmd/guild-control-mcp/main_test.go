@@ -103,3 +103,49 @@ func TestMergeProgramme_AnEmptyListClearsAndNilKeeps(t *testing.T) {
 		t.Errorf("an absent list should keep: deps=%v projects=%v", kept.Deps, kept.Projects)
 	}
 }
+
+// The Guild Master can finally say what its work is FOR (#88).
+//
+// Every task it filed was an orphan until this: the plane has carried a
+// programme and a rationale on CreateTaskRequest since Sprint 66, a human's CLI
+// has passed them since, and the agent's own tool dropped both on the floor.
+// Same shape as #82 and #85 — the plane supports it and the agent cannot reach
+// it — so the pass-through is tested rather than assumed.
+func TestCreateTaskRequest_CarriesTheProgrammeAndTheReason(t *testing.T) {
+	got := createTaskRequest(CreateTaskInput{
+		Project: "app", Objective: "unify the theming",
+		Programme: "fluency", Rationale: "three projects grew their own",
+	})
+	if got.Programme != "fluency" {
+		t.Errorf("programme = %q, want it passed through UNRESOLVED for the plane to match", got.Programme)
+	}
+	if got.Rationale != "three projects grew their own" {
+		t.Errorf("rationale = %q, want it carried", got.Rationale)
+	}
+	if got.Project != "app" || got.Objective != "unify the theming" {
+		t.Errorf("the original fields must survive: %+v", got)
+	}
+}
+
+// Both fields are optional. A task with no stated reason should be visibly
+// unattributed rather than impossible to file — requiring them would only make
+// an agent invent a programme to satisfy a field.
+func TestCreateTaskRequest_ProgrammeAndReasonAreOptional(t *testing.T) {
+	got := createTaskRequest(CreateTaskInput{Project: "app", Objective: "x"})
+	if got.Programme != "" || got.Rationale != "" {
+		t.Errorf("nothing should be invented: %+v", got)
+	}
+}
+
+// An all-zero Budget is not "no budget" to the plane — it reads as a request for
+// zero attempts. So one is attached only when the agent actually narrowed
+// something; otherwise a task is filed that can never run.
+func TestCreateTaskRequest_BudgetOnlyWhenNarrowed(t *testing.T) {
+	if got := createTaskRequest(CreateTaskInput{Project: "app", Objective: "x"}); got.Budget != nil {
+		t.Errorf("no narrowing should mean no budget, got %+v", got.Budget)
+	}
+	got := createTaskRequest(CreateTaskInput{Project: "app", Objective: "x", MaxAttempts: 2})
+	if got.Budget == nil || got.Budget.MaxAttempts != 2 {
+		t.Errorf("a narrowed budget must reach the plane: %+v", got.Budget)
+	}
+}

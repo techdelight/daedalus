@@ -159,3 +159,29 @@ func TestGuildControlSocketMount_RefusesAnythingThatIsNotASocket(t *testing.T) {
 		t.Errorf("an empty path produced a mount: %v", got)
 	}
 }
+
+// Every superseded role doc must classify as outdated, and none may equal the
+// current one.
+//
+// This is what makes the refresh safe to keep using. A prior that is byte-identical
+// to the current text would mean somebody rolled the version forward without
+// changing anything — and the classification would answer "current" for a doc that
+// was meant to be replaced, silently leaving an old installed copy in place.
+// Checked over the list rather than per version, so a third version costs nothing.
+func TestGuildMasterRoleDocPriors_AreAllSuperseded(t *testing.T) {
+	if len(guildMasterRoleDocPriors) == 0 {
+		t.Fatal("the prior list is empty; a refresh can then never update anything")
+	}
+	for i, prior := range guildMasterRoleDocPriors {
+		if prior == GuildMasterRoleDoc {
+			t.Errorf("prior %d is identical to the current doc — the version was rolled "+
+				"forward without the text changing, so an installed copy will never refresh", i)
+		}
+		if got := ClassifyGuildMasterRoleDoc(prior); got != RoleDocOutdated {
+			t.Errorf("prior %d classifies as %v, want RoleDocOutdated", i, got)
+		}
+	}
+	if ClassifyGuildMasterRoleDoc(GuildMasterRoleDoc) != RoleDocCurrent {
+		t.Error("the current doc must classify as current, or every launch rewrites it")
+	}
+}

@@ -595,6 +595,14 @@ Task — requiring them would only make people invent programmes to satisfy a fi
 What you get by supplying them is a record that can still answer *why* a year
 later, when the objective alone cannot.
 
+**The Guild Master can do this too**, through `create_task` — it names the
+programme and the reason exactly as you do here. Until 2026-08-22 it could not,
+and every task it filed was an orphan: it could list programmes, propose one,
+amend and dissolve one, and could not attach a single task to any of them (#88).
+A reference that matches no programme **refuses the create** rather than filing
+the task with the link quietly dropped, which would read as attached to whoever
+wrote the request and belong to none in the data.
+
 The rationale is recorded with **who wrote it**, taken from the socket the request
 arrived on. You will see `(human)` or `(agent)` beside it in `task status`. That
 is deliberate: an agent may draft a perfectly good reason, and it should read as
@@ -820,7 +828,7 @@ claim to be human, and the tiers are:
 | Tier | Operations | An agent… |
 |---|---|---|
 | Read | list/get tasks, events, approvals, queues, **programmes** | executes |
-| Bounded write | create task, request verification, request review | executes |
+| Bounded write | create task (**with the programme it serves and why**), request verification, request review | executes |
 | Consequential | dispatch, retry, replan, cancel, integrate, approve/reject, target resync, **declare a dependency**, **steer or withdraw a steer**, **form / amend / dissolve a programme** | gets a **proposal**, not an action |
 | Human-only | confirming or denying a proposal | is refused |
 

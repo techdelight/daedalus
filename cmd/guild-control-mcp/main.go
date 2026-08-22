@@ -82,6 +82,20 @@ func newServer(api control.TaskAPI) *mcp.Server {
 type CreateTaskInput struct {
 	Project   string `json:"project" jsonschema:"the registered project the work belongs to"`
 	Objective string `json:"objective" jsonschema:"what to accomplish, in plain language"`
+	// Programme and Rationale are what this work is FOR (#88).
+	//
+	// Without them every task the Guild Master filed was an orphan: the seat whose
+	// whole job is noticing what projects have in common could list programmes,
+	// propose one, amend and dissolve one — and could not attach a single task to
+	// any of them. The plane has carried both fields since Sprint 66 and a human's
+	// CLI has passed them since; only the agent's tool did not, which is the same
+	// shape as #82 and #85.
+	//
+	// Both optional, deliberately. A Task with no stated reason should be VISIBLY
+	// unattributed rather than impossible to file — requiring them would only make
+	// an agent invent a programme to satisfy a field.
+	Programme string `json:"programme,omitempty" jsonschema:"optional: the programme this work serves — an id (PR-3) or its name. Must already exist; use list_programmes"`
+	Rationale string `json:"rationale,omitempty" jsonschema:"optional: why this work is worth doing, in one or two sentences. Recorded as YOURS, and a reviewer later judges the change against it"`
 	// Budget narrowing only: the plane clamps to the project's ceiling and refuses
 	// anything wider, so this can reduce scope and never widen it.
 	MaxAttempts      int `json:"maxAttempts,omitempty" jsonschema:"optional: cap the attempts for this task (may only narrow the project policy)"`
@@ -322,18 +336,32 @@ func registerControlTools(server *mcp.Server, api control.TaskAPI) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "create_task",
-		Description: "Create a task: state WHAT should be accomplished for a project. The control plane resolves the project, pins the base commit, freezes the acceptance policy and applies the project's budget ceiling — none of which this tool can influence. Allowed directly, because it cannot exceed policy.",
+		Description: "Create a task: state WHAT should be accomplished for a project, and — if it serves one — the programme it is for and why. The control plane resolves the project and the programme, pins the base commit, freezes the acceptance policy and applies the project's budget ceiling — none of which this tool can influence. Allowed directly, because it cannot exceed policy.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in CreateTaskInput) (*mcp.CallToolResult, OutcomeOutput, error) {
-		request := control.CreateTaskRequest{Project: in.Project, Objective: in.Objective}
-		if in.MaxAttempts > 0 || in.WallClockSeconds > 0 {
-			request.Budget = &control.Budget{MaxAttempts: in.MaxAttempts, WallClockSeconds: in.WallClockSeconds}
-		}
-		task, err := api.CreateTask(request)
+		// The programme reference is passed through UNRESOLVED. The plane matches it
+		// against control.db by id or name and stores its own canonical id, so the
+		// Task can only ever point at a programme that exists — and a reference that
+		// resolves to nothing REFUSES the create rather than filing an orphan that
+		// reads as attached to whoever wrote the request.
+		//
+		// Deliberately not resolved here first: this tool would then be a second
+		// place that decides what a programme reference means, and the two would
+		// drift. findProgramme exists for the tools that must show a programme; this
+		// one only has to name it.
+		task, err := api.CreateTask(createTaskRequest(in))
 		if err != nil {
 			return nil, outcomeFor(err), nil
 		}
-		return nil, OutcomeOutput{Executed: true,
-			Detail: fmt.Sprintf("created task %s for %s (state %s)", task.ID, task.Project, task.State)}, nil
+		// The detail names the programme when there is one, because an agent that
+		// cannot see the link landed cannot tell a resolved reference from a dropped
+		// one — and "silently unattached" is the failure this whole field exists to
+		// end. RationaleBy is NOT echoed: it comes from the socket, and telling the
+		// agent it was recorded as the agent's teaches it nothing it could change.
+		detail := fmt.Sprintf("created task %s for %s (state %s)", task.ID, task.Project, task.State)
+		if task.ProgrammeID != "" {
+			detail += ", serving programme " + task.ProgrammeID
+		}
+		return nil, OutcomeOutput{Executed: true, Detail: detail}, nil
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -580,6 +608,29 @@ func registerControlTools(server *mcp.Server, api control.TaskAPI) {
 				return nil, OutcomeOutput{Executed: true, Detail: what + " executed directly"}, nil
 			})
 	}
+}
+
+// createTaskRequest turns the agent's input into a plane request.
+//
+// Pure and separate so the pass-through can be tested: the fields this drops are
+// invisible at runtime, and "the programme silently did not reach the plane" is
+// exactly the failure that made every Guild-Master task an orphan for two
+// milestones.
+//
+// A budget is attached only when the agent narrowed something. An all-zero Budget
+// is not "no budget" to the plane — it is a request for zero attempts — so
+// sending one unconditionally would file tasks that can never run.
+func createTaskRequest(in CreateTaskInput) control.CreateTaskRequest {
+	req := control.CreateTaskRequest{
+		Project: in.Project, Objective: in.Objective,
+		Programme: in.Programme, Rationale: in.Rationale,
+	}
+	if in.MaxAttempts > 0 || in.WallClockSeconds > 0 {
+		req.Budget = &control.Budget{
+			MaxAttempts: in.MaxAttempts, WallClockSeconds: in.WallClockSeconds,
+		}
+	}
+	return req
 }
 
 // mergeProgramme applies an amendment to the programme as it stands, and is the

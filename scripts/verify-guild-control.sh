@@ -136,6 +136,14 @@ phase_static() {
         && pass "an amendment can propose the declared project order, not only the membership" \
         || fail "AmendProgrammeInput carries no deps"
 
+    # The socket checks below prove the PLANE attaches a programme to a task. They
+    # cannot prove the agent's own tool offers the field — which is exactly how it
+    # went missing for two milestones while the CLI had it.
+    grep -q 'Programme string `json:"programme,omitempty"' "$mcp_src" \
+        && grep -q 'Rationale string `json:"rationale,omitempty"' "$mcp_src" \
+        && pass "create_task offers the programme and the reason, not only the objective" \
+        || fail "CreateTaskInput carries no programme/rationale"
+
     # The role doc has to describe the tools above, or the agent is told it
     # cannot do what it can. The M12 text said controlling anything was
     # "impossible by design", which stopped being true at M15.
@@ -242,6 +250,32 @@ phase_static() {
     r="$(api "$HUMAN_SOCK" GET /programmes)"
     [[ "$r" != *fluency* ]] && pass "…and only then is the programme gone" \
         || fail "confirmed dissolution did not execute: $r"
+
+    # A task can say what it is FOR (#88). Until this the Guild Master could list,
+    # propose, amend and dissolve programmes and could not attach a single task to
+    # one — every task it filed was an orphan.
+    r="$(api "$HUMAN_SOCK" POST /programmes '{"name":"theming","description":"one way to theme"}')"
+    [[ "$r" == 20* ]] || fail "seeding a programme for the create test: $r"
+    r="$(api "$AGENT_SOCK" POST /tasks \
+        '{"project":"demo","objective":"unify the theming","programme":"theming","rationale":"three projects grew their own"}')"
+    if [[ "$r" == 201* && "$r" == *PR-* ]]; then
+        pass "agent: a created task carries the PROGRAMME it serves"
+    else
+        fail "agent create_task with a programme: $r"
+    fi
+    # …and the reason is recorded as the AGENT's. rationale_by comes from the
+    # socket the request arrived on, never from the request, which is what makes
+    # "the reason is the human's own words" checkable rather than hoped for.
+    [[ "$r" == *'"rationaleBy":"agent"'* ]] \
+        && pass "…and the reason is attributed to the agent, not to the operator" \
+        || fail "rationale_by should be derived from the transport: $r"
+    # A reference that resolves to nothing REFUSES the create. Filing the task with
+    # the link dropped would read as attached to whoever wrote the request and
+    # belong to nothing in the data — the silent loss the field exists to end.
+    r="$(api "$AGENT_SOCK" POST /tasks \
+        '{"project":"demo","objective":"x","programme":"no-such-programme"}')"
+    [[ "$r" == 4* ]] && pass "agent: an unknown programme REFUSES the create → ${r:0:3}" \
+        || fail "a dangling programme reference should refuse, got: $r"
 
     hdr "what remains host-only"
     info "the socket arriving INSIDE the container, the entrypoint wiring"

@@ -74,6 +74,45 @@ All notable changes to this project will be documented in this file.
   field. `scripts/verify-guild-control.sh static` drives both over the real
   sockets.
 
+### Added
+- **The Guild Master can say what the work it files is FOR (#88).** `create_task`
+  — the tool it files every task through — now takes an optional `programme` (an
+  id like `PR-3`, or a name) and an optional `rationale`. **Until this, every task
+  the Guild Master filed was an orphan**: the seat whose whole job is noticing
+  what projects have in common could list programmes, propose one, amend and
+  dissolve one, and could not attach a single task to any of them. The plane has
+  carried both fields since Sprint 66 and a human's CLI has passed them since;
+  only the agent's own tool dropped them.
+  - **This is the third instance of one shape in three days** — #82 (no programme
+    tools at all), #85 (form but not amend or dissolve), now this. The shape: the
+    plane supports an operation, a human can reach it, and the agent-facing
+    surface was never widened to match.
+  - The reference is passed through **unresolved**; the plane matches it against
+    `control.db` by id or name and stores its own canonical id, so a Task can only
+    point at a programme that exists. A reference that resolves to nothing
+    **refuses the create** rather than filing a task that reads as attached to
+    whoever wrote the request and belongs to none in the data. `rationale_by` is
+    still derived from the socket, so an agent's reason is stored visibly as the
+    agent's.
+  - `scripts/verify-guild-control.sh static` is **35/35** and drives it over the
+    real sockets: a task created by the agent comes back carrying `PR-n` and
+    `rationaleBy: agent`, and an unknown programme comes back 404 with no task
+    filed.
+  - The Guild Master's role doc now tells it to name a programme — **the first
+    real exercise of the role-doc refresh added the day before**. An installed
+    M21 doc classifies as outdated and is brought forward on the next launch,
+    while an edited one is still left alone. A new test asserts every superseded
+    version classifies as outdated and none is identical to the current text,
+    which would mean a version rolled forward without the text changing.
+  - **Found by T-17, a Task the plane dispatched itself.** Its diagnosis was
+    right and its implementation could not be used: it was built on a base four
+    days stale (before Sprint 66), so it invented a file-backed programme model
+    keyed by name — precisely what M20 removed. Why it had a stale base at all is
+    **#89**: the integration target had not been synced in seven commits, and the
+    `stale_base` check cannot catch that, because it compares a candidate against
+    the target tip and the target tip *was* its base. The plane was perfectly
+    consistent with itself and four days behind the repository.
+
 ### Changed
 - **This repository's own `acceptanceGlobs` were wrong in both directions, and
   the rule for choosing them is now written down and tested.**
