@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -191,6 +192,23 @@ func IsAncestor(repoDir, ancestor, descendant string) (bool, error) {
 		return false, nil
 	}
 	return false, wrapGit("git merge-base --is-ancestor", string(out), err)
+}
+
+// CountCommitsBetween returns how many commits `to` is ahead of `from`
+// (`git rev-list --count from..to`). Both must be resolvable in repoDir.
+func CountCommitsBetween(repoDir, from, to string) (int, error) {
+	if from == "" || to == "" || from == to {
+		return 0, nil
+	}
+	out, err := runGit(repoDir, "rev-list", "--count", from+".."+to)
+	if err != nil {
+		return 0, wrapGit("git rev-list --count", out, err)
+	}
+	n, cerr := strconv.Atoi(strings.TrimSpace(out))
+	if cerr != nil {
+		return 0, fmt.Errorf("git rev-list --count returned %q: %w", strings.TrimSpace(out), cerr)
+	}
+	return n, nil
 }
 
 // IsSelfAuthoredTip reports whether `tip` is reachable from any of the given

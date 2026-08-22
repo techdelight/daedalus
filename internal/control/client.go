@@ -215,6 +215,15 @@ func (c *Client) ProjectTargets() ([]TargetView, error) {
 	return targets, nil
 }
 
+// TargetLags implements TaskAPI.
+func (c *Client) TargetLags() ([]TargetLag, error) {
+	var lags []TargetLag
+	if err := c.getJSON("/targets/lag", &lags); err != nil {
+		return nil, err
+	}
+	return lags, nil
+}
+
 // SyncTarget implements TaskAPI.
 func (c *Client) SyncTarget(project string) (Target, error) {
 	var t Target

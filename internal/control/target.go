@@ -242,6 +242,160 @@ type TargetView struct {
 	Projects  []string `json:"projects"`
 }
 
+// TargetLag reports how far a project's checkout has moved past the plane-owned
+// integration target (#89).
+//
+// WHY THIS EXISTS. The target is what every Job is dispatched against, and it
+// moves only when work integrates or when somebody runs `task target --sync`.
+// Nothing made it follow a branch, and nothing said when it had stopped
+// following one — so a repository can be worked on for days while the plane
+// keeps handing agents a tree from before any of it.
+//
+// Measured 2026-08-22: seven commits were pushed to `development` in a day, the
+// target was never synced, and T-17 was dispatched against a base from four days
+// earlier — a tree in which plane-owned programmes did not exist. The agent's
+// work was coherent for the tree it was given and obsolete for the repository.
+//
+// **`stale_base` cannot catch this and never could.** It compares a candidate's
+// base against the target tip, and the target tip WAS its base. The plane was
+// perfectly consistent with itself and four days behind the world. The check is
+// not wrong; it answers a different question, and nothing was asking this one.
+//
+// So this REPORTS and refuses nothing. A branch deliberately ahead of the target
+// is a normal way to work — the operator is the one who knows whether the gap is
+// intended, and the only failure worth fixing is that they could not see it.
+type TargetLag struct {
+	Project   string `json:"project"`
+	TargetSHA string `json:"targetSha"`
+	HeadSHA   string `json:"headSha"`
+	// Behind is how many commits the checkout's HEAD is ahead of the target.
+	Behind int `json:"behind,omitempty"`
+	// Diverged is true when the target is not an ancestor of HEAD at all — a
+	// rebase or a reset moved the branch out from under it. Reported separately
+	// because "behind by 7" and "no longer on this history" need different
+	// answers, and a commit count alone would render the second as the first.
+	Diverged bool `json:"diverged,omitempty"`
+	// Unknown carries why the comparison could not be made, when it could not.
+	// Silence would read as "up to date", which is the one answer this must never
+	// give wrongly.
+	Unknown string `json:"unknown,omitempty"`
+}
+
+// Stale reports whether this lag is worth telling somebody about.
+func (l TargetLag) Stale() bool { return l.Behind > 0 || l.Diverged }
+
+// Summary is the one-line rendering shared by every surface, so the CLI, the
+// warning at create time and the daemon's status cannot describe the same gap
+// differently.
+func (l TargetLag) Summary() string {
+	switch {
+	case l.Unknown != "":
+		return "target gap unknown: " + l.Unknown
+	case l.Diverged:
+		return fmt.Sprintf("the target %s is not on this checkout's history — a rebase or reset moved the branch",
+			shortSHA(l.TargetSHA))
+	case l.Behind == 1:
+		return fmt.Sprintf("the target is 1 commit behind this checkout (%s → %s)",
+			shortSHA(l.TargetSHA), shortSHA(l.HeadSHA))
+	case l.Behind > 1:
+		return fmt.Sprintf("the target is %d commits behind this checkout (%s → %s)",
+			l.Behind, shortSHA(l.TargetSHA), shortSHA(l.HeadSHA))
+	}
+	return "the target is the checkout's HEAD"
+}
+
+// TargetLagFor compares a project's integration target against its checkout.
+func (s *Service) TargetLagFor(project string) (TargetLag, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.targetLagLocked(project)
+}
+
+// targetLagLocked is TargetLagFor with s.mu already held.
+//
+// Every failure to compare answers Unknown rather than an error: this is a
+// report attached to other work, and a project whose repository has been moved
+// or whose target has never been set must not fail the operation it is decorating.
+func (s *Service) targetLagLocked(project string) (TargetLag, error) {
+	lag := TargetLag{Project: project}
+	dir, repoPath, err := s.repoIdentity(project)
+	if err != nil {
+		lag.Unknown = err.Error()
+		return lag, nil
+	}
+	t, err := s.store.GetTarget(repoPath)
+	if err != nil {
+		// No target yet is not a gap: the first integration or sync sets it, and
+		// there is nothing for the checkout to be ahead of.
+		if errors.Is(err, ErrNotFound) {
+			return lag, nil
+		}
+		lag.Unknown = err.Error()
+		return lag, nil
+	}
+	lag.TargetSHA = t.SHA
+	head, err := ReadHeadSHA(dir)
+	if err != nil {
+		lag.Unknown = err.Error()
+		return lag, nil
+	}
+	lag.HeadSHA = head
+	if head == t.SHA {
+		return lag, nil
+	}
+	// Ancestry first: a target that is not on this history has no meaningful
+	// commit count, and rev-list would happily return one anyway.
+	onHistory, err := IsAncestor(dir, t.SHA, head)
+	if err != nil {
+		lag.Unknown = err.Error()
+		return lag, nil
+	}
+	if !onHistory {
+		lag.Diverged = true
+		return lag, nil
+	}
+	n, err := CountCommitsBetween(dir, t.SHA, head)
+	if err != nil {
+		lag.Unknown = err.Error()
+		return lag, nil
+	}
+	lag.Behind = n
+	return lag, nil
+}
+
+// TargetLags reports the gap for every project the plane knows a target for,
+// newest-first by size, and only the ones worth mentioning.
+func (s *Service) TargetLags() ([]TargetLag, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	targets, err := s.store.ListTargets()
+	if err != nil {
+		return nil, err
+	}
+	byRepo := s.projectsByRepo()
+	var out []TargetLag
+	for _, t := range targets {
+		projects := byRepo[t.RepoPath]
+		sort.Strings(projects)
+		if len(projects) == 0 {
+			continue // a target whose projects are all deregistered
+		}
+		// One comparison per REPOSITORY, reported under the first project sharing
+		// it: the target is keyed by repo, so the gap is a fact about the repo and
+		// repeating it per project would triple-count one problem.
+		lag, err := s.targetLagLocked(projects[0])
+		if err != nil {
+			return nil, err
+		}
+		if lag.Stale() || lag.Unknown != "" {
+			out = append(out, lag)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Behind > out[j].Behind })
+	return out, nil
+}
+
 // ProjectTargets lists every integration target with the projects that share it
 // (the CLI's `task target` view), for a HUMAN caller.
 func (s *Service) ProjectTargets() ([]TargetView, error) { return s.projectTargets(Human()) }

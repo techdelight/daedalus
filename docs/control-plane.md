@@ -70,6 +70,21 @@ auto-spawns the daemon detached (ssh-agent style, exactly like
 `daedalus coordinator`) and reuses a running one via a pidfile + live-dial probe.
 Because the daemon is the only writer, there are never two writers on SQLite.
 
+**The target does not follow your branch, and the plane now says when it has
+stopped following one (#89).** It moves only when work integrates or when
+somebody runs `task target <project> --sync`. Nothing is wrong with a branch
+that is ahead of it — but a Task freezes the TARGET as its base, so an unsynced
+repository dispatches agents against a tree it has moved past, and the work comes
+back coherent for the tree it was given and obsolete for the repository.
+`stale_base` cannot catch that: it compares a candidate's base against the target
+tip, and the target tip *is* its base. So `task create` warns, and
+`daedalus control status` reports the gap per project. Both report; neither
+refuses, because only the operator knows whether the gap is intended. A target
+that is no longer an ancestor of HEAD is reported as a **divergence** rather than
+a count, since a commit count across one means nothing. Measured 2026-08-22: the
+target sat four days and seven commits behind, and T-17 was built against a tree
+in which plane-owned programmes did not exist.
+
 **`daedalus control start|stop|restart|status`** is the explicit lifecycle, added
 because auto-spawn covers starting and covers nothing else. Stopping had no
 command at all — the documented answer was `kill $(cat …/control.pid)`, which

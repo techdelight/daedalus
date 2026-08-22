@@ -468,6 +468,7 @@ var webRoutes = map[string]struct{ method, path string }{
 	"ListTasks":          {http.MethodGet, "/api/control/tasks"},
 	"ListProposals":      {http.MethodGet, "/api/control/proposals"},
 	"ProjectTargets":     {http.MethodGet, "/api/control/targets"},
+	"TargetLags":         {http.MethodGet, "/api/control/targets/lag"},
 	"ListProgrammes":     {http.MethodGet, "/api/control/programmes"},
 	"GetProgramme":       {http.MethodGet, "/api/control/programmes/PR-1"},
 	"ProgrammeStatusFor": {http.MethodGet, "/api/control/programmes/PR-1/status"},

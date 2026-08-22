@@ -88,6 +88,16 @@ func (c *callerScope) ProjectTargets() ([]TargetView, error) {
 	return c.svc.projectTargets(c.caller)
 }
 
+// TargetLags is a read, allowed to any caller. It reports how far a checkout has
+// moved past the target and carries no host paths — the project name and two
+// commit ids, all of which an agent can already see on a Task.
+//
+// Worth an agent knowing: a Task it files is dispatched against the target, so a
+// large gap means its work will be written against a tree the repository has
+// moved past. It cannot fix that (syncing is TierProposal via OpSyncTarget), but
+// it can say so rather than filing work that was doomed before it started.
+func (c *callerScope) TargetLags() ([]TargetLag, error) { return c.svc.TargetLags() }
+
 // ProgrammeBoard renders the cross-project board for this caller. Same rule as
 // ProjectTargets, and for the same reason: an agent sees the opaque queue id, so
 // it can tell which projects serialize against each other without learning where

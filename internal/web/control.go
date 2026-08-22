@@ -290,6 +290,32 @@ func (ws *WebServer) handlePlaneStatus(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// targetLagsResponse reports where an integration target trails a checkout (#89).
+//
+// The Ledger shows it because this is the failure nobody can deduce: a Task
+// dispatched against a target four days behind the branch produces work that is
+// coherent for the tree it was given and obsolete for the repository, and every
+// verdict, review and minute of reading is spent before anybody notices.
+type targetLagsResponse struct {
+	unavailable
+	Lags []control.TargetLag `json:"lags"`
+}
+
+func (ws *WebServer) handleTargetLags(w http.ResponseWriter, r *http.Request) {
+	ws.collection(w,
+		func(u unavailable) any { return targetLagsResponse{unavailable: u, Lags: []control.TargetLag{}} },
+		func(api control.TaskAPI) (any, error) {
+			lags, err := api.TargetLags()
+			if err != nil {
+				return nil, err
+			}
+			if lags == nil {
+				lags = []control.TargetLag{}
+			}
+			return targetLagsResponse{unavailable: unavailable{Available: true}, Lags: lags}, nil
+		})
+}
+
 // boardResponse is the cross-project programme board (M17), flattened for the
 // Ledger.
 //

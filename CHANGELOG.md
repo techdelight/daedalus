@@ -75,6 +75,40 @@ All notable changes to this project will be documented in this file.
   sockets.
 
 ### Added
+- **The plane now says when its integration target has fallen behind your
+  branch (#89).** The target is what every Task is dispatched against, and it
+  moves only when work integrates or when somebody runs `task target --sync`.
+  Nothing made it follow a branch and nothing said when it had stopped — so a
+  repository can be worked on for days while the plane hands agents a tree from
+  before any of it. Measured 2026-08-22: seven commits pushed in a day, the target
+  never synced, and T-17 dispatched against a base four days old in which
+  plane-owned programmes did not exist. Its work was coherent for the tree it was
+  given and obsolete for the repository.
+  - **`stale_base` cannot catch this and never could.** It compares a candidate's
+    base against the target tip, and the target tip *was* its base. The check is
+    not wrong; it answers a different question, and nothing was asking this one.
+  - `daedalus task create` **warns** — that is the moment somebody decides to
+    spend an agent, and the base a Task freezes is the target, not the branch they
+    are looking at. `daedalus control status` reports it per project, which is
+    where an operator already asks whether the plane is healthy.
+  - **Nothing refuses.** A branch deliberately ahead of the target is a normal way
+    to work; the operator knows whether the gap is intended, and the only thing
+    broken was that they could not see it.
+  - A target that is no longer an ancestor of HEAD is reported as a **divergence**
+    rather than a count — "behind by 4" and "not on this history any more" need
+    different answers, and `rev-list` across a divergence returns a number that
+    means nothing. A comparison that cannot be made answers **unknown** rather
+    than staying silent, because silence reads as "up to date". A project with no
+    target yet is not reported at all: there is nothing to be behind, and a
+    warning that fires when nothing is wrong is one nobody reads.
+  - Computed once, in `Service.TargetLagFor`/`TargetLags` on `TaskAPI`, with a
+    single `Summary()` rendering — so the CLI, the daemon and the Ledger cannot
+    describe the same gap differently. The derived web-surface test forced a
+    Ledger route too, which is right: this is exactly the failure nobody can
+    deduce from a screen.
+  - **Deliberately not done: making the target follow the checkout.** The target
+    being plane-owned, and not a git ref anybody can move, is the Sprint-59 fix
+    that closed oracle laundering; having it track a branch would hand that back.
 - **The Guild Master can say what the work it files is FOR (#88).** `create_task`
   — the tool it files every task through — now takes an optional `programme` (an
   id like `PR-3`, or a name) and an optional `rationale`. **Until this, every task

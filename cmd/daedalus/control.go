@@ -186,6 +186,20 @@ func controlStatus(cfg *core.Config) error {
 	if approvals, err := client.PendingApprovals(); err == nil && len(approvals) > 0 {
 		fmt.Printf("       awaiting you: %d task(s) — `daedalus task approvals`\n", len(approvals))
 	}
+	// Where the target has fallen behind a checkout (#89). Here because this is
+	// where an operator already looks to ask "is the plane in a good state", and
+	// a stale target is the one unhealthy thing about it that produces no error,
+	// no failure and no symptom until an agent has spent an hour on an old tree.
+	if lags, err := client.TargetLags(); err == nil {
+		for _, lag := range lags {
+			if lag.Unknown != "" {
+				continue // a project whose repository moved; not this command's business
+			}
+			fmt.Printf("%s %s: %s\n", color.Yellow("Stale target:"), lag.Project, lag.Summary())
+			fmt.Printf("       Tasks are dispatched against the target, so they will not see those\n")
+			fmt.Printf("       commits. Sync it: `daedalus task target %s --sync`\n", lag.Project)
+		}
+	}
 	if props, err := client.ListProposals(control.ProposalPending); err == nil && len(props) > 0 {
 		fmt.Printf("       proposed:  %d awaiting your word — `daedalus task proposals list`\n", len(props))
 	}

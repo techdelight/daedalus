@@ -4,6 +4,7 @@ package control
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -705,4 +706,135 @@ func (l listerResolver) ProjectNames() ([]string, error) {
 	}
 	sort.Strings(names)
 	return names, nil
+}
+
+// The gap between the plane's target and the operator's checkout (#89).
+//
+// This is the failure that produced T-17: seven commits pushed to a branch, the
+// target never synced, and a Task dispatched against a tree four days old. The
+// agent's work was coherent for the tree it was given and obsolete for the
+// repository, and nothing anywhere said so.
+//
+// `stale_base` structurally cannot catch it — it compares a candidate's base
+// against the target tip, and the target tip WAS its base. This asks the question
+// nothing was asking.
+func TestTargetLag_ReportsHowFarTheCheckoutHasMoved(t *testing.T) {
+	repo := gitRepo(t)
+	svc, _, _ := newService(t, mapResolver{"app": repo}, StubRunner{}, nil)
+
+	// Adopt the target where the checkout is now: no gap.
+	if _, err := svc.SyncTarget("app"); err != nil {
+		t.Fatal(err)
+	}
+	lag, err := svc.TargetLagFor("app")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lag.Stale() {
+		t.Errorf("a freshly synced target is not stale: %+v", lag)
+	}
+	if !strings.Contains(lag.Summary(), "the checkout's HEAD") {
+		t.Errorf("summary = %q", lag.Summary())
+	}
+
+	// Three commits later, with nobody syncing — exactly the T-17 situation.
+	for i := 0; i < 3; i++ {
+		commitFile(t, repo, fmt.Sprintf("f%d.txt", i), "x")
+	}
+	lag, err = svc.TargetLagFor("app")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !lag.Stale() || lag.Behind != 3 {
+		t.Fatalf("behind = %d, want 3: %+v", lag.Behind, lag)
+	}
+	if lag.Diverged {
+		t.Error("commits on top of the target are not a divergence")
+	}
+	if !strings.Contains(lag.Summary(), "3 commits behind") {
+		t.Errorf("summary = %q, want the count", lag.Summary())
+	}
+
+	// Syncing closes it, which is the whole remedy the warning points at.
+	if _, err := svc.SyncTarget("app"); err != nil {
+		t.Fatal(err)
+	}
+	if lag, _ := svc.TargetLagFor("app"); lag.Stale() {
+		t.Errorf("syncing should close the gap: %+v", lag)
+	}
+}
+
+// "Behind by N" and "no longer on this history" need different answers, and a
+// commit count alone would render the second as the first — or as nothing, since
+// rev-list across unrelated histories does not mean what it looks like.
+func TestTargetLag_DivergenceIsNotACount(t *testing.T) {
+	repo := gitRepo(t)
+	svc, _, _ := newService(t, mapResolver{"app": repo}, StubRunner{}, nil)
+	commitFile(t, repo, "keep.txt", "x")
+	if _, err := svc.SyncTarget("app"); err != nil {
+		t.Fatal(err)
+	}
+	// Move the branch out from under the target, as a rebase or a reset would.
+	git(t, repo, "reset", "--hard", "HEAD~1")
+	commitFile(t, repo, "other.txt", "y")
+
+	lag, err := svc.TargetLagFor("app")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !lag.Diverged {
+		t.Fatalf("a target that is not an ancestor of HEAD has diverged: %+v", lag)
+	}
+	if lag.Behind != 0 {
+		t.Errorf("behind = %d, want 0 — a count across a divergence is meaningless", lag.Behind)
+	}
+	if !strings.Contains(lag.Summary(), "not on this checkout's history") {
+		t.Errorf("summary = %q, want it to name the divergence", lag.Summary())
+	}
+}
+
+// A project with no target yet is not behind anything — the first sync or
+// integration sets it. Reporting a gap here would put a warning on every fresh
+// project, and a warning that fires when nothing is wrong is one nobody reads.
+func TestTargetLag_NoTargetIsNotAGap(t *testing.T) {
+	repo := gitRepo(t)
+	svc, _, _ := newService(t, mapResolver{"app": repo}, StubRunner{}, nil)
+
+	lag, err := svc.TargetLagFor("app")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lag.Stale() || lag.Unknown != "" {
+		t.Errorf("no target is not a gap: %+v", lag)
+	}
+}
+
+// A comparison that cannot be made answers Unknown, never silence. Silence reads
+// as "up to date", which is the one answer this must never give wrongly.
+//
+// The case that matters is a target that EXISTS and a checkout that cannot be
+// compared to it — a repository moved or removed after the target was adopted.
+// (A project with no target and no git is not this: there is genuinely nothing
+// to be behind, which the test above covers.)
+func TestTargetLag_UnreadableRepoIsNotSilence(t *testing.T) {
+	repo := gitRepo(t)
+	svc, _, _ := newService(t, mapResolver{"app": repo}, StubRunner{}, nil)
+	if _, err := svc.SyncTarget("app"); err != nil {
+		t.Fatal(err)
+	}
+	// The target is adopted; now the repository stops being one.
+	if err := os.RemoveAll(filepath.Join(repo, ".git")); err != nil {
+		t.Fatal(err)
+	}
+
+	lag, err := svc.TargetLagFor("app")
+	if err != nil {
+		t.Fatalf("a report must not fail the operation it decorates: %v", err)
+	}
+	if lag.Unknown == "" {
+		t.Error("a checkout that cannot be read must say so rather than read as current")
+	}
+	if !strings.Contains(lag.Summary(), "unknown") {
+		t.Errorf("summary = %q, want it to admit it could not tell", lag.Summary())
+	}
 }

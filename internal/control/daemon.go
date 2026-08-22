@@ -44,6 +44,7 @@ package control
 //	DELETE /steering/{id}                                 → 200 SteeringEvent
 //	                                                          (withdrawn before delivery)
 //	GET    /targets                                       → 200 []TargetView
+//	GET    /targets/lag                                   → 200 []TargetLag (#89)
 //	GET    /proposals[?state=pending]                     → 200 []Proposal
 //	POST   /proposals/{id}/confirm  body: {note}          → 200 Proposal (and the
 //	                                                          operation executes)
@@ -127,6 +128,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /proposals", s.handleListProposals)
 	mux.HandleFunc("POST /proposals/{id}/confirm", s.handleConfirmProposal)
 	mux.HandleFunc("POST /proposals/{id}/deny", s.handleDenyProposal)
+	mux.HandleFunc("GET /targets/lag", s.handleTargetLags)
 	mux.HandleFunc("POST /targets/{project}/sync", s.handleSyncTarget)
 	mux.HandleFunc("DELETE /tasks/{id}", s.handleCancel)
 	// Programmes (M20): the shared intent Tasks serve.
@@ -479,6 +481,19 @@ func (s *Server) handleTargets(w http.ResponseWriter, r *http.Request) {
 		targets = []TargetView{}
 	}
 	writeJSON(w, http.StatusOK, targets)
+}
+
+// handleTargetLags reports where the integration target trails a checkout (#89).
+func (s *Server) handleTargetLags(w http.ResponseWriter, r *http.Request) {
+	lags, err := s.api.TargetLags()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	if lags == nil {
+		lags = []TargetLag{}
+	}
+	writeJSON(w, http.StatusOK, lags)
 }
 
 func (s *Server) handleSyncTarget(w http.ResponseWriter, r *http.Request) {

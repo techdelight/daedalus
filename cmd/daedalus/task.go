@@ -216,7 +216,39 @@ func taskCreate(api control.TaskAPI, args []string) error {
 		fmt.Printf("     %s no task checks — it will be graded by the project policy alone,\n", color.Dim("note:"))
 		fmt.Printf("           which cannot tell whether THIS objective was delivered. Add one with --check.\n")
 	}
+	warnStaleTarget(api, t.Project, t.ID)
 	return nil
+}
+
+// warnStaleTarget says so when the integration target trails the checkout (#89).
+//
+// Here, at CREATE, because this is the moment somebody decides to spend an agent
+// — and the base a Task freezes is the target, not the branch they are looking
+// at. A Task created against a target four days behind produces work that is
+// coherent for the tree it was given and obsolete for the repository, and the
+// verdict, the review and the reading are all spent before anybody notices.
+//
+// It WARNS and never refuses. A branch deliberately ahead of the target is a
+// normal way to work; the operator is the one who knows whether the gap is
+// intended, and the only thing that was broken is that they could not see it.
+//
+// Best-effort by construction: a plane that cannot answer must not fail a create
+// that already succeeded. The Task exists by the time this runs.
+func warnStaleTarget(api control.TaskAPI, project, taskID string) {
+	lags, err := api.TargetLags()
+	if err != nil {
+		return
+	}
+	for _, lag := range lags {
+		if lag.Project != project || !lag.Stale() {
+			continue
+		}
+		fmt.Printf("     %s %s\n", color.Yellow("stale target:"), lag.Summary())
+		fmt.Printf("           This task was frozen at the TARGET, not at your checkout — the agent will\n")
+		fmt.Printf("           not see those commits. Sync with `daedalus task target %s --sync`\n", project)
+		fmt.Printf("           and `daedalus task replan %s --rebase` if that is not what you wanted.\n", taskID)
+		return
+	}
 }
 
 // taskList implements `task list`.

@@ -237,6 +237,11 @@ type TaskAPI interface {
 	IntegrateTask(id string, req IntegrateRequest) (IntegrationResult, error)
 	PendingApprovals() ([]Task, error)
 	ProjectTargets() ([]TargetView, error)
+	// TargetLags reports where the integration target has fallen behind a
+	// project's checkout (#89). A read: it compares two commits and changes
+	// nothing, and an operator about to spend an agent on a stale tree is exactly
+	// who needs telling.
+	TargetLags() ([]TargetLag, error)
 	PlaneStatus() (PlaneStatus, error)
 	AddDependency(taskID, dependsOn string) (DependencyEdge, error)
 	TaskDependencies(taskID string) (DependencyView, error)
