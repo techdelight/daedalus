@@ -184,3 +184,59 @@ func TestReviewLogPath_IsKeyedByJobAndBesideTheJobLogs(t *testing.T) {
 		t.Error("ReviewLogPath with no data dir should be empty")
 	}
 }
+
+// TestReviewInstruction_DoesNotGrowWithTheChange.
+//
+// The bug this pins: the whole prompt, diff included, was one argv element, and
+// Linux caps a SINGLE argument at 128KB whatever room the rest of the command
+// line has. A review of a large change therefore died with `fork/exec …:
+// argument list too long` BEFORE the agent ran — measured on T-19, whose second
+// pass produced no judgement for exactly this reason.
+//
+// The command line must now be constant. It is the same move the judgement
+// already makes in the other direction: read from a file, not scraped from a
+// channel with limits nobody controls.
+func TestReviewInstruction_DoesNotGrowWithTheChange(t *testing.T) {
+	// Comfortably past MAX_ARG_STRLEN (32 pages), which is what broke.
+	huge := strings.Repeat("+ a line of diff\n", 40_000)
+	if len(huge) <= 131072 {
+		t.Fatalf("the fixture is %d bytes; it must exceed the 128KB single-argument limit", len(huge))
+	}
+
+	if len(reviewInstruction) > 1024 {
+		t.Errorf("the command line is %d bytes and must be a fixed pointer to the prompt file",
+			len(reviewInstruction))
+	}
+	if !strings.Contains(reviewInstruction, reviewPromptFile) {
+		t.Error("the instruction must name the file the brief is in, or the agent has nothing to read")
+	}
+	// The prompt itself may be large — it is a file — but it must still be bounded
+	// by the reader's context rather than by nothing.
+	prompt := ReviewPrompt(ReviewSpec{Objective: "x", BaseSHA: "a", HeadSHA: "b"}, huge)
+	if len(prompt) > maxReviewDiff+8192 {
+		t.Errorf("prompt = %d bytes; the diff must be clamped", len(prompt))
+	}
+}
+
+// A truncated diff must SAY it is truncated. A reviewer that does not know it is
+// seeing part of a change will report on the part as if it were the whole, which
+// is worse than the loud failure it replaced.
+func TestClampDiff_AnnouncesWhatItCut(t *testing.T) {
+	small := "+ one line\n"
+	if got := clampDiff(small); got != small {
+		t.Errorf("a diff under the cap must pass through untouched, got %d bytes", len(got))
+	}
+
+	huge := strings.Repeat("x", maxReviewDiff+5000)
+	got := clampDiff(huge)
+	if !strings.Contains(got, "TRUNCATED") {
+		t.Error("a clamped diff must say so — silence lets a partial review read as a whole one")
+	}
+	if !strings.Contains(got, "5000 more bytes") {
+		t.Errorf("the note must say HOW MUCH is missing, so the reader can judge the gap:\n%s",
+			got[len(got)-300:])
+	}
+	if !strings.Contains(got, "/workspace") {
+		t.Error("it must point at the complete checkout, which is the way round the truncation")
+	}
+}

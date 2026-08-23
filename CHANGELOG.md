@@ -115,6 +115,33 @@ All notable changes to this project will be documented in this file.
     happens to produce an identical tree, and that deserves its own thought.
 
 ### Fixed
+- **A large change could not be reviewed at all (#92).** The reviewer's whole
+  brief — diff included — was passed as a single command-line argument, and Linux
+  caps one argv element at 128KB whatever room the rest of the command line has.
+  The exec failed before the agent started. **Measured on T-19:
+  `fork/exec …/daedalus: argument list too long`, review pass 2, no judgement.**
+  - The prompt is now written to `.daedalus/review-prompt.md` in the review
+    checkout and the command line is a fixed pointer to it. That is the same move
+    the judgement already made in the other direction — read back from a file
+    rather than scraped from stdout — because a channel with limits nobody
+    controls is not one to put a review through. The worktree is discarded when
+    the review returns, so there is nothing extra to clean up.
+  - Reproduced against the real limit before and after: a 263450-byte argument
+    fails to exec, a 229-byte one does not.
+  - **Also added, and explicitly not the fix:** `clampDiff` bounds the diff at
+    256KB and states in the prompt how many bytes were cut and that the complete
+    checkout is at `/workspace`. That is about the reader, not the OS — 256KB is
+    still twice the argv limit, so the clamp alone would not have helped. Without
+    it the file fix would turn a loud failure into a quiet one: an un-capped diff
+    would stop failing and start returning a confident review of whatever fitted
+    in the agent's context. A truncation that does not announce itself is worse
+    than one that will not exec.
+  - **The same shape exists for Jobs and is deliberately not fixed the same way
+    (#93).** `runner.go` passes the job prompt as one argument too, but a Job's
+    worktree *becomes the artifact* — a prompt file written there would land in
+    the diff and inside the `.daedalus/*` space acceptance globs care about. It
+    needs a different answer, so it is filed rather than patched by analogy.
+
 - **The Ledger's Landed column now says where landed work actually is — closing
   the second half of #79.** The entry explained a landing and the CLI explained it
   at the moment of landing, but the gap #79 names is somebody concluding **from a

@@ -56,6 +56,22 @@ import (
 // created — the same shape as capturing a Job's tree.
 const reviewJudgementFile = ".daedalus/review.json"
 
+// reviewPromptFile is where the agent is asked to READ its instructions from,
+// rather than being handed them on the command line.
+//
+// WHY A FILE. The prompt carries the diff, and the diff is unbounded. Linux caps
+// a SINGLE argv element at MAX_ARG_STRLEN — 32 pages, 128KB — regardless of how
+// much room the rest of the command line has, so a review of a large change died
+// with `fork/exec …: argument list too long` before the agent ran at all.
+// Measured on T-19, whose second review pass produced no judgement for exactly
+// this reason.
+//
+// It is the same move the judgement already makes in the other direction: that
+// is read back from a file rather than scraped from stdout, because a channel
+// with limits nobody controls is not a channel to put a review through. The
+// input deserved the same treatment and did not have it.
+const reviewPromptFile = ".daedalus/review-prompt.md"
+
 // ReviewLogPath is where a review's own output is recorded: one file per Job
 // reviewed, beside the Jobs' own logs. Empty dataDir yields "" — nowhere — the
 // same degradation JobLogPath makes.
@@ -144,7 +160,18 @@ func (r AgentReviewer) Review(ctx context.Context, spec ReviewSpec) ReviewOutcom
 		where = " (its output is in " + logPath + ")"
 	}
 
-	args := []string{name, checkout, "-p", ReviewPrompt(spec, diff)}
+	// The prompt goes in the checkout and the agent is told to read it. Written
+	// BEFORE the run and inside the worktree the agent already has mounted, so
+	// there is no second path to agree about and nothing to clean up separately —
+	// the whole worktree is removed when this returns.
+	promptPath := filepath.Join(checkout, filepath.FromSlash(reviewPromptFile))
+	if err := os.MkdirAll(filepath.Dir(promptPath), 0o755); err != nil {
+		return reviewUnavailable("could not prepare the review prompt directory: " + err.Error())
+	}
+	if err := os.WriteFile(promptPath, []byte(ReviewPrompt(spec, diff)), 0o644); err != nil {
+		return reviewUnavailable("could not write the review prompt: " + err.Error())
+	}
+	args := []string{name, checkout, "-p", reviewInstruction}
 	if r.Runner != "" {
 		args = append([]string{"--runner", r.Runner}, args...)
 	}
@@ -198,6 +225,46 @@ func reviewUnavailable(why string) ReviewOutcome {
 	}
 }
 
+// maxReviewDiff bounds how much diff goes into the prompt.
+//
+// Not an OS limit — the prompt is a file now, so it can be any size. This is
+// about the READER: past some size a diff stops fitting in the reviewing agent's
+// context, and the failure mode changes from a loud one to a quiet one. Before
+// the file, an oversized diff died with `argument list too long` and produced no
+// judgement, which at least said something was wrong. Un-capped, it would come
+// back as a confident review of the part that happened to fit.
+//
+// 256KB is far more than any reviewable change and small enough that what
+// remains is genuinely read. A change bigger than this needs splitting, and the
+// review says so rather than pretending.
+const maxReviewDiff = 256 * 1024
+
+// clampDiff truncates an oversized diff and SAYS SO, in the prompt, where the
+// reviewer will act on it. Silence here would be the actual defect: a reviewer
+// that does not know it is seeing part of a change will report on the part as if
+// it were the whole.
+func clampDiff(diff string) string {
+	if len(diff) <= maxReviewDiff {
+		return diff
+	}
+	omitted := len(diff) - maxReviewDiff
+	return diff[:maxReviewDiff] + fmt.Sprintf(
+		"\n\n[TRUNCATED: %d more bytes of diff are not shown. You are seeing PART of this "+
+			"change. The complete checkout is at /workspace — read the files directly for "+
+			"anything the diff cuts off, and say in your reasoning that the change was too "+
+			"large to review from the diff alone.]", omitted)
+}
+
+// reviewInstruction is the whole command line the agent gets: a pointer to the
+// prompt, and nothing that grows with the size of the change.
+//
+// Deliberately imperative about reading the file FIRST. An agent handed a
+// one-line instruction and a mounted checkout can otherwise start exploring the
+// tree and never open the brief.
+const reviewInstruction = "Read " + reviewPromptFile + " in this directory. It is your complete " +
+	"brief — the change to review, what was asked for, and the exact file you must write your " +
+	"judgement to. Follow it precisely and do not modify any other file."
+
 // ReviewPrompt builds what the reviewing agent is asked.
 //
 // Pure, and exported, so the thing most likely to need changing is the thing
@@ -237,7 +304,7 @@ func ReviewPrompt(spec ReviewSpec, diff string) string {
 	b.WriteString("THE CHANGE\n")
 	b.WriteString("Base " + shortSHA(spec.BaseSHA) + " → head " + shortSHA(spec.HeadSHA) +
 		" on " + spec.Branch + ". The full checkout is at /workspace; the diff is:\n\n")
-	b.WriteString("```diff\n" + diff + "\n```\n\n")
+	b.WriteString("```diff\n" + clampDiff(diff) + "\n```\n\n")
 
 	b.WriteString("WHAT TO ANSWER\n")
 	b.WriteString("1. Does this deliver what was asked for? Name what is missing, not just what is present.\n")
