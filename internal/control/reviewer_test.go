@@ -210,33 +210,13 @@ func TestReviewInstruction_DoesNotGrowWithTheChange(t *testing.T) {
 	if !strings.Contains(reviewInstruction, reviewPromptFile) {
 		t.Error("the instruction must name the file the brief is in, or the agent has nothing to read")
 	}
-	// The prompt itself may be large — it is a file — but it must still be bounded
-	// by the reader's context rather than by nothing.
+	// And the PROMPT still carries the whole diff. It is a file now, so there is
+	// no limit to respect and nothing to be gained by cutting it: a reviewer shown
+	// part of a change reports on the part as though it were the whole, and the
+	// verdict it returns is a boolean about the whole artifact either way.
 	prompt := ReviewPrompt(ReviewSpec{Objective: "x", BaseSHA: "a", HeadSHA: "b"}, huge)
-	if len(prompt) > maxReviewDiff+8192 {
-		t.Errorf("prompt = %d bytes; the diff must be clamped", len(prompt))
-	}
-}
-
-// A truncated diff must SAY it is truncated. A reviewer that does not know it is
-// seeing part of a change will report on the part as if it were the whole, which
-// is worse than the loud failure it replaced.
-func TestClampDiff_AnnouncesWhatItCut(t *testing.T) {
-	small := "+ one line\n"
-	if got := clampDiff(small); got != small {
-		t.Errorf("a diff under the cap must pass through untouched, got %d bytes", len(got))
-	}
-
-	huge := strings.Repeat("x", maxReviewDiff+5000)
-	got := clampDiff(huge)
-	if !strings.Contains(got, "TRUNCATED") {
-		t.Error("a clamped diff must say so — silence lets a partial review read as a whole one")
-	}
-	if !strings.Contains(got, "5000 more bytes") {
-		t.Errorf("the note must say HOW MUCH is missing, so the reader can judge the gap:\n%s",
-			got[len(got)-300:])
-	}
-	if !strings.Contains(got, "/workspace") {
-		t.Error("it must point at the complete checkout, which is the way round the truncation")
+	if !strings.Contains(prompt, huge) {
+		t.Error("the diff must reach the reviewer in full — truncating it trades a possible " +
+			"problem (the agent runs out of context) for a certain one (it never saw the rest)")
 	}
 }

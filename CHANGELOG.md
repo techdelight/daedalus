@@ -128,14 +128,6 @@ All notable changes to this project will be documented in this file.
     the review returns, so there is nothing extra to clean up.
   - Reproduced against the real limit before and after: a 263450-byte argument
     fails to exec, a 229-byte one does not.
-  - **Also added, and explicitly not the fix:** `clampDiff` bounds the diff at
-    256KB and states in the prompt how many bytes were cut and that the complete
-    checkout is at `/workspace`. That is about the reader, not the OS — 256KB is
-    still twice the argv limit, so the clamp alone would not have helped. Without
-    it the file fix would turn a loud failure into a quiet one: an un-capped diff
-    would stop failing and start returning a confident review of whatever fitted
-    in the agent's context. A truncation that does not announce itself is worse
-    than one that will not exec.
   - **The same shape exists for Jobs and is deliberately not fixed the same way
     (#93).** `runner.go` passes the job prompt as one argument too, but a Job's
     worktree *becomes the artifact* — a prompt file written there would land in

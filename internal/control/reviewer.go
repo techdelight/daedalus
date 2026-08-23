@@ -225,36 +225,6 @@ func reviewUnavailable(why string) ReviewOutcome {
 	}
 }
 
-// maxReviewDiff bounds how much diff goes into the prompt.
-//
-// Not an OS limit — the prompt is a file now, so it can be any size. This is
-// about the READER: past some size a diff stops fitting in the reviewing agent's
-// context, and the failure mode changes from a loud one to a quiet one. Before
-// the file, an oversized diff died with `argument list too long` and produced no
-// judgement, which at least said something was wrong. Un-capped, it would come
-// back as a confident review of the part that happened to fit.
-//
-// 256KB is far more than any reviewable change and small enough that what
-// remains is genuinely read. A change bigger than this needs splitting, and the
-// review says so rather than pretending.
-const maxReviewDiff = 256 * 1024
-
-// clampDiff truncates an oversized diff and SAYS SO, in the prompt, where the
-// reviewer will act on it. Silence here would be the actual defect: a reviewer
-// that does not know it is seeing part of a change will report on the part as if
-// it were the whole.
-func clampDiff(diff string) string {
-	if len(diff) <= maxReviewDiff {
-		return diff
-	}
-	omitted := len(diff) - maxReviewDiff
-	return diff[:maxReviewDiff] + fmt.Sprintf(
-		"\n\n[TRUNCATED: %d more bytes of diff are not shown. You are seeing PART of this "+
-			"change. The complete checkout is at /workspace — read the files directly for "+
-			"anything the diff cuts off, and say in your reasoning that the change was too "+
-			"large to review from the diff alone.]", omitted)
-}
-
 // reviewInstruction is the whole command line the agent gets: a pointer to the
 // prompt, and nothing that grows with the size of the change.
 //
@@ -304,7 +274,7 @@ func ReviewPrompt(spec ReviewSpec, diff string) string {
 	b.WriteString("THE CHANGE\n")
 	b.WriteString("Base " + shortSHA(spec.BaseSHA) + " → head " + shortSHA(spec.HeadSHA) +
 		" on " + spec.Branch + ". The full checkout is at /workspace; the diff is:\n\n")
-	b.WriteString("```diff\n" + clampDiff(diff) + "\n```\n\n")
+	b.WriteString("```diff\n" + diff + "\n```\n\n")
 
 	b.WriteString("WHAT TO ANSWER\n")
 	b.WriteString("1. Does this deliver what was asked for? Name what is missing, not just what is present.\n")
