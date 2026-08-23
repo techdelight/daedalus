@@ -28,6 +28,11 @@ services:
     # signals and propagates its exit code, which the control plane reads to
     # decide success → candidate.
     init: true
-    mem_limit: 4g
-    cpus: "2.0"
-    pids_limit: 512
+    # Interpolated, with today's values as the defaults, so an unset variable
+    # behaves exactly as this file did before (#81b). A project that genuinely
+    # needs more sets it per-project rather than editing a shipped file that the
+    # next upgrade replaces:
+    #     daedalus config <name> --set mem-limit=12g
+    mem_limit: ${DAEDALUS_MEM_LIMIT:-4g}
+    cpus: "${DAEDALUS_CPUS:-2.0}"
+    pids_limit: ${DAEDALUS_PIDS_LIMIT:-512}

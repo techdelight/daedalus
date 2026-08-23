@@ -3,7 +3,10 @@
 package core
 
 import (
+	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"testing"
 )
 
@@ -468,5 +471,51 @@ func TestContainerName_OverridePrefix(t *testing.T) {
 func TestContainerNameFor_EmptyDefaults(t *testing.T) {
 	if got := ContainerNameFor("", "foo"); got != "claude-run-foo" {
 		t.Errorf("ContainerNameFor empty = %q", got)
+	}
+}
+
+// TestProjectFlagKeys_MatchesWhatIsActuallyApplied.
+//
+// DERIVED from applyDefaultFlags's own switch rather than restated, because two
+// hand-maintained lists is how one of them ends up wrong — and the consequence
+// here is specific: a key missing from ProjectFlagKeys() gets warned about
+// wrongly, and a key present but unhandled is accepted silently and does
+// nothing, which is the failure the warning exists to prevent.
+func TestProjectFlagKeys_MatchesWhatIsActuallyApplied(t *testing.T) {
+	src, err := os.ReadFile("config.go")
+	if err != nil {
+		t.Fatalf("reading config.go: %v", err)
+	}
+	body := string(src)
+	i := strings.Index(body, "func applyDefaultFlags(")
+	if i < 0 {
+		t.Fatal("applyDefaultFlags has moved; this test can no longer find what to check")
+	}
+	end := strings.Index(body[i:], "\n}\n")
+	if end < 0 {
+		t.Fatal("could not find the end of applyDefaultFlags")
+	}
+	cases := regexp.MustCompile(`case "([a-z-]+)":`).FindAllStringSubmatch(body[i:i+end], -1)
+	if len(cases) < 5 {
+		t.Fatalf("found %d cases, which cannot be right", len(cases))
+	}
+
+	handled := map[string]bool{}
+	for _, m := range cases {
+		handled[m[1]] = true
+	}
+	declared := map[string]bool{}
+	for _, k := range ProjectFlagKeys() {
+		declared[k] = true
+		if !handled[k] {
+			t.Errorf("ProjectFlagKeys() lists %q but applyDefaultFlags ignores it — "+
+				"setting it would be accepted and do nothing", k)
+		}
+	}
+	for k := range handled {
+		if !declared[k] {
+			t.Errorf("applyDefaultFlags acts on %q but ProjectFlagKeys() omits it — "+
+				"setting it would warn wrongly", k)
+		}
 	}
 }

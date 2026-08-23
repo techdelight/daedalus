@@ -2,6 +2,8 @@
 
 package core
 
+import "strings"
+
 // HookConfig describes the activity-reporting hooks a runner supports.
 // Each entry maps a hook event name to the shell command that writes
 // activity state. The command may contain {{.ActivityFile}} as a
@@ -37,11 +39,11 @@ var runnerProfiles = map[string]RunnerProfile{
 		PromptFlag:    "-p",
 		ActivityHooks: HookConfig{
 			Hooks: map[string]string{
-				"PreToolUse":      `printf '{"state":"busy","detail":"tool_use","ts":"%s"}' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > {{.ActivityFile}}`,
-				"PostToolUse":     `printf '{"state":"busy","detail":"tool_done","ts":"%s"}' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > {{.ActivityFile}}`,
-				"SubagentStart":   `printf '{"state":"busy","detail":"subagent","ts":"%s"}' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > {{.ActivityFile}}`,
-				"Stop":            `printf '{"state":"idle","detail":"stop","ts":"%s"}' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > {{.ActivityFile}}`,
-				"Notification":    `printf '{"state":"idle","detail":"waiting","ts":"%s"}' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > {{.ActivityFile}}`,
+				"PreToolUse":       `printf '{"state":"busy","detail":"tool_use","ts":"%s"}' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > {{.ActivityFile}}`,
+				"PostToolUse":      `printf '{"state":"busy","detail":"tool_done","ts":"%s"}' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > {{.ActivityFile}}`,
+				"SubagentStart":    `printf '{"state":"busy","detail":"subagent","ts":"%s"}' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > {{.ActivityFile}}`,
+				"Stop":             `printf '{"state":"idle","detail":"stop","ts":"%s"}' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > {{.ActivityFile}}`,
+				"Notification":     `printf '{"state":"idle","detail":"waiting","ts":"%s"}' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > {{.ActivityFile}}`,
 				"UserPromptSubmit": `printf '{"state":"busy","detail":"prompt","ts":"%s"}' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > {{.ActivityFile}}`,
 			},
 		},
@@ -99,4 +101,32 @@ func ResolveRunnerName(cfg *Config) string {
 		return cfg.Runner
 	}
 	return "claude"
+}
+
+// ResourceLimitEnv renders a project's container resource limits as environment
+// variables for docker-compose interpolation (#81b).
+//
+// Only non-empty values are emitted, and that is the whole safety property: an
+// unset limit leaves docker-compose.yml's own default in force, so a project
+// that has configured nothing behaves exactly as it did before these existed.
+//
+// The values are passed to docker VERBATIM. Validating them here would mean
+// holding a second opinion about a syntax docker already owns, and a wrong
+// opinion would reject a limit docker would have accepted. A malformed value
+// fails at compose with docker's own message, which names the field.
+func ResourceLimitEnv(cfg *Config) []string {
+	if cfg == nil {
+		return nil
+	}
+	var env []string
+	for _, l := range []struct{ name, val string }{
+		{"DAEDALUS_MEM_LIMIT", cfg.MemLimit},
+		{"DAEDALUS_CPUS", cfg.CPUs},
+		{"DAEDALUS_PIDS_LIMIT", cfg.PidsLimit},
+	} {
+		if strings.TrimSpace(l.val) != "" {
+			env = append(env, l.name+"="+strings.TrimSpace(l.val))
+		}
+	}
+	return env
 }

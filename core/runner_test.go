@@ -2,7 +2,12 @@
 
 package core
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
 
 func TestLookupRunner_Claude(t *testing.T) {
 	o, ok := LookupRunner("claude", nil)
@@ -231,4 +236,61 @@ func searchString(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+// TestResourceLimitEnv_OnlySpeaksWhenAsked (#81b).
+//
+// The safety property is the silence: an unset limit must emit NOTHING, so
+// docker-compose.yml's own default stays in force and a project that has
+// configured nothing behaves exactly as it did before these existed. Emitting
+// an empty value would interpolate `mem_limit:` to nothing and break the file
+// for every project at once.
+func TestResourceLimitEnv_OnlySpeaksWhenAsked(t *testing.T) {
+	if env := ResourceLimitEnv(&Config{}); len(env) != 0 {
+		t.Errorf("an unconfigured project must emit nothing, got %v", env)
+	}
+	if env := ResourceLimitEnv(nil); len(env) != 0 {
+		t.Errorf("a nil config must emit nothing, got %v", env)
+	}
+	// Whitespace is not a value: "   " would interpolate to an empty limit.
+	if env := ResourceLimitEnv(&Config{MemLimit: "   "}); len(env) != 0 {
+		t.Errorf("whitespace must not count as a limit, got %v", env)
+	}
+
+	env := ResourceLimitEnv(&Config{MemLimit: "12g", CPUs: "4.0", PidsLimit: "1024"})
+	want := []string{"DAEDALUS_MEM_LIMIT=12g", "DAEDALUS_CPUS=4.0", "DAEDALUS_PIDS_LIMIT=1024"}
+	if len(env) != len(want) {
+		t.Fatalf("env = %v, want %v", env, want)
+	}
+	for i := range want {
+		if env[i] != want[i] {
+			t.Errorf("env[%d] = %q, want %q", i, env[i], want[i])
+		}
+	}
+
+	// One set, two unset: only the one travels.
+	if env := ResourceLimitEnv(&Config{MemLimit: "16g"}); len(env) != 1 || env[0] != "DAEDALUS_MEM_LIMIT=16g" {
+		t.Errorf("a single limit must travel alone, got %v", env)
+	}
+}
+
+// The compose file must actually interpolate what we set, with today's values as
+// the fallback — derived from the file rather than restated, so the two cannot
+// drift into a limit nobody can change or a default nobody expects.
+func TestComposeInterpolatesResourceLimits(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "docker-compose.yml"))
+	if err != nil {
+		t.Skipf("docker-compose.yml not readable from here: %v", err)
+	}
+	compose := string(data)
+	for _, want := range []string{
+		"${DAEDALUS_MEM_LIMIT:-4g}",
+		"${DAEDALUS_CPUS:-2.0}",
+		"${DAEDALUS_PIDS_LIMIT:-512}",
+	} {
+		if !strings.Contains(compose, want) {
+			t.Errorf("docker-compose.yml does not interpolate %s — the per-project limit "+
+				"would be set and silently ignored", want)
+		}
+	}
 }

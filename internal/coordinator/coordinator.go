@@ -372,13 +372,22 @@ const containerSocketPath = "/home/claude/.daedalus/runner.sock"
 // has to be an explicit `-e` flag on `docker compose run`; see
 // runnerContainerEnv.
 func composeEnv(cfg *core.Config) []string {
-	return []string{
+	env := []string{
 		"PROJECT_DIR=" + cfg.ProjectDir,
 		"CACHE_DIR=" + cfg.CacheDir(),
 		"TARGET=" + cfg.Target,
 		"IMAGE=" + cfg.Image(),
 		"RUNNER=" + core.ResolveRunnerName(cfg),
 	}
+	// Per-project resource limits (#81b). These MUST travel here rather than as
+	// `-e` flags on `docker compose run`: `-e` sets a variable inside the
+	// container, and mem_limit/cpus/pids_limit are properties of the container
+	// itself, interpolated out of docker-compose.yml before it is ever created.
+	//
+	// Only set when the project asked for something. An unset variable leaves the
+	// compose file's own default in force, so a project that says nothing gets
+	// byte-identical behaviour to before this existed.
+	return append(env, core.ResourceLimitEnv(cfg)...)
 }
 
 // runnerContainerEnv returns the KEY=VALUE pairs that must be injected

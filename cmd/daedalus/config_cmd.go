@@ -48,6 +48,16 @@ func showOrEditConfig(cfg *core.Config) error {
 				fmt.Printf("%s target changed to '%s' for '%s'.\n", color.Green("OK:"), parts[1], cfg.ConfigTarget)
 				continue
 			}
+			// A key applyDefaultFlags does not act on is stored and then ignored, so
+			// setting one looks exactly like success and changes nothing. Warned
+			// rather than refused: the registry has carried arbitrary keys since it
+			// existed, and rejecting one now could break a project that relies on a
+			// key some future version will read.
+			if !core.IsProjectFlagKey(parts[0]) {
+				fmt.Printf("%s %q is not a key daedalus acts on — it will be stored and ignored. "+
+					"Known keys: %s\n", color.Yellow("Warning:"), parts[0],
+					strings.Join(core.ProjectFlagKeys(), ", "))
+			}
 			setMap[parts[0]] = parts[1]
 		}
 		if len(setMap) > 0 || len(cfg.ConfigUnset) > 0 {

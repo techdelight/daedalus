@@ -41,18 +41,29 @@ type Config struct {
 	ProgrammesArgs  []string // positional args for "programmes" subcommand
 	CoordinatorArgs []string // positional args for "coordinator" subcommand
 	ControlArgs     []string // positional args for "control" subcommand (the plane daemon)
-	DocsArgs        []string // positional args for "docs" subcommand
-	InitArgs        []string // positional args for "init" subcommand
-	VersionArgs     []string // positional args for "version" subcommand
-	TaskArgs        []string // positional args for "task" subcommand (control plane)
-	TargetOverride  bool     // true when --target was explicitly passed
-	WebAddr         string   // host:port for web UI server
-	WSL2Detected    bool     // true when WSL2 was auto-detected and host defaulted to 0.0.0.0
-	LogFile         string   // path to log file for persistent logging
-	ContainerLog    bool     // log container output to file
-	Auth            bool     // enable token-based authentication for web UI
-	AuthToken       string   // access token for web UI authentication
-	AuthExpiry      int      // session cookie expiry in hours (default 24)
+	// Container resource limits, per project (#81b). Empty means "whatever
+	// docker-compose.yml defaults to" — the values are interpolated into the
+	// compose file, so an unset one leaves the shipped default in force.
+	//
+	// They exist because they were hardcoded, and a project that genuinely needed
+	// more had to edit a file the next upgrade replaces. Measured: a review of the
+	// snowball project could not run its own Sprint-180 measurement because the
+	// model needed ~8.4GB and the container capped at 4GiB.
+	MemLimit       string   // docker mem_limit, e.g. "12g"
+	CPUs           string   // docker cpus, e.g. "4.0"
+	PidsLimit      string   // docker pids_limit, e.g. "1024"
+	DocsArgs       []string // positional args for "docs" subcommand
+	InitArgs       []string // positional args for "init" subcommand
+	VersionArgs    []string // positional args for "version" subcommand
+	TaskArgs       []string // positional args for "task" subcommand (control plane)
+	TargetOverride bool     // true when --target was explicitly passed
+	WebAddr        string   // host:port for web UI server
+	WSL2Detected   bool     // true when WSL2 was auto-detected and host defaulted to 0.0.0.0
+	LogFile        string   // path to log file for persistent logging
+	ContainerLog   bool     // log container output to file
+	Auth           bool     // enable token-based authentication for web UI
+	AuthToken      string   // access token for web UI authentication
+	AuthExpiry     int      // session cookie expiry in hours (default 24)
 }
 
 // ValidTargets returns the list of valid build target names.
@@ -262,6 +273,30 @@ func NormalizeRunnerTarget(cfg *Config) {
 	}
 }
 
+// ProjectFlagKeys are the per-project config keys `daedalus config <name> --set`
+// understands. Anything else is stored and then silently ignored by
+// applyDefaultFlags, which is the failure this list exists to make loud: a typo
+// like `memlimit=12g` looks exactly like success until the container starts with
+// the old limit.
+//
+// It must match the switch below, and a test derives the switch's cases from the
+// source to check that it does — rather than trusting two lists to be edited
+// together.
+func ProjectFlagKeys() []string {
+	return []string{"debug", "dind", "display", "runner", "persona", "agent",
+		"mem-limit", "cpus", "pids-limit"}
+}
+
+// IsProjectFlagKey reports whether key is one applyDefaultFlags acts on.
+func IsProjectFlagKey(key string) bool {
+	for _, k := range ProjectFlagKeys() {
+		if k == key {
+			return true
+		}
+	}
+	return false
+}
+
 // applyDefaultFlags applies per-project defaults to the config.
 // CLI flags always win — defaults only enable flags that are at zero value.
 func applyDefaultFlags(cfg *Config, flags map[string]string) {
@@ -286,6 +321,22 @@ func applyDefaultFlags(cfg *Config, flags map[string]string) {
 		case "persona":
 			if cfg.Persona == "" {
 				cfg.Persona = val
+			}
+		// Container resource limits (#81b). Carried as strings and passed to
+		// compose verbatim: the units are docker's (`12g`, `2.0`, `512`), and
+		// re-parsing them here would only add a second opinion about a syntax
+		// docker already owns.
+		case "mem-limit":
+			if cfg.MemLimit == "" {
+				cfg.MemLimit = val
+			}
+		case "cpus":
+			if cfg.CPUs == "" {
+				cfg.CPUs = val
+			}
+		case "pids-limit":
+			if cfg.PidsLimit == "" {
+				cfg.PidsLimit = val
 			}
 		case "agent":
 			// Legacy fallback: map "agent" to Runner for backward compat

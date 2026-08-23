@@ -114,6 +114,32 @@ All notable changes to this project will be documented in this file.
     the findings — but the obvious check would also reject a legitimate retry that
     happens to produce an identical tree, and that deserves its own thought.
 
+### Added
+- **Container resource limits are configurable per project (#81b).**
+  `mem_limit: 4g`, `cpus` and `pids_limit` were hardcoded in
+  `docker-compose.yml`, so a project needing more had to edit a shipped file that
+  the next upgrade replaces — `setup.sh` installs a fresh payload per version.
+  - **Measured on another project.** A reviewer on the snowball repo reported a
+    sprint's one open item blocked because the model needed ~8.4GB against a
+    4 GiB cap, and confirmed the cap from `/sys/fs/cgroup/memory.max` inside the
+    container.
+  - `daedalus config <name> --set mem-limit=12g` (also `cpus`, `pids-limit`). The
+    compose file interpolates `${DAEDALUS_MEM_LIMIT:-4g}` and friends, so
+    **today's values are the defaults and a project that configures nothing
+    behaves exactly as before.**
+  - The values travel in the compose process **environment**, not as `-e` flags:
+    `-e` sets a variable inside the container, while these are properties *of*
+    the container, interpolated before it is created.
+  - Only non-empty values are emitted — an empty one would interpolate
+    `mem_limit:` to nothing and break the file for every project at once.
+  - **A trap closed on the way:** an unknown config key was stored and then
+    silently ignored, so `--set memlimit=12g` looked exactly like success. The
+    command now warns and names the known keys, and a test derives that list from
+    `applyDefaultFlags`'s own switch so the two cannot drift.
+  - **Unverified on a real host**: there is no Docker here, so the env
+    construction and the compose interpolation are tested and the container
+    actually starting with a raised limit is not.
+
 ### Fixed
 - **daedalus committed its own liveness file into every artifact (#94).** The
   hooks in `settings.json` write `/workspace/.daedalus/activity.json` on every

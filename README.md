@@ -163,7 +163,7 @@ daedalus --help
 | `list` | List all registered projects |
 | `prune` | Remove registry entries with missing directories |
 | `remove <name> [name...]` | Remove named projects from the registry |
-| `config <name>` | View or edit per-project default flags |
+| `config <name>` | View or edit per-project default flags — including container limits: `--set mem-limit=12g`, `cpus`, `pids-limit` |
 | `skills` | List, add, remove, or show skills in the shared catalog |
 | `runners` | List or show built-in runner profiles (`claude`, `copilot`) |
 | `personas` | List, show, create, or remove named persona configurations |
