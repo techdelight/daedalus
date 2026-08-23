@@ -71,7 +71,30 @@ func (m *WorktreeManager) Capture(worktreePath string) (string, error) {
 	if _, err := os.Stat(worktreePath); err != nil {
 		return "", fmt.Errorf("worktree %s missing: %w", worktreePath, err)
 	}
-	if out, err := runGit(worktreePath, "add", "-A"); err != nil {
+	// EXCLUDE THE HARNESS'S OWN SCRATCH FILES.
+	//
+	// daedalus's hooks write /workspace/.daedalus/activity.json on every tool use,
+	// every stop and every prompt (settings.json), and for a Job /workspace IS the
+	// worktree that becomes the artifact. So `git add -A` committed the plane's own
+	// liveness state as part of the agent's work — in every project daedalus has
+	// ever run a Job in.
+	//
+	// Found by a REVIEWER on another project's change (RV-18): "a harness state
+	// file is committed as part of a change whose stated constraint is
+	// documentation and planning only… it will churn on every job — producing
+	// conflicts between exactly the parallel branches noted above."
+	//
+	// daedalus itself never noticed because its own .gitignore excludes
+	// `.daedalus/*` for an unrelated reason, which is the worst way to be immune to
+	// your own bug.
+	//
+	// Excluded by PATHSPEC rather than deleted: if a previous Job already committed
+	// the file, removing it would stage a deletion the agent did not make. This
+	// leaves whatever is tracked exactly as it is and simply stops adding more.
+	// `.daedalus/verify.json` is deliberately NOT excluded — that is the project's
+	// own acceptance policy and belongs in its history.
+	addArgs := append([]string{"add", "-A", "--"}, harnessExcludes()...)
+	if out, err := runGit(worktreePath, addArgs...); err != nil {
 		return "", fmt.Errorf("git add: %w\n%s", err, out)
 	}
 	// Commit only if there is something staged; a no-op commit errors, which we
@@ -92,6 +115,22 @@ func (m *WorktreeManager) Capture(worktreePath string) (string, error) {
 
 // Remove tears down a job's worktree. repoDir may be empty (e.g. an orphan whose
 // DB row is gone); in that case the checkout directory is removed directly. The
+// harnessScratch are the paths daedalus itself writes into a project checkout.
+// They are the plane's state, not the agent's work, and must never reach an
+// artifact. Named individually rather than excluding `.daedalus/` wholesale,
+// because `.daedalus/verify.json` in that same directory is project content the
+// verifier reads from the commit.
+var harnessScratch = []string{".daedalus/activity.json"}
+
+// harnessExcludes renders harnessScratch as git pathspecs.
+func harnessExcludes() []string {
+	out := make([]string, 0, len(harnessScratch))
+	for _, p := range harnessScratch {
+		out = append(out, ":(exclude)"+p)
+	}
+	return out
+}
+
 // branch is intentionally preserved so a successful Job's Artifact commit
 // survives after its worktree is reclaimed.
 func (m *WorktreeManager) Remove(repoDir, jobID string) error {

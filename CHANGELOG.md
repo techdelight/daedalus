@@ -115,6 +115,27 @@ All notable changes to this project will be documented in this file.
     happens to produce an identical tree, and that deserves its own thought.
 
 ### Fixed
+- **daedalus committed its own liveness file into every artifact (#94).** The
+  hooks in `settings.json` write `/workspace/.daedalus/activity.json` on every
+  tool use, stop and prompt — and for a Job `/workspace` **is the worktree that
+  becomes the artifact**, so `Capture`'s `git add -A` staged the plane's own
+  state as the agent's work. Every project daedalus has run a Job in has this in
+  its history.
+  - **Found by a reviewer on an unrelated project** (RV-18), in a change whose
+    stated constraint was documentation only. Its second point is the sharper
+    one: the file carries a timestamp, so it is guaranteed to conflict between
+    any two branches that would otherwise merge cleanly.
+  - **daedalus never noticed because its own `.gitignore` excludes `.daedalus/*`
+    for an unrelated reason** — immune to its own bug by accident.
+  - Excluded at capture by git pathspec rather than deleted: if an earlier Job
+    already committed it, deleting would stage a removal the agent did not make.
+  - Named individually rather than excluding `.daedalus/` wholesale, because
+    **`.daedalus/verify.json` is project content** the verifier reads from the
+    commit — dropping it would silently swap a project's acceptance policy for
+    the built-in default. Both properties pinned by one test.
+  - **Not retroactive.** A project already carrying the file keeps it; add it to
+    that project's `.gitignore` and delete it once.
+
 - **A large change could not be reviewed at all (#92).** The reviewer's whole
   brief — diff included — was passed as a single command-line argument, and Linux
   caps one argv element at 128KB whatever room the rest of the command line has.
