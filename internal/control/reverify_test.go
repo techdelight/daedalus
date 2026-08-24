@@ -544,3 +544,68 @@ func TestReplan_WorksOnAnUngradedCandidate(t *testing.T) {
 		t.Errorf("dispatch after replanning a candidate: %v", err)
 	}
 }
+
+// A VACUOUS PASS HAS TO BE REACHABLE, and today the route is through `reject`.
+//
+// Reverify exists because "a verdict can be wrong for reasons that say nothing
+// about the work" — but it accepts only `rejected`, so it can correct a wrong
+// NO and not a wrong YES. A task verified by the built-in default policy (the
+// project committed no .daedalus/verify.json, so `daedalus docs lint` graded its
+// documents) sits at `verified`, one command from being integrated, and cannot
+// be re-graded against the real policy once one exists.
+//
+// The escape is a human rejection first. This pins that it works end to end,
+// because the operator who needs it is holding a task they cannot otherwise
+// touch — and because `approval_rejected` being appealable is what makes it
+// possible, which is a property of a table two files away.
+func TestReverify_AVerifiedTaskIsReachableThroughReject(t *testing.T) {
+	repo := gitRepo(t)
+	svc, _, store := newService(t, mapResolver{"app": repo},
+		StubRunner{Result: ExecSuccess, WriteFile: true, MarkerName: "a.txt"}, nil, StubVerifyRunner{Pass: true})
+
+	task, err := svc.CreateTask(CreateTaskRequest{Project: "app", Objective: "x"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	if _, err := svc.DispatchTask(task.ID); err != nil {
+		t.Fatalf("Dispatch: %v", err)
+	}
+	if _, err := svc.VerifyTask(task.ID, VerifyRequest{}); err != nil {
+		t.Fatalf("Verify: %v", err)
+	}
+	if cur, _ := store.GetTask(task.ID); cur.State != StateVerified {
+		t.Fatalf("task state = %q, want verified — the fixture needs the stuck state", cur.State)
+	}
+
+	// The state the operator is actually in.
+	if _, err := svc.ReverifyTask(task.ID, ReverifyRequest{Amended: true}); err == nil {
+		t.Fatal("reverify accepted a verified task; this test is pinning the opposite")
+	}
+
+	// The way out: say no at the gate, then re-grade.
+	if _, err := svc.RejectApproval(task.ID, "graded by the default policy, not the project's"); err != nil {
+		t.Fatalf("reject from verified: %v", err)
+	}
+	if cur, _ := store.GetTask(task.ID); cur.State != StateRejected {
+		t.Fatalf("task state = %q, want rejected", cur.State)
+	}
+	res, err := svc.ReverifyTask(task.ID, ReverifyRequest{Amended: true})
+	if err != nil {
+		t.Fatalf("reverify after a human rejection: %v — the route out of a vacuous pass is closed", err)
+	}
+	if !res.Verify.Verified {
+		t.Errorf("the re-grade did not verify: %+v", res.Verify)
+	}
+	// What keeps this route open: the reason a human rejection leaves behind must
+	// never be unappealable. A gate rejection is a statement about the DECISION,
+	// not a finding about the artifact — unlike the integrity gate and the
+	// null-agent floor, which are the two things reverify must not let anybody
+	// appeal. If either of these stops holding, the only way out of a vacuous
+	// pass closes silently.
+	if unappealableReasons[ReasonApprovalRejected] {
+		t.Error("approval_rejected became unappealable — the only route out of a vacuous pass is now closed")
+	}
+	if unappealableReasons[res.PreviousReason] {
+		t.Errorf("the verdict this set aside (%q) is unappealable, so the route is closed", res.PreviousReason)
+	}
+}

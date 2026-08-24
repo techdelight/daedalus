@@ -670,8 +670,17 @@ func taskReverify(api control.TaskAPI, args []string) error {
 		}
 		return err
 	}
+	// A human's rejection at the approval gate is recorded as an APPROVAL event,
+	// not a rejection one, so LastRejectionReason answers "" for it — and the
+	// sentence then read "setting aside the  verdict". The route through `reject`
+	// is the only way to re-grade a task that passed against the wrong oracle, so
+	// it is a sentence operators will meet.
+	previous := string(res.PreviousReason)
+	if previous == "" {
+		previous = "previous"
+	}
 	fmt.Printf("%s task %s: setting aside the %s verdict and re-grading the same artifact\n",
-		color.Cyan("Re-verify:"), id, res.PreviousReason)
+		color.Cyan("Re-verify:"), id, previous)
 	if res.Rebased {
 		fmt.Printf("     rebased onto %s — the acceptance policy was re-frozen there, so this verdict is\n", shortSHA(res.BaseSHA))
 		fmt.Println("     under a policy the artifact did not originally face (recorded in `task events`)")
