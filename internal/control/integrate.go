@@ -270,6 +270,11 @@ func (s *Service) integrateOnce(id string, attempt int) (IntegrationResult, bool
 	if art == nil {
 		return IntegrationResult{}, false, fmt.Errorf("%w: task %s has no artifact to integrate", ErrWrongState, id)
 	}
+	// …and one that names no commit cannot be landed either. Said in the plane's
+	// words here rather than git's three calls later.
+	if err := usableArtifact(art); err != nil {
+		return IntegrationResult{}, false, err
+	}
 	// An independent review, when one is configured, gates integration (§6's
 	// ladder rung 5). Checked here rather than at approval so the review verdict
 	// is fresh with respect to the artifact actually being landed.

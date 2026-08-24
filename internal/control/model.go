@@ -12,6 +12,8 @@
 // docs/control-plane.md for the V1 scope boundary.
 package control
 
+import "fmt"
+
 // State is a control-plane task/job lifecycle state. The legal moves encode the
 // state machine from docs/guild-master-plan.md §5:
 //
@@ -471,6 +473,28 @@ type Job struct {
 // Artifact is the durable result of a successful Job (§5): a committed tree on a
 // dedicated branch, with independent verify/review status the control plane
 // owns. Only a `success` execution promotes a snapshot to an Artifact.
+// usableArtifact reports whether an Artifact names a commit anybody can act on.
+//
+// It exists because one that does not USED TO BE CREATABLE: a Job whose capture
+// failed was promoted with an empty head_sha, and every operation that names the
+// commit — review, verify, integrate — then failed in git's words rather than
+// the plane's ("fatal: invalid reference:", with nothing after the colon).
+// Dispatch no longer produces such a row; this is for the ones already written,
+// which no fix upstream can retract, and it says the one thing the operator
+// needs: this artifact is empty, and a fresh attempt is the way out.
+func usableArtifact(art *Artifact) error {
+	if art == nil {
+		return fmt.Errorf("%w: there is no artifact to act on", ErrWrongState)
+	}
+	if art.HeadSHA == "" {
+		return fmt.Errorf("%w: artifact %s names no commit — the Job ran but the plane could not "+
+			"capture its work, so there is nothing to read or grade. Retry the task for a fresh "+
+			"attempt (`daedalus task retry %s`); the daemon log records why the capture failed",
+			ErrWrongState, art.ID, art.JobID)
+	}
+	return nil
+}
+
 type Artifact struct {
 	ID      string       `json:"id"` // e.g. "A-1"
 	JobID   string       `json:"jobId"`

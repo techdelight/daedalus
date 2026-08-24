@@ -3,6 +3,8 @@
 package control
 
 import (
+	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -466,5 +468,91 @@ func TestRecordJobLog_IgnoresAPathThatWasNeverWritten(t *testing.T) {
 	}
 	if strings.Contains(job.LogPath, "never-written") {
 		t.Errorf("log path = %q — a path with no file behind it must not be recorded", job.LogPath)
+	}
+}
+
+// AN ARTIFACT THAT NAMES NO COMMIT MUST NEVER BE CREATED.
+//
+// Reported from a real task: a review answered `fatal: invalid reference:` with
+// nothing after the colon. The Job had exited 0, Capture had failed, and the
+// plane promoted anyway — a `candidate` Artifact whose head_sha was the empty
+// string, which every consumer then discovered separately in git's words.
+//
+// The agent exiting 0 is not the question. The question is whether the plane
+// holds a commit to grade, and a Job it could not capture is a failed ATTEMPT:
+// the Job is `failed`, the Task drops to `rejected` with its objective and
+// history intact, and the retry ladder is where the operator continues.
+func TestDispatch_NoSnapshotIsNotACandidate(t *testing.T) {
+	repo := gitRepo(t)
+	// WriteFile: false — the agent touches nothing, and the worktree is then
+	// removed under the plane so Capture cannot produce a commit at all.
+	svc, wt, store := newService(t, mapResolver{"app": repo}, &vanishingRunner{wt: nil}, nil)
+
+	task, err := svc.CreateTask(CreateTaskRequest{Project: "app", Objective: "x"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	svc.runner = &vanishingRunner{wt: wt}
+
+	res, err := svc.DispatchTask(task.ID)
+	if err != nil {
+		t.Fatalf("Dispatch: %v", err)
+	}
+	if res.Artifact != nil {
+		t.Fatalf("an artifact was created for a Job with no snapshot: %+v", res.Artifact)
+	}
+	arts, _ := store.ListArtifactsForJob(res.Job.ID)
+	if len(arts) != 0 {
+		t.Fatalf("artifacts = %d, want none — an artifact naming no commit is not an artifact", len(arts))
+	}
+	if res.Job.State != StateFailed {
+		t.Errorf("job state = %q, want failed", res.Job.State)
+	}
+	// The TASK survives, on the retry ladder, with its objective intact (#80).
+	after, _ := store.GetTask(task.ID)
+	if after.State != StateRejected {
+		t.Errorf("task state = %q, want rejected so retry/replan remain available", after.State)
+	}
+	// And the record says which fault it was: the agent finished, we could not
+	// keep what it did. That is a different thing from the agent failing.
+	events, _ := store.ListEventsForTask(task.ID)
+	var said bool
+	for _, e := range events {
+		if strings.Contains(e.Note, "could not capture") {
+			said = true
+		}
+	}
+	if !said {
+		t.Error("nothing in the record says the capture failed, so the operator sees a failed " +
+			"attempt and no reason to look at the daemon log")
+	}
+}
+
+// vanishingRunner succeeds, having removed the worktree the plane was going to
+// capture — the shape of any capture failure, without needing to break git.
+type vanishingRunner struct{ wt *WorktreeManager }
+
+func (r *vanishingRunner) Run(_ context.Context, spec JobSpec) RunOutcome {
+	_ = os.RemoveAll(spec.WorktreeDir)
+	return RunOutcome{Result: ExecSuccess}
+}
+
+// A row already written this way cannot be retracted, so the operations that
+// name the commit must refuse it in the PLANE's words rather than git's.
+func TestUsableArtifact_SaysWhatIsWrongAndWhatToDo(t *testing.T) {
+	err := usableArtifact(&Artifact{ID: "A-3", JobID: "J-7"})
+	if err == nil {
+		t.Fatal("an artifact naming no commit was accepted")
+	}
+	for _, want := range []string{"A-3", "names no commit", "retry"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal does not mention %q: %v", want, err)
+		}
+	}
+	if !errors.Is(err, ErrWrongState) {
+		t.Errorf("want an ErrWrongState refusal, got %T", err)
+	}
+	if err := usableArtifact(&Artifact{ID: "A-4", HeadSHA: "abc123"}); err != nil {
+		t.Errorf("a real artifact was refused: %v", err)
 	}
 }

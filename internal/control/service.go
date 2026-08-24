@@ -1178,6 +1178,31 @@ func (s *Service) runDispatch(prep dispatchPrep) (DispatchResult, error) {
 
 	switch outcome.Result {
 	case ExecSuccess:
+		// AN ARTIFACT THAT NAMES NO COMMIT IS NOT AN ARTIFACT.
+		//
+		// Capture returns ("", err) on every failure path, and this used to log the
+		// error and promote anyway — creating a `candidate` Artifact whose head_sha
+		// is the empty string. The Task then looked ready to be graded, and every
+		// consumer that names the commit discovered the hole separately and in git's
+		// words: a review answered `fatal: invalid reference:` with nothing after
+		// the colon, which says neither what was wrong nor which task it was about.
+		// Reported that way from a real task.
+		//
+		// The agent exiting 0 is not the question. The question is whether the plane
+		// holds a commit to grade, and it does not — so this is a failed ATTEMPT and
+		// takes the same path as one, which keeps the Task alive on the retry ladder
+		// with its objective and history intact (#80). The capture error is carried
+		// into the note, because "the agent worked and we could not save it" is a
+		// different fault from "the agent failed" and the record must be able to say
+		// which.
+		if headSHA == "" {
+			why := "the plane could not capture a commit from the worktree"
+			if capErr != nil {
+				why += ": " + capErr.Error()
+			}
+			s.failJobRejectTask(task.ID, job.ID, prep.repoDir, note(outcome, why))
+			break
+		}
 		// Promote: job → candidate, create the candidate Artifact, task → candidate.
 		// The worktree is KEPT — candidate is non-terminal; the branch/commit must
 		// remain available for the clean-verifier step.
@@ -1402,6 +1427,14 @@ func (s *Service) verifyTaskLocked(caller Caller, id string, req VerifyRequest) 
 		return VerifyResult{}, err
 	}
 	art := s.firstArtifact(job.ID)
+	// Nothing to grade if the artifact names no commit. Refused before the budget
+	// check, because spending a verification cycle on an empty artifact is exactly
+	// the "charged for a fault of ours" shape the cycle accounting exists to avoid.
+	if art != nil {
+		if err := usableArtifact(art); err != nil {
+			return VerifyResult{}, err
+		}
+	}
 
 	// Review-cycle budget (§6, strongly enforceable). A REFUSAL, not a verdict:
 	// the plane declines to spend another verification on this task and leaves it

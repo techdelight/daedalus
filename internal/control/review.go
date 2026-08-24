@@ -327,6 +327,11 @@ func (s *Service) ReviewTask(id string) (ReviewResult, error) {
 	if err != nil {
 		return ReviewResult{}, err
 	}
+	if ok {
+		if err := usableArtifact(art); err != nil {
+			return ReviewResult{}, err
+		}
+	}
 	if !ok {
 		return ReviewResult{}, fmt.Errorf("%w: task %s has no artifact to review — nothing has been produced yet",
 			ErrWrongState, id)
