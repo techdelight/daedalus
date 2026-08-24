@@ -195,6 +195,27 @@ def main():
               "internal/api/items.go:140" in findings.nth(1).inner_text(),
               findings.nth(1).inner_text()[:120])
 
+        # A REVIEW THAT COULD NOT BE OBTAINED. Its one finding has no file and no
+        # fix, so its reason is the whole content — reported on real work: the
+        # row said "no review judgement was produced" and the reason, which
+        # names the failure and the log to read, was hidden behind a disclosure
+        # with nothing suggesting it was worth opening.
+        print("\n[3b] a review that did not happen says why, without being asked")
+        open_ledger(page, "/ledger/T-2")
+        page.wait_for_function("document.getElementById('ledger-desc-id').textContent === 'T-2'",
+                               timeout=10000)
+        page.click("button.ff-tab:has-text('record')")
+        page.wait_for_selector(".ledger-finding", timeout=10000)
+        failed = page.locator(".ledger-finding").first
+        check("the harness failure is open without being clicked",
+              failed.get_attribute("open") is not None)
+        why = failed.locator(".ledger-finding-why")
+        check("its reason is visible", why.is_visible())
+        check("and names the log to read", "reviews/J-9.log" in why.inner_text(),
+              why.inner_text())
+        check("no invented fix line", failed.locator(".ledger-finding-fix").count() == 0,
+              failed.inner_text())
+
         # --- item 1: the lock ------------------------------------------------
         print("\n[1] a command locks one entry, not the page")
         open_ledger(page, "/ledger/T-1")

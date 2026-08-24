@@ -187,6 +187,23 @@ func (p *scriptedPlane) TaskStatus(id string) (control.StatusView, error) {
 	if running {
 		view.Scheduling.Operation = "review"
 	}
+	// T-2 carries the outcome of a review that COULD NOT BE OBTAINED — the shape
+	// `reviewUnavailable` produces. It is in the fixture because it is the case
+	// the collapsing rendering gets wrong if nothing guards it: one concern, no
+	// file, no fix, and the reason is the entire content.
+	if id == "T-2" {
+		view.Reviews = []control.Review{{
+			ID: "RV-2", TaskID: "T-2", Passed: false,
+			Reasoning: "The review did not produce a verdict. This says nothing about the " +
+				"change; it says the reviewer could not be made to report on it.",
+			Findings: []control.Finding{{
+				Severity: control.SeverityConcern,
+				What:     "no review judgement was produced",
+				Why: "the reviewing agent exited with an error: exit status 1 " +
+					"(its output is in /data/.daedalus/reviews/J-9.log)",
+			}},
+		}}
+	}
 	if id == "T-1" {
 		view.Reviews = []control.Review{{
 			ID: "RV-1", TaskID: "T-1", Reviewer: "claude", Passed: false,

@@ -1289,6 +1289,20 @@
       // prints the page gets everything.
       const box = document.createElement('details');
       box.className = 'ledger-finding is-' + (f.severity || 'note');
+      // OPEN WHEN THERE IS NOTHING TO DISCLOSE PROGRESSIVELY.
+      //
+      // Collapsing works because the summary line is enough to decide whether to
+      // look further — the severity says how much it matters and the anchor says
+      // where. A finding with NEITHER a place to look NOR an action to take is
+      // not that kind of finding: its `why` is the entire content, and hiding it
+      // leaves a row that states a problem and withholds the problem.
+      //
+      // The case this was reported on is the one that matters most: a review
+      // that could not be obtained comes back as a single concern reading "no
+      // review judgement was produced", and the REASON — which names the failure
+      // and the log to read — was one click away with nothing suggesting it was
+      // worth the click. The operator read the row and had nothing to act on.
+      if (!f.file && !f.fix) box.open = true;
       const line = document.createElement('summary');
       line.appendChild(text('span', 'ledger-finding-sev', f.severity || 'note'));
       if (anchor) {
@@ -1302,10 +1316,18 @@
         box.appendChild(text('div', 'ledger-finding-path', where));
       }
       if (f.why) box.appendChild(text('div', 'ledger-finding-why', f.why));
-      // The action, marked as such. A finding whose reviewer did not name one
-      // says so, rather than leaving the reader to wonder whether it was cut off.
-      box.appendChild(text('div', 'ledger-finding-fix',
-        f.fix || 'The reviewer named no fix for this one.'));
+      // The action, marked as such. A finding about the code whose reviewer did
+      // not name one SAYS so, rather than leaving the reader to wonder whether
+      // it was cut off — but only for a finding about the code. A row with no
+      // file is not a reading of the change (a review that never ran reports
+      // itself this way), and "the reviewer named no fix" would be inventing a
+      // reviewer that never delivered an opinion.
+      if (f.fix) {
+        box.appendChild(text('div', 'ledger-finding-fix', f.fix));
+      } else if (f.file) {
+        box.appendChild(text('div', 'ledger-finding-fix',
+          'The reviewer named no fix for this one.'));
+      }
       host.appendChild(box);
     });
 
