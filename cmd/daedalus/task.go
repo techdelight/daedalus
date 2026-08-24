@@ -676,6 +676,15 @@ func taskReverify(api control.TaskAPI, args []string) error {
 		fmt.Printf("     rebased onto %s — the acceptance policy was re-frozen there, so this verdict is\n", shortSHA(res.BaseSHA))
 		fmt.Println("     under a policy the artifact did not originally face (recorded in `task events`)")
 	}
+	// Re-freezing onto a base that carries no policy adopts the BUILT-IN default,
+	// which grades documents. It looks identical to re-freezing onto a real one,
+	// and the difference is the whole meaning of the verdict about to be printed.
+	if res.DefaultPolicy {
+		fmt.Printf("     %s .daedalus/verify.json is NOT COMMITTED at %s, so the built-in default\n",
+			color.Yellow("default policy:"), shortSHA(res.BaseSHA))
+		fmt.Println("     policy applies — this verdict is about your documents, not your project's checks.")
+		fmt.Println("     If the file exists on disk but not in the commit, your .gitignore is excluding it.")
+	}
 	v := res.Verify
 	if v.Verified {
 		fmt.Printf("%s task %s VERIFIED — job %s → %s\n", color.Green("OK:"), id, v.Job.ID, v.Job.State)
@@ -1495,10 +1504,6 @@ func orDash(s string) string {
 	return s
 }
 
-// truncate shortens s to at most n runes, appending an ellipsis when cut.
-// severityMark colours a finding by how much it is claiming. Blocking is red not
-// because the plane acts on it — it does not — but because it is the reviewer
-// saying "I would not land this", and that is the sentence an operator scans for.
 // printFindings renders a reviewer's findings, indented under whatever printed
 // the verdict.
 //
@@ -1528,6 +1533,9 @@ func printFindings(findings []control.Finding, indent string) {
 	}
 }
 
+// severityMark colours a finding by how much it is claiming. Blocking is red not
+// because the plane acts on it — it does not — but because it is the reviewer
+// saying "I would not land this", and that is the sentence an operator scans for.
 func severityMark(s control.Severity) string {
 	switch s {
 	case control.SeverityBlocking:
@@ -1539,6 +1547,7 @@ func severityMark(s control.Severity) string {
 	}
 }
 
+// truncate shortens s to at most n runes, appending an ellipsis when cut.
 func truncate(s string, n int) string {
 	r := []rune(s)
 	if len(r) <= n {

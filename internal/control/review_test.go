@@ -520,3 +520,81 @@ type anonymousReviewer struct{}
 func (anonymousReviewer) Review(_ context.Context, _ ReviewSpec) ReviewOutcome {
 	return ReviewOutcome{Passed: true, Detail: "fine", Reasoning: "read it"}
 }
+
+// A REVIEW THAT NEVER HAPPENED MAKES NO STATEMENT ABOUT THE ARTIFACT.
+//
+// `reviewUnavailable` returns Passed=false because there is no verdict, and
+// writing that through as `review=fail` stamps the artifact with "a reviewer
+// read this and rejected it" — the exact confusion its own Reasoning field
+// exists to deny. Worse, it erases a genuine earlier pass.
+func TestReview_AnUnavailableReviewDoesNotMarkTheArtifact(t *testing.T) {
+	repo := gitRepo(t)
+	svc, _, store := newService(t, mapResolver{"app": repo},
+		StubRunner{Result: ExecSuccess, WriteFile: true, MarkerName: "a.txt"}, nil, StubVerifyRunner{Pass: true})
+	svc.SetReviewRunner(StubReviewRunner{Pass: true})
+
+	task, err := svc.CreateTask(CreateTaskRequest{Project: "app", Objective: "x"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	res, err := svc.DispatchTask(task.ID)
+	if err != nil {
+		t.Fatalf("Dispatch: %v", err)
+	}
+	// A real reading first: the artifact records a pass.
+	if _, err := svc.ReviewTask(task.ID); err != nil {
+		t.Fatalf("Review: %v", err)
+	}
+	if a, _ := store.GetArtifact(res.Artifact.ID); a.Review != ReviewPass {
+		t.Fatalf("artifact review = %q, want pass", a.Review)
+	}
+
+	// Then the harness breaks. The earlier reading must survive it.
+	svc.SetReviewRunner(&brokenReviewer{})
+	if _, err := svc.ReviewTask(task.ID); err != nil {
+		t.Fatalf("the unavailable review should still be recorded: %v", err)
+	}
+	a, _ := store.GetArtifact(res.Artifact.ID)
+	if a.Review == ReviewFail {
+		t.Error("a review that never ran marked the artifact `review=fail` — the operator now " +
+			"reads it as a reviewer's rejection, and a genuine pass was erased")
+	}
+	if a.Review != ReviewPass {
+		t.Errorf("artifact review = %q, want the earlier pass left intact", a.Review)
+	}
+}
+
+// The stamp must not collide with the word the surfaces already use for "nobody
+// is attributed". If it does, a judgement nobody signed and a review that never
+// happened read identically — while one is charged to the budget and one is not.
+func TestReview_TheStampIsDistinctFromAnEmptyReviewer(t *testing.T) {
+	repo := gitRepo(t)
+	svc, _, store := newService(t, mapResolver{"app": repo},
+		StubRunner{Result: ExecSuccess, WriteFile: true, MarkerName: "a.txt"}, nil, StubVerifyRunner{Pass: true})
+	svc.SetReviewRunner(anonymousReviewer{})
+
+	task, err := svc.CreateTask(CreateTaskRequest{Project: "app", Objective: "x"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	if _, err := svc.DispatchTask(task.ID); err != nil {
+		t.Fatalf("Dispatch: %v", err)
+	}
+	if _, err := svc.ReviewTask(task.ID); err != nil {
+		t.Fatalf("Review: %v", err)
+	}
+	reviews, _ := store.ReviewsForTask(task.ID)
+	if len(reviews) != 1 {
+		t.Fatalf("reviews = %d, want 1", len(reviews))
+	}
+	if reviews[0].Reviewer == "" {
+		t.Fatal("a judged review recorded no reviewer, so CountReviewRuns will not charge it")
+	}
+	// "unattributed" is what every surface prints for an EMPTY reviewer, so the
+	// stamp must be something else or the two become indistinguishable.
+	if reviews[0].Reviewer == "unattributed" {
+		t.Errorf("the stamp is the same word the surfaces use for an empty reviewer (%q), so a "+
+			"judged review and a review that never happened now read identically",
+			reviews[0].Reviewer)
+	}
+}

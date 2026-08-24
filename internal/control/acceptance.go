@@ -145,6 +145,24 @@ func ReadAcceptancePolicyAt(repoDir, sha string) (AcceptancePolicy, error) {
 	return parseAcceptance([]byte(out))
 }
 
+// AcceptancePolicyPresentAt reports whether a commit actually CARRIES a project
+// policy, as opposed to being handed the built-in default because it does not.
+//
+// ReadAcceptancePolicyAt cannot answer this: a missing file and a present one are
+// both a policy to it, deliberately, because every caller has to grade something
+// either way. But "the oracle you just froze is the built-in default" is a fact
+// an operator re-freezing a policy needs, and it is invisible from the outcome —
+// the default is a real policy that produces real verdicts about prose.
+//
+// It cost a real task a full cycle: a project whose .gitignore excluded
+// `.daedalus` had never committed its own `.daedalus/verify.json`, so every task
+// pinned to a base from that period was graded by `daedalus docs lint` instead of
+// the project's own checks, and nothing anywhere said so.
+func AcceptancePolicyPresentAt(repoDir, sha string) bool {
+	_, err := runGit(repoDir, "cat-file", "-e", sha+":"+acceptanceFile)
+	return err == nil
+}
+
 // parseAcceptance unmarshals the policy JSON, filling empty fields from the
 // default so a partial file (e.g. only "checks") still gets sane globs.
 func parseAcceptance(data []byte) (AcceptancePolicy, error) {

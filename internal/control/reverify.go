@@ -31,6 +31,11 @@ type ReverifyResult struct {
 	Amended        bool            `json:"amended"`
 	Rebased        bool            `json:"rebased,omitempty"`
 	BaseSHA        string          `json:"base_sha,omitempty"`
+	// DefaultPolicy is true when the base this re-froze onto carries no
+	// .daedalus/verify.json, so the BUILT-IN default applies. Reported because
+	// re-freezing onto nothing looks exactly like re-freezing onto something, and
+	// the verdict that follows is then about documents rather than the project.
+	DefaultPolicy bool `json:"defaultPolicy,omitempty"`
 	// Verify is the outcome of the grading itself.
 	Verify VerifyResult `json:"verify"`
 }
@@ -168,6 +173,12 @@ func (s *Service) prepareReverify(caller Caller, id string, req ReverifyRequest)
 			return ReverifyResult{}, err
 		}
 		task, res.Rebased, res.BaseSHA = updated, rebased, updated.BaseSHA
+		// Reported as well as recorded. The event note carries it for the record;
+		// the operator running the command needs it NOW, because the next verdict
+		// is the thing they are about to act on.
+		if rebased {
+			res.DefaultPolicy = !AcceptancePolicyPresentAt(repoDir, updated.BaseSHA)
+		}
 	}
 
 	// Has the ORACLE moved since the verdict being set aside? A free replay is
@@ -265,6 +276,17 @@ func (s *Service) rebaseTaskToTip(caller Caller, task Task, repoDir string) (Tas
 	// that difference can still be seen once the task has moved on.
 	note := fmt.Sprintf("rebase: %s → %s (acceptance policy re-frozen at the new base: %s → %s)",
 		shortSHA(task.BaseSHA), shortSHA(tip), shortHash(task.AcceptanceHash), shortHash(policy.Hash()))
+	// SAY IT WHEN THE NEW BASE CARRIES NO POLICY. This operation exists to adopt a
+	// corrected oracle, and adopting the built-in default by accident is the one
+	// outcome it must not perform silently — the default grades documents, so the
+	// verdict that follows says nothing about the project's own bar. Recorded in
+	// the note rather than refused: a project that genuinely has no policy is
+	// entitled to the default, and only the operator knows which case this is.
+	if !AcceptancePolicyPresentAt(repoDir, tip) {
+		note += " — WARNING: " + acceptanceFile + " is not committed at the new base, so the " +
+			"BUILT-IN DEFAULT policy applies and the verdict will be about that, not about this " +
+			"project's own checks"
+	}
 	updated, err := s.store.RebaseTask(task.ID, tip, policy.Hash(), governanceMetaFor(caller), note)
 	if err != nil {
 		return task, false, err

@@ -126,9 +126,20 @@ func (m *WorktreeManager) Capture(worktreePath string) (string, error) {
 		log.Printf("control: could not unstage harness scratch in %s (it may be committed with the "+
 			"artifact): %v\n%s", worktreePath, err, out)
 	}
-	// Commit only if there is something staged; a no-op commit errors, which we
-	// treat as "nothing to snapshot" and fall through to read the base HEAD.
-	if !worktreeClean(worktreePath) {
+	// COMMIT ON WHAT IS STAGED, not on whether the tree looks dirty.
+	//
+	// This asked `git status --porcelain`, which reports UNSTAGED changes too —
+	// and the harness's own scratch is unstaged by construction, one line above.
+	// So a Job that changed nothing except .daedalus/activity.json (any Job that
+	// answers a question, refuses, or simply edits no files — and the hooks write
+	// that file on every tool use) saw a dirty tree, attempted a commit with an
+	// empty index, and git exited 1 with "no changes added to commit". Capture
+	// then returned ("", err): the same empty result that has been the root of
+	// every failure in this chain, reached by a different door.
+	//
+	// The index is the exact question. We commit when there is something to
+	// commit, which is what the next line does either way.
+	if stagedChanges(worktreePath) {
 		if out, err := runGit(worktreePath,
 			"-c", "user.email=daedalus@localhost", "-c", "user.name=Daedalus",
 			"commit", "-m", "daedalus: job snapshot"); err != nil {
@@ -194,13 +205,22 @@ func (m *WorktreeManager) List() ([]string, error) {
 	return out, nil
 }
 
-// worktreeClean reports whether the worktree has no staged/unstaged changes.
-func worktreeClean(path string) bool {
-	out, err := runGit(path, "status", "--porcelain")
+// stagedChanges reports whether anything is in the index waiting to be committed.
+//
+// Deliberately NOT `git status`: that answers "does this tree differ from HEAD",
+// which is a different question once something has been unstaged on purpose (see
+// Capture). Asking the index is asking exactly what `git commit` is about to act
+// on, so the two can never disagree.
+//
+// An error reads as "something is staged" so the commit is attempted rather than
+// skipped: skipping would silently discard the agent's work, and attempting at
+// worst produces a git error that names itself.
+func stagedChanges(path string) bool {
+	out, err := runGit(path, "diff", "--cached", "--name-only")
 	if err != nil {
-		return false // be safe: attempt a commit rather than skip a real change
+		return true
 	}
-	return strings.TrimSpace(out) == ""
+	return strings.TrimSpace(out) != ""
 }
 
 // runGit runs a git command in dir and returns combined output. Shelling to the

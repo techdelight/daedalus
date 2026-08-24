@@ -3,6 +3,8 @@
 package main
 
 import (
+	"errors"
+	"strings"
 	"testing"
 
 	"github.com/techdelight/daedalus/core"
@@ -179,5 +181,52 @@ func TestCreateTaskRequest_CarriesTheDeliverables(t *testing.T) {
 func TestCreateTaskRequest_DeliverablesAreOptional(t *testing.T) {
 	if got := createTaskRequest(CreateTaskInput{Project: "app", Objective: "x"}); got.Deliverables != nil {
 		t.Errorf("nothing should be invented: %+v", got.Deliverables)
+	}
+}
+
+// stubLags is a TaskAPI double answering only TargetLags.
+type stubLags struct {
+	control.TaskAPI
+	lags []control.TargetLag
+	err  error
+}
+
+func (s stubLags) TargetLags() ([]control.TargetLag, error) { return s.lags, s.err }
+
+// THE AGENT IS TOLD WHEN THE BASE IT JUST FROZE AT IS BEHIND (#89, agent half).
+//
+// The plane pins a Task to the integration target, and a target that has fallen
+// behind changes both the tree the agent works from AND — because the acceptance
+// policy is read from the base commit — the oracle the work is graded against. A
+// human running `task create` has been warned since #89; the agent's tool said
+// nothing, which is #82/#85/#88's shape one turn on.
+func TestStaleTargetNote_SaysSoAndOnlyWhenItIsTrue(t *testing.T) {
+	behind := control.TargetLag{Project: "app", Behind: 7,
+		TargetSHA: "aaaaaaaaaaaa1111", HeadSHA: "bbbbbbbbbbbb2222"}
+	current := control.TargetLag{Project: "app"}
+
+	note := staleTargetNote(stubLags{lags: []control.TargetLag{behind}}, "app")
+	if note == "" {
+		t.Fatal("a target 7 commits behind produced no note, so an agent files against a stale " +
+			"base and a policy nobody chose, exactly as before #89")
+	}
+	for _, want := range []string{"7 commits behind", "acceptance policy", "human"} {
+		if !strings.Contains(note, want) {
+			t.Errorf("the note does not mention %q: %s", want, note)
+		}
+	}
+
+	// A target that is current says NOTHING. A warning that fires always is a
+	// warning that is read never.
+	if note := staleTargetNote(stubLags{lags: []control.TargetLag{current}}, "app"); note != "" {
+		t.Errorf("a current target was reported as stale: %s", note)
+	}
+	// Another project's lag is not this project's.
+	if note := staleTargetNote(stubLags{lags: []control.TargetLag{behind}}, "other"); note != "" {
+		t.Errorf("another project's lag leaked into this one: %s", note)
+	}
+	// A plane that cannot answer must not turn a successful create into a scare.
+	if note := staleTargetNote(stubLags{err: errors.New("unreachable")}, "app"); note != "" {
+		t.Errorf("an unreadable plane produced a note: %s", note)
 	}
 }

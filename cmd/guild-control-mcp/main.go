@@ -376,6 +376,25 @@ func registerControlTools(server *mcp.Server, api control.TaskAPI) {
 		if task.ProgrammeID != "" {
 			detail += ", serving programme " + task.ProgrammeID
 		}
+		// THE BASE IT WAS FROZEN AT, when that base is behind (#89, agent half).
+		//
+		// The plane pins a Task to the plane-owned integration TARGET, not to
+		// anybody's checkout, and a target that has fallen behind silently changes
+		// two things: the tree the agent works from, and — because the acceptance
+		// policy is read from the base COMMIT — the oracle the work is graded
+		// against. A task pinned to a base predating the project's own
+		// `.daedalus/verify.json` is graded by the built-in default policy, and
+		// nothing anywhere said so. That cost a real task a full cycle.
+		//
+		// `task create` has warned a human about this since #89. The agent's tool
+		// did not, which is the same shape as #82, #85 and #88 one turn on: the
+		// plane knows, the human is told, and the party actually filing the work
+		// is not. Reported rather than refused, exactly as the CLI does — a target
+		// behind a checkout is a normal way to work and only the operator knows
+		// whether the gap is intended.
+		if lag := staleTargetNote(api, task.Project); lag != "" {
+			detail += ". NOTE — " + lag
+		}
 		// The SHAPE of what was just filed, told back to the agent that filed it.
 		// Not a refusal: the plane does not get to decide that a long objective is
 		// wrong. But an agent that receives "created T-14" and nothing else has no
@@ -643,6 +662,28 @@ func registerControlTools(server *mcp.Server, api control.TaskAPI) {
 // A budget is attached only when the agent narrowed something. An all-zero Budget
 // is not "no budget" to the plane — it is a request for zero attempts — so
 // sending one unconditionally would file tasks that can never run.
+// staleTargetNote reports the base a Task was just frozen at, when that base is
+// behind the project's checkout, in words an agent can act on.
+//
+// Best-effort by construction: a plane that cannot answer must not fail a create
+// that already succeeded. The Task exists by the time this runs — the same
+// bargain warnStaleTarget makes on the CLI, for the same reason.
+func staleTargetNote(api control.TaskAPI, project string) string {
+	lags, err := api.TargetLags()
+	if err != nil {
+		return ""
+	}
+	for _, lag := range lags {
+		if lag.Project != project || !lag.Stale() {
+			continue
+		}
+		return lag.Summary() + ". This task is frozen at the TARGET, so the agent will not see " +
+			"those commits and the acceptance policy is read from that older base. Tell a human " +
+			"before relying on the result; only they can sync the target."
+	}
+	return ""
+}
+
 func createTaskRequest(in CreateTaskInput) control.CreateTaskRequest {
 	req := control.CreateTaskRequest{
 		Project: in.Project, Objective: in.Objective, Deliverables: in.Deliverables,

@@ -577,3 +577,47 @@ func TestReconcile_EmptyCandidateIsReturnedToTheRetryLadder(t *testing.T) {
 		t.Errorf("objective = %q, want it carried through the repair", final.Objective)
 	}
 }
+
+// The empty-candidate repair must not fire on a Task that is already TERMINAL.
+//
+// An operator who hit one of these before the repair existed had one escape:
+// cancel. Repairing that Job would drive a terminal Task to `rejected` — an
+// illegal edge that only logs — and report it as recovered, putting a lie in the
+// reconcile report. The Job is settled to match its Task instead.
+func TestReconcile_EmptyCandidateOnACancelledTaskIsSettledNotRepaired(t *testing.T) {
+	repo := gitRepo(t)
+	svc, _, store := newService(t, mapResolver{"app": repo},
+		StubRunner{Result: ExecSuccess, WriteFile: true}, nil)
+
+	task, err := svc.CreateTask(CreateTaskRequest{Project: "app", Objective: "x"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	res, err := svc.DispatchTask(task.ID)
+	if err != nil {
+		t.Fatalf("Dispatch: %v", err)
+	}
+	if _, err := store.db.Exec(`UPDATE artifacts SET head_sha = '' WHERE id = ?`, res.Artifact.ID); err != nil {
+		t.Fatalf("breaking the artifact: %v", err)
+	}
+	// The operator's only escape before the repair existed.
+	if _, err := svc.CancelTask(task.ID); err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+
+	rep, err := svc.Reconcile()
+	if err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if len(rep.RecoveredEmptyCandidates) != 0 {
+		t.Errorf("a cancelled task was reported as repaired: %v", rep.RecoveredEmptyCandidates)
+	}
+	after, _ := store.GetTask(task.ID)
+	if after.State != StateCancelled {
+		t.Errorf("task state = %q, want it left cancelled", after.State)
+	}
+	job, _ := store.GetJob(res.Job.ID)
+	if !IsTerminal(job.State) {
+		t.Errorf("job state = %q, want it settled to match its terminal Task", job.State)
+	}
+}

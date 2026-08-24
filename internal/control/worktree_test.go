@@ -172,3 +172,54 @@ func TestCapture_LeavesAnAlreadyTrackedScratchFileAlone(t *testing.T) {
 		t.Errorf("the artifact carries the harness's churn: %q", strings.TrimSpace(kept))
 	}
 }
+
+// A JOB THAT CHANGED NOTHING STILL CAPTURES.
+//
+// The harness writes .daedalus/activity.json on every tool use, and Capture
+// unstages it on purpose — so a Job that edited no files leaves a tree that
+// `git status` calls dirty and an index that is empty. Deciding to commit from
+// the STATUS then ran `git commit` with nothing staged, git exited 1, and
+// Capture returned ("", err): the same empty artifact that started this whole
+// chain, reached by a different door.
+//
+// A Job that changes nothing is ordinary — it answers a question, it refuses,
+// it finds the work already done — and its snapshot is simply the base.
+func TestCapture_AJobThatChangedNothingSnapshotsTheBase(t *testing.T) {
+	repo := gitRepo(t)
+	if err := os.MkdirAll(filepath.Join(repo, ".daedalus"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, ".daedalus", "activity.json"),
+		[]byte(`{"state":"idle"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git(t, repo, "add", ".daedalus/activity.json")
+	git(t, repo, "commit", "-m", "tracked scratch")
+	base, err := runGit(repo, "rev-parse", "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	base = strings.TrimSpace(base)
+
+	m := &WorktreeManager{root: t.TempDir()}
+	wt, err := m.Add(repo, "T-1", "J-1", "HEAD")
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	defer runGit(repo, "worktree", "remove", "--force", wt)
+
+	// The agent edits nothing. Only the harness moves, as it does on every run.
+	if err := os.WriteFile(filepath.Join(wt, ".daedalus", "activity.json"),
+		[]byte(`{"state":"busy","detail":"tool_use"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	head, err := m.Capture(wt)
+	if err != nil {
+		t.Fatalf("Capture failed for a Job that simply changed nothing: %v", err)
+	}
+	if head != base {
+		t.Errorf("snapshot = %s, want the base %s — nothing was changed, so nothing should be "+
+			"committed", shortSHA(head), shortSHA(base))
+	}
+}

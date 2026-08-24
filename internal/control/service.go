@@ -2269,16 +2269,25 @@ func (s *Service) Reconcile() (ReconcileReport, error) {
 		// state nothing but reconcile can leave is reconcile's to leave.
 		if j.State == StateCandidate {
 			if art := s.firstArtifact(j.ID); art != nil && art.HeadSHA == "" {
-				repoDir := ""
-				if t, err := s.store.GetTask(j.TaskID); err == nil {
-					repoDir, _ = s.projects.ProjectDir(t.Project)
+				// …unless the Task is already TERMINAL, in which case this is not a
+				// stranded task — it is an operator who cancelled one of these rather
+				// than waiting for a repair that did not exist yet. Driving a terminal
+				// Task to `rejected` is an illegal edge that only logs, and reporting
+				// it as repaired would put a lie in the reconcile report. Falling
+				// through lets the branch below settle the Job to match its Task,
+				// which is what that case actually needs.
+				t, terr := s.store.GetTask(j.TaskID)
+				if terr != nil || !IsTerminal(t.State) {
+					repoDir := ""
+					if terr == nil {
+						repoDir, _ = s.projects.ProjectDir(t.Project)
+					}
+					s.failJobRejectTask(j.TaskID, j.ID, repoDir,
+						"reconcile: this attempt produced no commit — the plane could not capture "+
+							"the worktree, so there was never anything to grade")
+					rep.RecoveredEmptyCandidates = append(rep.RecoveredEmptyCandidates, j.ID)
+					continue
 				}
-				s.failJobRejectTask(j.TaskID, j.ID,
-					repoDir,
-					"reconcile: this attempt produced no commit — the plane could not capture the "+
-						"worktree, so there was never anything to grade")
-				rep.RecoveredEmptyCandidates = append(rep.RecoveredEmptyCandidates, j.ID)
-				continue
 			}
 		}
 		// A Job whose Task is already terminal is a ghost in the census: nothing

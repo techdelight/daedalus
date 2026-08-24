@@ -1073,13 +1073,6 @@ func (s *Store) CountReviewCycles(taskID string) (int, error) {
 	return 0, nil
 }
 
-// SetTaskChecks replaces a Task's per-task acceptance checks, recording the
-// change and its lineage in one transaction.
-//
-// One transaction because the alternative has a window in which the checks a Task
-// will be graded by have changed and nothing says so — and for an operation whose
-// entire safety story is "every amendment is visible", an unrecorded amendment is
-// the one outcome that must be impossible.
 // encodeLines and decodeLines are how every list-of-strings column on a Task is
 // written and read. Two functions rather than the same six lines per field: a
 // third list added later inherits the same empty-means-none rule and the same
@@ -1111,6 +1104,13 @@ func decodeLines(raw string) []string {
 	return out
 }
 
+// SetTaskChecks replaces a Task's per-task acceptance checks, recording the
+// change and its lineage in one transaction.
+//
+// One transaction because the alternative has a window in which the checks a Task
+// will be graded by have changed and nothing says so — and for an operation whose
+// entire safety story is "every amendment is visible", an unrecorded amendment is
+// the one outcome that must be impossible.
 func (s *Store) SetTaskChecks(id string, checks []string, meta EventMeta, note string) (Task, error) {
 	tx, err := s.db.Begin()
 	if err != nil {

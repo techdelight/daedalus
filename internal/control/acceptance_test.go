@@ -415,3 +415,56 @@ func TestOwnAcceptancePolicy_GlobsMatchTheChecks(t *testing.T) {
 			"and a Job making them well-formed is complying with the check, not evading it")
 	}
 }
+
+// RE-FREEZING ONTO A BASE THAT CARRIES NO POLICY MUST NOT BE SILENT.
+//
+// ReadAcceptancePolicyAt hands back the built-in default for a commit with no
+// .daedalus/verify.json, deliberately — every caller has to grade something. But
+// "the oracle you just froze is the default" is invisible from the result, and
+// the default grades DOCUMENTS. A project whose .gitignore excluded `.daedalus`
+// had never committed its own policy, so every task pinned to a base from that
+// period was graded by `daedalus docs lint` and nothing said so.
+func TestAcceptancePolicyPresentAt(t *testing.T) {
+	repo := gitRepo(t)
+	before, err := runGit(repo, "rev-parse", "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	before = strings.TrimSpace(before)
+
+	if AcceptancePolicyPresentAt(repo, before) {
+		t.Error("a commit with no verify.json reported one; an amended re-freeze would adopt the " +
+			"built-in default silently")
+	}
+	// And the default is what a reader would get, which is why the distinction
+	// cannot be made from the policy alone.
+	policy, err := ReadAcceptancePolicyAt(repo, before)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if policy.Hash() != DefaultAcceptancePolicy().Hash() {
+		t.Fatalf("expected the default policy at a commit that carries none")
+	}
+
+	if err := os.MkdirAll(filepath.Join(repo, ".daedalus"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, ".daedalus", "verify.json"),
+		[]byte(`{"checks":["go build ./..."]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git(t, repo, "add", ".daedalus/verify.json")
+	git(t, repo, "commit", "-m", "commit the policy")
+	after, err := runGit(repo, "rev-parse", "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !AcceptancePolicyPresentAt(repo, strings.TrimSpace(after)) {
+		t.Error("a commit that carries a policy was reported as carrying none")
+	}
+	// The file existing ON DISK is not the question — this is the exact trap: it
+	// was there all along and simply never committed.
+	if AcceptancePolicyPresentAt(repo, before) {
+		t.Error("the check is reading the working tree rather than the commit")
+	}
+}

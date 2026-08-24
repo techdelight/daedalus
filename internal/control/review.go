@@ -397,7 +397,12 @@ func (s *Service) ReviewTask(id string) (ReviewResult, error) {
 	// The word is the one every surface already prints for an unnamed reviewer,
 	// so nothing a human reads changes.
 	if !outcome.Unavailable && outcome.Reviewer == "" {
-		outcome.Reviewer = "unattributed"
+		// NOT the word the surfaces already use for an empty reviewer. They render
+		// "" as "unattributed", so stamping that would make a judgement nobody
+		// signed and a review that never happened read identically — while one is
+		// charged to the budget and the other is not. The whole point of the flag
+		// is to keep those two apart.
+		outcome.Reviewer = "unnamed reviewer"
 	}
 
 	// The judgement is kept in FULL, before anything summarises it. The findings
@@ -429,12 +434,22 @@ func (s *Service) ReviewTask(id string) (ReviewResult, error) {
 	// The artifact records what the reviewer thought, and the Task does not move.
 	// Recording the truth and acting on it are different things, and only the
 	// second is reserved to a human here.
-	status := ReviewPass
-	if !outcome.Passed {
-		status = ReviewFail
-	}
-	if a, err := s.store.SetArtifactReview(art.ID, status); err == nil {
-		art = &a
+	//
+	// A review THAT NEVER HAPPENED records nothing. `reviewUnavailable` returns
+	// Passed=false because there is no verdict, and writing that through as
+	// `review=fail` would stamp the artifact with "a reviewer read this and
+	// rejected it" — the exact confusion reviewUnavailable's own Reasoning field
+	// exists to deny ("This says nothing about the change"). It would also erase a
+	// genuine earlier pass. So the status is left as it is: pending if nothing has
+	// read it, and whatever the last real reading said if something has.
+	if !outcome.Unavailable {
+		status := ReviewPass
+		if !outcome.Passed {
+			status = ReviewFail
+		}
+		if a, err := s.store.SetArtifactReview(art.ID, status); err == nil {
+			art = &a
+		}
 	}
 	tk, _ := s.store.GetTask(id)
 	res.Task, res.Artifact = tk, art
