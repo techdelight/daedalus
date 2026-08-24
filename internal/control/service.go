@@ -138,12 +138,17 @@ type ReplanRequest struct {
 // RetryResult reports a retry attempt: the dispatch outcome plus the governance
 // bookkeeping a caller needs to reason about the budget.
 type RetryResult struct {
-	Dispatch    DispatchResult `json:"dispatch"`
-	Attempt     int            `json:"attempt"`     // this attempt's ordinal (1-based)
-	Attempts    int            `json:"attempts"`    // attempts used after this one
-	Rebased     bool           `json:"rebased"`     // the task was re-pinned to a new base
-	BaseSHA     string         `json:"baseSha"`     // the base this attempt ran from
-	MaxAttempts int            `json:"maxAttempts"` // 0 = unbounded
+	Dispatch DispatchResult `json:"dispatch"`
+	Attempt  int            `json:"attempt"`  // this attempt's ordinal (1-based)
+	Attempts int            `json:"attempts"` // attempts used after this one
+	Rebased  bool           `json:"rebased"`  // the task was re-pinned to a new base
+	BaseSHA  string         `json:"baseSha"`  // the base this attempt ran from
+	// DefaultPolicy is true when the base just adopted carries no
+	// .daedalus/verify.json, so this attempt will be graded by the BUILT-IN
+	// default — which grades documents. A rebase exists to adopt a newer oracle;
+	// adopting the absence of one silently is the failure this reports.
+	DefaultPolicy bool `json:"defaultPolicy,omitempty"`
+	MaxAttempts   int  `json:"maxAttempts"` // 0 = unbounded
 }
 
 // JobView is a Job plus its artifacts, for status rendering.
@@ -1845,11 +1850,11 @@ func (s *Service) prepareRetry(caller Caller, id string, req RetryRequest) (Retr
 		}
 		// Shared with `reverify --amended` (reverify.go): both adopt a newer oracle,
 		// so both must refuse a self-authored tip and record the same lineage.
-		updated, rebased, err := s.rebaseTaskToTip(caller, task, repoDir)
+		updated, rebased, defaulted, err := s.rebaseTaskToTip(caller, task, repoDir)
 		if err != nil {
 			return RetryResult{}, dispatchPrep{}, err
 		}
-		task, res.Rebased = updated, rebased
+		task, res.Rebased, res.DefaultPolicy = updated, rebased, defaulted
 	}
 	res.BaseSHA = task.BaseSHA
 
@@ -1945,7 +1950,7 @@ func (s *Service) replanTask(caller Caller, id string, req ReplanRequest) (Task,
 		// a second place for the Sprint-59 laundering fix to be forgotten, and this
 		// is the third caller — which is exactly when a copy starts to look
 		// reasonable and stops being so.
-		updated, did, err := s.rebaseTaskToTip(caller, task, repoDir)
+		updated, did, _, err := s.rebaseTaskToTip(caller, task, repoDir)
 		if err != nil {
 			return Task{}, err
 		}

@@ -609,3 +609,110 @@ func TestReverify_AVerifiedTaskIsReachableThroughReject(t *testing.T) {
 		t.Errorf("the verdict this set aside (%q) is unappealable, so the route is closed", res.PreviousReason)
 	}
 }
+
+// EVERY OPERATION THAT ADOPTS A NEWER ORACLE REPORTS ADOPTING NO ORACLE.
+//
+// `retry --rebase`, `replan --rebase` and `reverify --amended` all re-freeze the
+// acceptance policy at the project's target, and all three go through
+// rebaseTaskToTip. Re-freezing onto a commit with no .daedalus/verify.json
+// adopts the built-in default, which grades DOCUMENTS — and looks exactly like
+// re-freezing onto a real policy. Derived in the one shared helper so the three
+// cannot drift; asserted through two of them so the plumbing is real.
+func TestRebase_ReportsWhenTheNewBaseCarriesNoPolicy(t *testing.T) {
+	repo := gitRepo(t)
+	svc, _, store := newService(t, mapResolver{"app": repo},
+		StubRunner{Result: ExecSuccess, WriteFile: true, MarkerName: "a.txt"}, nil, StubVerifyRunner{Pass: true})
+
+	task, err := svc.CreateTask(CreateTaskRequest{Project: "app", Objective: "x"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	if _, err := svc.DispatchTask(task.ID); err != nil {
+		t.Fatalf("Dispatch: %v", err)
+	}
+	// Move the target on, with no policy at the new tip — the shape of a project
+	// that has simply never committed one.
+	if err := os.WriteFile(filepath.Join(repo, "moved.txt"), []byte("on\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git(t, repo, "add", "moved.txt")
+	git(t, repo, "commit", "-m", "the target moves")
+	if _, err := svc.SyncTarget("app"); err != nil {
+		t.Fatalf("SyncTarget: %v", err)
+	}
+	toRejected(t, svc, store, task.ID)
+
+	res, err := svc.ReverifyTask(task.ID, ReverifyRequest{Amended: true})
+	if err != nil {
+		t.Fatalf("Reverify: %v", err)
+	}
+	if !res.Rebased {
+		t.Fatal("the fixture did not rebase; nothing is being tested")
+	}
+	if !res.DefaultPolicy {
+		t.Error("reverify --amended re-froze onto a base with no verify.json and said nothing — " +
+			"the verdict is about documents and the operator cannot tell")
+	}
+	// The record carries it too, for whoever reads this later.
+	events, _ := store.ListEventsForTask(task.ID)
+	var noted bool
+	for _, e := range events {
+		if strings.Contains(e.Note, "BUILT-IN DEFAULT") {
+			noted = true
+		}
+	}
+	if !noted {
+		t.Error("nothing in the event log says the oracle adopted was the built-in default")
+	}
+
+	// And a base that DOES carry one reports nothing — a warning that always
+	// fires is a warning nobody reads.
+	if err := os.MkdirAll(filepath.Join(repo, ".daedalus"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, ".daedalus", "verify.json"),
+		[]byte(`{"checks":["true"]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git(t, repo, "add", ".daedalus/verify.json")
+	git(t, repo, "commit", "-m", "declare the policy")
+	if _, err := svc.SyncTarget("app"); err != nil {
+		t.Fatalf("SyncTarget: %v", err)
+	}
+	toRejected(t, svc, store, task.ID)
+	res2, err := svc.ReverifyTask(task.ID, ReverifyRequest{Amended: true})
+	if err != nil {
+		t.Fatalf("Reverify: %v", err)
+	}
+	if res2.DefaultPolicy {
+		t.Error("a base that carries a policy was reported as carrying none")
+	}
+}
+
+// toRejected drives a task to `rejected`, whatever it is now — the only state
+// reverify accepts. Written as a helper because a test about POLICY should not
+// be a test about the ladder.
+func toRejected(t *testing.T, svc *Service, store *Store, id string) {
+	t.Helper()
+	for i := 0; i < 3; i++ {
+		cur, err := store.GetTask(id)
+		if err != nil {
+			t.Fatalf("GetTask: %v", err)
+		}
+		switch cur.State {
+		case StateRejected:
+			return
+		case StateVerified, StateApprovalRequired:
+			if _, err := svc.RejectApproval(id, "re-grade it"); err != nil {
+				t.Fatalf("Reject from %s: %v", cur.State, err)
+			}
+		case StateCandidate:
+			if _, err := svc.VerifyTask(id, VerifyRequest{}); err != nil {
+				t.Fatalf("Verify: %v", err)
+			}
+		default:
+			t.Fatalf("cannot drive %s to rejected", cur.State)
+		}
+	}
+	t.Fatalf("task %s never reached rejected", id)
+}

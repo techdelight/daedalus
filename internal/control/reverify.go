@@ -168,7 +168,7 @@ func (s *Service) prepareReverify(caller Caller, id string, req ReverifyRequest)
 	res := ReverifyResult{PreviousReason: reason, Amended: req.Amended, BaseSHA: task.BaseSHA}
 
 	if req.Amended {
-		updated, rebased, err := s.rebaseTaskToTip(caller, task, repoDir)
+		updated, rebased, defaulted, err := s.rebaseTaskToTip(caller, task, repoDir)
 		if err != nil {
 			return ReverifyResult{}, err
 		}
@@ -176,9 +176,7 @@ func (s *Service) prepareReverify(caller Caller, id string, req ReverifyRequest)
 		// Reported as well as recorded. The event note carries it for the record;
 		// the operator running the command needs it NOW, because the next verdict
 		// is the thing they are about to act on.
-		if rebased {
-			res.DefaultPolicy = !AcceptancePolicyPresentAt(repoDir, updated.BaseSHA)
-		}
+		res.DefaultPolicy = defaulted
 	}
 
 	// Has the ORACLE moved since the verdict being set aside? A free replay is
@@ -243,7 +241,11 @@ func (s *Service) prepareReverify(caller Caller, id string, req ReverifyRequest)
 // drift: both adopt a newer oracle, so both must refuse a self-authored tip and
 // both must record the same lineage. A second copy of this would be a second
 // place for the Sprint-59 laundering fix to be forgotten.
-func (s *Service) rebaseTaskToTip(caller Caller, task Task, repoDir string) (Task, bool, error) {
+// The third return is whether the new base carries NO policy, so the built-in
+// default now applies. Derived here rather than by each caller: all three
+// operations that adopt a newer oracle go through this function, and a fact
+// computed three times is a fact two of them will eventually get wrong.
+func (s *Service) rebaseTaskToTip(caller Caller, task Task, repoDir string) (Task, bool, bool, error) {
 	// A pure read. The Task exists, so CreateTask adopted a target for its
 	// repository already; a miss here is a fault, and adopting one would be
 	// actively dangerous — re-freezing the acceptance policy against a target
@@ -251,11 +253,11 @@ func (s *Service) rebaseTaskToTip(caller Caller, task Task, repoDir string) (Tas
 	// the path Sprint 59 closed it on.
 	target, err := s.Target(task.Project)
 	if err != nil {
-		return task, false, err
+		return task, false, false, err
 	}
 	tip := target.SHA
 	if tip == task.BaseSHA {
-		return task, false, nil
+		return task, false, false, nil
 	}
 	// DEFENCE IN DEPTH, no longer the mechanism. The rebase target is now the
 	// plane-owned integration ref, which a worker cannot write, so the attack this
@@ -264,12 +266,13 @@ func (s *Service) rebaseTaskToTip(caller Caller, task Task, repoDir string) (Tas
 	// self-authored some other way — e.g. an operator resyncing onto a commit a Job
 	// had planted on the branch.
 	if err := s.refuseSelfAuthoredRebase(task, repoDir, tip); err != nil {
-		return task, false, err
+		return task, false, false, err
 	}
 	policy, err := ReadAcceptancePolicyAt(repoDir, tip)
 	if err != nil {
-		return task, false, err
+		return task, false, false, err
 	}
+	defaulted := !AcceptancePolicyPresentAt(repoDir, tip)
 	// The lineage is written into the note, not just the new value. A verdict
 	// produced under a policy amended AFTER the artifact existed is weaker than one
 	// produced under the policy the artifact faced, and the log is the only place
@@ -282,16 +285,16 @@ func (s *Service) rebaseTaskToTip(caller Caller, task Task, repoDir string) (Tas
 	// verdict that follows says nothing about the project's own bar. Recorded in
 	// the note rather than refused: a project that genuinely has no policy is
 	// entitled to the default, and only the operator knows which case this is.
-	if !AcceptancePolicyPresentAt(repoDir, tip) {
+	if defaulted {
 		note += " — WARNING: " + acceptanceFile + " is not committed at the new base, so the " +
 			"BUILT-IN DEFAULT policy applies and the verdict will be about that, not about this " +
 			"project's own checks"
 	}
 	updated, err := s.store.RebaseTask(task.ID, tip, policy.Hash(), governanceMetaFor(caller), note)
 	if err != nil {
-		return task, false, err
+		return task, false, false, err
 	}
-	return updated, true, nil
+	return updated, true, defaulted, nil
 }
 
 // commitExists reports whether sha names a commit object in repoDir.

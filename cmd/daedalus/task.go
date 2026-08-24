@@ -734,6 +734,15 @@ func taskRetry(api control.TaskAPI, args []string) error {
 		fmt.Printf("%s task %s rebased onto %s (acceptance policy re-frozen there)\n",
 			color.Cyan("Rebase:"), id, shortSHA(res.BaseSHA))
 	}
+	// A rebase adopts a newer oracle; adopting the ABSENCE of one is the failure
+	// worth interrupting for, because this attempt has just been spent and will
+	// be graded on documents. Said before the outcome, not after it.
+	if res.DefaultPolicy {
+		fmt.Printf("     %s .daedalus/verify.json is NOT COMMITTED at %s, so this attempt is graded\n",
+			color.Yellow("default policy:"), shortSHA(res.BaseSHA))
+		fmt.Println("     by the built-in default — about your documents, not your project's checks.")
+		fmt.Println("     If the file is on disk but not in the commit, .gitignore is excluding it.")
+	}
 	j := res.Dispatch.Job
 	fmt.Printf("%s retried task %s — attempt %s → job %s ended %s (state %s, snapshot %s)\n",
 		color.Green("OK:"), id, attemptOf(res), color.Bold(j.ID), string(j.ExecutionResult), j.State, shortSHA(j.OutputSnapshot))
