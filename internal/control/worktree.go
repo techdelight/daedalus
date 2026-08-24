@@ -4,6 +4,7 @@ package control
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -93,9 +94,37 @@ func (m *WorktreeManager) Capture(worktreePath string) (string, error) {
 	// leaves whatever is tracked exactly as it is and simply stops adding more.
 	// `.daedalus/verify.json` is deliberately NOT excluded — that is the project's
 	// own acceptance policy and belongs in its history.
-	addArgs := append([]string{"add", "-A", "--"}, harnessExcludes()...)
-	if out, err := runGit(worktreePath, addArgs...); err != nil {
+	// STAGE EVERYTHING, THEN UNSTAGE OURS — two commands, and it has to be two.
+	//
+	// This was one command, `git add -A -- :(exclude).daedalus/activity.json`, and
+	// that shape is BROKEN IN EXACTLY THE PROJECTS THE FIX WAS FOR. Naming a path
+	// inside a directory the project's .gitignore ignores makes `git add` refuse
+	// the WHOLE invocation:
+	//
+	//     The following paths are ignored by one of your .gitignore files:
+	//     .daedalus
+	//     hint: Use -f if you really want to add them.
+	//
+	// exit 1, nothing staged, and Capture returns ("", err). Every project that
+	// gitignores `.daedalus` — which is the sensible thing to do with it, and what
+	// daedalus's own repository does — could no longer have a Job captured at all.
+	// The agent's work was done and then discarded, and the failure surfaced three
+	// operations later as `fatal: invalid reference:` from a review.
+	//
+	// Adding a positive pathspec alongside the exclusion does not help; measured.
+	// So: stage the lot, then take ours back out of the index. That reaches the
+	// same place by a route with no opinion about .gitignore.
+	if out, err := runGit(worktreePath, "add", "-A"); err != nil {
 		return "", fmt.Errorf("git add: %w\n%s", err, out)
+	}
+	// BEST-EFFORT, and the direction of that choice is deliberate. If the unstage
+	// fails, one harness file rides along in a commit — which is #94 again, churn
+	// and avoidable conflicts. Failing here instead would throw away everything
+	// the agent did. The lesser harm is obvious, and it is not the one this code
+	// used to choose.
+	if out, err := runGit(worktreePath, append([]string{"reset", "-q", "--"}, harnessScratch...)...); err != nil {
+		log.Printf("control: could not unstage harness scratch in %s (it may be committed with the "+
+			"artifact): %v\n%s", worktreePath, err, out)
 	}
 	// Commit only if there is something staged; a no-op commit errors, which we
 	// treat as "nothing to snapshot" and fall through to read the base HEAD.
@@ -121,15 +150,6 @@ func (m *WorktreeManager) Capture(worktreePath string) (string, error) {
 // because `.daedalus/verify.json` in that same directory is project content the
 // verifier reads from the commit.
 var harnessScratch = []string{".daedalus/activity.json"}
-
-// harnessExcludes renders harnessScratch as git pathspecs.
-func harnessExcludes() []string {
-	out := make([]string, 0, len(harnessScratch))
-	for _, p := range harnessScratch {
-		out = append(out, ":(exclude)"+p)
-	}
-	return out
-}
 
 // branch is intentionally preserved so a successful Job's Artifact commit
 // survives after its worktree is reclaimed.
