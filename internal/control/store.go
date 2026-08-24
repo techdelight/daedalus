@@ -979,15 +979,37 @@ func (s *Store) CountTaskTransitionsTo(taskID string, to State) (int, error) {
 	return n, nil
 }
 
-// CountReviewRuns returns how many independent-review passes a task has had,
-// counted from the event log. Kept separate from CountReviewCycles (verification
-// cycles): the same LIMIT applies to both, but they are not summed, so a task
-// gets N verifications and N reviews rather than N of the two combined.
+// CountReviewRuns returns how many independent-review passes a task has had —
+// counting only the ones that actually PRODUCED A JUDGEMENT.
+//
+// Kept separate from CountReviewCycles (verification cycles): the same LIMIT
+// applies to both, but they are not summed, so a task gets N verifications and N
+// reviews rather than N of the two combined.
+//
+// A PASS THAT PRODUCED NO JUDGEMENT DOES NOT COUNT, which is the same rule
+// CountReviewCycles already applies to a harness-fault re-verification, for the
+// same reason stated there: the budget exists to bound how many times an
+// artifact may be graded, not how many times we may get the grading wrong. It
+// was reported the hard way — a review failed because the freshly rebuilt image
+// had never been logged into, the operator retried, and a task was left unable
+// to be reviewed at all by two passes in which no reviewer ever read anything.
+//
+// `reviewer = ”` IS THE TEST, and it is exact rather than convenient:
+// reviewUnavailable names nobody, and ReviewTask stamps a reviewer onto every
+// outcome that is not unavailable, so an empty one means precisely "no
+// judgement". It also reads correctly for rows written before any of this
+// existed, which matters — a task whose budget was consumed by a failure that
+// had already happened gets those passes back rather than staying stuck.
+//
+// Counted from `reviews` rather than the event log because that is where the
+// distinction is recorded. One consequence, stated rather than hidden: if
+// RecordReview itself fails (logged, non-fatal), the pass is not charged. That
+// errs toward the operator, which is the right direction for a fault of ours.
 func (s *Store) CountReviewRuns(taskID string) (int, error) {
 	var n int
 	err := s.db.QueryRow(
-		`SELECT COUNT(*) FROM events WHERE entity_type = 'task' AND entity_id = ? AND kind = ?`,
-		taskID, EventReview,
+		`SELECT COUNT(*) FROM reviews WHERE task_id = ? AND reviewer != ''`,
+		taskID,
 	).Scan(&n)
 	if err != nil {
 		return 0, fmt.Errorf("counting review runs of %s: %w", taskID, err)

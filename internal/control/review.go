@@ -145,6 +145,14 @@ type ReviewOutcome struct {
 	Reviewer string `json:"reviewer,omitempty"`
 	// Detail is the one-line summary, kept for the CLI and the event log.
 	Detail string `json:"detail"`
+	// Unavailable marks an outcome that is NOT a reading of the artifact: the
+	// reviewer could not be made to report at all (see reviewUnavailable).
+	//
+	// It exists so the plane can tell "the reviewer read this and had concerns"
+	// from "there was no reviewer" WITHOUT parsing prose — the two are already
+	// distinguished for a human by the wording, and the budget has to make the
+	// same distinction with a boolean.
+	Unavailable bool `json:"unavailable,omitempty"`
 }
 
 // Blocking counts the findings the reviewer considered disqualifying. Reported,
@@ -371,6 +379,20 @@ func (s *Service) ReviewTask(id string) (ReviewResult, error) {
 		return nil
 	}); err != nil {
 		return ReviewResult{}, err
+	}
+
+	// A JUDGEMENT ALWAYS NAMES A REVIEWER, and this is what makes that true
+	// rather than hoped for.
+	//
+	// `reviewer = ''` in the record is how the budget tells a reading from a
+	// harness failure (CountReviewRuns), so it must mean exactly one thing.
+	// AgentReviewer already stamps itself and the stub names itself; the seam is
+	// a ReviewRunner someone adds later that judges and forgets to say who. This
+	// closes it at the recording site, where the invariant is actually needed.
+	// The word is the one every surface already prints for an unnamed reviewer,
+	// so nothing a human reads changes.
+	if !outcome.Unavailable && outcome.Reviewer == "" {
+		outcome.Reviewer = "unattributed"
 	}
 
 	// The judgement is kept in FULL, before anything summarises it. The findings

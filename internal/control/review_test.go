@@ -414,3 +414,109 @@ func TestTaskStatus_ReportsAReviewInFlight(t *testing.T) {
 type reviewerFunc func(context.Context, ReviewSpec) ReviewOutcome
 
 func (f reviewerFunc) Review(ctx context.Context, spec ReviewSpec) ReviewOutcome { return f(ctx, spec) }
+
+// brokenReviewer is a harness that never delivers a reading — the shape a
+// reviewer takes when its container will not start, its agent exits non-zero,
+// or it writes nothing.
+type brokenReviewer struct{ calls int }
+
+func (r *brokenReviewer) Review(_ context.Context, _ ReviewSpec) ReviewOutcome {
+	r.calls++
+	return reviewUnavailable("the reviewing agent exited with an error: exit status 1")
+}
+
+// A REVIEW THAT NEVER HAPPENED MUST NOT SPEND THE BUDGET.
+//
+// Reported on real work: a review failed because the freshly rebuilt image had
+// never been logged into, the operator retried, and the Task was then refused
+// with `review_cycles_exhausted` — unable to be reviewed at all, by two passes
+// in which no reviewer ever read anything. The budget bounds how many times an
+// artifact may be graded, not how many times we may get the grading wrong;
+// CountReviewCycles has applied exactly that rule to harness-fault
+// re-verifications since Sprint 62, and review passes never got it.
+func TestReview_AHarnessFailureDoesNotSpendACycle(t *testing.T) {
+	repo := gitRepo(t)
+	svc, _, store := newService(t, mapResolver{"app": repo},
+		StubRunner{Result: ExecSuccess, WriteFile: true, MarkerName: "a.txt"}, nil, StubVerifyRunner{Pass: true})
+	svc.SetPolicySource(StaticBudget(Budget{MaxAttempts: 5, MaxReviewCycles: 1, Concurrency: 1}))
+	broken := &brokenReviewer{}
+	svc.SetReviewRunner(broken)
+
+	task, err := svc.CreateTask(CreateTaskRequest{Project: "app", Objective: "x"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	if _, err := svc.DispatchTask(task.ID); err != nil {
+		t.Fatalf("Dispatch: %v", err)
+	}
+
+	// Three passes against a budget of one. Every one of them must be allowed,
+	// because none of them is a reading.
+	for i := 1; i <= 3; i++ {
+		if _, err := svc.ReviewTask(task.ID); err != nil {
+			t.Fatalf("review %d refused, but no reviewer has read anything yet: %v", i, err)
+		}
+	}
+	if broken.calls != 3 {
+		t.Errorf("the reviewer was called %d times, want 3", broken.calls)
+	}
+	if n, _ := store.CountReviewRuns(task.ID); n != 0 {
+		t.Errorf("review runs = %d, want 0 — a pass that produced no judgement is not a pass", n)
+	}
+
+	// The record still HAS them. Not charging for a failure is not the same as
+	// pretending it did not happen: three attempts are in the log, and the
+	// operator needs them to see that the harness is broken.
+	view, err := svc.TaskStatus(task.ID)
+	if err != nil {
+		t.Fatalf("TaskStatus: %v", err)
+	}
+	if len(view.Reviews) != 3 {
+		t.Errorf("recorded reviews = %d, want all 3 kept in the record", len(view.Reviews))
+	}
+
+	// And a REAL reading still costs, immediately. The budget is not disabled by
+	// a failure, it is simply not spent by one.
+	svc.SetReviewRunner(StubReviewRunner{Pass: true})
+	if _, err := svc.ReviewTask(task.ID); err != nil {
+		t.Fatalf("the first real review should be allowed: %v", err)
+	}
+	_, err = svc.ReviewTask(task.ID)
+	var rej *RejectionError
+	if !errors.As(err, &rej) || rej.Reason != ReasonReviewCyclesExhausted {
+		t.Fatalf("the second real review = %v, want a review_cycles_exhausted refusal", err)
+	}
+}
+
+// The invariant CountReviewRuns is counting on: `reviewer = ”` means "no
+// judgement" and nothing else. AgentReviewer stamps itself and the stub names
+// itself; this closes the seam a later ReviewRunner would open by judging and
+// forgetting to say who, which would silently make its pass free.
+func TestReview_AJudgementAlwaysNamesAReviewer(t *testing.T) {
+	repo := gitRepo(t)
+	svc, _, store := newService(t, mapResolver{"app": repo},
+		StubRunner{Result: ExecSuccess, WriteFile: true, MarkerName: "a.txt"}, nil, StubVerifyRunner{Pass: true})
+	svc.SetReviewRunner(anonymousReviewer{})
+
+	task, err := svc.CreateTask(CreateTaskRequest{Project: "app", Objective: "x"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	if _, err := svc.DispatchTask(task.ID); err != nil {
+		t.Fatalf("Dispatch: %v", err)
+	}
+	if _, err := svc.ReviewTask(task.ID); err != nil {
+		t.Fatalf("Review: %v", err)
+	}
+	if n, _ := store.CountReviewRuns(task.ID); n != 1 {
+		t.Errorf("review runs = %d, want 1 — a judgement from an unnamed reviewer is still a "+
+			"judgement, and must be charged for", n)
+	}
+}
+
+// anonymousReviewer judges the artifact and says nothing about itself.
+type anonymousReviewer struct{}
+
+func (anonymousReviewer) Review(_ context.Context, _ ReviewSpec) ReviewOutcome {
+	return ReviewOutcome{Passed: true, Detail: "fine", Reasoning: "read it"}
+}

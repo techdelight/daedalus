@@ -700,6 +700,14 @@ If the review cannot be obtained at all — the agent failed, the judgement was
 unreadable — you get *no judgement* rather than a rejection. That distinction is
 deliberate: a broken harness must never read as a criticism of the work.
 
+**A pass that produced no judgement does not spend a review cycle.** It is kept
+in the record, because you need to see that the harness is broken, but the
+budget bounds how many times an artifact may be *graded* and nothing was graded.
+The same rule already applies to a harness-fault re-verification. The failure
+names its cause and the log to read — `daedalus task show <id>` prints it under
+the concern, and the Ledger shows it without being asked, since for that one
+finding the reason is the entire content.
+
 ### Programmes: saying what the work is for
 
 ```bash

@@ -214,8 +214,9 @@ func (r AgentReviewer) dataDirEnv() []string {
 // CONCERN — worth a human's attention before deciding — which is precisely true.
 func reviewUnavailable(why string) ReviewOutcome {
 	return ReviewOutcome{
-		Passed: false,
-		Detail: "no judgement: " + why,
+		Passed:      false,
+		Unavailable: true,
+		Detail:      "no judgement: " + why,
 		Reasoning: "The review did not produce a verdict. This says nothing about the " +
 			"change; it says the reviewer could not be made to report on it.",
 		Findings: []Finding{{
