@@ -488,8 +488,9 @@ func usableArtifact(art *Artifact) error {
 	}
 	if art.HeadSHA == "" {
 		return fmt.Errorf("%w: artifact %s names no commit — the Job ran but the plane could not "+
-			"capture its work, so there is nothing to read or grade. Retry the task for a fresh "+
-			"attempt (`daedalus task retry %s`); the daemon log records why the capture failed",
+			"capture its work, so there is nothing to read or grade. The plane returns such an "+
+			"attempt to `rejected` on its next reconcile, after which `daedalus task retry` starts "+
+			"a fresh one; the daemon log records why the capture failed (job %s)",
 			ErrWrongState, art.ID, art.JobID)
 	}
 	return nil

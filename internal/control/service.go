@@ -2196,17 +2196,18 @@ func (s *Service) settleIfLandedOutsideThePlane(task Task) (bool, error) {
 // ReconcileReport summarises what a reconcile pass changed. Returned for tests
 // and daemon logging.
 type ReconcileReport struct {
-	FailedVanished         []string // job ids failed because their run was gone
-	RemovedOrphans         []string // worktree job ids removed (no live non-terminal job)
-	RecoveredVerifies      []string // job ids returned to candidate from a stranded `verifying`
-	SettledOrphanJobs      []string // job ids driven terminal because their Task already was
-	RecoveredJoblessTasks  []string // task ids returned to a dispatchable state with no Job
-	DependencyStateChanged []string // task ids moved between blocked and planned
-	HeuristicallyFailed    []string // job ids failed by the liveness HEURISTIC, not an observer
-	CheckedActive          int      // non-terminal jobs examined
-	SkippedUnverified      int      // jobs left alone because liveness couldn't be verified
-	SettledLandedOutside   []string // task ids settled because their work was merged outside the plane
-	SkippedInflight        int      // jobs left alone because this process is running them
+	FailedVanished           []string // job ids failed because their run was gone
+	RemovedOrphans           []string // worktree job ids removed (no live non-terminal job)
+	RecoveredVerifies        []string // job ids returned to candidate from a stranded `verifying`
+	SettledOrphanJobs        []string // job ids driven terminal because their Task already was
+	RecoveredJoblessTasks    []string // task ids returned to a dispatchable state with no Job
+	RecoveredEmptyCandidates []string // job ids failed because their artifact named no commit
+	DependencyStateChanged   []string // task ids moved between blocked and planned
+	HeuristicallyFailed      []string // job ids failed by the liveness HEURISTIC, not an observer
+	CheckedActive            int      // non-terminal jobs examined
+	SkippedUnverified        int      // jobs left alone because liveness couldn't be verified
+	SettledLandedOutside     []string // task ids settled because their work was merged outside the plane
+	SkippedInflight          int      // jobs left alone because this process is running them
 }
 
 // Reconcile drives observed reality toward desired (DB) state (§6, the dual-write
@@ -2251,6 +2252,34 @@ func (s *Service) Reconcile() (ReconcileReport, error) {
 			rep.RecoveredVerifies = append(rep.RecoveredVerifies, j.ID)
 			liveWorktreeJobs[j.ID] = true // the candidate's commit must survive
 			continue
+		}
+		// A `candidate` Job WHOSE ARTIFACT NAMES NO COMMIT is stranded in a state
+		// that looks ready to grade and cannot be.
+		//
+		// An older plane created those: Capture failed, the error was logged, and
+		// the Job was promoted anyway with head_sha = "". Dispatch no longer does
+		// it, but no fix upstream retracts a row already written — and every way
+		// out is closed. Review, verify and integrate all refuse an artifact with
+		// no commit (usableArtifact); retry and replan want `rejected`; only
+		// cancel escapes, which throws the objective away for a fault of ours.
+		//
+		// So repair it to what the current dispatch would have produced: a failed
+		// attempt with the Task back on the retry ladder. This is the same move
+		// recoverStrandedVerify makes one case above, for the same reason — a
+		// state nothing but reconcile can leave is reconcile's to leave.
+		if j.State == StateCandidate {
+			if art := s.firstArtifact(j.ID); art != nil && art.HeadSHA == "" {
+				repoDir := ""
+				if t, err := s.store.GetTask(j.TaskID); err == nil {
+					repoDir, _ = s.projects.ProjectDir(t.Project)
+				}
+				s.failJobRejectTask(j.TaskID, j.ID,
+					repoDir,
+					"reconcile: this attempt produced no commit — the plane could not capture the "+
+						"worktree, so there was never anything to grade")
+				rep.RecoveredEmptyCandidates = append(rep.RecoveredEmptyCandidates, j.ID)
+				continue
+			}
 		}
 		// A Job whose Task is already terminal is a ghost in the census: nothing
 		// will ever move it, ListActiveJobs returns it forever, and the checks

@@ -204,8 +204,9 @@ func main() {
 	if rep, err := svc.Reconcile(); err != nil {
 		log.Printf("boot reconcile: %v", err)
 	} else {
-		log.Printf("boot reconcile: checked=%d failed-vanished=%v removed-orphans=%v skipped-unverified=%d",
-			rep.CheckedActive, rep.FailedVanished, rep.RemovedOrphans, rep.SkippedUnverified)
+		log.Printf("boot reconcile: checked=%d failed-vanished=%v removed-orphans=%v skipped-unverified=%d empty-candidates=%v",
+			rep.CheckedActive, rep.FailedVanished, rep.RemovedOrphans, rep.SkippedUnverified,
+			rep.RecoveredEmptyCandidates)
 	}
 
 	// TWO LISTENERS, one per caller class. Which socket a connection arrives on
@@ -250,8 +251,10 @@ func main() {
 			case <-t.C:
 				if rep, err := svc.Reconcile(); err != nil {
 					log.Printf("reconcile tick: %v", err)
-				} else if len(rep.FailedVanished) > 0 || len(rep.RemovedOrphans) > 0 {
-					log.Printf("reconcile tick: failed-vanished=%v removed-orphans=%v", rep.FailedVanished, rep.RemovedOrphans)
+				} else if len(rep.FailedVanished) > 0 || len(rep.RemovedOrphans) > 0 ||
+					len(rep.RecoveredEmptyCandidates) > 0 {
+					log.Printf("reconcile tick: failed-vanished=%v removed-orphans=%v empty-candidates=%v",
+						rep.FailedVanished, rep.RemovedOrphans, rep.RecoveredEmptyCandidates)
 				}
 			}
 		}

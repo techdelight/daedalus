@@ -509,3 +509,71 @@ func mustProjectDir(t *testing.T, svc *Service, project string) string {
 	}
 	return dir
 }
+
+// A CANDIDATE THAT NEVER PRODUCED A COMMIT HAS NO WAY OUT, so reconcile makes
+// one.
+//
+// An older plane promoted a Job whose Capture had failed, creating a candidate
+// Artifact with head_sha = "". Every route is then closed: review, verify and
+// integrate refuse an artifact naming no commit, and retry and replan want
+// `rejected`. Only cancel escapes — which throws the objective away for a fault
+// of the plane's. Reported by an operator holding exactly one of these, who was
+// told to retry and could not.
+//
+// Dispatch no longer creates them; nothing upstream retracts the ones already
+// written, which is what reconcile is for.
+func TestReconcile_EmptyCandidateIsReturnedToTheRetryLadder(t *testing.T) {
+	repo := gitRepo(t)
+	svc, _, store := newService(t, mapResolver{"app": repo},
+		StubRunner{Result: ExecSuccess, WriteFile: true}, nil)
+
+	task, err := svc.CreateTask(CreateTaskRequest{Project: "app", Objective: "x"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	res, err := svc.DispatchTask(task.ID)
+	if err != nil {
+		t.Fatalf("Dispatch: %v", err)
+	}
+	if res.Artifact == nil {
+		t.Fatal("the fixture needs a real candidate to break")
+	}
+	// Reproduce the row an older plane wrote: a candidate whose artifact names no
+	// commit. Written directly, because the code that produced it is gone.
+	if _, err := store.db.Exec(`UPDATE artifacts SET head_sha = '' WHERE id = ?`, res.Artifact.ID); err != nil {
+		t.Fatalf("breaking the artifact: %v", err)
+	}
+
+	// Before: stuck. Every door is shut.
+	if _, err := svc.ReviewTask(task.ID); err == nil {
+		t.Error("review accepted an artifact naming no commit")
+	}
+	if _, err := svc.RetryTask(task.ID, RetryRequest{}); err == nil {
+		t.Error("the fixture is wrong — retry should be refused from candidate")
+	}
+
+	rep, err := svc.Reconcile()
+	if err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if len(rep.RecoveredEmptyCandidates) != 1 {
+		t.Fatalf("recovered %v, want the one empty candidate", rep.RecoveredEmptyCandidates)
+	}
+
+	after, _ := store.GetTask(task.ID)
+	if after.State != StateRejected {
+		t.Fatalf("task state = %q, want rejected so the retry ladder is reachable", after.State)
+	}
+	job, _ := store.GetJob(res.Job.ID)
+	if job.State != StateFailed {
+		t.Errorf("job state = %q, want failed — the attempt produced nothing", job.State)
+	}
+	// And the door is open: a fresh attempt, with the objective intact.
+	if _, err := svc.RetryTask(task.ID, RetryRequest{}); err != nil {
+		t.Fatalf("retry after reconcile: %v", err)
+	}
+	final, _ := store.GetTask(task.ID)
+	if final.Objective != "x" {
+		t.Errorf("objective = %q, want it carried through the repair", final.Objective)
+	}
+}
