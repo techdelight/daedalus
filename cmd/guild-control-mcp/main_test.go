@@ -149,3 +149,35 @@ func TestCreateTaskRequest_BudgetOnlyWhenNarrowed(t *testing.T) {
 		t.Errorf("a narrowed budget must reach the plane: %+v", got.Budget)
 	}
 }
+
+// THE GUILD MASTER CAN SAY WHAT A TASK WILL PRODUCE (#95).
+//
+// The tasks it filed were milestone-sized paragraphs in `objective` with nothing
+// on them anybody could check off — reported by the operator reading them as "a
+// big blob of text about what to do for a milestone with no clear deliverables".
+// The plane carries the list; this is the pass-through that lets the agent fill
+// it, tested rather than assumed for the reason #88's was.
+func TestCreateTaskRequest_CarriesTheDeliverables(t *testing.T) {
+	got := createTaskRequest(CreateTaskInput{
+		Project: "app", Objective: "add a --since flag to task list",
+		Deliverables: []string{
+			"`daedalus task list --since 7d` runs and filters by age",
+			"--since appears in the man page",
+		},
+	})
+	if len(got.Deliverables) != 2 {
+		t.Fatalf("deliverables = %v, want both carried to the plane", got.Deliverables)
+	}
+	if got.Deliverables[1] != "--since appears in the man page" {
+		t.Errorf("order and content must survive: %v", got.Deliverables)
+	}
+}
+
+// Optional, like the programme and the reason. A thin task should be visibly
+// thin rather than impossible to file — and the create is answered with advice
+// saying so, which is the part that actually teaches.
+func TestCreateTaskRequest_DeliverablesAreOptional(t *testing.T) {
+	if got := createTaskRequest(CreateTaskInput{Project: "app", Objective: "x"}); got.Deliverables != nil {
+		t.Errorf("nothing should be invented: %+v", got.Deliverables)
+	}
+}

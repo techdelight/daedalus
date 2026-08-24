@@ -187,19 +187,7 @@ func Run(cfg *core.Config) error {
 	}
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
 
-	// Root serves index.html with the version injected into the title.
-	version := core.ReadVersion()
-	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
-		data, err := staticFiles.ReadFile("static/index.html")
-		if err != nil {
-			http.Error(w, "index.html not found", http.StatusInternalServerError)
-			return
-		}
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		if _, err := w.Write([]byte(renderIndexHTML(data, version))); err != nil {
-			log.Printf("write index.html: %v", err)
-		}
-	})
+	RegisterAppRoutes(mux, core.ReadVersion())
 
 	// Authentication
 	var handler http.Handler = mux
@@ -230,6 +218,47 @@ func Run(cfg *core.Config) error {
 	}
 	fmt.Printf("Starting web UI at http://%s\n", cfg.WebAddr)
 	return http.ListenAndServe(cfg.WebAddr, handler)
+}
+
+// AppPaths are every URL that serves the single-page app itself, as ServeMux
+// patterns. One list, because it is also what says which addresses a person may
+// type, bookmark or reload — a route missing here is a 404 on a link somebody
+// was given, and that is not visible from the page's own code.
+//
+// THE LEDGER HAS AN ADDRESS, and this is where it gets one. It was a div the
+// Guild Hall toggled: it could not be bookmarked, opened in a second tab, sent
+// to anybody, or reloaded — a refresh landed you back on the project list.
+// `/ledger` is the board and `/ledger/T-18` is the board with that entry held
+// open.
+//
+// Every one of them serves the SAME index.html. The page is one document and
+// the route is read on the client (control.js), which is what lets Back and
+// Forward move between the Hall and the Ledger without a round trip. The
+// server's only job here is to answer these paths with the app instead of a
+// 404, which is the whole of what makes reloading a deep link work.
+var AppPaths = []string{
+	"GET /{$}",
+	"GET /ledger",
+	"GET /ledger/{entry}",
+}
+
+// RegisterAppRoutes serves index.html, with the version injected into the title,
+// at every path in AppPaths.
+func RegisterAppRoutes(mux *http.ServeMux, version string) {
+	index := func(w http.ResponseWriter, r *http.Request) {
+		data, err := staticFiles.ReadFile("static/index.html")
+		if err != nil {
+			http.Error(w, "index.html not found", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if _, err := w.Write([]byte(renderIndexHTML(data, version))); err != nil {
+			log.Printf("write index.html: %v", err)
+		}
+	}
+	for _, p := range AppPaths {
+		mux.HandleFunc(p, index)
+	}
 }
 
 // RegisterRoutes wires every API route to its handler. Routes are listed

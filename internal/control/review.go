@@ -37,6 +37,11 @@ type ReviewSpec struct {
 	// Objective is what the Task set out to do — the promise the diff is judged
 	// against.
 	Objective string
+	// Deliverables are what the Task said would EXIST when it was done. They turn
+	// the reviewer's first question from an essay ("did this deliver what was
+	// asked for") into a roll call it can answer item by item, and they are the
+	// one part of the brief a reviewer can be WRONG about in a checkable way.
+	Deliverables []string
 	// Rationale is what the work was FOR, and RationaleBy who said so. Added in
 	// M20 because the two questions worth asking are "did this deliver what it
 	// promised" and "was this worth doing", and a diff answers neither on its own.
@@ -65,21 +70,56 @@ const (
 	SeverityNote Severity = "note"
 )
 
-// Finding is one thing a reviewer noticed, with somewhere to look and a reason.
+// Finding is one thing a reviewer noticed, with somewhere to look, a reason, and
+// something to do about it.
 //
 // The location and the WHY are both required by shape rather than by validation:
 // a finding with neither is an opinion, and an opinion is what the old
 // {Passed, Detail} pair could already express.
+//
+// THE FIELDS ARE THE FORMAT. Each is one sentence and the prompt says so, which
+// is the only thing that keeps a review readable — the fields were unbounded and
+// a reviewer filled every one with a paragraph, so a five-finding review arrived
+// as a page of prose an operator had to re-read to act on. This is the index-card
+// lesson from XP: the card is small on purpose. It is also the rule every
+// code-review guide converges on — label the severity, say the defect in a line,
+// name the action, and keep the essay out of it.
 type Finding struct {
 	Severity Severity `json:"severity"`
 	// File and Line point at the diff. Line may be 0 when the finding is about a
 	// file as a whole, or File empty when it is about the change as a whole.
 	File string `json:"file,omitempty"`
 	Line int    `json:"line,omitempty"`
-	// What is the finding; Why is the reason it matters. Two fields, because a
-	// reviewer that writes only the first is describing the code back to you.
+	// What is the defect, in one sentence. Why is the consequence, in one
+	// sentence. Two fields, because a reviewer that writes only the first is
+	// describing the code back to you.
 	What string `json:"what"`
 	Why  string `json:"why,omitempty"`
+	// Fix is the action, in one imperative sentence.
+	//
+	// A finding with no action is a thing to worry about rather than a thing to
+	// do, and the operator is then the one who has to work out what was meant —
+	// which is the work the reviewer was asked to do. It is optional in the shape
+	// because a reviewer that genuinely does not know the fix should say the
+	// defect anyway rather than invent one.
+	Fix string `json:"fix,omitempty"`
+}
+
+// severityRank orders findings by how much they demand of the reader.
+//
+// The record is sorted on the way IN (ParseReviewJudgement) rather than by each
+// surface on the way out, so the CLI, the Ledger and anything added later show
+// the same order without agreeing to. Bottom line up front: the thing that could
+// stop this landing is the thing you read first.
+func severityRank(s Severity) int {
+	switch s {
+	case SeverityBlocking:
+		return 0
+	case SeverityConcern:
+		return 1
+	default:
+		return 2
+	}
 }
 
 // ReviewOutcome is a ReviewRunner's judgement.
@@ -309,6 +349,7 @@ func (s *Service) ReviewTask(id string) (ReviewResult, error) {
 		TaskID: id, JobID: job.ID, Project: task.Project, RepoDir: repoDir,
 		BaseSHA: art.BaseSHA, HeadSHA: art.HeadSHA,
 		Branch: BranchName(id, job.ID), Objective: task.Objective,
+		Deliverables: task.Deliverables,
 		// What the work was FOR, and who said so (M20). A diff plus an objective
 		// answers "did it do the thing"; only the rationale lets a reviewer ask
 		// whether the thing was worth doing — and the author tells it how much

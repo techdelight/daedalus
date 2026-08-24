@@ -81,7 +81,18 @@ func newServer(api control.TaskAPI) *mcp.Server {
 // derives all of it.
 type CreateTaskInput struct {
 	Project   string `json:"project" jsonschema:"the registered project the work belongs to"`
-	Objective string `json:"objective" jsonschema:"what to accomplish, in plain language"`
+	Objective string `json:"objective" jsonschema:"ONE SENTENCE saying what to accomplish and for whom. If it takes a paragraph it is a milestone, not a task — file several tasks instead"`
+	// Deliverables are what will EXIST when the task is done (#95).
+	//
+	// The field exists because of what was arriving without it: milestone-sized
+	// paragraphs in `objective`, filed by this very tool, with nothing on them a
+	// person could check off. Reported as "a big blob of text about what to do for
+	// a milestone with no clear deliverables".
+	//
+	// Optional in the shape and pressed for in the description, which is the same
+	// choice made for programme and rationale — a task that names none should be
+	// visibly thin rather than impossible to file.
+	Deliverables []string `json:"deliverables,omitempty" jsonschema:"what will EXIST when this is done — one short line each, each naming something a person can point at (a file, a command that runs, a flag that works, a page that renders). The reviewer checks the change against this list item by item"`
 	// Programme and Rationale are what this work is FOR (#88).
 	//
 	// Without them every task the Guild Master filed was an orphan: the seat whose
@@ -120,8 +131,12 @@ type TaskSummary struct {
 	Project   string `json:"project"`
 	State     string `json:"state"`
 	Objective string `json:"objective"`
-	BaseSHA   string `json:"baseSha"`
-	CreatedAt string `json:"createdAt"`
+	// Deliverables are what the Task said would EXIST when it was done. Read back
+	// so an agent looking at existing work can see the shape it should be writing
+	// — a tool that accepts a field and never shows it back teaches nothing.
+	Deliverables []string `json:"deliverables,omitempty"`
+	BaseSHA      string   `json:"baseSha"`
+	CreatedAt    string   `json:"createdAt"`
 }
 
 // ListOutput is a list of tasks.
@@ -336,7 +351,7 @@ func registerControlTools(server *mcp.Server, api control.TaskAPI) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "create_task",
-		Description: "Create a task: state WHAT should be accomplished for a project, and — if it serves one — the programme it is for and why. The control plane resolves the project and the programme, pins the base commit, freezes the acceptance policy and applies the project's budget ceiling — none of which this tool can influence. Allowed directly, because it cannot exceed policy.",
+		Description: "Create a task: state WHAT should be accomplished for a project, WHAT WILL EXIST when it is done, and — if it serves one — the programme it is for and why. One task is one thing to deliver: a milestone becomes several tasks, not one long objective. The control plane resolves the project and the programme, pins the base commit, freezes the acceptance policy and applies the project's budget ceiling — none of which this tool can influence. Allowed directly, because it cannot exceed policy.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in CreateTaskInput) (*mcp.CallToolResult, OutcomeOutput, error) {
 		// The programme reference is passed through UNRESOLVED. The plane matches it
 		// against control.db by id or name and stores its own canonical id, so the
@@ -360,6 +375,14 @@ func registerControlTools(server *mcp.Server, api control.TaskAPI) {
 		detail := fmt.Sprintf("created task %s for %s (state %s)", task.ID, task.Project, task.State)
 		if task.ProgrammeID != "" {
 			detail += ", serving programme " + task.ProgrammeID
+		}
+		// The SHAPE of what was just filed, told back to the agent that filed it.
+		// Not a refusal: the plane does not get to decide that a long objective is
+		// wrong. But an agent that receives "created T-14" and nothing else has no
+		// way to learn that it keeps filing milestones, and this is the only moment
+		// it is holding the context needed to split one.
+		if advice := control.ObjectiveAdvice(task.Objective, task.Deliverables); advice != "" {
+			detail += ". Worth reconsidering — " + advice
 		}
 		return nil, OutcomeOutput{Executed: true, Detail: detail}, nil
 	})
@@ -622,7 +645,7 @@ func registerControlTools(server *mcp.Server, api control.TaskAPI) {
 // sending one unconditionally would file tasks that can never run.
 func createTaskRequest(in CreateTaskInput) control.CreateTaskRequest {
 	req := control.CreateTaskRequest{
-		Project: in.Project, Objective: in.Objective,
+		Project: in.Project, Objective: in.Objective, Deliverables: in.Deliverables,
 		Programme: in.Programme, Rationale: in.Rationale,
 	}
 	if in.MaxAttempts > 0 || in.WallClockSeconds > 0 {
@@ -698,7 +721,8 @@ func findProgramme(api control.TaskAPI, ref string) (control.Programme, error) {
 func summarise(t control.Task) TaskSummary {
 	return TaskSummary{
 		ID: t.ID, Project: t.Project, State: string(t.State),
-		Objective: t.Objective, BaseSHA: t.BaseSHA, CreatedAt: t.CreatedAt,
+		Objective: t.Objective, Deliverables: t.Deliverables,
+		BaseSHA: t.BaseSHA, CreatedAt: t.CreatedAt,
 	}
 }
 

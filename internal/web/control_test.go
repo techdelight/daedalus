@@ -5,11 +5,14 @@ package web
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -893,5 +896,239 @@ func TestLedger_ExplainsThatLandingMovesNoBranch(t *testing.T) {
 	if !strings.Contains(string(preview), control.LandedNote) {
 		t.Errorf("control-preview.html has drifted from control.LandedNote; it should say, exactly:\n\t%s",
 			control.LandedNote)
+	}
+}
+
+// A COMMAND MUST LOCK ONE ENTRY, NOT THE PAGE.
+//
+// Reported plainly: "the ledger locks all buttons for all tasks if I start a
+// review, until I refresh the page". It did. `busy` was one boolean for the
+// whole surface, every plate on every entry read it, and renderBoard returned
+// early while it was raised — so a review, which is minutes of a container
+// reading a diff, made the entire Ledger read-only and stopped the board
+// repainting. Nothing about the plane asks for that: it serialises per task.
+//
+// This is JavaScript and Go cannot run it, so what follows asserts on the
+// source. Two of the three are DERIVED rather than spelled out — the disable
+// rule is checked against every `.disabled =` in the file, so a new button
+// wired to a page-wide flag fails this even though nobody updated the test.
+func TestLedger_ACommandLocksOnlyTheEntryItActsOn(t *testing.T) {
+	src, err := staticFiles.ReadFile("static/control.js")
+	if err != nil {
+		t.Fatalf("reading the Ledger: %v", err)
+	}
+	js := string(src)
+
+	// EVERY plate's disabled state must be decided per entry. Derived: find each
+	// assignment to `.disabled` and require the entry to be part of the answer.
+	// An enumerated check ("the file contains isBusy(current.id)") would stay
+	// green beside a second button disabled from something page-wide.
+	disable := regexp.MustCompile(`\.disabled\s*=\s*([^;\n]+)`)
+	found := disable.FindAllStringSubmatch(js, -1)
+	if len(found) == 0 {
+		t.Error("no button on the Ledger is ever disabled while its command is in flight, so a " +
+			"second click sends a second command against work that is already running")
+	}
+	for _, m := range found {
+		if !strings.Contains(m[1], "isBusy(") {
+			t.Errorf("a Ledger button is disabled from `%s`, which is not scoped to an entry — "+
+				"one slow command will grey out plates on tasks it has nothing to do with", strings.TrimSpace(m[1]))
+		}
+	}
+
+	// The board must keep repainting while a command is out. The only thing that
+	// may freeze the entry is `awaiting` — an operator mid-confirmation, which is
+	// an interaction to protect. A request in flight is not.
+	if strings.Contains(js, "awaiting || busy") {
+		t.Error("renderBoard still stops on an in-flight command, so the board freezes for the " +
+			"whole of a review — the one operation slow enough to be worth watching")
+	}
+
+	// And the claim must be per entry rather than a flag. `inflight[id]` is the
+	// working code; the old `busy = true` is the shape this replaced.
+	if !strings.Contains(js, "inflight[id] = {") {
+		t.Error("the Ledger no longer records which ENTRY a command was sent for, so it cannot " +
+			"tell a busy task from a busy page")
+	}
+	if regexp.MustCompile(`\bbusy\s*=\s*(true|false)\b`).MatchString(js) {
+		t.Error("a page-wide busy flag is back in control.js; a command must claim the entry it " +
+			"acts on and nothing else")
+	}
+}
+
+// THE LEDGER IS A PLACE YOU CAN GO BACK TO.
+//
+// It was a div the Guild Hall toggled: no address, so no bookmark, no second
+// tab, no link to send, and a reload put you back on the project list. The page
+// picks its view from location.pathname now, and this asserts the server agrees
+// — every path the app claims must answer with the app rather than a 404, which
+// is the difference between a link that works and a link that looks broken.
+//
+// Derived from the page's OWN constant: LEDGER_PATH is read out of control.js,
+// so changing it there and not here fails, which is the drift this would
+// otherwise be blind to.
+func TestLedger_HasItsOwnURL(t *testing.T) {
+	src, err := staticFiles.ReadFile("static/control.js")
+	if err != nil {
+		t.Fatalf("reading the Ledger: %v", err)
+	}
+	m := regexp.MustCompile(`const LEDGER_PATH = '([^']+)'`).FindStringSubmatch(string(src))
+	if m == nil {
+		t.Fatal("control.js declares no LEDGER_PATH, so the Ledger has no address to be served at")
+	}
+	ledger := m[1]
+
+	mux := http.NewServeMux()
+	RegisterAppRoutes(mux, "9.9.9")
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	// Every declared app path, turned into a URL somebody could type. A new
+	// AppPaths entry is covered by this without touching the test.
+	var served []string
+	for _, p := range AppPaths {
+		served = append(served, urlForPattern(p))
+	}
+	// …plus the two the Ledger specifically promises: the board, and one entry.
+	// Without these the loop above would pass over an empty list.
+	want := []string{ledger, ledger + "/T-18"}
+	for _, w := range want {
+		if !slices.Contains(served, w) {
+			t.Errorf("nothing serves %s, so that link answers 404 and the Ledger is unreachable "+
+				"by address (AppPaths serves %v)", w, served)
+		}
+	}
+
+	for _, path := range append(served, want...) {
+		resp, err := http.Get(server.URL + path)
+		if err != nil {
+			t.Fatalf("GET %s: %v", path, err)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("GET %s answered %d — a reloaded or shared link lands on an error page",
+				path, resp.StatusCode)
+			continue
+		}
+		// The APP, not merely a 200. `id="control-view"` is the Ledger's own root
+		// element in index.html, so this fails if the route starts serving
+		// something else.
+		if !strings.Contains(string(body), `id="control-view"`) {
+			t.Errorf("GET %s served something that is not the app", path)
+		}
+	}
+}
+
+// urlForPattern turns a ServeMux pattern into a URL a person could type:
+// "GET /{$}" is "/", and any {wildcard} takes a sample entry id.
+func urlForPattern(p string) string {
+	path := strings.TrimPrefix(p, "GET ")
+	path = strings.ReplaceAll(path, "{$}", "")
+	for {
+		i := strings.Index(path, "{")
+		if i < 0 {
+			break
+		}
+		j := strings.Index(path[i:], "}")
+		if j < 0 {
+			break
+		}
+		path = path[:i] + "T-18" + path[i+j+1:]
+	}
+	return path
+}
+
+// A REVIEW IS SOMETHING TO ACT ON, NOT SOMETHING TO READ THROUGH.
+//
+// Reported plainly: "the reviews are big walls of text, so hard to read that I
+// have to feed it back to daedalus to make sense of it". The data was never the
+// problem — the plane has sent severity, file, line, what and why since M20 —
+// the rendering was: the reasoning paragraph first, then every field of every
+// finding at full length, in the order the reviewer happened to write them.
+//
+// The first assertion is DERIVED from the Go struct: every field a Finding
+// marshals must be rendered by the page. A field added to the shape and shown
+// nowhere is invisible to the only person the review is for.
+func TestLedger_RendersAReviewToBeActedOn(t *testing.T) {
+	src, err := staticFiles.ReadFile("static/control.js")
+	if err != nil {
+		t.Fatalf("reading the Ledger: %v", err)
+	}
+	js := string(src)
+
+	ft := reflect.TypeOf(control.Finding{})
+	for i := 0; i < ft.NumField(); i++ {
+		tag := strings.Split(ft.Field(i).Tag.Get("json"), ",")[0]
+		if tag == "" || tag == "-" {
+			continue
+		}
+		if !strings.Contains(js, "f."+tag) {
+			t.Errorf("the plane sends Finding.%s as %q and the Ledger renders it nowhere, so the "+
+				"operator never sees it", ft.Field(i).Name, tag)
+		}
+	}
+
+	// The verdict, as counts, before any of the prose. This is the line the
+	// decision is actually made on.
+	if !strings.Contains(js, "' blocking'") {
+		t.Error("a review no longer opens with how many blocking findings it has, so the size of " +
+			"the problem can only be got by reading all of it")
+	}
+
+	// Progressive disclosure, and specifically for the two things that were in
+	// the way: the reasoning, and each finding's why/fix. <details> rather than a
+	// click handler, so it survives a poll repaint and opens with a keyboard.
+	if !strings.Contains(js, "ledger-reasoning") {
+		t.Error("the reviewer's reasoning is not in its own collapsible section — it was the " +
+			"longest thing on the screen and the first thing on it")
+	}
+	if strings.Count(js, "createElement('details')") < 2 {
+		t.Error("findings and reasoning are not behind disclosures, so a five-finding review is " +
+			"still a page of prose")
+	}
+}
+
+// A TASK SAYS WHAT IT WILL PRODUCE, ON THE SURFACE WHERE IT IS CREATED AND READ.
+//
+// "The tasks provided to the ledger are a big blob of text about what to do for
+// a milestone with no clear deliverables." The plane carries the list now; this
+// asserts the Ledger both COLLECTS it (the new-entry form) and SHOWS it (the
+// entry window). A field the page can send and never renders is a field nobody
+// ever discovers is empty.
+func TestLedger_CollectsAndShowsDeliverables(t *testing.T) {
+	js, err := staticFiles.ReadFile("static/control.js")
+	if err != nil {
+		t.Fatalf("reading the Ledger: %v", err)
+	}
+	html, err := staticFiles.ReadFile("static/index.html")
+	if err != nil {
+		t.Fatalf("reading the page: %v", err)
+	}
+
+	// The field the page sends must be the field the plane unmarshals.
+	body, err := json.Marshal(control.CreateTaskRequest{
+		Project: "app", Objective: "x", Deliverables: []string{"y"},
+	})
+	if err != nil {
+		t.Fatalf("marshalling a create: %v", err)
+	}
+	if !strings.Contains(string(body), `"deliverables"`) {
+		t.Fatalf("a create is sent to the plane without deliverables: %s", body)
+	}
+
+	if !strings.Contains(string(html), `id="new-deliverables"`) {
+		t.Error("the new-entry form has no deliverables field, so the surface most people create " +
+			"tasks from cannot say what a task will produce")
+	}
+	// The CODE, not the identifier: `strings.Contains(js, "deliverables")` is
+	// satisfied by a comment, which is how three earlier tests in this package
+	// passed for the wrong reason.
+	if !strings.Contains(string(js), "req.deliverables = deliverables") {
+		t.Error("the form collects deliverables and never sends them")
+	}
+	if !strings.Contains(string(js), "task.deliverables") {
+		t.Error("the entry window never renders a task's deliverables, so nobody reading an entry " +
+			"— before dispatch or at the approval gate — can see what it promised")
 	}
 }

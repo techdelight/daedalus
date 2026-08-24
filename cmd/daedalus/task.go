@@ -165,6 +165,17 @@ func taskCreate(api control.TaskAPI, args []string) error {
 			}
 			i++
 			req.Acceptance = args[i]
+		case "--deliverable", "-d":
+			// Repeatable, like --check. This is the LIST half of what a task
+			// promises: --deliverable says what will exist, --check says how a
+			// machine would prove it. Most tasks can name several of the first and
+			// only one or two of the second, which is why they are separate flags
+			// and not one.
+			if i+1 >= len(args) {
+				return fmt.Errorf("--deliverable requires a line, e.g. --deliverable '`daedalus task refine` exists and continues from the artifact'")
+			}
+			i++
+			req.Deliverables = append(req.Deliverables, args[i])
 		case "--check", "-c":
 			// Repeatable. This is the per-task half of the oracle: verify.json says
 			// what the PROJECT requires, --check says what THIS task must deliver.
@@ -190,7 +201,7 @@ func taskCreate(api control.TaskAPI, args []string) error {
 				return err
 			}
 		default:
-			return fmt.Errorf("task create: unknown flag %q\n%s usage: daedalus task create --project <name> --objective <text> [--programme <name|id>] [--rationale <text>] [--check <cmd>]... [--acceptance <note>] [--wall-clock <s>] [--max-attempts <n>] [--max-review-cycles <n>] [--concurrency <n>]", args[i], color.Cyan("Hint:"))
+			return fmt.Errorf("task create: unknown flag %q\n%s usage: daedalus task create --project <name> --objective <text> [--deliverable <line>]... [--programme <name|id>] [--rationale <text>] [--check <cmd>]... [--acceptance <note>] [--wall-clock <s>] [--max-attempts <n>] [--max-review-cycles <n>] [--concurrency <n>]", args[i], color.Cyan("Hint:"))
 		}
 	}
 	if req.Project == "" {
@@ -209,6 +220,12 @@ func taskCreate(api control.TaskAPI, args []string) error {
 	fmt.Printf("%s created task %s for project %s (base %s, state %s)\n",
 		color.Green("OK:"), color.Bold(t.ID), t.Project, shortSHA(t.BaseSHA), t.State)
 	fmt.Printf("     budget: %s\n", t.Budget)
+	if len(t.Deliverables) > 0 {
+		fmt.Printf("     %s (what will exist when this is done):\n", color.Bold("deliverables"))
+		for _, d := range t.Deliverables {
+			fmt.Printf("       - %s\n", d)
+		}
+	}
 	if len(t.Checks) > 0 {
 		fmt.Printf("     %s (run after the project's frozen policy, in the verifier):\n", color.Bold("task checks"))
 		for _, c := range t.Checks {
@@ -217,6 +234,12 @@ func taskCreate(api control.TaskAPI, args []string) error {
 	} else {
 		fmt.Printf("     %s no task checks — it will be graded by the project policy alone,\n", color.Dim("note:"))
 		fmt.Printf("           which cannot tell whether THIS objective was delivered. Add one with --check.\n")
+	}
+	// Said after the task exists, never instead of creating it. A task shaped like
+	// a milestone is a judgement call and the person making it is the one holding
+	// the context; what they were missing was anybody pointing it out.
+	if advice := control.ObjectiveAdvice(t.Objective, t.Deliverables); advice != "" {
+		fmt.Printf("     %s %s\n", color.Yellow("shape:"), advice)
 	}
 	warnStaleTarget(api, t.Project, t.ID)
 	return nil
@@ -345,6 +368,14 @@ func taskStatus(api control.TaskAPI, args []string) error {
 		}
 		fmt.Printf("%s %s %s\n", color.Bold("For:"), t.Rationale, color.Dim("("+by+")"))
 	}
+	// What will EXIST when this is done. Above the checks, because it is the list
+	// a person reads and the checks are the subset a machine can grade.
+	if len(t.Deliverables) > 0 {
+		fmt.Printf("%s\n", color.Bold("Deliverables:"))
+		for _, d := range t.Deliverables {
+			fmt.Printf("  - %s\n", d)
+		}
+	}
 	if len(t.Checks) > 0 {
 		fmt.Printf("%s %d, appended to the project policy at verify\n", color.Bold("Task checks:"), len(t.Checks))
 		for _, c := range t.Checks {
@@ -397,21 +428,12 @@ func taskStatus(api control.TaskAPI, args []string) error {
 				who = "unattributed"
 			}
 			fmt.Printf("  %s  %s  by %s  %s\n", r.ID, verdict, who, color.Dim(r.CreatedAt))
+			// Findings first, reasoning last. A reader scanning a task wants the
+			// things to act on; the account of how the reviewer read the change is
+			// what they reach for only once they want to argue with it.
+			printFindings(r.Findings, "      ")
 			if r.Reasoning != "" {
-				fmt.Printf("      %s\n", r.Reasoning)
-			}
-			for _, f := range r.Findings {
-				where := f.File
-				if where != "" && f.Line > 0 {
-					where = fmt.Sprintf("%s:%d", f.File, f.Line)
-				}
-				if where != "" {
-					where = " " + where
-				}
-				fmt.Printf("      %s%s  %s\n", severityMark(f.Severity), where, f.What)
-				if f.Why != "" {
-					fmt.Printf("        %s %s\n", color.Dim("why:"), f.Why)
-				}
+				fmt.Printf("      %s %s\n", color.Dim("read as:"), r.Reasoning)
 			}
 		}
 		fmt.Printf("  %s\n", color.Dim("advisory — the plane acts on none of this; you decide at the approval gate"))
@@ -830,21 +852,9 @@ func taskReview(api control.TaskAPI, args []string) error {
 		verdict = color.Green("found no blocker")
 	}
 	fmt.Printf("%s %s reviewed %s and %s (pass %s)\n", color.Bold("Review:"), who, args[0], verdict, cycles)
+	printFindings(res.Findings, "  ")
 	if res.Reasoning != "" {
-		fmt.Printf("  %s\n", res.Reasoning)
-	}
-	for _, f := range res.Findings {
-		where := f.File
-		if where != "" && f.Line > 0 {
-			where = fmt.Sprintf("%s:%d", f.File, f.Line)
-		}
-		if where != "" {
-			where = " " + where
-		}
-		fmt.Printf("  %s%s  %s\n", severityMark(f.Severity), where, f.What)
-		if f.Why != "" {
-			fmt.Printf("    %s %s\n", color.Dim("why:"), f.Why)
-		}
+		fmt.Printf("  %s %s\n", color.Dim("read as:"), res.Reasoning)
 	}
 	// Said every time, because the previous behaviour was the opposite and an
 	// operator who remembers it will otherwise assume the task just moved.
@@ -1489,6 +1499,35 @@ func orDash(s string) string {
 // severityMark colours a finding by how much it is claiming. Blocking is red not
 // because the plane acts on it — it does not — but because it is the reviewer
 // saying "I would not land this", and that is the sentence an operator scans for.
+// printFindings renders a reviewer's findings, indented under whatever printed
+// the verdict.
+//
+// ONE renderer, called from both places that show a review (`task show` and the
+// answer to `task review`). They were two copies of the same twelve lines, which
+// is how a `fix` added to the shape reaches one surface and not the other — the
+// repository's own recurring defect, in miniature.
+//
+// The findings arrive already ordered blocking-first (ParseReviewJudgement), so
+// nothing here sorts and nothing here can disagree about the order.
+func printFindings(findings []control.Finding, indent string) {
+	for _, f := range findings {
+		where := f.File
+		if where != "" && f.Line > 0 {
+			where = fmt.Sprintf("%s:%d", f.File, f.Line)
+		}
+		if where != "" {
+			where = " " + where
+		}
+		fmt.Printf("%s%s%s  %s\n", indent, severityMark(f.Severity), where, f.What)
+		if f.Why != "" {
+			fmt.Printf("%s  %s %s\n", indent, color.Dim("why:"), f.Why)
+		}
+		if f.Fix != "" {
+			fmt.Printf("%s  %s %s\n", indent, color.Dim("fix:"), f.Fix)
+		}
+	}
+}
+
 func severityMark(s control.Severity) string {
 	switch s {
 	case control.SeverityBlocking:

@@ -42,6 +42,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/techdelight/daedalus/internal/executor"
@@ -254,6 +255,18 @@ func ReviewPrompt(spec ReviewSpec, diff string) string {
 	b.WriteString("WHAT WAS ASKED FOR\n")
 	b.WriteString(spec.Objective + "\n\n")
 
+	// The roll call. "Does this deliver what was asked for" is an essay question
+	// against prose and a checkable one against a list — and it is the question
+	// the reviewer exists to answer, so it is worth giving it something it can be
+	// wrong about.
+	if d := cleanLines(spec.Deliverables); len(d) > 0 {
+		b.WriteString("WHAT IT SAID WOULD EXIST WHEN DONE\n")
+		for _, item := range d {
+			b.WriteString("  - " + item + "\n")
+		}
+		b.WriteString("\n")
+	}
+
 	if spec.Rationale != "" {
 		by := string(spec.RationaleBy)
 		if by == "" {
@@ -277,7 +290,13 @@ func ReviewPrompt(spec ReviewSpec, diff string) string {
 	b.WriteString("```diff\n" + diff + "\n```\n\n")
 
 	b.WriteString("WHAT TO ANSWER\n")
-	b.WriteString("1. Does this deliver what was asked for? Name what is missing, not just what is present.\n")
+	if len(cleanLines(spec.Deliverables)) > 0 {
+		b.WriteString("1. Take the list above one item at a time: does each thing actually exist in " +
+			"this change, and does it work? Say which ones do not. A deliverable that is present but " +
+			"inert is missing.\n")
+	} else {
+		b.WriteString("1. Does this deliver what was asked for? Name what is missing, not just what is present.\n")
+	}
 	if spec.Rationale != "" {
 		b.WriteString("2. Does it serve the reason it was asked for? A change can do exactly what the " +
 			"objective said and still not advance the reason behind it.\n")
@@ -289,15 +308,36 @@ func ReviewPrompt(spec ReviewSpec, diff string) string {
 	b.WriteString(`{
   "passed": true,
   "reviewer": "who you are",
-  "reasoning": "how you read the change, in a few sentences",
   "findings": [
     {"severity": "blocking|concern|note", "file": "path", "line": 0,
-     "what": "what you noticed", "why": "why it matters"}
-  ]
+     "what": "the defect, one sentence",
+     "why": "the consequence, one sentence",
+     "fix": "the action, one imperative sentence"}
+  ],
+  "reasoning": "how you read the change — at most three sentences"
 }` + "\n\n")
+
+	// THE LENGTH LIMIT IS THE FEATURE. Without it every field came back as a
+	// paragraph and a five-finding review was a page of prose: the operator it is
+	// written for had to read it twice to work out what to do, and said so. The
+	// fields are one sentence each for the same reason an XP story goes on an
+	// index card — the size of the space is what does the editing.
+	b.WriteString("KEEP IT SHORT, and mean it:\n")
+	b.WriteString("  - `what` is ONE sentence naming the defect. Under 20 words. Do not describe " +
+		"the code back to me; say what is wrong with it.\n")
+	b.WriteString("  - `why` is ONE sentence: what goes wrong for someone if this ships.\n")
+	b.WriteString("  - `fix` is ONE sentence in the imperative: the action you would take.\n")
+	b.WriteString("  - `reasoning` is at most three sentences on how you read the change, and it " +
+		"goes LAST because it is the part a reader only wants once they disagree with you.\n")
+	b.WriteString("  - At most five `note` findings. If you have more, keep the five that matter " +
+		"and say how many you dropped in `reasoning`.\n")
+	b.WriteString("  - One finding per defect. Two problems in one entry cannot be fixed one at a " +
+		"time, and cannot be given different severities.\n\n")
+
 	b.WriteString("Your verdict is ADVISORY. It is shown to a human who decides; it does not block " +
 		"anything on its own. So say what you actually think rather than what is safe: a hedge " +
-		"helps nobody, and a finding with no `why` is an opinion.\n")
+		"helps nobody, a finding with no `why` is an opinion, and a finding with no `fix` leaves " +
+		"the work you were asked to do to the person reading you.\n")
 	return b.String()
 }
 
@@ -354,6 +394,14 @@ func ParseReviewJudgement(raw []byte) (ReviewOutcome, error) {
 		}
 		out.Findings = append(out.Findings, f)
 	}
+	// Bottom line up front. Sorted here, once, so every surface that renders a
+	// review shows the blocking findings first without each one deciding to —
+	// the alternative is three renderers agreeing by hand and one of them
+	// eventually not. Stable, so a reviewer's own ordering survives within a
+	// severity: it listed them in the order it read the diff, which is useful.
+	sort.SliceStable(out.Findings, func(i, j int) bool {
+		return severityRank(out.Findings[i].Severity) < severityRank(out.Findings[j].Severity)
+	})
 	out.Detail = summariseReview(out)
 	return out, nil
 }

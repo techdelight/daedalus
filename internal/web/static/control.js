@@ -59,7 +59,20 @@
   let programmeWaiting = {};
   let archive = [];           // terminal tasks; only fetched when asked for
   let showArchive = false;
-  let busy = false;           // one command at a time
+  // The commands this page has SENT and not yet heard back about, keyed by the
+  // entry each was sent against: {label, text, since}.
+  //
+  // It was one boolean for the whole page, and a review takes minutes. For all of
+  // them every plate on every task was greyed out, the board stopped repainting,
+  // and the only cure anyone found was a reload — which abandons the reading. One
+  // slow command anywhere made the entire Ledger read-only, which is not a thing
+  // the plane asks for: it serialises per task, not per operator.
+  //
+  // Keyed by entry, a command locks the entry it acts on and nothing else. Two
+  // tasks can be busy at once because the plane will happily run them at once,
+  // and the page should not be stricter than the thing it is a window onto.
+  const inflight = {};
+  function isBusy(id) { return !!id && Object.prototype.hasOwnProperty.call(inflight, id); }
   // True while the operator is MID-INTERACTION: a prompt window is open, or a
   // command is asking "are you sure" in place.
   //
@@ -80,6 +93,10 @@
   // clicked again. Both modes exist because they are good at different things,
   // and the click is what says which one you are in.
   let pinned = null;
+  // Whether the list has been drawn at least once. Before that the DOM has no
+  // rows, and every question of the form "is this entry on the board" answers
+  // no for the wrong reason (see markRows).
+  let listRendered = false;
 
   function el(id) { return document.getElementById(id); }
 
@@ -175,13 +192,28 @@
     // because the only release is a click on a row that is no longer there. Work
     // that lands, is cancelled, or drops out of the archive filter does exactly
     // that — so the pin goes when its row does, rather than stranding the list.
-    if (pinned !== null && !document.querySelector('.ledger-row[data-entry-id="' + cssEscape(pinned) + '"]')) {
+    //
+    // ONLY ONCE THE LIST HAS BEEN DRAWN. Before the first render there are no
+    // rows at all, and "not on the board" is then indistinguishable from "the
+    // board has not arrived yet". A deep link is exactly that case — it pins its
+    // entry as soon as the plane answers, which races the board's own fetch —
+    // and this cleared the pin whenever the entry won that race. Caught in a
+    // browser; no assertion on the source could have seen it.
+    if (listRendered && pinned !== null &&
+      !document.querySelector('.ledger-row[data-entry-id="' + cssEscape(pinned) + '"]')) {
       pinned = null;
     }
     document.querySelectorAll('.ledger-row').forEach(function (r) {
       const id = r.dataset.entryId;
       r.classList.toggle('is-current', !!current && id === current.id);
       r.classList.toggle('is-pinned', pinned !== null && id === pinned);
+      // A command running on an entry you are not looking at used to be invisible
+      // — the message line only ever speaks for the open entry. The row says it
+      // instead, so a busy task is visible from the list rather than only from
+      // the greyed-out plates of whoever happened to press the button.
+      r.classList.toggle('is-busy', isBusy(id));
+      if (isBusy(id)) r.dataset.busy = inflight[id].label;
+      else delete r.dataset.busy;
     });
   }
 
@@ -219,6 +251,29 @@
   function say(text, kind) {
     message = { text: text, kind: kind || '' };
     paintMessage();
+  }
+
+  // The most recent reading of this task, or null. The one a refine answers:
+  // an older review has already been answered or ignored, and offering a choice
+  // of readings would be a decision nobody wants to make in a text box.
+  function latestReview() {
+    const reviews = (detail && detail.reviews) || [];
+    return reviews.length ? reviews[reviews.length - 1] : null;
+  }
+
+  // The findings of the latest review, as an editable list.
+  //
+  // One line per finding, severity first, so the box a human is about to edit is
+  // the same shape as the list they just read. Blocking findings come first
+  // because the plane sorted them that way on the way in.
+  function refineFill() {
+    const last = latestReview();
+    if (!last) return '';
+    return (last.findings || []).map(function (f) {
+      const where = f.file ? (f.line ? f.file + ':' + f.line : f.file) : '';
+      return '- [' + (f.severity || 'note') + '] ' + (where ? where + ' — ' : '') + f.what +
+        (f.fix ? '  → ' + f.fix : '');
+    }).join('\n');
   }
 
   // --- the command table ----------------------------------------------------
@@ -363,6 +418,35 @@
         }
         return who + ' ' + verdict + ': ' + n + ' finding' + (n === 1 ? '' : 's') +
           (blocking ? ', ' + blocking + ' blocking' : '') + ' — see RECORD below.';
+      },
+    },
+    {
+      // WHAT YOU DO WITH A REVIEW YOU AGREE WITH.
+      //
+      // The plane has had `task refine` since #91 and the Ledger had no way to
+      // reach it, so the surface where an operator actually reads the findings
+      // was the one surface that could not act on them — the choices from here
+      // were Replan (which rebuilds the whole objective from a clean tree, to
+      // get four corrections) or fixing it by hand outside the plane.
+      //
+      // The note PRE-FILLS from the latest review's findings. Not because the
+      // agent cannot read them — refine sends the review itself — but because
+      // this is where a human edits them: cross one out, add the one the
+      // reviewer missed, say which matter. The states are the plane's own
+      // refinable set, and it refuses anything else with its own message.
+      key: 'refine', label: 'Refine', states: ['candidate', 'rejected', 'verified', 'approval_required', 'approved'],
+      hint: 'Continue from the work already done, answering a review. Keeps the objective and the base.',
+      prompt: {
+        title: 'Refine', label: 'What this attempt should put right',
+        multiline: true, fill: function () { return refineFill(); },
+      },
+      run: function (id, value) {
+        const last = latestReview();
+        return send('POST', '/tasks/' + enc(id) + '/refine',
+          { reviewId: last ? last.id : '', note: value });
+      },
+      done: function (t) {
+        return t.id + ' is ' + t.state + ' again, continuing from its artifact. Dispatch when ready.';
       },
     },
     {
@@ -528,6 +612,11 @@
         // is two gestures for one intention.
         pinned = id;
       }
+      // The address bar follows the PIN and nothing else. Hovering previews an
+      // entry, and a glance should not push a history step you then have to
+      // press Back through; a click is the gesture that says "hold this one",
+      // which is exactly the thing worth having an address for.
+      goTo(pinned);
       onShow();
     });
     row.title = 'Click to keep this entry open; click again to release';
@@ -584,11 +673,14 @@
 
     list.innerHTML = '';
     let restored = null;
+    // The entry named by the URL, once a row for it turns up on the board.
+    let wanted = null;
     (data.columns || []).forEach(function (col) {
       const rows = col.cards.map(function (c) {
         if (current && current.kind === 'task' && c.taskId === current.id) {
           restored = { card: c, key: col.key };
         }
+        if (pendingEntry === c.taskId) wanted = function () { selectTask(c, col.key); };
         return entry(c.taskId, c.objective, markFor(col.key), function () { selectTask(c, col.key); });
       });
       // LANDED IS THE ONE COLUMN THAT READS AS FINISHED AND IS NOT (RV-8).
@@ -619,6 +711,7 @@
             detail = p;
             restored = { proposal: p };
           }
+          if (pendingEntry === p.id) wanted = function () { selectProposal(p); };
           return entry(p.id, p.operation.replace(/_/g, ' ') + (p.taskId ? ' · ' + p.taskId : ''),
             ['proposed', 'is-waiting'], function () { selectProposal(p); });
         }));
@@ -638,6 +731,7 @@
           if (current && current.kind === 'programme' && p.id === current.id) {
             restored = { programme: p };
           }
+          if (pendingEntry === p.id) wanted = function () { selectProgramme(p); };
           const n = (p.projects || []).length;
           return entry(p.id, p.name + (p.description ? ' — ' + p.description : ''),
             [n + (n === 1 ? ' project' : ' projects'), 'is-working'],
@@ -656,17 +750,48 @@
       section(list, 'Closed', archive.length, archive.map(function (t) {
         const card = { taskId: t.id, project: t.project, objective: t.objective, state: t.state };
         if (current && current.kind === 'task' && t.id === current.id) restored = { card: card, key: null };
+        if (pendingEntry === t.id) wanted = function () { selectTask(card, null); };
         return entry(t.id, t.objective, STATE_MARK[t.state] || [t.state, 'is-working'],
           function () { selectTask(card, null); });
       }));
     }
 
+    // The list is now on the page, which is what makes "this entry is not on the
+    // board" a fact rather than a guess (markRows).
+    listRendered = true;
+
     // Never repaint the entry out from under an interaction. The cursor is
     // re-marked so the list still shows where you are, but the command row — which
     // may be holding a confirmation — is left exactly as the operator left it.
-    if (awaiting || busy) {
+    //
+    // `awaiting` only. A command IN FLIGHT used to stop this too, so the board
+    // froze for the minutes a review takes and nothing on the page moved. There
+    // is no interaction to protect while a request is out — the plates are
+    // already disabled from `inflight` on every repaint — and a frozen board
+    // during the one operation slow enough to need watching is precisely when a
+    // live one is worth having.
+    if (awaiting) {
       markRows();
       return;
+    }
+
+    // An entry the URL named. The board is polled anyway, so a deep link to work
+    // in flight opens on the first render with no extra request.
+    if (pendingEntry) {
+      if (wanted) {
+        pinned = pendingEntry;
+        pendingEntry = null;
+        wanted();
+        return; // the deep link IS the cursor — there is nothing to restore
+      }
+      // Two renders and the plane has not produced it either (openPending asked
+      // directly). Say so: a link to an entry that is not here must not leave
+      // the reader scanning the board for a row that was never going to appear.
+      if (++pendingRenders >= 2) {
+        const missing = pendingEntry;
+        pendingEntry = null;
+        say(missing + ' is not in this ledger — it may belong to another plane, or never existed.', 'is-refused');
+      }
     }
 
     // Put the cursor back where it was. If that entry has moved on, the window
@@ -826,6 +951,10 @@
       note.className = 'ledger-desc-note' + (n.stuck ? ' is-stuck' : '');
     }
     paintCommands(state);
+    // Moving the cursor onto a busy entry picks its running line up, and moving
+    // off puts it down. Without this the line only ever changed on the tick, so
+    // for up to a second the page narrated the wrong entry.
+    paintRunning();
     paintMessage();
     paintFoot();
   }
@@ -860,6 +989,35 @@
     dispatch: 'A Job is being started: a container and a clean worktree at the frozen base.',
   };
 
+  // WHAT WILL EXIST WHEN THIS IS DONE, under the objective.
+  //
+  // Read BEFORE the work is dispatched, which is the point: a task with four
+  // unrelated deliverables is a milestone somebody has not split yet, and that is
+  // visible from a list in a way it is not from a paragraph. Read again at the
+  // approval gate, where it is the checklist the change is held against.
+  //
+  // A task with none says so rather than rendering nothing. Silence here is what
+  // the surface did before, and it is indistinguishable from a task whose
+  // deliverables simply failed to load.
+  function paintDeliverables(host, task) {
+    if (!task) return;
+    const items = task.deliverables || [];
+    if (!items.length) {
+      const none = text('div', 'ledger-desc-note',
+        'No deliverables — nothing on this task says what will exist when it is done.');
+      none.title = 'Set them when creating a task, or with daedalus task create --deliverable';
+      host.appendChild(none);
+      return;
+    }
+    host.appendChild(text('div', 'ledger-sub', 'Delivers'));
+    const list = document.createElement('ul');
+    list.className = 'ledger-deliverables';
+    items.forEach(function (d) {
+      list.appendChild(text('li', 'ledger-deliverable', d));
+    });
+    host.appendChild(list);
+  }
+
   function paintInFlight(host, task) {
     const op = detail && detail.scheduling && detail.scheduling.operation;
     if (!op) return;
@@ -874,6 +1032,7 @@
     const task = detail && detail.task;
     host.appendChild(text('div', 'ledger-prose', task ? task.objective :
       (currentCard ? currentCard.objective : '')));
+    paintDeliverables(host, task);
     paintInFlight(host, task);
     paintIntent(host, task);
     // An entry marked `landed` is finished work the reader still has to go and
@@ -1048,25 +1207,7 @@
     const reviews = (detail && detail.reviews) || [];
     if (reviews.length) {
       host.appendChild(text('div', 'ledger-sub', 'Reviews'));
-      reviews.forEach(function (r) {
-        const head = document.createElement('div');
-        head.className = 'ledger-log-row';
-        head.appendChild(text('span', 'ledger-log-id', r.id));
-        head.appendChild(text('span', 'ledger-log-what',
-          (r.passed ? 'no blocker' : 'had concerns') + ' · ' + (r.reviewer || 'unattributed')));
-        host.appendChild(head);
-        if (r.reasoning) host.appendChild(text('div', 'ledger-log-note', r.reasoning));
-        (r.findings || []).forEach(function (f) {
-          const row = document.createElement('div');
-          row.className = 'ledger-finding is-' + (f.severity || 'note');
-          const where = f.file ? (f.line ? f.file + ':' + f.line : f.file) : '';
-          row.appendChild(text('span', 'ledger-finding-sev', f.severity || 'note'));
-          row.appendChild(text('span', 'ledger-finding-what',
-            (where ? where + ' — ' : '') + f.what));
-          host.appendChild(row);
-          if (f.why) host.appendChild(text('div', 'ledger-log-note', f.why));
-        });
-      });
+      reviews.forEach(function (r) { paintReview(host, r); });
       host.appendChild(text('div', 'ledger-advisory',
         'Advisory. The plane acts on none of this — you decide.'));
     }
@@ -1092,6 +1233,91 @@
         if (e.note) host.appendChild(text('div', 'ledger-log-note', e.note));
       });
     }).catch(function () { log.textContent = 'The record could not be read.'; });
+  }
+
+  // ONE REVIEW, WRITTEN TO BE ACTED ON RATHER THAN READ THROUGH.
+  //
+  // It used to print, in the order the reviewer wrote them: the reasoning
+  // paragraph, then every finding's `what` at full length, then every `why` at
+  // full length. Reported as walls of text hard enough to read that they were
+  // being pasted into another agent to find out what they said.
+  //
+  // Three changes, and none of them is about the data — the plane has sent
+  // severity, file, line, what and why all along:
+  //
+  //  1. THE VERDICT FIRST, as counts. "2 blocking, 1 concern" is the decision
+  //     you are actually making, and it is one line instead of a paragraph.
+  //  2. ONE LINE PER FINDING, blocking first (the plane sorts them). The reason
+  //     and the fix are one click away rather than in the way, so five findings
+  //     are five lines and the shape of the review is visible without reading it.
+  //  3. THE REASONING LAST AND CLOSED. It is the part you want only once you
+  //     want to disagree, and it was the first thing on the screen.
+  function paintReview(host, r) {
+    const findings = r.findings || [];
+    const count = function (sev) {
+      return findings.filter(function (f) { return f.severity === sev; }).length;
+    };
+    const blocking = count('blocking');
+    const concerns = count('concern');
+    const notes = findings.length - blocking - concerns;
+
+    const head = document.createElement('div');
+    head.className = 'ledger-log-row';
+    head.appendChild(text('span', 'ledger-log-id', r.id));
+    const tally = [];
+    if (blocking) tally.push(blocking + ' blocking');
+    if (concerns) tally.push(concerns + ' concern' + (concerns === 1 ? '' : 's'));
+    if (notes) tally.push(notes + ' note' + (notes === 1 ? '' : 's'));
+    head.appendChild(text('span', 'ledger-log-what',
+      (r.passed ? 'no blocker' : 'had concerns') +
+      (tally.length ? ' · ' + tally.join(', ') : ' · nothing found') +
+      ' · ' + (r.reviewer || 'unattributed')));
+    host.appendChild(head);
+
+    findings.forEach(function (f) {
+      const where = f.file ? (f.line ? f.file + ':' + f.line : f.file) : '';
+      // THE ANCHOR IS ABBREVIATED IN THE SUMMARY ROW, in full when opened.
+      //
+      // Measured in a browser: a path like `internal/api/items.go:88` took 168px
+      // of a 537px panel, so the sentence naming the defect — the thing being
+      // scanned — got less than half the row and wrapped onto a second line.
+      // `items.go:88` answers "where" well enough to decide whether to look;
+      // the full path matters when you go, which is when the finding is open.
+      const anchor = f.file ? (f.file.split('/').pop() + (f.line ? ':' + f.line : '')) : '';
+      // <details> rather than a click handler: it is one element, it survives the
+      // repaint that a poll causes, it opens with the keyboard, and a reader who
+      // prints the page gets everything.
+      const box = document.createElement('details');
+      box.className = 'ledger-finding is-' + (f.severity || 'note');
+      const line = document.createElement('summary');
+      line.appendChild(text('span', 'ledger-finding-sev', f.severity || 'note'));
+      if (anchor) {
+        const at = text('span', 'ledger-finding-where', anchor);
+        at.title = where;
+        line.appendChild(at);
+      }
+      line.appendChild(text('span', 'ledger-finding-what', f.what));
+      box.appendChild(line);
+      if (where && where !== anchor) {
+        box.appendChild(text('div', 'ledger-finding-path', where));
+      }
+      if (f.why) box.appendChild(text('div', 'ledger-finding-why', f.why));
+      // The action, marked as such. A finding whose reviewer did not name one
+      // says so, rather than leaving the reader to wonder whether it was cut off.
+      box.appendChild(text('div', 'ledger-finding-fix',
+        f.fix || 'The reviewer named no fix for this one.'));
+      host.appendChild(box);
+    });
+
+    if (r.reasoning) {
+      const box = document.createElement('details');
+      box.className = 'ledger-reasoning';
+      const line = document.createElement('summary');
+      line.textContent = 'How ' + (r.reviewer || 'the reviewer') + ' read the change';
+      box.appendChild(line);
+      box.appendChild(text('div', 'ledger-log-note', r.reasoning));
+      host.appendChild(box);
+    }
   }
 
   // A Job's steering history, under the Job it was aimed at. It is here rather
@@ -1367,7 +1593,8 @@
       // of these and "Retry" alone would not say what is being retried.
       b.setAttribute('aria-label', cmd.label + ' ' + current.id);
       if (cmd.hint) b.title = cmd.hint;
-      b.disabled = busy;
+      // Only this entry's own command locks this entry's plates.
+      b.disabled = isBusy(current.id);
       host.appendChild(b);
     });
   }
@@ -1418,18 +1645,22 @@
   };
 
   let runningTimer = null;
-  let runningSince = 0;
-  let runningText = '';
+  // Until when the last thing a command said is left alone. Ten seconds: long
+  // enough to read a refusal, short enough that a live operation is not narrated
+  // by a stale line for long.
+  let holdUntil = 0;
 
-  function startRunning(cmd, id) {
-    runningSince = Date.now();
-    runningText = RUNNING[cmd.key] || cmd.label + ' ' + id + '…';
-    paintRunning();
+  // One ticker for the page, driven by `inflight` rather than by one command.
+  // Started when something is out and stopped when nothing is, so a page with no
+  // request pending has no timer, and a second command starting does not leave a
+  // first one's timer orphaned.
+  function syncRunning() {
+    const any = Object.keys(inflight).length > 0;
     // One second: fast enough to read as live, slow enough that nobody is
-    // watching a number flicker. Cleared on every exit path in execute(), for
-    // the same reason `busy` is — a timer left running would repaint over
-    // whatever the command finally said.
-    runningTimer = setInterval(paintRunning, 1000);
+    // watching a number flicker.
+    if (any && !runningTimer) runningTimer = setInterval(paintRunning, 1000);
+    if (!any && runningTimer) stopRunning();
+    paintRunning();
   }
 
   function stopRunning() {
@@ -1437,24 +1668,47 @@
     runningTimer = null;
   }
 
-  function paintRunning() {
-    const secs = Math.round((Date.now() - runningSince) / 1000);
-    const elapsed = secs < 60 ? secs + 's' :
+  function since(ts) {
+    const secs = Math.round((Date.now() - ts) / 1000);
+    return secs < 60 ? secs + 's' :
       Math.floor(secs / 60) + 'm ' + String(secs % 60).padStart(2, '0') + 's';
-    say('▶ ' + runningText + '  (' + elapsed + ')', 'is-running');
+  }
+
+  // The message line speaks for the OPEN entry only. Another entry's command
+  // reports on its own row (markRows), because one line cannot narrate three
+  // things at once and the one you are reading is the one you asked about.
+  function paintRunning() {
+    // What a command just SAID outlives the ticker for a few seconds. Without
+    // this, a command answering on one entry while another is still running had
+    // its result — a refusal, with the reason code that says what to do next —
+    // painted over within a second by the other entry's progress line.
+    if (Date.now() < holdUntil) return;
+    const mine = current && inflight[current.id];
+    if (mine) {
+      say('▶ ' + mine.text + '  (' + since(mine.since) + ')', 'is-running');
+      return;
+    }
+    // Moving off a busy entry must take its running line with you. Left behind,
+    // a frozen "▶ …(2m 14s)" would describe an entry that is no longer on screen.
+    if (message && message.kind === 'is-running') {
+      message = null;
+      paintMessage();
+    }
   }
 
   // runCommand walks the three gates a command can have, in order: ask for a
   // value, ask whether you meant it, then do it. Each is optional and most
   // commands have none.
   function runCommand(cmd, id, jobID) {
-    // Silence here was a trap. `busy` is cleared in a .then, so any throw between
-    // raising it and that callback used to strand the ENTIRE command surface:
+    // Silence here was a trap. The entry is released in a .then, so any throw
+    // between claiming it and that callback used to strand the command surface:
     // every later click returned quietly and only a page reload cured it, which
     // reads exactly like "the buttons do nothing". Both halves are fixed — this
-    // says what it is doing, and execute() can no longer leave the flag raised.
-    if (busy) {
-      say('A command is already running; wait for it to answer.', 'is-refused');
+    // says what it is doing, and execute() can no longer leave a claim standing.
+    if (isBusy(id)) {
+      // Through report(), so the ticker for that very command does not paint
+      // over the answer to "why did nothing happen" a second after it appears.
+      report(id, 'A command is already running here; wait for it to answer.', 'is-refused');
       return;
     }
     if (cmd.prompt) {
@@ -1501,50 +1755,77 @@
   }
 
   function execute(cmd, id, value, jobID) {
-    busy = true;
-    paintCommands(currentState());
-    startRunning(cmd, id);
+    claim(cmd, id);
     let started;
     try {
       started = cmd.run(id, value, jobID);
     } catch (e) {
       // A command whose run threw before it ever reached the network. Report it
-      // and release the surface; the alternative is a page that has quietly
-      // stopped accepting input.
-      busy = false;
-      stopRunning();
-      say(cmd.label + ' could not be sent: ' + (e && e.message ? e.message : e), 'is-bad');
+      // and release the entry; the alternative is a page that has quietly stopped
+      // accepting input for it.
+      release(id);
+      report(id, cmd.label + ' could not be sent: ' + (e && e.message ? e.message : e), 'is-bad');
       paintEntry();
       return;
     }
     if (!started || typeof started.then !== 'function') {
-      busy = false;
-      stopRunning();
-      say(cmd.label + ' returned nothing to wait on — this is a bug in the page.', 'is-bad');
+      release(id);
+      report(id, cmd.label + ' returned nothing to wait on — this is a bug in the page.', 'is-bad');
       paintEntry();
       return;
     }
     started.then(function (result) {
-      stopRunning();
-      say(cmd.done ? cmd.done(result) : 'Done.', 'is-good');
+      report(id, cmd.done ? cmd.done(result) : 'Done.', 'is-good');
     }).catch(function (err) {
-      stopRunning();
       // A refusal is the plane working. Said differently from a failure, and
       // labelled with the reason code, because the reason is what tells you which
       // command to reach for next.
-      if (err.refused) say('Refused · ' + (err.reason || '') + ' — ' + err.message, 'is-refused');
-      else if (err.conflict) say('Not now — ' + err.message, 'is-refused');
-      else say(err.message, 'is-bad');
+      if (err.refused) report(id, 'Refused · ' + (err.reason || '') + ' — ' + err.message, 'is-refused');
+      else if (err.conflict) report(id, 'Not now — ' + err.message, 'is-refused');
+      else report(id, err.message, 'is-bad');
     }).then(function () {
-      busy = false;
+      release(id);
       // Re-enable the commands from what we already know, then go and find out
-      // what is actually true. Waiting for the round trip would leave every plate
+      // what is actually true. Waiting for the round trip would leave the plates
       // greyed out for as long as a verify takes.
       paintEntry();
       if (current && current.kind === 'task') loadDetail(current.id);
       refreshApprovals();
       refreshProposals().then(refreshBoard);
     });
+  }
+
+  function claim(cmd, id) {
+    // A new command supersedes whatever the last one said; holding its message
+    // now would leave the operator with no sign that this one had started, which
+    // is the whole thing the running line exists to prevent.
+    holdUntil = 0;
+    inflight[id] = {
+      label: cmd.label,
+      text: RUNNING[cmd.key] || cmd.label + ' ' + id + '…',
+      since: Date.now(),
+    };
+    if (current && current.id === id) paintCommands(currentState());
+    markRows();
+    syncRunning();
+  }
+
+  function release(id) {
+    delete inflight[id];
+    markRows();
+    syncRunning();
+  }
+
+  // What a command finally said, addressed to the entry it was about.
+  //
+  // The message line belongs to whatever entry is open, and a command may answer
+  // long after the operator has moved on. Unlabelled, "Refused · over_budget"
+  // would appear under a task that was never refused — so the id goes in front
+  // whenever the answer is not about what you are looking at.
+  function report(id, textMsg, kind) {
+    const mine = current && current.id === id;
+    say(mine ? textMsg : id + ' · ' + textMsg, kind);
+    holdUntil = Date.now() + 10000;
   }
 
   function currentState() {
@@ -1630,6 +1911,7 @@
       if (current && current.kind === 'task' && currentCard) project.value = currentCard.project;
     }).catch(function () { /* the field stays empty and the plane will say so */ });
     el('new-objective').value = '';
+    el('new-deliverables').value = '';
     el('new-checks').value = '';
     el('new-wall-clock').value = '';
     el('new-attempts').value = '';
@@ -1651,8 +1933,13 @@
       return;
     }
     const req = { project: el('new-project').value, objective: objective };
-    const checks = el('new-checks').value.split('\n')
-      .map(function (s) { return s.trim(); }).filter(function (s) { return s.length; });
+    const lines = function (id) {
+      return el(id).value.split('\n')
+        .map(function (s) { return s.trim(); }).filter(function (s) { return s.length; });
+    };
+    const deliverables = lines('new-deliverables');
+    if (deliverables.length) req.deliverables = deliverables;
+    const checks = lines('new-checks');
     if (checks.length) req.checks = checks;
 
     // A budget axis is sent only when it was typed. An empty field means "inherit
@@ -1671,7 +1958,12 @@
     err.textContent = '';
     send('POST', '/tasks', req).then(function (task) {
       closeNewTask();
-      say(task.id + ' created for ' + task.project + '.', 'is-good');
+      // Said after it exists, never instead of creating it. A task shaped like a
+      // milestone is a judgement call, and the person making it is the one with
+      // the context — what they were missing was anybody pointing it out.
+      const shape = (task.deliverables || []).length ? '' :
+        ' Nothing on it says what will exist when it is done.';
+      say(task.id + ' created for ' + task.project + '.' + shape, shape ? '' : 'is-good');
       refreshBoard();
     }).catch(function (e) {
       err.textContent = e.refused ? (e.reason || 'refused') + ' — ' + e.message : e.message;
@@ -1813,7 +2105,10 @@
   function reportPageError(what) {
     const view = el('control-view');
     if (!view || !view.classList.contains('active')) return;
-    busy = false;   // whatever broke, do not leave the surface locked
+    // Whatever broke, do not leave an entry locked. The requests themselves may
+    // still be in flight, but a claim nothing will ever release is a plate that
+    // is greyed out forever, and that is the failure this handler exists for.
+    Object.keys(inflight).forEach(function (id) { delete inflight[id]; });
     awaiting = false;
     stopRunning();  // …or a live ticker painting over the error
     say('The page hit an error: ' + what + ' — please report it; a reload will unstick it.', 'is-bad');
@@ -1827,10 +2122,109 @@
     reportPageError((r && r.message) || String(r || 'unknown rejection'));
   });
 
+  // --- the address bar --------------------------------------------------------
+  //
+  // The Ledger was a div the Guild Hall toggled. It could not be bookmarked,
+  // opened in a second tab, sent to somebody, or reloaded — a refresh put you
+  // back on the project list, and "the ledger" was not a thing you could name.
+  //
+  // `/ledger` is the board; `/ledger/T-18` is the board with that entry held.
+  // Both are served by the same index.html (web.go), so the route is read here
+  // and Back moves between the Hall and the Ledger without a round trip.
+
+  const LEDGER_PATH = '/ledger';
+
+  // An entry the URL names that the board has not shown yet, and how many board
+  // renders it has waited. Two, then the page says so: a link to an entry that
+  // does not exist must not leave the reader staring at a board wondering which
+  // row was meant.
+  let pendingEntry = null;
+  let pendingRenders = 0;
+
+  function ledgerHref(id) {
+    return id ? LEDGER_PATH + '/' + encodeURIComponent(id) : LEDGER_PATH;
+  }
+
+  function routeOf(path) {
+    if (path === LEDGER_PATH || path === LEDGER_PATH + '/') return { ledger: true, entry: '' };
+    if (path.indexOf(LEDGER_PATH + '/') === 0) {
+      let id = path.slice(LEDGER_PATH.length + 1);
+      try { id = decodeURIComponent(id); } catch (e) { /* someone typed it by hand */ }
+      return { ledger: true, entry: id };
+    }
+    return { ledger: false, entry: '' };
+  }
+
+  function ledgerIsOpen() {
+    const view = el('control-view');
+    return !!view && view.classList.contains('active');
+  }
+
+  function paintTitle(id) {
+    document.title = (id ? id + ' — ' : '') + 'The Ledger — Daedalus';
+  }
+
+  function goTo(id) {
+    const href = ledgerHref(id);
+    paintTitle(id);
+    if (location.pathname === href) return;
+    history.pushState({ ledger: true, entry: id || '' }, '', href);
+  }
+
+  // Make the page match the URL. Called once on load, and on every Back/Forward.
+  function applyRoute() {
+    const r = routeOf(location.pathname);
+    if (!r.ledger) {
+      if (ledgerIsOpen()) {
+        window.hideControlView({ fromRoute: true });
+        if (typeof window.showProjectList === 'function') window.showProjectList();
+      }
+      return;
+    }
+    if (!ledgerIsOpen()) window.showControlView({ fromRoute: true });
+    paintTitle(r.entry);
+    if (!r.entry) {
+      pendingEntry = null;
+      pinned = null;
+      if (current) clearEntry();
+      return;
+    }
+    if (current && current.id === r.entry) {
+      pinned = r.entry;
+      markRows();
+      return;
+    }
+    pendingEntry = r.entry;
+    pendingRenders = 0;
+    openPending();
+  }
+
+  // Open the entry the URL names, without waiting for a board poll.
+  //
+  // The board is the other half of this and covers everything in flight, but a
+  // LANDED or cancelled entry is not on the board at all — and an entry somebody
+  // links to is very often one whose work is already finished. So the plane is
+  // asked directly too, and whichever answers first opens it.
+  function openPending() {
+    const id = pendingEntry;
+    if (!id) return;
+    get('/tasks/' + enc(id)).then(function (view) {
+      if (pendingEntry !== id || !view || !view.task) return;
+      pendingEntry = null;
+      pinned = id;
+      selectTask({
+        taskId: view.task.id, project: view.task.project,
+        objective: view.task.objective, state: view.task.state,
+      }, null);
+    }).catch(function () { /* the board may still have it */ });
+  }
+
+  window.addEventListener('popstate', function () { applyRoute(); });
+
   // Shown and hidden the same way the Guild Hall is — `.hidden` on the project
   // list, `.active` on every other view. A third pattern here would be a third
   // thing to keep in step.
-  window.showControlView = function () {
+  window.showControlView = function (opts) {
     const view = el('control-view');
     if (!view) return;
     if (typeof refreshTimer !== 'undefined' && refreshTimer) {
@@ -1844,12 +2238,18 @@
       if (v) v.classList.remove('active');
     });
     view.classList.add('active');
-    document.title = 'The Ledger — Daedalus';
     paintBuild();
     start();
+    // A command started before you left is still running; pick its ticker back up.
+    syncRunning();
+    // Opening from the button gives the view its address; opening because the
+    // address already said so must not push a second history step for the same
+    // place, or Back would need two presses to leave.
+    if (opts && opts.fromRoute) paintTitle(routeOf(location.pathname).entry);
+    else goTo(pinned || (current && current.id) || '');
   };
 
-  window.hideControlView = function () {
+  window.hideControlView = function (opts) {
     const view = el('control-view');
     if (view) view.classList.remove('active');
     closeNewTask();
@@ -1864,10 +2264,20 @@
     const overlay = el('ledger-prompt');
     if (overlay) overlay.classList.remove('is-open');
     stop();
+    // Leaving by the Back button gives up the address as well as the view.
+    // Leaving because the address already changed must not push it again.
+    if (!(opts && opts.fromRoute) && routeOf(location.pathname).ledger) {
+      history.pushState({}, '', '/');
+    }
   };
 
   window.ledgerNewTask = openNewTask;
   window.ledgerCloseNewTask = closeNewTask;
   window.ledgerSubmitNewTask = submitNewTask;
   window.ledgerToggleArchive = toggleArchive;
+
+  // WHAT THE URL SAYS IS WHAT OPENS. index.html's own script has already started
+  // the project list by the time this file runs; showControlView stops that
+  // timer, exactly as pressing the button does.
+  if (routeOf(location.pathname).ledger) applyRoute();
 })();

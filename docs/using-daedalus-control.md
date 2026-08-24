@@ -113,6 +113,9 @@ task create ──► planned
 #    frozen right here — later edits to any of them do not change this task.
 daedalus task create --project my-app \
   --objective "Add cursor pagination to GET /items" \
+  --deliverable "GET /items accepts ?cursor= and ?limit=" \
+  --deliverable "the response carries nextCursor when more rows remain" \
+  --deliverable "docs/pagination.md describes the cursor format" \
   --check "go test ./internal/api -run TestPagination" \
   --wall-clock 1800 --max-attempts 2
 
@@ -300,6 +303,53 @@ Two details worth knowing:
 A pass with pre-existing failures still tells you about them, in `task verify`
 output and in the Ledger. Nobody is assigned to them; that is the point of
 saying so.
+
+### Saying what the task will produce
+
+An objective says what to do. **Deliverables** say what will exist when it is
+done — one short line each, each naming something a person can point at:
+
+```bash
+daedalus task create --project my-app \
+  --objective "Add cursor pagination to GET /items" \
+  --deliverable "GET /items accepts ?cursor= and ?limit=" \
+  --deliverable "the response carries nextCursor when more rows remain" \
+  --deliverable "docs/pagination.md describes the cursor format"
+```
+
+They exist because one free-text field was carrying two jobs — what to do, and
+how anyone would know it was done — and what arrived in it were milestones. A
+paragraph cannot be ticked off, disagreed with in part, or used to tell a
+finished task from a nearly-finished one.
+
+Three fields, three questions, and it is worth keeping them apart:
+
+| Field | Question | Who reads it |
+|---|---|---|
+| `--objective` | What should change, and for whom? | The agent |
+| `--deliverable` | What will exist when it is done? | The agent, the reviewer, you |
+| `--check` | How would a machine prove it? | The verifier |
+
+- The **agent** gets the deliverables as a checklist under its objective, said
+  explicitly as a floor rather than a ceiling.
+- The **reviewer** is given the list and goes through it item by item, which
+  turns *"did this deliver what was asked for"* from an essay question into a
+  roll call. A deliverable that is present but inert counts as missing.
+- **You** read it twice: before dispatching, where four unrelated deliverables
+  are how you notice you have written a milestone; and at the approval gate,
+  where it is the list you hold the change against.
+
+**Nothing refuses on a deliverable.** They are not a second acceptance oracle —
+that would be a bar reachable by whoever writes the task, which is precisely what
+the frozen policy exists to prevent. They are evidence for the human deciding.
+
+If you write more than about eight, or an objective that runs to a paragraph,
+`task create` says so and creates the task anyway. It is a judgement call and you
+are the one holding the context; what was missing was anybody pointing it out.
+
+Not every deliverable has a `--check`, and that is expected: `--check` is the
+subset a command can prove. Write the deliverables for all of it, and the checks
+for the part a machine can grade.
 
 ### What `verify.json` cannot tell you
 
@@ -491,10 +541,20 @@ inside the diff the verifier and the integrity gate see. Declaring the artifact
 the new base would let it carry itself past the oracle.
 
 **The findings go to the agent; the reviewer's reasoning does not.** Each
-finding's location, what and why are actionable and describe the code. The
-reasoning is where *"here is what would persuade me"* lives, and handing that to
-the party being graded is how an agent starts writing for the reviewer rather
-than for the change.
+finding's location, what, why and suggested fix are actionable and describe the
+code. The reasoning is where *"here is what would persuade me"* lives, and
+handing that to the party being graded is how an agent starts writing for the
+reviewer rather than for the change.
+
+The suggested fix is passed on **as a suggestion and labelled as one**. It is the
+most useful line of a finding and the one most likely to be wrong — the reviewer
+did not write the code and cannot see what its fix would cost, so an agent told
+to obey it would trade a real defect for a worse one on the reviewer's authority.
+
+**From the Ledger:** the `Refine` plate is on the entry wherever the task is
+refinable, and its box pre-fills with the latest review's findings. Edit them
+before sending — cross one out, add the one the reviewer missed — because that
+edit is where you say which findings you actually agree with.
 
 **Nothing is automatic.** A human names the review. An automatic
 refine-on-failed-review would close the loop into agent writes, agent reviews,
@@ -610,10 +670,23 @@ daedalus task review T-7
 ```
 
 A separate agent reads the artifact's diff against what the Task promised — the
-objective, the rationale, and the programme it serves — and reports back: a
-verdict, its reasoning, and findings that each say where to look and why it
-matters. It is a different agent in a different container from the one that did
-the work, and it cannot see that agent's transcript.
+objective, its **deliverables**, the rationale, and the programme it serves — and
+reports back. It is a different agent in a different container from the one that
+did the work, and it cannot see that agent's transcript.
+
+What comes back is deliberately small. Each finding is a severity, a place to
+look, and three single sentences: **what** is wrong, **why** it matters, and the
+**fix** it would apply. The size limit is the point — the fields were unbounded
+and a five-finding review arrived as a page of prose you had to read twice to act
+on. Blocking findings are sorted first, everywhere they are shown, so the thing
+that could stop the change landing is the thing you read first. The reviewer's
+account of how it read the change comes last and is collapsed by default: it is
+what you want once you disagree with a finding, not before.
+
+If the task named deliverables, the reviewer is asked to go through them one at a
+time and say which do not exist — a deliverable that is present but inert counts
+as missing. Without a list it is asked the open question instead, and answers it
+with an opinion.
 
 **Its verdict is advisory and moves nothing.** Before M20 a failed review drove
 the Task to `rejected` and reclaimed its worktree; it no longer does. The reason

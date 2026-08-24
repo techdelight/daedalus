@@ -270,3 +270,48 @@ func TestCoordinatorRunner_TellsTheJobItsGitIsReadOnly(t *testing.T) {
 		}
 	}
 }
+
+// THE AGENT IS TOLD WHAT MUST EXIST WHEN IT IS DONE (#95).
+//
+// The objective says what to do and the deliverables say what "done" looks like
+// from outside. An agent given only the first has to infer the second from
+// prose, which is how a task ends with three of the four things it promised and
+// nobody able to say which one is missing.
+func TestJobPrompt_CarriesTheDeliverables(t *testing.T) {
+	prompt := jobPrompt(JobSpec{
+		TaskID: "T-1", JobID: "J-1", Objective: "Add a --since flag to task list",
+		Deliverables: []string{
+			"`daedalus task list --since 7d` filters by age",
+			"--since appears in the man page",
+		},
+	})
+	for _, want := range []string{
+		"Add a --since flag to task list",
+		"--since appears in the man page",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("the Job prompt does not carry %q:\n%s", want, prompt)
+		}
+	}
+	// Said as a FLOOR. An agent that reads the list as the full extent of the work
+	// stops at the last bullet point in the middle of a feature, which is a worse
+	// failure than the vagueness this replaces.
+	if !strings.Contains(prompt, "floor, not the ceiling") {
+		t.Error("the deliverables are presented without saying they are a minimum, so an agent " +
+			"may treat the list as the whole of the objective")
+	}
+}
+
+// A task that named none says nothing about them. An empty heading would read as
+// a list the agent had somehow failed to receive.
+func TestJobPrompt_SaysNothingWhenThereAreNoDeliverables(t *testing.T) {
+	plain := jobPrompt(JobSpec{TaskID: "T-1", Objective: "Do the thing"})
+	blank := jobPrompt(JobSpec{TaskID: "T-1", Objective: "Do the thing",
+		Deliverables: []string{"", "  "}})
+	if strings.Contains(plain, "WHAT MUST EXIST") {
+		t.Errorf("a task with no deliverables got a heading with nothing under it:\n%s", plain)
+	}
+	if blank != plain {
+		t.Error("blank lines are not deliverables; they must not produce a heading either")
+	}
+}

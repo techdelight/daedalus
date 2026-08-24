@@ -370,7 +370,41 @@ type Task struct {
 	// "did this task deliver what it promised". These are where the second question
 	// gets a machine-checkable answer.
 	Checks []string `json:"checks,omitempty"`
-	State  State    `json:"state"`
+	// Deliverables are the things that will EXIST when this Task is done — one
+	// short line each, each naming something a person can point at: a file, a
+	// command that runs, a flag that works, a page that renders.
+	//
+	// WHY THE OBJECTIVE COULD NOT DO THIS. Objective is one free-text field, and
+	// it was carrying two different jobs: what to do, and how anyone would know it
+	// was done. What arrived in it were milestone-sized paragraphs — reported as
+	// "a big blob of text about what to do for a milestone with no clear
+	// deliverables" — and a paragraph cannot be checked off, disagreed with in
+	// part, or used to tell a finished Task from a nearly-finished one.
+	//
+	// This is the oldest idea in project management, in both traditions that have
+	// one. PRINCE2's Project Product Description separates Purpose from "major
+	// products" and from acceptance criteria; XP puts the story on an index card
+	// precisely because the card is small, and hangs the confirmation off it
+	// separately. Both say the same thing: the prose and the list of things
+	// delivered are different fields, and only the second can be checked.
+	//
+	// THREE FIELDS, THREE QUESTIONS, and it is worth being exact about which is
+	// which because they are easy to collapse into each other:
+	//
+	//   - Objective — what to do, in a sentence.
+	//   - Deliverables — what will exist, as a list. Read by a person, and by the
+	//     reviewer, which turns "did this deliver what was asked for" from an essay
+	//     question into a roll call.
+	//   - Checks — the same promise where a MACHINE can grade it. Strictly
+	//     stronger, and strictly rarer: not everything worth delivering has a
+	//     command that proves it.
+	//
+	// A deliverable is NOT a gate. Nothing refuses on it and nothing counts them —
+	// making them binding would be a second acceptance oracle beside the frozen
+	// one, reachable by whoever writes the Task, which is the thing §6 exists to
+	// prevent. They are evidence for the human at the approval gate.
+	Deliverables []string `json:"deliverables,omitempty"`
+	State        State    `json:"state"`
 	// ProgrammeID is the shared intent this Task serves, or "" for a Task that
 	// serves none. It stores the programme's ID and never its name, so renaming a
 	// programme cannot dangle the work that serves it (programme.go).

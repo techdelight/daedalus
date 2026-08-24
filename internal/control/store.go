@@ -362,6 +362,12 @@ DROP TABLE IF EXISTS targets;
 	if err := s.addColumnIfMissing("tasks", "task_checks", "task_checks TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
 	}
+	// Deliverables: what will EXIST when the Task is done, as a JSON array. Absent
+	// on every row written before this existed, which reads back as a Task that
+	// named none — exactly what those Tasks did.
+	if err := s.addColumnIfMissing("tasks", "deliverables", "deliverables TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
 	if err := s.addColumnIfMissing("tasks", "refine_from", "refine_from TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
 	}
@@ -552,6 +558,7 @@ type NewTask struct {
 	BaseSHA        string   // git HEAD captured by the caller
 	AcceptanceHash string   // frozen verify policy at BaseSHA (may be "")
 	Checks         []string // per-task acceptance commands, appended to the frozen policy
+	Deliverables   []string // what will exist when this is done, one line each
 	Budget         Budget   // the resolved governance envelope (§6)
 	// ProgrammeID, Rationale and RationaleBy record what this Task is in service
 	// of and who said so. RationaleBy is derived from the transport by the
@@ -588,7 +595,7 @@ func (s *Store) CreateTask(spec NewTask, initial State) (Task, error) {
 	t := Task{
 		ID: id, Project: spec.Project, Objective: spec.Objective,
 		AcceptanceRef: spec.AcceptanceRef, AcceptanceHash: spec.AcceptanceHash,
-		Checks: spec.Checks,
+		Checks: spec.Checks, Deliverables: spec.Deliverables,
 		Budget: spec.Budget, BaseSHA: spec.BaseSHA, State: initial,
 		ProgrammeID: spec.ProgrammeID, Rationale: spec.Rationale, RationaleBy: spec.RationaleBy,
 		CreatedAt: now, UpdatedAt: now,
@@ -597,18 +604,19 @@ func (s *Store) CreateTask(spec NewTask, initial State) (Task, error) {
 	if err != nil {
 		return Task{}, fmt.Errorf("encoding budget: %w", err)
 	}
-	checksJSON := ""
-	if len(t.Checks) > 0 {
-		b, err := json.Marshal(t.Checks)
-		if err != nil {
-			return Task{}, fmt.Errorf("encoding task checks: %w", err)
-		}
-		checksJSON = string(b)
+	checksJSON, err := encodeLines(t.Checks, "task checks")
+	if err != nil {
+		return Task{}, err
+	}
+	deliverablesJSON, err := encodeLines(t.Deliverables, "deliverables")
+	if err != nil {
+		return Task{}, err
 	}
 	_, err = tx.Exec(
-		`INSERT INTO tasks (id, project, objective, acceptance_ref, acceptance_hash, task_checks, budget, base_sha, state, programme_id, rationale, rationale_by, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		t.ID, t.Project, t.Objective, t.AcceptanceRef, t.AcceptanceHash, checksJSON, string(budgetJSON), t.BaseSHA, string(t.State),
+		`INSERT INTO tasks (id, project, objective, acceptance_ref, acceptance_hash, task_checks, deliverables, budget, base_sha, state, programme_id, rationale, rationale_by, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		t.ID, t.Project, t.Objective, t.AcceptanceRef, t.AcceptanceHash, checksJSON, deliverablesJSON,
+		string(budgetJSON), t.BaseSHA, string(t.State),
 		t.ProgrammeID, t.Rationale, string(t.RationaleBy), t.CreatedAt, t.UpdatedAt,
 	)
 	if err != nil {
@@ -913,7 +921,7 @@ func (s *Store) RebaseTask(id, baseSHA, acceptanceHash string, meta EventMeta, n
 	return cur, nil
 }
 
-const taskSelect = `SELECT id, project, objective, acceptance_ref, acceptance_hash, image_digest, task_checks, budget, base_sha, state, programme_id, rationale, rationale_by, refine_from, refine_review, refine_note, created_at, updated_at FROM tasks`
+const taskSelect = `SELECT id, project, objective, acceptance_ref, acceptance_hash, image_digest, task_checks, deliverables, budget, base_sha, state, programme_id, rationale, rationale_by, refine_from, refine_review, refine_note, created_at, updated_at FROM tasks`
 
 // rowScanner is satisfied by both *sql.Row and *sql.Rows.
 type rowScanner interface {
@@ -922,8 +930,8 @@ type rowScanner interface {
 
 func scanTask(sc rowScanner) (Task, error) {
 	var t Task
-	var state, budget, checks, rationaleBy string
-	err := sc.Scan(&t.ID, &t.Project, &t.Objective, &t.AcceptanceRef, &t.AcceptanceHash, &t.ImageDigest, &checks, &budget, &t.BaseSHA, &state, &t.ProgrammeID, &t.Rationale, &rationaleBy, &t.RefineFrom, &t.RefineReview, &t.RefineNote, &t.CreatedAt, &t.UpdatedAt)
+	var state, budget, checks, deliverables, rationaleBy string
+	err := sc.Scan(&t.ID, &t.Project, &t.Objective, &t.AcceptanceRef, &t.AcceptanceHash, &t.ImageDigest, &checks, &deliverables, &budget, &t.BaseSHA, &state, &t.ProgrammeID, &t.Rationale, &rationaleBy, &t.RefineFrom, &t.RefineReview, &t.RefineNote, &t.CreatedAt, &t.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Task{}, ErrNotFound
 	}
@@ -934,12 +942,10 @@ func scanTask(sc rowScanner) (Task, error) {
 	t.RationaleBy = CallerClass(rationaleBy)
 	// Per-task checks: absent on every row written before this existed, which reads
 	// back as no extra checks — the project policy alone, exactly as before.
-	if checks != "" {
-		var c []string
-		if json.Unmarshal([]byte(checks), &c) == nil {
-			t.Checks = c
-		}
-	}
+	t.Checks = decodeLines(checks)
+	// Deliverables: same shape, same degradation. A row written before they
+	// existed names none, which is what those Tasks did.
+	t.Deliverables = decodeLines(deliverables)
 	// A task written before Sprint 58 (or by a migration default) carries no
 	// budget; the built-in default is the only honest answer for it. Unparseable
 	// JSON degrades the same way rather than making the row unreadable — a
@@ -1052,6 +1058,37 @@ func (s *Store) CountReviewCycles(taskID string) (int, error) {
 // will be graded by have changed and nothing says so — and for an operation whose
 // entire safety story is "every amendment is visible", an unrecorded amendment is
 // the one outcome that must be impossible.
+// encodeLines and decodeLines are how every list-of-strings column on a Task is
+// written and read. Two functions rather than the same six lines per field: a
+// third list added later inherits the same empty-means-none rule and the same
+// refusal to make an unreadable row fatal.
+//
+// An empty list is stored as "" rather than "[]" so a column added by migration
+// and a column written deliberately-empty are the same value. Unparseable JSON
+// reads back as nothing instead of an error, for the reason the budget does: a
+// record must never lock a Task out of its own history.
+func encodeLines(lines []string, what string) (string, error) {
+	if len(lines) == 0 {
+		return "", nil
+	}
+	b, err := json.Marshal(lines)
+	if err != nil {
+		return "", fmt.Errorf("encoding %s: %w", what, err)
+	}
+	return string(b), nil
+}
+
+func decodeLines(raw string) []string {
+	if raw == "" {
+		return nil
+	}
+	var out []string
+	if json.Unmarshal([]byte(raw), &out) != nil {
+		return nil
+	}
+	return out
+}
+
 func (s *Store) SetTaskChecks(id string, checks []string, meta EventMeta, note string) (Task, error) {
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -1063,13 +1100,9 @@ func (s *Store) SetTaskChecks(id string, checks []string, meta EventMeta, note s
 	if err != nil {
 		return Task{}, err
 	}
-	encoded := ""
-	if len(checks) > 0 {
-		b, err := json.Marshal(checks)
-		if err != nil {
-			return Task{}, fmt.Errorf("encoding task checks: %w", err)
-		}
-		encoded = string(b)
+	encoded, err := encodeLines(checks, "task checks")
+	if err != nil {
+		return Task{}, err
 	}
 	now := s.now()
 	if _, err := tx.Exec(`UPDATE tasks SET task_checks = ?, updated_at = ? WHERE id = ?`,

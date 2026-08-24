@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/techdelight/daedalus/internal/executor"
 )
@@ -31,6 +32,14 @@ type JobSpec struct {
 	// that cannot honour it simply leaves no file, which is how the caller tells
 	// that there is nothing to point at. See JobLogPath.
 	LogPath string
+	// Deliverables are what must EXIST when this Job is done, one line each. The
+	// agent is given them as a checklist under the objective: the objective says
+	// what to do, and these say what "done" looks like from the outside.
+	//
+	// Empty for a Task that named none, and the prompt then says nothing about
+	// them — an empty "Deliverables:" heading would read as a list the agent had
+	// somehow failed to receive.
+	Deliverables []string
 	// Continuation is what a REFINED attempt is answering (#91): the worktree
 	// already holds earlier work, plus the findings a human chose to forward and
 	// their own instruction. Empty for every ordinary Job, which starts from a
@@ -206,7 +215,32 @@ func jobPrompt(spec JobSpec) string {
 	// what the work is for and has not changed; the findings are corrections to an
 	// attempt at it. Leading with them would read as the new brief and invite an
 	// agent to fix four things and forget what it was building.
-	return jobEnvironmentNote + spec.Objective + spec.Continuation
+	return jobEnvironmentNote + spec.Objective + deliverablesNote(spec.Deliverables) + spec.Continuation
+}
+
+// deliverablesNote renders the Task's deliverables as the checklist the agent is
+// working to, or "" when it named none.
+//
+// Said as "what must exist when you are done" rather than as more objective,
+// because that is the question it answers and the one an agent otherwise has to
+// infer from prose. It is not presented as a limit: an agent that reads a list
+// as the full extent of the work will stop at four bullet points in the middle
+// of a feature, which is a worse failure than the vagueness this replaces.
+func deliverablesNote(deliverables []string) string {
+	clean := cleanLines(deliverables)
+	if len(clean) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\n\nWHAT MUST EXIST WHEN YOU ARE DONE\n")
+	b.WriteString("Each of these is something a person will look for afterwards:\n")
+	for _, d := range clean {
+		b.WriteString("  - " + d + "\n")
+	}
+	b.WriteString("\nThis list is the floor, not the ceiling: it is what the work will be checked " +
+		"against, not the full extent of what the objective asks for. If you cannot deliver one of " +
+		"them, say which and why rather than delivering something else in its place.\n")
+	return b.String()
 }
 
 // CoordinatorRunner is the REAL, HOST-ONLY adapter. It runs the project agent

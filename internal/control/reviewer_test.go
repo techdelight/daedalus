@@ -3,6 +3,7 @@
 package control
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -218,5 +219,119 @@ func TestReviewInstruction_DoesNotGrowWithTheChange(t *testing.T) {
 	if !strings.Contains(prompt, huge) {
 		t.Error("the diff must reach the reviewer in full — truncating it trades a possible " +
 			"problem (the agent runs out of context) for a certain one (it never saw the rest)")
+	}
+}
+
+// THE PROMPT MUST NAME EVERY FIELD OF THE SHAPE IT ASKS FOR.
+//
+// Derived from the struct, not from a list kept here. `fix` was added to Finding
+// because a finding with no action leaves the reading to the operator — and a
+// field the prompt never mentions is a field no reviewer ever fills, which reads
+// from the outside exactly like a reviewer that has nothing to suggest.
+//
+// This is the repository's recurring defect written as a guard: the code moves,
+// its description does not, because the check was a hand-written list.
+func TestReviewPrompt_NamesEveryFieldOfTheFindingShape(t *testing.T) {
+	prompt := ReviewPrompt(ReviewSpec{TaskID: "T-1", Objective: "anything"}, "diff")
+	ft := reflect.TypeOf(Finding{})
+	for i := 0; i < ft.NumField(); i++ {
+		tag := strings.Split(ft.Field(i).Tag.Get("json"), ",")[0]
+		if tag == "" || tag == "-" {
+			continue
+		}
+		if !strings.Contains(prompt, `"`+tag+`"`) {
+			t.Errorf("Finding.%s is marshalled as %q but the review prompt never asks for it, so "+
+				"every reviewer will leave it empty", ft.Field(i).Name, tag)
+		}
+	}
+}
+
+// BOTTOM LINE UP FRONT: the thing that could stop this landing is read first.
+//
+// Sorted once here rather than by each surface, so the CLI, the Ledger and
+// anything added later cannot disagree about the order. Stable within a
+// severity, because the reviewer listed them in the order it read the diff.
+func TestParseReviewJudgement_PutsBlockingFindingsFirst(t *testing.T) {
+	raw := []byte(`{"passed": false, "reviewer": "r", "findings": [
+	  {"severity": "note",     "what": "note one"},
+	  {"severity": "concern",  "what": "concern one"},
+	  {"severity": "blocking", "what": "blocking one"},
+	  {"severity": "note",     "what": "note two"},
+	  {"severity": "blocking", "what": "blocking two"}
+	]}`)
+	out, err := ParseReviewJudgement(raw)
+	if err != nil {
+		t.Fatalf("parsing: %v", err)
+	}
+	var got []string
+	for _, f := range out.Findings {
+		got = append(got, f.What)
+	}
+	want := []string{"blocking one", "blocking two", "concern one", "note one", "note two"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("findings came back as %v; a reader scanning a review has to find the blockers "+
+			"among the notes. Want %v", got, want)
+	}
+}
+
+// A finding's ACTION survives the read. It is the field that turns a review from
+// a list of worries into a list of things to do.
+func TestParseReviewJudgement_KeepsTheFix(t *testing.T) {
+	raw := []byte(`{"passed": false, "findings": [
+	  {"severity": "blocking", "file": "a.go", "line": 12,
+	   "what": "the retry loop never exits", "why": "a failing job spins forever",
+	   "fix": "bound the loop by MaxAttempts"}
+	]}`)
+	out, err := ParseReviewJudgement(raw)
+	if err != nil {
+		t.Fatalf("parsing: %v", err)
+	}
+	if len(out.Findings) != 1 {
+		t.Fatalf("want one finding, got %d", len(out.Findings))
+	}
+	if out.Findings[0].Fix != "bound the loop by MaxAttempts" {
+		t.Errorf("the reviewer's fix was dropped on the way in: %+v", out.Findings[0])
+	}
+}
+
+// THE REVIEWER GETS A ROLL CALL INSTEAD OF AN ESSAY QUESTION (#95).
+//
+// "Does this deliver what was asked for" is an opinion against a paragraph and
+// an answer against a list. The deliverables are the one part of the brief the
+// reviewer can be checkably wrong about, so they go in front of it — and the
+// question it is asked changes with them.
+func TestReviewPrompt_AsksTheRollCallWhenThereIsOne(t *testing.T) {
+	spec := ReviewSpec{
+		TaskID: "T-1", Objective: "Add a --since flag to task list",
+		Deliverables: []string{
+			"`daedalus task list --since 7d` filters by age",
+			"--since appears in the man page",
+		},
+	}
+	prompt := ReviewPrompt(spec, "diff")
+	if !strings.Contains(prompt, "--since appears in the man page") {
+		t.Errorf("the reviewer is not shown what the task said it would produce:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "one item at a time") {
+		t.Error("the reviewer has the list but is still asked the essay question, so nothing " +
+			"makes it answer item by item")
+	}
+	// A deliverable that exists and does nothing is the failure mode this catches:
+	// the file is there, the flag is declared, and it is wired to nothing.
+	if !strings.Contains(prompt, "inert is missing") {
+		t.Error("nothing tells the reviewer that a present-but-inert deliverable is a missing one")
+	}
+}
+
+// A task that named none is reviewed exactly as before. The old question is the
+// right one when there is no list to check against, and an empty heading would
+// read as a list that failed to arrive.
+func TestReviewPrompt_FallsBackWhenThereAreNoDeliverables(t *testing.T) {
+	prompt := ReviewPrompt(ReviewSpec{TaskID: "T-1", Objective: "Do the thing"}, "diff")
+	if strings.Contains(prompt, "WHAT IT SAID WOULD EXIST") {
+		t.Errorf("a heading with nothing under it:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "Does this deliver what was asked for?") {
+		t.Error("without a list the reviewer must still be asked the original question")
 	}
 }

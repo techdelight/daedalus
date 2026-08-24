@@ -359,6 +359,34 @@
 .ledger-row-status.is-passed  { color: var(--mana-hp-hi); }
 .ledger-row-status.is-refused { color: var(--mana-hp-lo); }
 
+/* A command this page has sent for this row and not yet heard back about.
+   The status word says what the PLANE thinks the task is; this says what the
+   OPERATOR just asked for, which during a review is minutes of nothing else
+   changing. It reads from the row's own data-busy, so the label is the command
+   ("Review", "Verify") and never drifts from the button that was pressed. */
+/* The row is a GRID, so the marker needs a column of its own — as a flex item
+   it wrapped onto a second line and broke the one-row-one-line rule the list is
+   built on. Only busy rows get the extra column, so an idle row is unchanged. */
+.ledger-row.is-busy {
+    grid-template-columns: 18px 62px minmax(0, 1fr) auto auto;
+}
+
+.ledger-row.is-busy::after {
+    content: "· " attr(data-busy);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    white-space: nowrap;
+    color: var(--mana-hp-hi);
+    text-shadow: 1px 1px 0 var(--mana-ink);
+    animation: ledger-pulse 1s steps(2) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .ledger-row.is-busy::after { animation: none; }
+}
+
 .ledger-none {
     padding: 4px 8px 6px 46px;
     font-size: 11px;
@@ -989,13 +1017,83 @@
    coloured off the HP ramp's low end — not because the plane acts on it (it does
    not) but because it is the reviewer saying "I would not land this", which is
    the sentence an operator is scanning for. */
+/* WHAT WILL EXIST WHEN THIS IS DONE.
+   A list rather than a paragraph, because that is the whole difference: four
+   bullet points are four things you can disagree with one at a time, and the
+   same four sentences in an objective are one blob nobody can check off. */
+.ledger-deliverables {
+    margin: 0 0 4px;
+    padding: 0;
+    list-style: none;
+}
+
+.ledger-deliverable {
+    position: relative;
+    padding: 2px 0 2px 18px;
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--mana-text);
+    overflow-wrap: anywhere;
+    text-shadow: 1px 1px 0 var(--mana-ink);
+}
+
+/* An empty box, not a tick: nothing here has been verified, and a tick would
+   claim the plane had checked something it has not. Deliverables are evidence
+   for a human, never a gate (Task.Deliverables says why). */
+.ledger-deliverable::before {
+    content: "\25A1";
+    position: absolute;
+    left: 0;
+    color: var(--mana-frame-lt);
+}
+
+/* ONE FINDING IS ONE LINE until you ask for more.
+   A review's findings were a paragraph each, stacked, so five of them filled the
+   window and the shape of the review — how many blockers, where they are — could
+   only be recovered by reading all of it. The summary row is the scannable part;
+   the reason and the fix are behind the disclosure triangle. */
 .ledger-finding {
-    display: grid;
-    grid-template-columns: 9ch minmax(0, 1fr);
-    gap: 8px;
     padding: 2px 0 2px 12px;
     font-size: 11px;
     line-height: 1.5;
+}
+
+.ledger-finding > summary {
+    display: grid;
+    grid-template-columns: 1.5ch 9ch auto minmax(0, 1fr);
+    gap: 8px;
+    align-items: baseline;
+    cursor: pointer;
+    list-style-position: outside;
+}
+
+/* The browser's own triangle, replaced by the page's cursor. Something must
+   mark the row as openable: with no affordance at all a reader has no way to
+   learn that the reason and the fix are one click away, which is the same as
+   not having written them. */
+.ledger-finding > summary::marker,
+.ledger-reasoning > summary::marker { content: ""; }
+
+.ledger-finding > summary::before {
+    content: "\25B8";
+    color: var(--mana-frame-lt);
+}
+
+.ledger-finding[open] > summary::before {
+    content: "\25BE";
+    color: var(--mana-frame);
+}
+
+.ledger-reasoning > summary::before {
+    content: "\25B8  ";
+    color: var(--mana-frame-lt);
+}
+
+.ledger-reasoning[open] > summary::before { content: "\25BE  "; }
+
+.ledger-finding > summary:hover .ledger-finding-what,
+.ledger-finding > summary:focus-visible .ledger-finding-what {
+    color: var(--mana-hp-hi);
 }
 
 .ledger-finding-sev {
@@ -1009,12 +1107,65 @@
 .ledger-finding.is-blocking .ledger-finding-sev { color: var(--mana-hp-lo); }
 .ledger-finding.is-concern .ledger-finding-sev { color: var(--mana-hp-mid); }
 
+/* The anchor, kept out of the sentence. It was glued to the front of `what` with
+   an em dash, which put a path in the middle of the thing you are trying to read
+   in one glance. */
+.ledger-finding-where {
+    color: var(--mana-text-dim);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 20ch;
+}
+
 .ledger-finding-what {
     min-width: 0;
     color: var(--mana-text);
     overflow-wrap: anywhere;
     text-shadow: 1px 1px 0 var(--mana-ink);
 }
+
+/* The full path, once the finding is open. The summary row carries only the
+   file name so the sentence has room; this is where you get what you need to
+   go and look. */
+.ledger-finding-path {
+    padding: 2px 0 0 calc(1.5ch + 9ch + 16px);
+    color: var(--mana-frame-lt);
+    overflow-wrap: anywhere;
+}
+
+.ledger-finding-why,
+.ledger-finding-fix {
+    padding: 2px 0 0 calc(1.5ch + 9ch + 16px);
+    color: var(--mana-text-dim);
+    overflow-wrap: anywhere;
+}
+
+/* The action, marked so it reads as a thing to do rather than more commentary. */
+.ledger-finding-fix::before {
+    content: "fix: ";
+    color: var(--mana-hp-hi);
+    font-weight: 700;
+}
+
+.ledger-finding[open] { padding-bottom: 6px; }
+
+/* How the reviewer read the change. Closed by default and last, because it is
+   what you reach for once you want to argue with the findings — it used to be
+   the first thing on screen and the longest thing on it. */
+.ledger-reasoning {
+    padding: 4px 0 2px 12px;
+    font-size: 11px;
+}
+
+.ledger-reasoning > summary {
+    cursor: pointer;
+    color: var(--mana-text-dim);
+    letter-spacing: 1px;
+}
+
+.ledger-reasoning > summary:hover,
+.ledger-reasoning > summary:focus-visible { color: var(--mana-hp-hi); }
 
 /* Said under every set of findings, because the plane used to act on them and an
    operator who remembers that will otherwise assume the task has moved. */

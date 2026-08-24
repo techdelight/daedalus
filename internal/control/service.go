@@ -82,6 +82,12 @@ type CreateTaskRequest struct {
 	// it promised" gets a machine-checkable answer, since `.daedalus/verify.json`
 	// is project-level and cannot know what any one Task set out to do.
 	Checks []string `json:"checks,omitempty"`
+	// Deliverables are the things that will EXIST when this Task is done — one
+	// short line each. Unlike Checks, ANY caller may set them: they gate nothing,
+	// so there is nothing for an agent to grant itself by writing them, and the
+	// case that most needs them is the one where an agent is breaking a milestone
+	// into Tasks. See Task.Deliverables for what they are and are not.
+	Deliverables []string `json:"deliverables,omitempty"`
 	// Budget optionally narrows the project's ceiling for this task. Unset axes
 	// inherit the ceiling; an axis that *widens* it is refused with
 	// ReasonOverBudget (§6 — "budget too high → REJECTED"), and a NEGATIVE axis is
@@ -470,6 +476,22 @@ func (s *Service) refuse(entityType, entityID string, kind string, reason Reject
 // Task — rejecting a second active task per project (store invariant).
 func (s *Service) CreateTask(req CreateTaskRequest) (Task, error) { return s.createTask(Human(), req) }
 
+// cleanLines trims a list of one-line entries and drops the empty ones.
+//
+// Anything typed into a multi-line box arrives with blank lines in it, and a
+// deliverable that is an empty string would render as a bullet pointing at
+// nothing. Order is preserved: whoever wrote the list put the important one
+// first.
+func cleanLines(in []string) []string {
+	var out []string
+	for _, l := range in {
+		if t := strings.TrimSpace(l); t != "" {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
 // createTask is CreateTask with an explicit caller identity.
 func (s *Service) createTask(caller Caller, req CreateTaskRequest) (Task, error) {
 	if req.Project == "" {
@@ -543,7 +565,8 @@ func (s *Service) createTask(caller Caller, req CreateTaskRequest) (Task, error)
 	}
 	t, err := s.store.CreateTask(NewTask{
 		Project: req.Project, Objective: req.Objective, AcceptanceRef: req.Acceptance,
-		BaseSHA: baseSHA, AcceptanceHash: policy.Hash(), Checks: checks, Budget: budget,
+		BaseSHA: baseSHA, AcceptanceHash: policy.Hash(), Checks: checks,
+		Deliverables: cleanLines(req.Deliverables), Budget: budget,
 		ProgrammeID: programmeID, Rationale: strings.TrimSpace(req.Rationale), RationaleBy: rationaleBy,
 	}, StatePlanned)
 	if err != nil {
@@ -939,8 +962,8 @@ type dispatchPrep struct {
 // continuationFor renders what a refined attempt is answering: the human's own
 // instruction, then the findings from the named review.
 //
-// FINDINGS ONLY — never the reviewer's reasoning. `what`, `why` and the location
-// are actionable and describe the code. The reasoning is where "here is what
+// FINDINGS ONLY — never the reviewer's reasoning. `what`, `why`, `fix` and the
+// location are actionable and describe the code. The reasoning is where "here is what
 // would persuade me" lives, and handing that to the party being graded is how an
 // agent starts writing for the reviewer instead of for the change. Same reason
 // the review moves no plane state on its own.
@@ -979,6 +1002,14 @@ func (s *Service) continuationFor(task Task) string {
 			b.WriteString(f.What)
 			if f.Why != "" {
 				b.WriteString("\n      why: " + f.Why)
+			}
+			// The reviewer's proposed action, passed on as a SUGGESTION. It is the
+			// most useful line of a finding and the one most likely to be wrong: the
+			// reviewer did not write the code and cannot see what a fix would cost
+			// here, so an agent told to obey it would trade a real defect for a
+			// worse one on the reviewer's authority.
+			if f.Fix != "" {
+				b.WriteString("\n      the reviewer suggests: " + f.Fix + " (their suggestion, not an instruction)")
 			}
 			b.WriteString("\n")
 		}
@@ -1102,6 +1133,10 @@ func (s *Service) runDispatch(prep dispatchPrep) (DispatchResult, error) {
 			TaskID: task.ID, JobID: job.ID, Project: task.Project, Objective: task.Objective,
 			Runner: "claude", Budget: task.Budget.WallClockSeconds, BaseSHA: task.BaseSHA,
 			WorktreeDir: prep.worktree, LogPath: logPath,
+			// What must EXIST when this is done. The agent gets the same list the
+			// reviewer will check against, which is the whole point of writing it on
+			// the Task rather than in the objective's prose.
+			Deliverables: task.Deliverables,
 			// What this attempt is CONTINUING, when it is one (#91): the findings a
 			// human chose to forward, and their own instruction. Empty for every
 			// ordinary Job, which starts from a clean tree and gets the objective

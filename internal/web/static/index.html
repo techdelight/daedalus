@@ -165,8 +165,20 @@
                     <span class="ff-window-title">New entry</span>
                     <label class="ledger-prompt-label" for="new-project">Project</label>
                     <select class="ledger-input" id="new-project"></select>
-                    <label class="ledger-prompt-label" for="new-objective">Objective</label>
-                    <textarea class="ledger-input" id="new-objective" rows="5"></textarea>
+                    <label class="ledger-prompt-label" for="new-objective">
+                        Objective — one sentence saying what to do and for whom
+                    </label>
+                    <textarea class="ledger-input" id="new-objective" rows="3"></textarea>
+                    <!-- WHAT WILL EXIST WHEN THIS IS DONE. Its own field, and above
+                         the checks, because it is the list a person reads and the
+                         checks are the subset a machine can grade. Everything used
+                         to go in the objective, and what arrived there were
+                         milestones with nothing on them anyone could tick off. -->
+                    <label class="ledger-prompt-label" for="new-deliverables">
+                        Deliverables — one per line: what will exist when this is done
+                    </label>
+                    <textarea class="ledger-input" id="new-deliverables" rows="4"
+                              placeholder="a file, a command that runs, a flag that works, a page that renders"></textarea>
                     <label class="ledger-prompt-label" for="new-checks">
                         Acceptance checks — one command per line, appended to the project policy
                     </label>
