@@ -221,12 +221,17 @@ func TestReview_BoundedByBudget(t *testing.T) {
 	if _, err := svc.VerifyTask(task.ID, VerifyRequest{}); err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
+	// THROUGH AN AGENT CALLER, because the envelope bounds the agent and not the
+	// operator (review.go). The in-process Service is the human path, and a human
+	// is deliberately never refused here — asserting the bound through it would
+	// be asserting the behaviour this budget was corrected for.
+	agent := svc.WithCaller(Agent())
 	// …and a review pass is still available, because the two are not summed.
-	if _, err := svc.ReviewTask(task.ID); err != nil {
+	if _, err := agent.ReviewTask(task.ID); err != nil {
 		t.Fatalf("first review should be allowed despite the verification cycle: %v", err)
 	}
 	// The second review is over budget.
-	_, err = svc.ReviewTask(task.ID)
+	_, err = agent.ReviewTask(task.ID)
 	var rej *RejectionError
 	if !errors.As(err, &rej) || rej.Reason != ReasonReviewCyclesExhausted {
 		t.Fatalf("second review = %v, want a review_cycles_exhausted refusal", err)
@@ -478,11 +483,15 @@ func TestReview_AHarnessFailureDoesNotSpendACycle(t *testing.T) {
 
 	// And a REAL reading still costs, immediately. The budget is not disabled by
 	// a failure, it is simply not spent by one.
+	//
+	// Asserted through an AGENT caller: the envelope bounds the agent, and the
+	// in-process Service is the human path, which is never refused here.
 	svc.SetReviewRunner(StubReviewRunner{Pass: true})
-	if _, err := svc.ReviewTask(task.ID); err != nil {
+	agent := svc.WithCaller(Agent())
+	if _, err := agent.ReviewTask(task.ID); err != nil {
 		t.Fatalf("the first real review should be allowed: %v", err)
 	}
-	_, err = svc.ReviewTask(task.ID)
+	_, err = agent.ReviewTask(task.ID)
 	var rej *RejectionError
 	if !errors.As(err, &rej) || rej.Reason != ReasonReviewCyclesExhausted {
 		t.Fatalf("the second real review = %v, want a review_cycles_exhausted refusal", err)
