@@ -700,6 +700,14 @@ that carried authority would mean a diff could talk its way into your trunk. So
 the findings go in front of you at the approval gate, in `daedalus task status`
 and in the Ledger's **record** page, and you decide.
 
+**The review budget bounds the agent, not you.** `maxReviewCycles` was written
+for verification — container runs of the project's checks — and the reviewer
+inherited the number. But a review moves nothing, so the loop it guards against
+is an agent asking until it likes the answer. An operator asking for a second
+opinion on their own work is not that, and is never refused. Every pass is still
+recorded either way, and one taken beyond the envelope says so in the event log —
+which is the number that would justify raising the project's ceiling next time.
+
 If the review cannot be obtained at all — the agent failed, the judgement was
 unreadable — you get *no judgement* rather than a rejection. That distinction is
 deliberate: a broken harness must never read as a criticism of the work.

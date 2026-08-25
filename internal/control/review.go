@@ -289,7 +289,10 @@ func (s *Service) jobToReview(taskID string) (Job, *Artifact, bool, error) {
 // So the judgement is EVIDENCE, presented at the gate where a human already
 // decides. That is not a weaker design than gating on it — it is the only one
 // that stays honest about what a model's reading is worth.
-func (s *Service) ReviewTask(id string) (ReviewResult, error) {
+func (s *Service) ReviewTask(id string) (ReviewResult, error) { return s.reviewTask(Human(), id) }
+
+// reviewTask is ReviewTask with an explicit caller identity.
+func (s *Service) reviewTask(caller Caller, id string) (ReviewResult, error) {
 	if s.reviewer == nil {
 		return ReviewResult{}, fmt.Errorf("control: no reviewer configured for this control plane")
 	}
@@ -352,11 +355,37 @@ func (s *Service) ReviewTask(id string) (ReviewResult, error) {
 		return ReviewResult{}, err
 	}
 	max := task.Budget.MaxReviewCycles
-	if max > 0 && used >= max {
+	// THE ENVELOPE BOUNDS THE AGENT, NOT THE OPERATOR.
+	//
+	// This limit was written for VERIFICATION — how many times a Task may enter
+	// `verifying`, each a container running the project's checks — and the agent
+	// reviewer was given the same number when it landed in M20. The reason
+	// budgets exist at all (§6) is that an agent must not be able to spend
+	// unbounded resources on its own work, and cannot widen the bound on itself.
+	//
+	// A REVIEW MOVES NOTHING. Since M20 it records a judgement and changes no
+	// state, so the looping risk is an agent asking again and again until it gets
+	// an answer it likes. An operator asking for a second opinion on their own
+	// work is not that, and the plane already knows the difference — caller class
+	// is derived from which socket the request arrived on, which is the whole
+	// mechanism behind tiered authority. It simply was not used here, so a human
+	// hit a wall built to stop an agent, with no way through it: the envelope is
+	// frozen at create and budgets.json only reaches new tasks. Reported by an
+	// operator three refinements into a task they could no longer get read.
+	//
+	// An agent is still bounded, and bounded by EVERY judged pass including the
+	// operator's — being stricter with the agent is the safe direction, and a
+	// separate per-caller counter would be a second thing to get wrong.
+	if max > 0 && used >= max && caller.IsAgent() {
 		return ReviewResult{}, s.refuse("task", id, EventBudget, ReasonReviewCyclesExhausted, fmt.Sprintf(
-			"task %s has used all %d review pass(es); the artifact is unchanged — cancel it or raise the project budget",
-			id, max))
+			"task %s has used all %d review pass(es); the artifact is unchanged — ask a human to "+
+				"read it, or cancel the task", id, max))
 	}
+	// Said in the record when the operator goes past it. Not charged is not the
+	// same as not noticed: "this was read six times" is a fact about a task worth
+	// keeping, and it is the number that would justify raising the project's
+	// ceiling for the next one.
+	beyond := max > 0 && used >= max
 
 	spec := ReviewSpec{
 		TaskID: id, JobID: job.ID, Project: task.Project, RepoDir: repoDir,
@@ -418,10 +447,13 @@ func (s *Service) ReviewTask(id string) (ReviewResult, error) {
 	}
 	// Logged as a DECISION and never as a rejection: the event log should not
 	// carry a word for something that did not happen to the Task.
-	if err := s.store.LogDecision("task", id, EventMeta{Kind: EventReview}, fmt.Sprintf(
-		"review pass %d by %s: passed=%v, %d finding(s), %d blocking (%s)",
+	note := fmt.Sprintf("review pass %d by %s: passed=%v, %d finding(s), %d blocking (%s)",
 		used+1, reviewerName(outcome.Reviewer), outcome.Passed, len(outcome.Findings),
-		outcome.Blocking(), outcome.Detail)); err != nil {
+		outcome.Blocking(), outcome.Detail)
+	if beyond {
+		note += fmt.Sprintf(" — operator request beyond the %d-pass budget, which bounds the agent", max)
+	}
+	if err := s.store.LogDecision("task", id, EventMeta{Kind: EventReview}, note); err != nil {
 		log.Printf("control: logging review of %s: %v", id, err)
 	}
 

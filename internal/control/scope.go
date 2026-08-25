@@ -176,7 +176,10 @@ func (c *callerScope) ReviewTask(id string) (ReviewResult, error) {
 	if !c.allowed(OpReview) {
 		return ReviewResult{}, c.propose(OpReview, id, "")
 	}
-	return c.svc.ReviewTask(id)
+	// The caller travels, so the review budget can bound an agent and not the
+	// operator (review.go). Calling ReviewTask here would relabel every agent
+	// request as a human one.
+	return c.svc.reviewTask(c.caller, id)
 }
 
 // --- consequential: proposals for an agent --------------------------------------

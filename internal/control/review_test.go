@@ -5,6 +5,7 @@ package control
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -596,5 +597,75 @@ func TestReview_TheStampIsDistinctFromAnEmptyReviewer(t *testing.T) {
 		t.Errorf("the stamp is the same word the surfaces use for an empty reviewer (%q), so a "+
 			"judged review and a review that never happened now read identically",
 			reviews[0].Reviewer)
+	}
+}
+
+// THE REVIEW BUDGET BOUNDS THE AGENT, NOT THE OPERATOR.
+//
+// The limit was written for verification — container runs of the project's
+// checks — and the agent reviewer inherited the number in M20. A review moves
+// nothing, so the looping risk it guards against is an agent asking until it
+// likes the answer. An operator asking for a second opinion on their own work
+// hit that wall with no way through: the envelope is frozen at create and
+// budgets.json reaches only new tasks. Reported by one, three refinements into
+// a task they could no longer get read.
+func TestReview_TheBudgetBoundsTheAgentAndNotTheOperator(t *testing.T) {
+	repo := gitRepo(t)
+	svc, _, store := newService(t, mapResolver{"app": repo},
+		StubRunner{Result: ExecSuccess, WriteFile: true, MarkerName: "a.txt"}, nil, StubVerifyRunner{Pass: true})
+	svc.SetPolicySource(StaticBudget(Budget{MaxAttempts: 5, MaxReviewCycles: 1, Concurrency: 1}))
+	svc.SetReviewRunner(StubReviewRunner{Pass: true})
+
+	task, err := svc.CreateTask(CreateTaskRequest{Project: "app", Objective: "x"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	if _, err := svc.DispatchTask(task.ID); err != nil {
+		t.Fatalf("Dispatch: %v", err)
+	}
+
+	agent := svc.WithCaller(Agent())
+	human := svc.WithCaller(Human())
+
+	// The one pass the envelope allows.
+	if _, err := agent.ReviewTask(task.ID); err != nil {
+		t.Fatalf("the first review should be allowed: %v", err)
+	}
+	// The agent is bounded, and says why in terms it can act on.
+	_, err = agent.ReviewTask(task.ID)
+	var rej *RejectionError
+	if !errors.As(err, &rej) || rej.Reason != ReasonReviewCyclesExhausted {
+		t.Fatalf("the agent's second review = %v, want a review_cycles_exhausted refusal", err)
+	}
+	// The operator is not. Twice, because "one more" would be a different rule.
+	for i := 1; i <= 2; i++ {
+		if _, err := human.ReviewTask(task.ID); err != nil {
+			t.Fatalf("operator review %d refused: %v — a human asking for a second opinion on "+
+				"their own work is not the loop this budget exists to stop", i, err)
+		}
+	}
+	// The in-process Service is the human path and must behave the same way.
+	if _, err := svc.ReviewTask(task.ID); err != nil {
+		t.Fatalf("the in-process (human) path was refused: %v", err)
+	}
+
+	// Every pass is still RECORDED. Not charged is not the same as not noticed:
+	// "this was read four times" is the fact that would justify raising the
+	// project's ceiling for the next task.
+	reviews, _ := store.ReviewsForTask(task.ID)
+	if len(reviews) != 4 {
+		t.Errorf("recorded reviews = %d, want all 4 kept in the record", len(reviews))
+	}
+	// …and the ones beyond the envelope say so, so the record cannot be read as
+	// the budget having silently grown.
+	events, _ := store.ListEventsForTask(task.ID)
+	var said int
+	for _, e := range events {
+		if strings.Contains(e.Note, "beyond the 1-pass budget") {
+			said++
+		}
+	}
+	if said != 3 {
+		t.Errorf("%d events noted a pass beyond the budget, want 3", said)
 	}
 }
