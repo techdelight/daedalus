@@ -335,3 +335,36 @@ func TestReviewPrompt_FallsBackWhenThereAreNoDeliverables(t *testing.T) {
 		t.Error("without a list the reviewer must still be asked the original question")
 	}
 }
+
+// SHORT IS NOT THE SAME AS CLEAR.
+//
+// The length rules produced a finding reading "a gap FIRES whenever prose
+// follows only ungated tool calls" — one sentence, under twenty words, and it
+// cost the operator a round trip to ask what "fires" meant. That is the wall of
+// text arrived at from the other side: the reviewer borrowed the vocabulary of
+// the subsystem it had just been reading, and the person deciding had not been
+// reading it.
+//
+// The plain-language guidance this format came from says both halves, short
+// sentences AND everyday words, and only the first was ever written down.
+func TestReviewPrompt_AsksForPlainWordsAsWellAsShortOnes(t *testing.T) {
+	prompt := ReviewPrompt(ReviewSpec{TaskID: "T-1", Objective: "anything"}, "diff")
+
+	// The instruction itself.
+	if !strings.Contains(prompt, "KNOWS THE PROJECT BUT NOT THIS SUBSYSTEM") {
+		t.Error("the prompt bounds the LENGTH of a finding and says nothing about the words in " +
+			"it, so a reviewer writes jargon that is short and still needs translating")
+	}
+	// …and the exception that keeps it usable. Told to avoid jargon without this,
+	// a reviewer paraphrases the project's own nouns and the reader loses the
+	// thread entirely.
+	if !strings.Contains(prompt, "names the project itself uses") {
+		t.Error("nothing exempts the project's own vocabulary, so a reviewer will paraphrase the " +
+			"names the reader actually navigates by")
+	}
+	// Both halves are stated together, because either alone produces the failure
+	// the other was meant to prevent.
+	if !strings.Contains(prompt, "KEEP IT SHORT") {
+		t.Error("the length rules are gone; short and plain are two halves of one instruction")
+	}
+}

@@ -335,6 +335,24 @@ func ReviewPrompt(spec ReviewSpec, diff string) string {
 	b.WriteString("  - One finding per defect. Two problems in one entry cannot be fixed one at a " +
 		"time, and cannot be given different severities.\n\n")
 
+	// AND IN WORDS THE READER ALREADY HAS. Short is not the same as clear: the
+	// length rules above produced a finding reading "a gap FIRES whenever prose
+	// follows only ungated tool calls", which is one sentence, under twenty words,
+	// and cost the operator a round trip to ask what "fires" meant. That is the
+	// same defect as a wall of text, arrived at from the other side.
+	//
+	// The plain-language guidance this whole format came from says both halves —
+	// short sentences AND everyday words — and only the first half was written
+	// down. A reviewer borrows the vocabulary of whatever subsystem it has just
+	// been reading, and the person deciding has not been reading it.
+	b.WriteString("WRITE IT FOR SOMEONE WHO KNOWS THE PROJECT BUT NOT THIS SUBSYSTEM.\n")
+	b.WriteString("Everyday words, except for names the project itself uses — those are what it is " +
+		"called, and swapping them for a paraphrase loses the reader instead of helping them. " +
+		"Anything else, prefer the plain word: something is RECORDED rather than `fires`, a value " +
+		"is WRONG rather than `inconsistent`, a call RETURNS NOTHING rather than `no-ops`. If a " +
+		"term only makes sense to whoever wrote the file you are reading, it will not survive the " +
+		"trip to the person deciding.\n\n")
+
 	b.WriteString("Your verdict is ADVISORY. It is shown to a human who decides; it does not block " +
 		"anything on its own. So say what you actually think rather than what is safe: a hedge " +
 		"helps nobody, a finding with no `why` is an opinion, and a finding with no `fix` leaves " +
