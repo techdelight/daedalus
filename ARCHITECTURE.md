@@ -416,6 +416,16 @@ guild-control-mcp ──► control-agent.sock ┘         │
   reporting only — admission is still global and per-project, and programme-aware
   scheduling waits on a durable queue (backlog #70). Verification runbook:
   [docs/m21-m22-verification.md](docs/m21-m22-verification.md).
+- **A refusal should name a way forward, and today several do not (PROPOSED).**
+  On 2026-08-25 one task produced five states an operator could not leave — an
+  artifact naming no commit, a review budget spent by passes that never ran, a
+  pass from the wrong oracle, exhausted attempts after a merge conflict, and a
+  limit written for agents refusing the human. Three are fixed; the shape they
+  share is not. The structural cause is that *which operations a state admits* is
+  spread across four tables, eight inline guards and a third copy in the Ledger's
+  JavaScript, so no refusal can compute what to suggest — and one I wrote named a
+  command the state machine refuses. Design pass, not yet built:
+  [docs/no-dead-ends.md](docs/no-dead-ends.md).
 - **The Web UI's Ledger is a full client.** `/api/control/*` mirrors the daemon's
   own route table one for one, so every `daedalus task` operation is reachable
   from the browser — through the same human socket, with the same authority and
