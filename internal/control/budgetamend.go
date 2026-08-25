@@ -98,9 +98,16 @@ func (s *Service) amendTaskBudget(caller Caller, id string, req AmendBudgetReque
 	// the operator has already set for the project, never a way around it.
 	ceiling := s.budgetCeiling(task.Project)
 	if axis, over := ceiling.exceededBy(amended); over {
+		// NAME THE FILE. "Raise it in the host-side budget policy" is a remedy an
+		// operator cannot act on without already knowing where that file is and
+		// what goes in it — and it is optional, so most installations have never
+		// had one. A refusal that names an action nobody can find is the shape
+		// docs/no-dead-ends.md is about, one notch softer.
 		return Task{}, s.refuse("task", id, EventBudget, ReasonOverBudget, fmt.Sprintf(
-			"%s would exceed the ceiling for %q (%s); raise it in the host-side budget policy, "+
-				"which is where authority over spend lives", axis, task.Project, ceiling))
+			"%s would exceed the ceiling for %q (%s). Raise it in %s — the host-side budget "+
+				`policy, which an agent cannot edit: {"projects": {%q: {"maxAttempts": N}}}. `+
+				"It is re-read on every check, so no restart is needed",
+			axis, task.Project, ceiling, DefaultBudgetPolicyPath(s.dataDir), task.Project))
 	}
 
 	// Said in full, because a budget that changed silently is a budget that
