@@ -182,6 +182,15 @@ func (c *callerScope) ReviewTask(id string) (ReviewResult, error) {
 	return c.svc.reviewTask(c.caller, id)
 }
 
+// AmendTaskBudget is HUMAN ONLY and is not a proposal. An agent that could ask
+// for a wider envelope, even with a human confirming, turns the bound into a
+// negotiation — and the envelope exists precisely so that an agent's own work is
+// bounded by something it cannot move. The refusal happens in the service, which
+// is the security boundary; this passes the caller so it can.
+func (c *callerScope) AmendTaskBudget(id string, req AmendBudgetRequest) (Task, error) {
+	return c.svc.amendTaskBudget(c.caller, id, req)
+}
+
 // --- consequential: proposals for an agent --------------------------------------
 
 func (c *callerScope) DispatchTask(id string) (DispatchResult, error) {

@@ -581,6 +581,20 @@ func (ws *WebServer) handleRefineTask(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleAmendBudget raises a Task's frozen attempt or review-cycle limit
+// (#95 item 4). The plane refuses an agent outright; the Web UI reaches the
+// plane through the human socket, so this is the operator's own authority.
+func (ws *WebServer) handleAmendBudget(w http.ResponseWriter, r *http.Request) {
+	var req control.AmendBudgetRequest
+	if err := bind(r, &req); err != nil {
+		badRequest(w, "malformed budget amendment: "+err.Error())
+		return
+	}
+	ws.act(w, func(api control.TaskAPI) (any, error) {
+		return api.AmendTaskBudget(r.PathValue("id"), req)
+	})
+}
+
 func (ws *WebServer) handleReviewTask(w http.ResponseWriter, r *http.Request) {
 	ws.act(w, func(api control.TaskAPI) (any, error) { return api.ReviewTask(r.PathValue("id")) })
 }

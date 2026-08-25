@@ -22,6 +22,7 @@ package control
 //	POST   /tasks/{id}/retry      body: RetryRequest      → 200 RetryResult
 //	POST   /tasks/{id}/reverify   body: ReverifyRequest   → 200 ReverifyResult
 //	POST   /tasks/{id}/checks     body: AmendChecksRequest → 200 Task
+//	POST   /tasks/{id}/budget     body: AmendBudgetRequest → 200 Task
 //	                                                       → 422 attempts budget
 //	POST   /tasks/{id}/replan     body: ReplanRequest     → 200 Task
 //	POST   /tasks/{id}/refine     body: RefineRequest     → 200 Task (#91)
@@ -108,6 +109,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /tasks/{id}/retry", s.handleRetry)
 	mux.HandleFunc("POST /tasks/{id}/reverify", s.handleReverify)
 	mux.HandleFunc("POST /tasks/{id}/checks", s.handleAmendChecks)
+	mux.HandleFunc("POST /tasks/{id}/budget", s.handleAmendBudget)
 	mux.HandleFunc("POST /tasks/{id}/replan", s.handleReplan)
 	mux.HandleFunc("POST /tasks/{id}/refine", s.handleRefine)
 	// GET only, deliberately: the event log has no mutation route because it has
@@ -326,6 +328,23 @@ func decodeJSON(r *http.Request, v any) error {
 		return fmt.Errorf("invalid request body: %w", err)
 	}
 	return nil
+}
+
+// handleAmendBudget raises a Task's frozen limits (#95 item 4). The service
+// refuses an agent outright — the socket a request arrived on is what says which
+// it is, so the check cannot live here.
+func (s *Server) handleAmendBudget(w http.ResponseWriter, r *http.Request) {
+	var req AmendBudgetRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	t, err := s.api.AmendTaskBudget(r.PathValue("id"), req)
+	if err != nil {
+		writeError(w, StatusFor(err), err)
+		return
+	}
+	writeJSON(w, http.StatusOK, t)
 }
 
 func (s *Server) handleReview(w http.ResponseWriter, r *http.Request) {

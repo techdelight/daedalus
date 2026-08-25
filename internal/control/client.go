@@ -126,6 +126,12 @@ func (c *Client) AmendTaskChecks(id string, req AmendChecksRequest) (Task, error
 	return t, c.postJSON("/tasks/"+url.PathEscape(id)+"/checks", req, &t)
 }
 
+// AmendTaskBudget implements TaskAPI.
+func (c *Client) AmendTaskBudget(id string, req AmendBudgetRequest) (Task, error) {
+	var t Task
+	return t, c.postJSON("/tasks/"+url.PathEscape(id)+"/budget", req, &t)
+}
+
 // ReverifyTask implements TaskAPI.
 func (c *Client) ReverifyTask(id string, req ReverifyRequest) (ReverifyResult, error) {
 	var res ReverifyResult

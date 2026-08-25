@@ -64,6 +64,8 @@ func runTaskCommand(api control.TaskAPI, args []string) error {
 		return taskReverify(api, args[1:])
 	case "checks":
 		return taskChecks(api, args[1:])
+	case "budget":
+		return taskBudget(api, args[1:])
 	case "replan":
 		return taskReplan(api, args[1:])
 	case "refine":
@@ -583,6 +585,60 @@ func printPreExisting(checks []string) {
 	for _, c := range checks {
 		fmt.Printf("       %s\n", c)
 	}
+}
+
+// taskBudget implements `task budget <id> [--attempts N] [--review-cycles N]`.
+//
+// The escape from a Task that has run out of room without destroying it. Before
+// this the only route was cancel-and-recreate, which throws away the history,
+// the reviews and the rationale — and the attempt count itself, which is the one
+// number that would justify a different ceiling next time.
+func taskBudget(api control.TaskAPI, args []string) error {
+	const usage = "usage: daedalus task budget <id> [--attempts <n>] [--review-cycles <n>]"
+	if len(args) < 1 {
+		return fmt.Errorf("%s", usage)
+	}
+	id := args[0]
+	var req control.AmendBudgetRequest
+	// A local reader rather than task create's closure: that one also sets
+	// budgetSet, which means nothing here.
+	number := func(i *int, name string, dst *int) error {
+		if *i+1 >= len(args) {
+			return fmt.Errorf("%s requires a number", name)
+		}
+		*i++
+		n, err := strconv.Atoi(args[*i])
+		if err != nil || n < 1 {
+			return fmt.Errorf("%s requires a number of at least 1, got %q — this raises a limit, "+
+				"and 0 would read as unbounded", name, args[*i])
+		}
+		*dst = n
+		return nil
+	}
+	for i := 1; i < len(args); i++ {
+		switch args[i] {
+		case "--attempts":
+			if err := number(&i, "--attempts", &req.MaxAttempts); err != nil {
+				return err
+			}
+		case "--review-cycles":
+			if err := number(&i, "--review-cycles", &req.MaxReviewCycles); err != nil {
+				return err
+			}
+		default:
+			return fmt.Errorf("task budget: unknown flag %q\n%s %s", args[i], color.Cyan("Hint:"), usage)
+		}
+	}
+	t, err := api.AmendTaskBudget(id, req)
+	if err != nil {
+		if errors.Is(err, control.ErrNotFound) {
+			return fmt.Errorf("task %q not found", id)
+		}
+		return err
+	}
+	fmt.Printf("%s task %s budget is now %s\n", color.Green("OK:"), id, t.Budget)
+	fmt.Printf("     recorded in `daedalus task events %s`, with what it was before\n", id)
+	return nil
 }
 
 // taskChecks implements `task checks <id> [--set <cmd>]... | --clear`: show or

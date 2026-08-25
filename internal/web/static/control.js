@@ -402,6 +402,32 @@
       done: function (t) { return 'Objective replaced and re-pinned to ' + short(t.baseSha) + '.'; },
     },
     {
+      // The way out of an exhausted task that does not destroy it (#95 item 4).
+      // Offered wherever the Task is still alive, because "it ran out of room"
+      // is discovered at the moment of being refused, which can be any of them.
+      key: 'budget', label: 'Budget', states: ANY_ACTIVE,
+      hint: 'Raise this task\'s attempts or review cycles, within the project ceiling. Recorded.',
+      prompt: {
+        title: 'Raise the budget',
+        label: 'attempts, review-cycles — e.g. "5, 4". Blank leaves an axis alone.',
+        fill: function (t) {
+          return (t.budget ? t.budget.maxAttempts : '') + ', ' +
+            (t.budget ? t.budget.maxReviewCycles : '');
+        },
+      },
+      run: function (id, value) {
+        const parts = value.split(',').map(function (s) { return parseInt(s.trim(), 10); });
+        const req = {};
+        if (parts[0] > 0) req.maxAttempts = parts[0];
+        if (parts[1] > 0) req.maxReviewCycles = parts[1];
+        return send('POST', '/tasks/' + enc(id) + '/budget', req);
+      },
+      done: function (t) {
+        return t.id + ': ' + (t.budget ? t.budget.maxAttempts : '?') + ' attempts, ' +
+          (t.budget ? t.budget.maxReviewCycles : '?') + ' review cycles.';
+      },
+    },
+    {
       key: 'checks', label: 'Checks', states: ['planned', 'blocked', 'queued', 'candidate', 'rejected'],
       hint: 'Per-task acceptance commands, appended to the project policy. One per line; empty clears.',
       prompt: {

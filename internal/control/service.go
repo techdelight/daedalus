@@ -256,6 +256,9 @@ type TaskAPI interface {
 	RetryTask(id string, req RetryRequest) (RetryResult, error)
 	ReverifyTask(id string, req ReverifyRequest) (ReverifyResult, error)
 	AmendTaskChecks(id string, req AmendChecksRequest) (Task, error)
+	// AmendTaskBudget raises a Task's frozen attempt or review-cycle limit,
+	// within its project ceiling. Human callers only (#95 item 4).
+	AmendTaskBudget(id string, req AmendBudgetRequest) (Task, error)
 	ReplanTask(id string, req ReplanRequest) (Task, error)
 	ReviewTask(id string) (ReviewResult, error)
 	ApproveTask(id, note string) (Task, error)

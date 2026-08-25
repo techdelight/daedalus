@@ -1142,6 +1142,41 @@ func (s *Store) SetTaskChecks(id string, checks []string, meta EventMeta, note s
 	return cur, nil
 }
 
+// SetTaskBudget replaces a Task's frozen envelope, recording the change and its
+// lineage in one transaction — the same shape as SetTaskChecks, and for the same
+// reason: an amendment nobody can see is the one outcome that must be impossible
+// for a governance record.
+func (s *Store) SetTaskBudget(id string, b Budget, meta EventMeta, note string) (Task, error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return Task{}, err
+	}
+	defer tx.Rollback()
+
+	cur, err := scanTask(tx.QueryRow(taskSelect+` WHERE id = ?`, id))
+	if err != nil {
+		return Task{}, err
+	}
+	encoded, err := json.Marshal(b)
+	if err != nil {
+		return Task{}, fmt.Errorf("encoding budget: %w", err)
+	}
+	now := s.now()
+	if _, err := tx.Exec(`UPDATE tasks SET budget = ?, updated_at = ? WHERE id = ?`,
+		string(encoded), now, id); err != nil {
+		return Task{}, fmt.Errorf("amending the budget of %s: %w", id, err)
+	}
+	if err := s.logEvent(tx, "task", id, "", "", meta, meta.Actor, note); err != nil {
+		return Task{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Task{}, err
+	}
+	cur.Budget = b
+	cur.UpdatedAt = now
+	return cur, nil
+}
+
 // ChecksAmendedSinceLastVerdict reports whether a Task's checks were changed
 // after the most recent rejection recorded against it.
 //

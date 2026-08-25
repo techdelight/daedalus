@@ -218,7 +218,7 @@ func writeCommands(b *strings.Builder) {
 
 	writeCommand(b,
 		"\\fBtask\\fR <\\fIsubcommand\\fR>",
-		"Host-side control-plane work: \\fBcreate\\fR, \\fBlist\\fR, \\fBstatus\\fR, \\fBdispatch\\fR, \\fBverify\\fR, \\fBreview\\fR, \\fBreverify\\fR, \\fBretry\\fR, \\fBreplan\\fR, \\fBchecks\\fR, \\fBdepends\\fR, \\fBsteer\\fR, \\fBapprove\\fR, \\fBreject\\fR, \\fBintegrate\\fR, \\fBcancel\\fR, \\fBboard\\fR, \\fBapprovals\\fR, \\fBproposals\\fR, \\fBtarget\\fR and \\fBevents\\fR. Ids are prefixed by kind: \\fIT\\-n\\fR task, \\fIJ\\-n\\fR job, \\fIA\\-n\\fR artifact, \\fIRV\\-n\\fR review, \\fIP\\-n\\fR proposal, \\fIPR\\-n\\fR programme, \\fIS\\-n\\fR steering.")
+		"Host-side control-plane work: \\fBcreate\\fR, \\fBlist\\fR, \\fBstatus\\fR, \\fBdispatch\\fR, \\fBverify\\fR, \\fBreview\\fR, \\fBreverify\\fR, \\fBretry\\fR, \\fBreplan\\fR, \\fBrefine\\fR, \\fBchecks\\fR, \\fBbudget\\fR, \\fBdepends\\fR, \\fBsteer\\fR, \\fBapprove\\fR, \\fBreject\\fR, \\fBintegrate\\fR, \\fBcancel\\fR, \\fBboard\\fR, \\fBapprovals\\fR, \\fBproposals\\fR, \\fBtarget\\fR and \\fBevents\\fR. Ids are prefixed by kind: \\fIT\\-n\\fR task, \\fIJ\\-n\\fR job, \\fIA\\-n\\fR artifact, \\fIRV\\-n\\fR review, \\fIP\\-n\\fR proposal, \\fIPR\\-n\\fR programme, \\fIS\\-n\\fR steering.")
 
 	writeCommand(b,
 		"\\fBcoordinator\\fR [\\fBstart\\fR | \\fBstop\\fR | \\fBstatus\\fR]",

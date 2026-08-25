@@ -347,3 +347,40 @@ func TestWriteHeader_Format(t *testing.T) {
 		t.Errorf("header = %q, want %q", b.String(), expected)
 	}
 }
+
+// THE `task` SUBCOMMANDS ARE DERIVED, like the top-level ones.
+//
+// The man page named them in a hand-written sentence, and it was missing
+// `refine` from the day it shipped (2026-08-22) — nothing noticed, because the
+// existing derived test reads main.go's dispatch switch and `task refine` is one
+// level below it. `budget` would have been the second.
+//
+// This is the repository's own recurring defect: the code moved, the thing that
+// describes it did not, because what checked the description was a list somebody
+// had to remember to update.
+func TestGenerateManpage_NamesEveryTaskSubcommand(t *testing.T) {
+	src, err := os.ReadFile(filepath.Join("..", "daedalus", "task.go"))
+	if err != nil {
+		t.Fatalf("reading task.go: %v", err)
+	}
+	body := string(src)
+	i := strings.Index(body, "switch")
+	if i < 0 {
+		t.Fatal("task.go has no dispatch switch; this test cannot find what to check")
+	}
+	// Only the first switch — the subcommand dispatch. The flag parsers below it
+	// are switches too, and their cases start with a dash.
+	end := strings.Index(body[i:], "\n}")
+	cases := regexp.MustCompile(`case "([a-z-]+)"`).FindAllStringSubmatch(body[i:i+end], -1)
+	if len(cases) < 15 {
+		t.Fatalf("found %d task subcommands, which cannot be right", len(cases))
+	}
+
+	output := generateManpage("0.8.2", "2026-03-07")
+	for _, m := range cases {
+		name := m[1]
+		if !strings.Contains(output, `\fB`+name+`\fR`) {
+			t.Errorf("`daedalus task %s` is dispatched but the man page never names it", name)
+		}
+	}
+}

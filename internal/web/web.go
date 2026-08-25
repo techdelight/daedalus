@@ -314,6 +314,7 @@ func (ws *WebServer) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/control/tasks/{id}/retry", ws.handleRetryTask)
 	mux.HandleFunc("POST /api/control/tasks/{id}/reverify", ws.handleReverifyTask)
 	mux.HandleFunc("POST /api/control/tasks/{id}/checks", ws.handleAmendChecks)
+	mux.HandleFunc("POST /api/control/tasks/{id}/budget", ws.handleAmendBudget)
 	mux.HandleFunc("POST /api/control/tasks/{id}/replan", ws.handleReplanTask)
 	mux.HandleFunc("POST /api/control/tasks/{id}/review", ws.handleReviewTask)
 	mux.HandleFunc("POST /api/control/tasks/{id}/approve", ws.handleApproveTask)

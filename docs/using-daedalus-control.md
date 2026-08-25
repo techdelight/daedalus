@@ -405,6 +405,28 @@ whose globs do not cover it), then create the next Task: it freezes the *new*
 policy at its own `base_sha`. If you need an existing task to pick up a moved
 tip, `daedalus task retry <id> --rebase` re-pins and re-freezes.
 
+### Raising a limit without recreating the task
+
+A Task's budget is frozen at create, so nothing can widen the bound on its own
+work — and `budgets.json` reaches only new tasks. That left an exhausted task
+with one route: cancel and recreate, which throws away its history, its reviews,
+its rationale, and the attempt count itself.
+
+```bash
+daedalus task budget T-29 --attempts 5 --review-cycles 4
+```
+
+- **Human callers only.** An agent is refused outright, and cannot propose it
+  either: a bound an agent can ask to move is not a bound.
+- **Never above the project ceiling.** This moves a Task within the envelope you
+  have already set for the project; raising *that* is still an edit to
+  `budgets.json`, which is where authority over spend lives.
+- **Recorded with its lineage.** `task events` carries what the budget was and
+  what it became, and by whom. A budget that changed silently explains nothing
+  later.
+- Axes you leave out are untouched — this raises a limit, it does not replace the
+  envelope. A finished task is refused: it has nothing left to spend.
+
 ### Budgets
 
 Defaults are `wall-clock=3600s, attempts=3, review-cycles=3, concurrency=1`.

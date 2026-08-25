@@ -491,6 +491,7 @@ var webRoutes = map[string]struct{ method, path string }{
 	"RetryTask":          {http.MethodPost, "/api/control/tasks/T-1/retry"},
 	"ReverifyTask":       {http.MethodPost, "/api/control/tasks/T-1/reverify"},
 	"AmendTaskChecks":    {http.MethodPost, "/api/control/tasks/T-1/checks"},
+	"AmendTaskBudget":    {http.MethodPost, "/api/control/tasks/T-1/budget"},
 	"ReplanTask":         {http.MethodPost, "/api/control/tasks/T-1/replan"},
 	"ReviewTask":         {http.MethodPost, "/api/control/tasks/T-1/review"},
 	"ApproveTask":        {http.MethodPost, "/api/control/tasks/T-1/approve"},
@@ -565,6 +566,7 @@ type recorder struct {
 	confirm bool
 	note    string
 	err     error
+	budget  control.AmendBudgetRequest
 }
 
 func (r *recorder) DispatchTask(id string) (control.DispatchResult, error) {
@@ -587,6 +589,11 @@ func (r *recorder) ReplanTask(id string, req control.ReplanRequest) (control.Tas
 	r.gotID, r.replan = id, req
 	return control.Task{ID: id, Objective: req.Objective}, r.err
 }
+func (r *recorder) AmendTaskBudget(id string, req control.AmendBudgetRequest) (control.Task, error) {
+	r.gotID, r.budget = id, req
+	return control.Task{ID: id, Budget: control.Budget{MaxAttempts: req.MaxAttempts}}, r.err
+}
+
 func (r *recorder) AmendTaskChecks(id string, req control.AmendChecksRequest) (control.Task, error) {
 	r.gotID, r.checks = id, req
 	return control.Task{ID: id, Checks: req.Checks}, r.err
