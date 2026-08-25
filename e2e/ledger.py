@@ -216,6 +216,55 @@ def main():
         check("no invented fix line", failed.locator(".ledger-finding-fix").count() == 0,
               failed.inner_text())
 
+        # WHAT THE READER OPENED MUST SURVIVE THE POLL.
+        #
+        # The record is rebuilt from scratch every BOARD_MS, so a <details> the
+        # operator opened becomes a new, closed element a moment later —
+        # reported as "each time the ledger refreshes it collapses everything",
+        # while reading a review, which is the one screen somebody sits on for
+        # minutes. Nothing about the source says whether `open` survives a
+        # rebuild; only a browser does.
+        print("\n[3c] an opened finding survives a repaint")
+        open_ledger(page, "/ledger/T-1")
+        page.wait_for_function("document.getElementById('ledger-desc-id').textContent === 'T-1'",
+                               timeout=10000)
+        page.click("button.ff-tab:has-text('record')")
+        page.wait_for_selector(".ledger-finding", timeout=10000)
+        target = page.locator(".ledger-finding").nth(1)
+        target.locator("summary").click()
+        page.wait_for_timeout(200)
+        check("the finding opened", target.get_attribute("open") is not None)
+
+        # A repaint by the fast route: leaving the tab and coming back rebuilds
+        # the record through the same paintEntry the poll uses.
+        page.click("button.ff-tab:has-text('entry')")
+        page.wait_for_timeout(150)
+        page.click("button.ff-tab:has-text('record')")
+        page.wait_for_selector(".ledger-finding", timeout=10000)
+        check("still open after a rebuild",
+              page.locator(".ledger-finding").nth(1).get_attribute("open") is not None)
+
+        # …and closing one must STAY closed, including the harness-failure row
+        # that opens by default. A default that reasserts itself every fifteen
+        # seconds is the same bug wearing the opposite sign.
+        page.locator(".ledger-finding").nth(1).locator("summary").click()
+        page.wait_for_timeout(150)
+        page.click("button.ff-tab:has-text('entry')")
+        page.wait_for_timeout(150)
+        page.click("button.ff-tab:has-text('record')")
+        page.wait_for_selector(".ledger-finding", timeout=10000)
+        check("still closed after a rebuild",
+              page.locator(".ledger-finding").nth(1).get_attribute("open") is None)
+
+        # And the real thing: one whole poll cycle, unmocked.
+        target = page.locator(".ledger-finding").nth(0)
+        if target.get_attribute("open") is None:
+            target.locator("summary").click()
+            page.wait_for_timeout(200)
+        page.wait_for_timeout(16000)   # BOARD_MS is 15s
+        check("still open after a real poll",
+              page.locator(".ledger-finding").nth(0).get_attribute("open") is not None)
+
         # --- item 1: the lock ------------------------------------------------
         print("\n[1] a command locks one entry, not the page")
         open_ledger(page, "/ledger/T-1")

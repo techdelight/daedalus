@@ -97,6 +97,40 @@
   // rows, and every question of the form "is this entry on the board" answers
   // no for the wrong reason (see markRows).
   let listRendered = false;
+  // WHICH DISCLOSURES ARE OPEN, and it has to live out here.
+  //
+  // The record is rebuilt from scratch on every 15-second poll, so a <details>
+  // the operator opened is a NEW element a moment later, closed. Reported as
+  // "each time the ledger refreshes it collapses everything" — while reading a
+  // review, which is the one screen somebody sits on for minutes at a time.
+  //
+  // The comment beside the <details> claimed it "survives the repaint that a
+  // poll causes". It does not: `open` is state on the element, and the element
+  // is thrown away. Keyed by review id and finding index, which are stable
+  // because the plane sorts findings on the way in and stores them.
+  const openDisclosures = new Set();
+  // Keys we have already applied a default to. Without this, a finding that
+  // opens by default (nowhere to look, nothing to do) would spring open again
+  // on the next poll after the reader deliberately closed it.
+  const defaultedDisclosures = new Set();
+
+  // disclosureOpen decides whether one <details> is open, applying its default
+  // exactly once and letting the reader's own toggle win from then on.
+  function disclosureOpen(key, openByDefault) {
+    if (!defaultedDisclosures.has(key)) {
+      defaultedDisclosures.add(key);
+      if (openByDefault) openDisclosures.add(key);
+    }
+    return openDisclosures.has(key);
+  }
+
+  // remember wires a <details> so its state outlives the next repaint.
+  function remember(box, key) {
+    box.addEventListener('toggle', function () {
+      if (box.open) openDisclosures.add(key);
+      else openDisclosures.delete(key);
+    });
+  }
 
   function el(id) { return document.getElementById(id); }
 
@@ -940,10 +974,17 @@
     }
     paintTabs(['entry', 'terms', 'record']);
     bodyEl.className = 'ledger-desc-body';
+    // WHERE THE READER HAD SCROLLED TO, across the rebuild. Same complaint as
+    // the collapsing disclosures and the same cause: this panel is emptied and
+    // refilled every fifteen seconds, so a long record jumped back to the top
+    // under anyone reading it. Restoring is clamped by the browser when the new
+    // content is shorter, so a record that shrank simply lands at its end.
+    const wasAt = bodyEl.scrollTop;
     bodyEl.innerHTML = '';
     if (tab === 'entry') paintObjective(bodyEl);
     else if (tab === 'terms') paintTerms(bodyEl);
     else paintRecord(bodyEl);
+    bodyEl.scrollTop = wasAt;
 
     if (note) {
       const n = currentCard ? notesFor(currentCard) : { text: '', stuck: false };
@@ -1274,7 +1315,7 @@
       ' · ' + (r.reviewer || 'unattributed')));
     host.appendChild(head);
 
-    findings.forEach(function (f) {
+    findings.forEach(function (f, n) {
       const where = f.file ? (f.line ? f.file + ':' + f.line : f.file) : '';
       // THE ANCHOR IS ABBREVIATED IN THE SUMMARY ROW, in full when opened.
       //
@@ -1284,11 +1325,12 @@
       // `items.go:88` answers "where" well enough to decide whether to look;
       // the full path matters when you go, which is when the finding is open.
       const anchor = f.file ? (f.file.split('/').pop() + (f.line ? ':' + f.line : '')) : '';
-      // <details> rather than a click handler: it is one element, it survives the
-      // repaint that a poll causes, it opens with the keyboard, and a reader who
-      // prints the page gets everything.
+      // <details> rather than a click handler: one element, it opens with the
+      // keyboard, and a reader who prints the page gets everything. What it does
+      // NOT do is survive the repaint — see openDisclosures.
       const box = document.createElement('details');
       box.className = 'ledger-finding is-' + (f.severity || 'note');
+      const key = r.id + '#' + n;
       // OPEN WHEN THERE IS NOTHING TO DISCLOSE PROGRESSIVELY.
       //
       // Collapsing works because the summary line is enough to decide whether to
@@ -1302,7 +1344,8 @@
       // review judgement was produced", and the REASON — which names the failure
       // and the log to read — was one click away with nothing suggesting it was
       // worth the click. The operator read the row and had nothing to act on.
-      if (!f.file && !f.fix) box.open = true;
+      box.open = disclosureOpen(key, !f.file && !f.fix);
+      remember(box, key);
       const line = document.createElement('summary');
       line.appendChild(text('span', 'ledger-finding-sev', f.severity || 'note'));
       if (anchor) {
@@ -1334,6 +1377,9 @@
     if (r.reasoning) {
       const box = document.createElement('details');
       box.className = 'ledger-reasoning';
+      const key = r.id + '#reasoning';
+      box.open = disclosureOpen(key, false);
+      remember(box, key);
       const line = document.createElement('summary');
       line.textContent = 'How ' + (r.reviewer || 'the reviewer') + ' read the change';
       box.appendChild(line);
