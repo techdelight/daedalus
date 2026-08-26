@@ -324,6 +324,59 @@ def main():
         check("T-1 is usable again",
               page.locator('.ledger-row[data-entry-id="T-1"]').count() == 1)
 
+        # --- the narrow layout -------------------------------------------------
+        #
+        # One screen at a time. The split pane is a desktop idea, and stacking
+        # both panes at half height — what this used to do — is worse than
+        # either alone: four rows of list above an entry too short to read.
+        print("\n[5] on a phone, one screen at a time")
+        phone = browser.new_context(viewport={"width": 390, "height": 844},
+                                    is_mobile=True, has_touch=True,
+                                    device_scale_factor=2)
+        m = phone.new_page()
+        m.goto(URL + "/ledger")
+        m.wait_for_selector(".ledger-row", timeout=15000)
+        m.wait_for_timeout(400)
+
+        check("the device reports no hover", not m.evaluate("matchMedia('(hover: hover)').matches"))
+        body = m.locator("#ledger-body")
+        check("the list screen shows no entry pane",
+              "is-entry" not in (body.get_attribute("class") or ""),
+              body.get_attribute("class"))
+        desc_visible = m.evaluate(
+            "getComputedStyle(document.querySelector('.ledger-desc')).visibility")
+        check("the entry pane is not on screen", desc_visible == "hidden", desc_visible)
+
+        # A row is a 44px target and says it opens something.
+        box = m.locator('.ledger-row[data-entry-id="T-1"]').bounding_box()
+        check("a row is a 44px touch target", box["height"] >= 44, f"{box['height']}px")
+
+        # Tapping navigates. It must be a real address, so the phone's own back
+        # gesture works without the page knowing about it.
+        m.tap('.ledger-row[data-entry-id="T-1"]')
+        m.wait_for_timeout(500)
+        check("tapping a row opens its own address", m.url.endswith("/ledger/T-1"), m.url)
+        check("the entry screen is on", "is-entry" in (m.locator("#ledger-body").get_attribute("class") or ""))
+        check("the entry pane is now visible",
+              m.evaluate("getComputedStyle(document.querySelector('.ledger-desc')).visibility") == "visible")
+        check("the back control is there", m.locator("#ledger-back").is_visible())
+
+        # Two controls called Back, a thumb apart, is one too many.
+        check("the header's Back is hidden while an entry is open",
+              not m.locator(".ledger-header .btn-back").is_visible())
+
+        # Back returns to the list AND to its address.
+        m.tap("#ledger-back")
+        m.wait_for_timeout(500)
+        check("back returns to the list", m.url.endswith("/ledger"), m.url)
+        check("the entry screen is off",
+              "is-entry" not in (m.locator("#ledger-body").get_attribute("class") or ""))
+
+        check("no sideways scrolling on a phone",
+              m.evaluate("document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1"))
+        m.screenshot(path=os.environ.get("LEDGER_MOBILE_SHOT") or "/tmp/m-list.png")
+        phone.close()
+
         # --- page health ------------------------------------------------------
         print("\n[0] the page itself")
         real = [e for e in errors if "favicon" not in e.lower()]

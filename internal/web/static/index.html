@@ -117,6 +117,12 @@
                 <div class="ff-window ledger-desc" id="ledger-desc">
                     <span class="ff-window-title">Entry</span>
                     <div class="ledger-desc-head">
+                        <!-- The B button. Shown only on a narrow screen, where the
+                             entry is its own screen rather than a pane beside the
+                             list. It is a real navigation step (history.back), so
+                             the phone's own back gesture does the same thing. -->
+                        <button class="ledger-back" id="ledger-back" type="button"
+                                onclick="ledgerBack()" aria-label="Back to the list">◀</button>
                         <span class="ledger-desc-id" id="ledger-desc-id">—</span>
                         <span class="ledger-desc-project" id="ledger-desc-project"></span>
                         <span class="ledger-desc-status" id="ledger-desc-status"></span>

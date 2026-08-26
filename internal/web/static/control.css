@@ -919,6 +919,12 @@
     color: var(--mana-frame-pale);
 }
 
+/* The B button exists only on the narrow layout, where an entry is its own
+   screen. On the desktop split there is nothing to go back FROM. */
+.ledger-back {
+    display: none;
+}
+
 /* --- responsive --------------------------------------------------------- */
 
 @media (max-width: 780px) {
@@ -926,43 +932,189 @@
         padding: 12px 10px 14px;
     }
 
-    /* Columns become rows, and the entry goes FIRST: there is no pointing on a
-       touch screen, so you tap a row and look up — which only works if "up" is
-       where the entry is. Both take a fixed share rather than growing, so the
-       list never gets squeezed to a couple of rows by a long objective.
-
-       The entry's share went up when the commands moved into it: it now carries
-       the tabs, up to nine command plates, the message line and the target strip
-       on top of the objective, and at the old 0.8/1.2 split the objective itself
-       was the part that got squeezed out. */
+    /* ONE SCREEN AT A TIME. THE SPLIT PANE IS A DESKTOP IDEA.
+       This used to stack both panes at half height each, which is worse than
+       either alone: a list of four rows above an entry too short to read, with
+       the objective — the thing you opened it for — squeezed out first. Reported
+       as unusable on a phone, and it was.
+       The console this page is drawn as already answers this. A SNES menu on a
+       handheld does not show the roster and the item screen at once: you are on
+       one screen, you press A to enter the next, and B to come back. So the list
+       IS the screen, an entry is a screen you enter, and `/ledger/T-18` is
+       already its address — which means the phone's own back gesture works
+       without anything here knowing about it. */
     .ledger-body {
         grid-template-columns: minmax(0, 1fr);
-        grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+        grid-template-rows: minmax(0, 1fr);
+        position: relative;
     }
 
-    .ledger-desc {
-        order: -1;
+    .ledger-body > .ledger-list { grid-area: 1 / 1; }
+
+    /* The entry sits ON the list rather than beside it, and is only there when
+       an entry is open. Off-screen rather than display:none so it can slide. */
+    .ledger-body > .ledger-desc {
+        grid-area: 1 / 1;
+        z-index: 2;
+        transform: translateX(100%);
+        visibility: hidden;
+        transition: transform 160ms steps(4), visibility 0s linear 160ms;
     }
+
+    .ledger-body.is-entry > .ledger-desc {
+        transform: translateX(0);
+        visibility: visible;
+        transition: transform 160ms steps(4), visibility 0s;
+    }
+
+    /* SNES UI does not ease — the same reason the cursor and the running mark
+       use steps(2). A smooth push would read as a web app; a stepped one reads
+       as the console this is drawn as. */
+    @media (prefers-reduced-motion: reduce) {
+        .ledger-body > .ledger-desc,
+        .ledger-body.is-entry > .ledger-desc {
+            transition: none;
+        }
+    }
+
+    /* The list keeps its scroll position while an entry is open, so coming back
+       lands where you left rather than at the top. */
+    .ledger-body.is-entry > .ledger-list {
+        overflow: hidden;
+    }
+
+    /* The B button. A 44px target, the page's own cursor glyph, and the only
+       control in the head that is not text. */
+    .ledger-back {
+        display: block;
+        flex: none;
+        min-width: 44px;
+        min-height: 44px;
+        margin: -6px 2px -6px -6px;
+        border: none;
+        background: transparent;
+        color: var(--mana-frame);
+        font: inherit;
+        font-size: 16px;
+        line-height: 1;
+        cursor: pointer;
+        text-shadow: 1px 1px 0 var(--mana-ink);
+    }
+
+    .ledger-back:active { color: var(--mana-frame-pale); }
+
+    /* Bigger type where a thumb has to hit it, and the row grows to a 44px
+       target. The status word stays small: it is scanned, not read. */
+    .ledger-row {
+        padding: 10px 8px;
+        min-height: 44px;
+    }
+
+    .ledger-row-objective { font-size: 13px; }
+
+    /* A ROW OPENS A SCREEN, and on a touch device nothing said so — the ▶ cursor
+       is a hover state and there is no hover. The marker points the way the
+       screen moves, and it takes the column the hover cursor was reserving,
+       which was 16px of an already narrow row doing nothing.
+
+       Placed explicitly. Auto-placement drops it into the second row's first
+       cell, under the id, because the status spans both rows in column 3. */
+    .ledger-cursor { display: none; }
 
     .ledger-row {
-        grid-template-columns: 16px minmax(0, 1fr) auto;
-        row-gap: 2px;
+        grid-template-columns: minmax(0, 1fr) auto auto;
+        column-gap: 8px;
     }
 
-    /* The id joins the objective's line rather than holding a column of its
-       own; the status keeps its column, because that is what is being scanned. */
-    .ledger-row-id {
-        grid-column: 2;
-    }
+    .ledger-row-id,
+    .ledger-row-objective { grid-column: 1; }
 
-    .ledger-row-objective {
-        grid-column: 2;
-    }
+    .ledger-row-status { grid-column: 2; }
 
-    .ledger-row-status {
+    .ledger-row::after {
+        content: "\25B8";
         grid-column: 3;
         grid-row: 1 / span 2;
+        align-self: center;
+        color: var(--mana-frame-lt);
+        font-size: 13px;
     }
+
+    /* The busy marker keeps its own column when it is there. */
+    .ledger-row.is-busy {
+        grid-template-columns: minmax(0, 1fr) auto auto auto;
+    }
+
+    .ledger-row.is-busy::after {
+        grid-column: 4;
+        grid-row: 1 / span 2;
+    }
+
+    /* THE HEADER IS NOT THE POINT OF THE SCREEN. It was taking a third of a
+       phone before any content: a title, two buttons, a subtitle over two lines
+       and the build string. Trimmed to the title, the one action, and the
+       counts. */
+    .ledger-title { font-size: 15px; }
+    .ledger-title::before { content: ""; }
+
+    .ledger-subtitle {
+        order: 3;
+        flex-basis: 100%;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        font-size: 10px;
+    }
+
+    /* The build string is a diagnostic. It stays on the desktop, where there is
+       room for it, and goes here, where there is not. */
+    .ledger-build { display: none; }
+
+    /* TWO BACKS IS ONE TOO MANY. While an entry is open the ◀ in its head means
+       "back to the list", and the header's Back means "leave the Ledger" — two
+       controls a thumb apart, both called back. The header's goes away until you
+       are on the list, where it is the only one and means what it says. */
+    .ledger-body.is-entry ~ * .btn-back,
+    #control-view:has(.ledger-body.is-entry) .ledger-header .btn-back {
+        display: none;
+    }
+
+    /* The command bar scrolls sideways, so say so at the edge rather than
+       leaving a plate cut in half with nothing to suggest there is more. */
+    .ledger-commands {
+        -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent);
+        mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent);
+    }
+
+    /* The commands become the bottom bar of the screen, the way a battle menu
+       sits under the field. Scrolls sideways rather than wrapping into three
+       rows that push the reading off the top. */
+    .ledger-commands {
+        position: sticky;
+        bottom: 0;
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        scrollbar-width: none;
+        padding: 8px 0 max(8px, env(safe-area-inset-bottom));
+        margin-bottom: calc(-1 * max(8px, env(safe-area-inset-bottom)));
+        background: linear-gradient(180deg, transparent, var(--mana-panel) 22%);
+    }
+
+    .ledger-commands::-webkit-scrollbar { display: none; }
+
+    .ledger-commands .ff-cmd {
+        flex: none;
+        min-height: 40px;
+    }
+
+    /* The id joins the objective's line rather than holding a column of its own;
+       the status keeps a column, because that is what is being scanned. The
+       columns themselves are declared once, above, with the chevron — two rules
+       setting grid-column on the same element is how the marker ended up on top
+       of the status word. */
+    .ledger-row { row-gap: 2px; }
+
+    .ledger-row-status { grid-row: 1 / span 2; }
 
     /* The header wraps rather than shrinking the title to nothing; the subtitle
        takes the second line, where it has room to be read. */

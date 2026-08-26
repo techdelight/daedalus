@@ -134,6 +134,20 @@
 
   function el(id) { return document.getElementById(id); }
 
+  // THE NARROW LAYOUT IS ONE SCREEN AT A TIME (control.css).
+  //
+  // Asked of the browser rather than tracked, so a rotation or a resized window
+  // is answered by the next repaint instead of by a listener nobody remembers to
+  // fire. The breakpoint is the stylesheet's, named here once.
+  const NARROW = '(max-width: 780px)';
+  function narrow() { return window.matchMedia(NARROW).matches; }
+
+  // Whether pointing at a thing is a gesture this device has. A touch screen
+  // reports `hover: none`, and the list's hover-to-preview is meaningless there
+  // — worse than meaningless, because a tap fires a synthetic mouseenter first,
+  // so a preview would open the entry a moment before the click navigates to it.
+  function canHover() { return window.matchMedia('(hover: hover)').matches; }
+
   // WHICH BUILD IS THIS. The page carries the build that served it, in a meta
   // tag; the server reports its own. Normally they match and the header just
   // says which code you are looking at — the question that was previously
@@ -657,6 +671,9 @@
     // sweeping the mouse over it, and a keyboard user still selects with Enter,
     // which fires the click below.
     const preview = function () {
+      // Not on a touch screen: there is no pointing there, and a tap synthesises
+      // a mouseenter before its click. Every open is an explicit tap.
+      if (!canHover()) return;
       if (pinned === null) onShow();
     };
     row.addEventListener('mouseenter', preview);
@@ -939,6 +956,8 @@
     }).catch(function () { /* the entry renders from the list row alone */ });
   }
 
+  // Leaving an entry. On the narrow layout this is the screen going back to the
+  // list; on the desktop split it is the window going blank.
   function clearEntry() {
     current = null;
     currentCard = null;
@@ -961,7 +980,22 @@
     }).catch(function () { /* the entry renders from the card alone */ });
   }
 
+  // WHICH SCREEN THE NARROW LAYOUT IS ON.
+  //
+  // One class, set from the same fact the desktop layout uses to decide what to
+  // draw: is an entry open. Nothing else changes between the two layouts —
+  // there is no second render path, no mobile code to keep in step, and the URL
+  // is what says which screen you are on either way.
+  function paintScreen() {
+    const body = el('ledger-body');
+    if (!body) return;
+    body.classList.toggle('is-entry', !!current);
+    const back = el('ledger-back');
+    if (back) back.tabIndex = current && narrow() ? 0 : -1;
+  }
+
   function paintEntry() {
+    paintScreen();
     const head = el('ledger-desc-id');
     const project = el('ledger-desc-project');
     const status = el('ledger-desc-status');
@@ -2363,6 +2397,20 @@
     if (!(opts && opts.fromRoute) && routeOf(location.pathname).ledger) {
       history.pushState({}, '', '/');
     }
+  };
+
+  // The B button. history.back() rather than clearing the entry directly, so it
+  // is the SAME step the phone's own back gesture takes — one way in, one way
+  // out, and no state that only one of them knows about. Falls back to the list
+  // address when there is no history to go back to (a link opened cold).
+  window.ledgerBack = function () {
+    if (window.history.length > 1 && routeOf(location.pathname).entry) {
+      window.history.back();
+      return;
+    }
+    pinned = null;
+    goTo('');
+    clearEntry();
   };
 
   window.ledgerNewTask = openNewTask;
