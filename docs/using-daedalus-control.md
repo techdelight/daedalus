@@ -699,7 +699,12 @@ did the work, and it cannot see that agent's transcript.
 What comes back is deliberately small, and in words you already have. Each
 finding is a severity, a place to look, and three single sentences: **what** is
 wrong, **why** it matters, and the **fix** it would apply. The reviewer is asked
-for everyday words as well as short ones — it has just spent an hour reading one
+for a readable SENTENCE as well as a short one — the prompt carries a real
+finding that used only everyday words and was still unreadable ("a prose turn
+whose run then failed…"), with the three faults named and the plain rewrite
+beside it. Word choice was never the problem; stacked nouns, a verb on the wrong
+subject and a missing actor were. The reviewer may use the project's real
+identifiers and may not coin compound terms of its own — it has just spent an hour reading one
 subsystem and will otherwise write in that subsystem's vocabulary, which is
 short, correct, and still needs translating. The project's own names are the
 exception: those are what the thing is called. The size limit is the point — the fields were unbounded

@@ -346,12 +346,23 @@ func ReviewPrompt(spec ReviewSpec, diff string) string {
 	// down. A reviewer borrows the vocabulary of whatever subsystem it has just
 	// been reading, and the person deciding has not been reading it.
 	b.WriteString("WRITE IT FOR SOMEONE WHO KNOWS THE PROJECT BUT NOT THIS SUBSYSTEM.\n")
-	b.WriteString("Everyday words, except for names the project itself uses — those are what it is " +
-		"called, and swapping them for a paraphrase loses the reader instead of helping them. " +
-		"Anything else, prefer the plain word: something is RECORDED rather than `fires`, a value " +
-		"is WRONG rather than `inconsistent`, a call RETURNS NOTHING rather than `no-ops`. If a " +
-		"term only makes sense to whoever wrote the file you are reading, it will not survive the " +
-		"trip to the person deciding.\n\n")
+	b.WriteString("Plain words: something is RECORDED rather than `fires`, a call RETURNS NOTHING " +
+		"rather than `no-ops`.\n\n")
+	b.WriteString("SENTENCE SHAPE MATTERS MORE THAN WORD CHOICE. Every word in this real " +
+		"finding is an everyday word and it is still unreadable:\n")
+	b.WriteString(badFindingExample + "\n")
+	b.WriteString("Three faults, and they are the usual three:\n")
+	b.WriteString("  - TWO NOUNS DOING A CLAUSE'S WORK. `prose turn` makes the reader guess the " +
+		"relationship. Say `a turn that ends in text`.\n")
+	b.WriteString("  - THE VERB ON THE WRONG SUBJECT. The RUN failed; prose cannot fail. Hiding " +
+		"that in a relative clause makes the sentence say something impossible.\n")
+	b.WriteString("  - NO ACTOR. Counted by what? Printed by what? Name the thing that acts: " +
+		"`the report counts it`.\n")
+	b.WriteString("Written plainly: " + goodFindingExample + "\n\n")
+	b.WriteString("So: name who does what, one idea per sentence, and never stack two nouns where " +
+		"a verb would do. You may use the project's own IDENTIFIERS — file names, function names, " +
+		"record kinds like `grounding_gap` — as names. Do not invent compound terms of your own, " +
+		"and do not turn an identifier into an adjective.\n\n")
 
 	b.WriteString("Your verdict is ADVISORY. It is shown to a human who decides; it does not block " +
 		"anything on its own. So say what you actually think rather than what is safe: a hedge " +
@@ -359,6 +370,18 @@ func ReviewPrompt(spec ReviewSpec, diff string) string {
 		"the work you were asked to do to the person reading you.\n")
 	return b.String()
 }
+
+// badFindingExample and goodFindingExample are the SAME finding, written twice.
+//
+// A real one, from a review of snowball on 2026-08-26, and the operator's
+// reaction to it: "who talks like that? a prose? prose cannot run". They were
+// right. Every word in it is an everyday word, which is exactly why the previous
+// instruction — prefer plain words — could not catch it. The fault is in the
+// shape of the sentence, and a model steers on an example far better than on a
+// rule, so the prompt carries both versions rather than describing them.
+const badFindingExample = `  "A prose turn whose run then failed is counted under 'answered in prose' but printed in neither band."`
+
+const goodFindingExample = `"The report counts a turn as answered-in-prose even when its run later failed, then shows it in neither section."`
 
 // ParseReviewJudgement reads what the reviewer wrote.
 //

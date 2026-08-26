@@ -347,24 +347,44 @@ func TestReviewPrompt_FallsBackWhenThereAreNoDeliverables(t *testing.T) {
 //
 // The plain-language guidance this format came from says both halves, short
 // sentences AND everyday words, and only the first was ever written down.
-func TestReviewPrompt_AsksForPlainWordsAsWellAsShortOnes(t *testing.T) {
+func TestReviewPrompt_TeachesSENTENCESHAPEAndNotOnlyWords(t *testing.T) {
 	prompt := ReviewPrompt(ReviewSpec{TaskID: "T-1", Objective: "anything"}, "diff")
 
-	// The instruction itself.
-	if !strings.Contains(prompt, "KNOWS THE PROJECT BUT NOT THIS SUBSYSTEM") {
-		t.Error("the prompt bounds the LENGTH of a finding and says nothing about the words in " +
-			"it, so a reviewer writes jargon that is short and still needs translating")
+	// THE WORKED EXAMPLE, both halves, verbatim. A rule about sentence shape is
+	// abstract and a model steers on an example; pinning the constants means the
+	// prompt and the thing this test is about cannot drift apart.
+	if !strings.Contains(prompt, badFindingExample) {
+		t.Error("the prompt no longer shows the unreadable sentence it is teaching against — the " +
+			"rule alone did not work, which is why the example exists")
 	}
-	// …and the exception that keeps it usable. Told to avoid jargon without this,
-	// a reviewer paraphrases the project's own nouns and the reader loses the
-	// thread entirely.
-	if !strings.Contains(prompt, "names the project itself uses") {
-		t.Error("nothing exempts the project's own vocabulary, so a reviewer will paraphrase the " +
-			"names the reader actually navigates by")
+	if !strings.Contains(prompt, goodFindingExample) {
+		t.Error("the prompt shows the bad sentence and not the good one, so a reviewer is told " +
+			"what to avoid and not what to do instead")
 	}
-	// Both halves are stated together, because either alone produces the failure
-	// the other was meant to prevent.
+
+	// The three faults, because "write clearly" is not actionable and these are.
+	for _, rule := range []string{"TWO NOUNS", "WRONG SUBJECT", "NO ACTOR"} {
+		if !strings.Contains(prompt, rule) {
+			t.Errorf("the prompt does not name the %q fault; every word in the example is plain, "+
+				"so word choice alone cannot explain what is wrong with it", rule)
+		}
+	}
+
+	// THE EXEMPTION IS NARROW. The previous version allowed "names the project
+	// itself uses", and that is what licensed `prose turn` — an invented compound
+	// dressed up as project vocabulary. Identifiers only.
+	if !strings.Contains(prompt, "IDENTIFIERS") {
+		t.Error("nothing tells the reviewer it may still use the project's real identifiers, so " +
+			"it will paraphrase the names the reader navigates by")
+	}
+	if !strings.Contains(prompt, "Do not invent compound terms") {
+		t.Error("the exemption is unbounded again — a reviewer will coin its own two-noun phrases " +
+			"and present them as the project's vocabulary")
+	}
+
+	// Length and shape are two halves of one instruction; neither alone works.
 	if !strings.Contains(prompt, "KEEP IT SHORT") {
-		t.Error("the length rules are gone; short and plain are two halves of one instruction")
+		t.Error("the length rules are gone; short and clear are different properties and the " +
+			"prompt needs both")
 	}
 }
