@@ -187,6 +187,18 @@
    It is the ONLY part of the entry window that scrolls. The head, the tabs, the
    commands, the message and the target strip stay put, so a long event log can
    never push the command you are reaching for off the bottom of the screen. */
+/* No text-shadow. Everywhere else on this screen the 1px ink offset is the SNES
+   bevel doing its job on display type — bold, uppercase, letter-spaced. Here it
+   ran through normal-weight sentences at 12px, where the stems are about as
+   wide as the offset, so it was filling counters on the surface built for
+   reading rather than glancing. The frame, the titles and the status words keep
+   it; the paragraphs do not.
+
+   The MEASURE cap is NOT here, deliberately — see `.ledger-prose`. This pane is
+   all three tabs, and TERMS and RECORD are structured rows, not prose: capping
+   the pane wrapped every review finding onto a second line and broke the
+   one-line-per-finding rule the review was rebuilt around. Line length is a
+   property of running text, so the cap belongs on the running text. */
 .ledger-desc-body {
     flex: 1;
     min-height: 0;
@@ -195,7 +207,6 @@
     line-height: 1.7;
     white-space: pre-wrap;
     color: var(--mana-text);
-    text-shadow: 1px 1px 0 var(--mana-ink);
 }
 
 /* A SNES window has no scrollbar furniture; this keeps it out of the way
@@ -344,9 +355,24 @@
 }
 
 /* The status word, coloured like a JRPG status effect. The palette's HP ramp
-   is doing the same job one level up: how healthy is this piece of work. */
+   is doing the same job one level up: how healthy is this piece of work.
+
+   THE 12px FLOOR. This was 10px, and so were the advisory, the confirm-why, the
+   section note and the log note — five places where the text is not decoration
+   but the thing the reader has to act on. A 10px mono glyph has an x-height of
+   about 1.3mm at arm's length, which is below the bottom of the fluent range
+   Legge & Bigelow put at 0.2°–2° of visual angle: the band where reading speed
+   is maximal. Below it, speed drops rather than the text merely feeling small.
+   Chrome that is genuinely furniture — section counts, frame titles, the pixel
+   display type — stays where it is; size is a fine way to say "this is
+   secondary" right up until it crosses the legibility floor, and these five had.
+
+   The shadow stays HERE and comes off the four prose ones. At 12px bold,
+   uppercase and letter-spaced, a 1px offset reads as the intended bevel; on a
+   normal-weight sentence at the same size it fills the counters, because the
+   stems are about as wide as the offset. */
 .ledger-row-status {
-    font-size: 10px;
+    font-size: 12px;
     font-weight: 700;
     letter-spacing: 2px;
     text-transform: uppercase;
@@ -357,7 +383,13 @@
 .ledger-row-status.is-working { color: var(--mana-text-dim); }
 .ledger-row-status.is-waiting { color: var(--mana-hp-mid); }
 .ledger-row-status.is-passed  { color: var(--mana-hp-hi); }
-.ledger-row-status.is-refused { color: var(--mana-hp-lo); }
+/* REFUSED reads as the LIGHT red, not the base one. `--mana-hp-lo` (#e2564b)
+   on the panel is 3.18:1 — it failed WCAG AA outright at this size, and it was
+   the status the operator most needs to catch. `--mana-hp-lo-lt` is 6.68:1,
+   which lands REFUSED in the same legibility band as its siblings (WAITING
+   6.86, PASSED 6.21, WORKING 6.68) instead of well below them. The base red
+   stays what it is for FILLS, where the HP ramp needs it. */
+.ledger-row-status.is-refused { color: var(--mana-hp-lo-lt); }
 
 /* A command this page has sent for this row and not yet heard back about.
    The status word says what the PLANE thinks the task is; this says what the
@@ -405,11 +437,11 @@
    stops being read and becomes the shape of the list. */
 .ledger-section-note {
     padding: 2px 8px 6px 46px;
-    font-size: 10px;
+    /* 12px floor and no shadow — see `.ledger-row-status`. This is a sentence. */
+    font-size: 12px;
     line-height: 1.5;
     color: var(--mana-text-dim);
     overflow-wrap: anywhere;
-    text-shadow: 1px 1px 0 var(--mana-ink);
 }
 
 /* --- commands ----------------------------------------------------------- */
@@ -535,11 +567,13 @@
     text-shadow: 1px 1px 0 var(--mana-ink);
 }
 
+/* 12px floor and no shadow — see `.ledger-row-status`. This is the REASON on a
+   confirmation: the last thing read before an irreversible command, and it was
+   the smallest text on the screen. */
 .ledger-confirm-why {
-    font-size: 10px;
+    font-size: 12px;
     line-height: 1.5;
     color: var(--mana-text-dim);
-    text-shadow: 1px 1px 0 var(--mana-ink);
 }
 
 /* --- the sub-screens ---------------------------------------------------- */
@@ -578,13 +612,25 @@
     outline-offset: 1px;
 }
 
-/* Prose inside a sub-screen: the objective, and the "nothing here" lines. */
+/* Prose inside a sub-screen: the objective, and the "nothing here" lines.
+
+   THE MEASURE. This is the one element on the screen that holds paragraphs, and
+   it sat in a `minmax(0, 0.85fr)` column that fills the viewport — so the line
+   length scaled with the monitor: about 68 characters at 1280px, ~78 at 1440,
+   ~106 at 1920 and ~144 at 2560. Dyson's review puts the comfortable band at
+   45–75 characters and the raw-speed optimum near 100, so a wide display was
+   over BOTH: long lines break the return sweep and the eye loses which line it
+   came from. 68ch holds it in the band on any display and simply stops growing.
+   `.ledger-closed-body` has capped itself at 46ch since it was written; this is
+   the same idiom applied to the surface that actually holds the objective.
+
+   No text-shadow, for the reason given on `.ledger-desc-body`. */
 .ledger-prose {
     white-space: pre-wrap;
+    max-width: 68ch;
     font-size: 12px;
     line-height: 1.7;
     color: var(--mana-text);
-    text-shadow: 1px 1px 0 var(--mana-ink);
 }
 
 .ledger-prose.is-empty {
@@ -677,14 +723,14 @@
 .ledger-log-what.is-waiting { color: var(--mana-hp-mid); }
 .ledger-log-what.is-passed  { color: var(--mana-hp-hi); }
 
+/* 12px floor and no shadow — see `.ledger-row-status`. */
 .ledger-log-note,
 .ledger-logpath {
     padding: 0 0 4px 6ch;
-    font-size: 10px;
+    font-size: 12px;
     line-height: 1.5;
     color: var(--mana-text-dim);
     overflow-wrap: anywhere;
-    text-shadow: 1px 1px 0 var(--mana-ink);
 }
 
 /* --- the message window -------------------------------------------------- */
@@ -904,12 +950,12 @@
         2px 2px 0 var(--mana-frame-dk);
 }
 
+/* No text-shadow — prose surface, same reason as `.ledger-desc-body`. */
 .ledger-closed-body {
     max-width: 46ch;
     font-size: 12px;
     line-height: 1.8;
     color: var(--mana-text-dim);
-    text-shadow: 1px 1px 0 var(--mana-ink);
 }
 
 .ledger-closed-body code {
@@ -1256,7 +1302,9 @@
     text-shadow: 1px 1px 0 var(--mana-ink);
 }
 
-.ledger-finding.is-blocking .ledger-finding-sev { color: var(--mana-hp-lo); }
+/* Light red, for the same reason as `.ledger-row-status.is-refused` above:
+   BLOCKING is the severity that must not be the hardest one to read. */
+.ledger-finding.is-blocking .ledger-finding-sev { color: var(--mana-hp-lo-lt); }
 .ledger-finding.is-concern .ledger-finding-sev { color: var(--mana-hp-mid); }
 
 /* The anchor, kept out of the sentence. It was glued to the front of `what` with
@@ -1321,13 +1369,13 @@
 
 /* Said under every set of findings, because the plane used to act on them and an
    operator who remembers that will otherwise assume the task has moved. */
+/* 12px floor and no shadow — see `.ledger-row-status`. */
 .ledger-advisory {
     margin: 6px 0 2px;
     padding-left: 12px;
-    font-size: 10px;
+    font-size: 12px;
     letter-spacing: 1px;
     color: var(--mana-frame-lt);
-    text-shadow: 1px 1px 0 var(--mana-ink);
 }
 
 /* A reading exists, and it is on another page. Without this line an operator

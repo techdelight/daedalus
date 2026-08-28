@@ -45,7 +45,7 @@ header h1 {
 
 header .status {
     font-size: 12px;
-    color: #565f89;
+    color: #8b93bd;
 }
 
 .project-list {
@@ -84,7 +84,7 @@ thead th {
     font-size: 11px;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    color: #565f89;
+    color: #8b93bd;
     border-bottom: 1px solid #292e42;
     font-weight: 600;
 }
@@ -200,7 +200,7 @@ tbody td {
 .empty-state {
     text-align: center;
     padding: 48px 24px;
-    color: #565f89;
+    color: #8b93bd;
 }
 
 .status-msg {
@@ -238,8 +238,8 @@ tbody td {
 }
 
 .dashboard-header .btn-back {
-    border-color: #565f89;
-    color: #565f89;
+    border-color: #8b93bd;
+    color: #8b93bd;
 }
 
 .dashboard-header .btn-back:hover {
@@ -269,7 +269,7 @@ tbody td {
     font-size: 11px;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    color: #565f89;
+    color: #8b93bd;
     margin-bottom: 8px;
 }
 
@@ -342,7 +342,7 @@ tbody td {
     font-size: 12px;
     text-transform: uppercase;
     letter-spacing: 0.12em;
-    color: #565f89;
+    color: #8b93bd;
     font-weight: 600;
     margin-bottom: 16px;
     display: flex;
@@ -359,12 +359,26 @@ tbody td {
 }
 
 .journey-empty {
-    color: #565f89;
+    color: #8b93bd;
     font-size: 14px;
     font-style: italic;
 }
 
-/* Narrative prose — the humanist-sans voice. */
+/* Narrative prose — the humanist-sans voice.
+
+   THE MEASURE. `.journey` caps the column at 820px, which is right for the
+   timeline and its markers but too wide for the sentences inside it: 16px sans
+   in 772px of usable width runs to about 96 characters a line, and the 14px
+   descriptions to about 110. Dyson's review puts the comfortable band at 45–75
+   and the raw-speed optimum near 100 — so the descriptions were past both. The
+   cap goes on the PROSE rather than on `.journey`, because the arc's spine,
+   markers and progress bars want the full 820px; only the reading does not. */
+.purpose-prose,
+.arc-desc,
+.sprint-goal {
+    max-width: 68ch;
+}
+
 .purpose-prose,
 .arc-desc {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
@@ -411,7 +425,7 @@ tbody td {
     height: 12px;
     border-radius: 50%;
     background: #1a1b26;
-    border: 2px solid #565f89;
+    border: 2px solid #8b93bd;
     z-index: 1;
 }
 
@@ -420,7 +434,7 @@ tbody td {
 .arc-active .arc-marker { background: #7aa2f7; border-color: #7aa2f7; box-shadow: 0 0 0 4px rgba(122,162,247,0.18); }
 .arc-planned .arc-marker { background: #1a1b26; border-color: #414868; }
 
-.arc-done .arc-title { color: #737aa2; }
+.arc-done .arc-title { color: #7f88ad; }
 .arc-planned .arc-title { color: #a9b1d6; }
 
 .arc-head {
@@ -440,7 +454,7 @@ tbody td {
     font-size: 10px;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    color: #565f89;
+    color: #8b93bd;
     border: 1px solid #292e42;
     border-radius: 4px;
     padding: 1px 6px;
@@ -453,7 +467,7 @@ tbody td {
     color: #a9b1d6;
     margin-top: 6px;
 }
-.arc-done .arc-desc { color: #737aa2; }
+.arc-done .arc-desc { color: #7f88ad; }
 
 /* The current sprint, nested inside its milestone. */
 .sprint-card {
@@ -490,7 +504,7 @@ tbody td {
 
 .sprint-version {
     font-size: 12px;
-    color: #565f89;
+    color: #8b93bd;
 }
 
 .sprint-goal {
@@ -517,7 +531,7 @@ tbody td {
 
 .sprint-progress-text {
     font-size: 11px;
-    color: #565f89;
+    color: #8b93bd;
     margin: 6px 0 12px;
 }
 
@@ -545,7 +559,7 @@ tbody td {
 }
 .sprint-item-done .sprint-item-dot { background: #9ece6a; }
 .sprint-item-active .sprint-item-dot { background: #7aa2f7; }
-.sprint-item-done { color: #737aa2; text-decoration: line-through; text-decoration-color: #414868; }
+.sprint-item-done { color: #7f88ad; text-decoration: line-through; text-decoration-color: #414868; }
 
 /* Backlog — an undated pool, not a timeline. */
 .backlog-pool {
@@ -569,7 +583,7 @@ tbody td {
 .backlog-num {
     flex: none;
     min-width: 24px;
-    color: #565f89;
+    color: #8b93bd;
     text-align: right;
 }
 
@@ -617,7 +631,7 @@ tbody td {
 
 .sprint-version {
     font-size: 12px;
-    color: #565f89;
+    color: #8b93bd;
 }
 
 .sprint-current {
@@ -632,7 +646,7 @@ tbody td {
 
 .sprint-goal {
     font-size: 12px;
-    color: #565f89;
+    color: #8b93bd;
     margin-bottom: 12px;
     line-height: 1.5;
 }
@@ -656,7 +670,7 @@ tbody td {
 }
 
 .item-num {
-    color: #565f89;
+    color: #8b93bd;
     min-width: 24px;
 }
 
@@ -797,8 +811,8 @@ tbody td {
 }
 
 .terminal-header .btn-back {
-    border-color: #565f89;
-    color: #565f89;
+    border-color: #8b93bd;
+    color: #8b93bd;
 }
 
 .terminal-header .btn-back:hover {
@@ -830,7 +844,7 @@ tbody td {
 }
 
 .terminal-header .btn-font {
-    border-color: #565f89;
+    border-color: #8b93bd;
     color: #a9b1d6;
     padding: 4px 8px;
     min-width: 30px;
@@ -944,7 +958,7 @@ tbody td {
     font-size: 11px;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    color: #565f89;
+    color: #8b93bd;
 }
 
 .milestones-overlay-header .btn-done {
@@ -1209,7 +1223,9 @@ tbody td {
 }
 
 .docs-item-missing .docs-mark {
-    color: var(--mana-hp-lo);
+    /* Light red — the base stop is 3.18:1 on the panel and this is a glyph
+       carrying the whole present/missing distinction. */
+    color: var(--mana-hp-lo-lt);
 }
 
 .docs-item-missing .docs-name {
@@ -1240,7 +1256,7 @@ tbody td {
 
 .milestone-num {
     flex-shrink: 0;
-    color: #565f89;
+    color: #8b93bd;
     font-variant-numeric: tabular-nums;
 }
 
@@ -1255,7 +1271,7 @@ tbody td {
 }
 
 .milestone-done .milestone-title {
-    color: #565f89;
+    color: #8b93bd;
 }
 
 /* Current — highlighted so the active milestone reads at a glance. The pill
@@ -1276,9 +1292,11 @@ tbody td {
     font-weight: 600;
 }
 
-/* Future — muted, still to come. */
+/* Future — muted, still to come. Muted, not invisible: at #414868 this glyph
+   was 1.91:1 on the sidebar, and it is a text character (✓ / ● / ○) carrying
+   the milestone's state, not a decorative rule. */
 .milestone-future .milestone-mark {
-    color: #414868;
+    color: #7f88ad;
 }
 
 .milestone-future .milestone-title {
@@ -1325,8 +1343,12 @@ tbody td {
     text-shadow: 1px 1px 0 var(--mana-ink);
 }
 
+/* The dim TEXT tier, not the gold SHADOW tier. `--mana-frame-dk` is a shadow
+   colour — it exists to sit under gold, and used as ink on the panel gradient
+   it was 3.11:1 at the top of the sidebar. Future stays muted by dropping out
+   of the gold family entirely, which is what its own title already does. */
 #docs-sidebar .milestone-future .milestone-mark {
-    color: var(--mana-frame-dk);
+    color: var(--mana-text-dim);
 }
 
 #docs-sidebar .milestone-future .milestone-title {
