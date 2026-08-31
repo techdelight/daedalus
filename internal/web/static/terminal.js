@@ -410,10 +410,60 @@ function connectTerminal(projectName) {
         this.style.height = Math.min(this.scrollHeight, 120) + 'px';
     }
 
+    // THE KEY ROW — Esc, Tab, Enter.
+    //
+    // On a phone `applyMobileMode` sets `disableStdin` and disables xterm's own
+    // textarea, so the ONLY way in is #mobile-input. That is fine for
+    // characters and useless for keys that are not characters: a soft keyboard
+    // has no Esc at all, its Tab inserts a tab into the textarea, and its
+    // Return adds a line break. So Claude Code's prompts — cancel, cycle mode,
+    // confirm — were unreachable from a phone.
+    //
+    // These send the key to the PTY and DO NOT touch the textarea. Send stays
+    // "post what I typed, then Enter", which is a different act: Enter here
+    // answers a dialog, Send submits a message. Tab completion of half-typed
+    // text is not possible either way, because the PTY never sees the textarea
+    // until Send flushes it.
+    //
+    // The relay forwards any non-control frame straight to the PTY
+    // (runner_relay.go readWebSocket), so a raw byte is the whole protocol.
+    // Enter reuses the relay's own `enter` control frame — the one Send uses —
+    // rather than a second way of saying \r.
+    var keyEscBtn = document.getElementById('key-esc-btn');
+    var keyTabBtn = document.getElementById('key-tab-btn');
+    var keyEnterBtn = document.getElementById('key-enter-btn');
+
+    function sendBytes(s) {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(new TextEncoder().encode(s));
+        }
+    }
+    function sendEsc() { sendBytes('\x1b'); }
+    function sendTab() { sendBytes('\t'); }
+    function sendEnter() {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'enter' }));
+        }
+    }
+
+    // touchend + preventDefault is the file's existing idiom for a mobile
+    // button, and it earns its place twice here: it suppresses the synthesized
+    // click (so the key is not sent twice) AND it stops focus leaving
+    // #mobile-input, which would collapse the soft keyboard on every keypress.
+    function onEscTouch(e) { e.preventDefault(); sendEsc(); }
+    function onTabTouch(e) { e.preventDefault(); sendTab(); }
+    function onEnterTouch(e) { e.preventDefault(); sendEnter(); }
+
     mobileSendBtn.addEventListener('touchend', onMobileSendTouch);
     mobileSendBtn.addEventListener('click', onMobileSendClick);
     mobileInput.addEventListener('keydown', onMobileKeydown);
     mobileInput.addEventListener('input', onMobileInput);
+    keyEscBtn.addEventListener('touchend', onEscTouch);
+    keyEscBtn.addEventListener('click', sendEsc);
+    keyTabBtn.addEventListener('touchend', onTabTouch);
+    keyTabBtn.addEventListener('click', sendTab);
+    keyEnterBtn.addEventListener('touchend', onEnterTouch);
+    keyEnterBtn.addEventListener('click', sendEnter);
 
     if (isMobileView()) {
         applyMobileMode(true);
@@ -440,6 +490,12 @@ function connectTerminal(projectName) {
         mobileSendBtn.removeEventListener('click', onMobileSendClick);
         mobileInput.removeEventListener('keydown', onMobileKeydown);
         mobileInput.removeEventListener('input', onMobileInput);
+        keyEscBtn.removeEventListener('touchend', onEscTouch);
+        keyEscBtn.removeEventListener('click', sendEsc);
+        keyTabBtn.removeEventListener('touchend', onTabTouch);
+        keyTabBtn.removeEventListener('click', sendTab);
+        keyEnterBtn.removeEventListener('touchend', onEnterTouch);
+        keyEnterBtn.removeEventListener('click', sendEnter);
     };
 }
 

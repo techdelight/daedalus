@@ -1557,7 +1557,8 @@ tbody td {
     }
 }
 
-#mobile-input-area {
+#mobile-input-area,
+#mobile-keys {
     display: none;
 }
 
@@ -1658,6 +1659,36 @@ tbody td {
         display: inline-block;
     }
 
+    /* The key row — Esc, Tab, Enter, the three a soft keyboard cannot send.
+       Above the text field rather than beside it: a thumb reaches the bottom
+       of the screen, and putting them in the same row as the textarea would
+       take width from the thing being typed into. It carries the separator
+       from the terminal, so the row and the field read as one bar. */
+    #mobile-keys {
+        display: flex;
+        gap: 8px;
+        padding: 8px 12px 0;
+        background: #16161e;
+        border-top: 1px solid #292e42;
+    }
+
+    #mobile-keys .btn-key {
+        flex: 1;
+        /* 44px, the same touch target the Ledger's back control uses. */
+        min-height: 44px;
+        border: 1px solid #8b93bd;
+        color: #a9b1d6;
+        font-size: 13px;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+    }
+
+    #mobile-keys .btn-key:active {
+        background: rgba(122, 162, 247, 0.15);
+        border-color: #7aa2f7;
+        color: #c0caf5;
+    }
+
     /* Mobile input area */
     #mobile-input-area {
         display: flex;
@@ -1665,7 +1696,6 @@ tbody td {
         gap: 8px;
         padding: 8px 12px;
         background: #16161e;
-        border-top: 1px solid #292e42;
     }
 
     #mobile-input-area textarea {

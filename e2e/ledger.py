@@ -398,6 +398,15 @@ def main():
         tp.goto(URL + "/")
         tp.wait_for_function("typeof connectTerminal === 'function'", timeout=10000)
 
+        # Show the terminal screen. Both views are display-driven by .active /
+        # .hidden, and attaching for real needs a project and a runner this
+        # server does not have — but every element under test is on this screen,
+        # and a hidden one would let a visibility bug through unnoticed.
+        tp.evaluate("""() => {
+            document.getElementById('project-view').classList.add('hidden');
+            document.getElementById('terminal-view').classList.add('active');
+        }""")
+
         # The addon has to be ON THE PAGE. This is the whole of defect one: the
         # page loaded xterm and the fit addon and nothing else, so a URL in the
         # output was characters in a cell grid with no anchor anywhere. Link
@@ -445,6 +454,71 @@ def main():
               login_url in joined and login_url in copied,
               "characters survive but whitespace was injected"
               if login_url in joined else "the URL is not in the buffer at all")
+        # --- the keys a soft keyboard cannot send ------------------------------
+        #
+        # On a phone `applyMobileMode` disables xterm's own stdin, so everything
+        # arrives through #mobile-input. A soft keyboard has no Esc, its Tab
+        # inserts a tab into the textarea and its Return adds a line break — so
+        # Claude Code's cancel/cycle/confirm prompts had no reachable key at all.
+        #
+        # What is asserted is the BYTES ON THE WIRE, not that a button exists:
+        # the socket is stubbed so each tap can be read back exactly. A button
+        # wired to the wrong escape sequence looks identical from the DOM.
+        print("\n[7] the keys a soft keyboard does not have")
+        tp.evaluate("document.getElementById('select-done-btn').click()")
+        tp.wait_for_timeout(150)
+
+        for key in ("esc", "tab", "enter"):
+            btn = tp.locator(f"#key-{key}-btn")
+            box = btn.bounding_box()
+            check(f"{key.upper()} is on screen as a 44px target",
+                  btn.is_visible() and box and box["height"] >= 44,
+                  f"visible={btn.is_visible()} height={box['height'] if box else None}")
+
+        # Stub the socket. WebSocket.OPEN is 1; the real relay forwards any
+        # non-control frame straight to the PTY, so a byte array here is exactly
+        # what the shell would receive.
+        #
+        # The reconnect backoff has to be stopped FIRST. There is no runner
+        # behind this server, so the real socket fails and `scheduleReconnect`
+        # queues a reopen — which reassigns `ws` and silently replaces the stub
+        # mid-test. That made this section fail on the ENTER tap roughly one run
+        # in two, entirely as a function of where the 1s/2s/4s backoff happened
+        # to land. `intentionalClose` is the flag the page's own teardown uses.
+        tp.evaluate("""() => {
+            intentionalClose = true;
+            if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+            window.__sent = [];
+            ws = { readyState: 1,
+                   send: function (d) {
+                       window.__sent.push(typeof d === 'string' ? d : Array.from(d));
+                   } };
+        }""")
+
+        tp.tap("#key-esc-btn")
+        tp.tap("#key-tab-btn")
+        tp.tap("#key-enter-btn")
+        sent = tp.evaluate("() => window.__sent")
+
+        check("ESC sends 0x1b", sent[0:1] == [[27]], repr(sent))
+        check("TAB sends 0x09", sent[1:2] == [[9]], repr(sent))
+        # Enter reuses the relay's control frame rather than a second way of
+        # saying \r — runner_relay.go turns it into the write.
+        check("ENTER sends the relay's enter frame",
+              len(sent) > 2 and '"type":"enter"' in str(sent[2]).replace(" ", ""),
+              repr(sent))
+        check("nothing else went out", len(sent) == 3, repr(sent))
+
+        # The reason the buttons bind touchend-with-preventDefault rather than
+        # click: focus must not leave the textarea, or the soft keyboard
+        # collapses on every keypress and the row is unusable.
+        tp.evaluate("document.getElementById('mobile-input').focus()")
+        tp.tap("#key-esc-btn")
+        check("tapping a key leaves the keyboard up (focus stays in the input)",
+              tp.evaluate("() => document.activeElement && document.activeElement.id") == "mobile-input",
+              tp.evaluate("() => document.activeElement && document.activeElement.id"))
+
+        tp.screenshot(path=os.environ.get("LEDGER_KEYS_SHOT") or "/tmp/m-keys.png")
         term_ctx.close()
 
         # --- page health ------------------------------------------------------

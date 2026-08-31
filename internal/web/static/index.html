@@ -277,6 +277,13 @@
                     </div>
                 </aside>
             </div>
+            <!-- Three keys a soft keyboard does not have. They go straight to
+                 the PTY; Send is a different act and stays below. -->
+            <div id="mobile-keys">
+                <button class="btn btn-key" id="key-esc-btn" type="button">ESC</button>
+                <button class="btn btn-key" id="key-tab-btn" type="button">TAB</button>
+                <button class="btn btn-key" id="key-enter-btn" type="button">ENTER</button>
+            </div>
             <div id="mobile-input-area">
                 <textarea id="mobile-input" placeholder="Type command..." rows="1"
                           autocomplete="off" autocorrect="off" autocapitalize="off"
