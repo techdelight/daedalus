@@ -377,6 +377,76 @@ def main():
         m.screenshot(path=os.environ.get("LEDGER_MOBILE_SHOT") or "/tmp/m-list.png")
         phone.close()
 
+        # --- the terminal's copy path -----------------------------------------
+        #
+        # A URL printed by `claude /login` is long, and a phone's terminal is
+        # narrow, so xterm stores it as several ROWS of one logical line. Two
+        # things used to go wrong there and both only showed up on mobile:
+        # nothing linkified the URL (no addon, so no anchor to tap, and no
+        # drag-select fallback on touch), and the select overlay rebuilt the text
+        # row by row joined with "\n" — turning the soft wrap into real newlines
+        # and pasting a URL that would not resolve.
+        #
+        # The check that matters is the ROUND TRIP: the URL that comes out of
+        # the overlay must equal the URL that went in, character for character.
+        # Counting rows or newlines would pass on a terminal wide enough not to
+        # wrap, which is exactly the case that never had the bug.
+        print("\n[6] a long URL survives being copied off a phone")
+        term_ctx = browser.new_context(viewport={"width": 390, "height": 844},
+                                       is_mobile=True, has_touch=True)
+        tp = term_ctx.new_page()
+        tp.goto(URL + "/")
+        tp.wait_for_function("typeof connectTerminal === 'function'", timeout=10000)
+
+        # The addon has to be ON THE PAGE. This is the whole of defect one: the
+        # page loaded xterm and the fit addon and nothing else, so a URL in the
+        # output was characters in a cell grid with no anchor anywhere. Link
+        # ACTIVATION is not asserted — it needs xterm's hover-state internals,
+        # and a flaky test is worse than an honest gap.
+        check("the web-links addon is loaded",
+              tp.evaluate("typeof WebLinksAddon !== 'undefined'"
+                          " && typeof WebLinksAddon.WebLinksAddon === 'function'"))
+
+        tp.evaluate("connectTerminal('copy-check')")
+        tp.wait_for_function("typeof term === 'object' && term !== null", timeout=10000)
+
+        # cols is forced rather than inherited from the viewport, so the fixture
+        # has the property that made the bug possible no matter how the phone
+        # container happens to lay out.
+        tp.evaluate("term.resize(40, 20)")
+        login_url = (
+            "https://claude.ai/oauth/authorize?code=true"
+            "&client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e&response_type=code"
+            "&redirect_uri=https%3A%2F%2Fconsole.anthropic.com%2Foauth%2Fcode%2Fcallback"
+            "&scope=org%3Acreate_api_key+user%3Aprofile&code_challenge=BsQ2i0Fk9Xr"
+            "&code_challenge_method=S256&state=hV7pQ2mZ"
+        )
+        tp.evaluate("u => term.write('Use the url below to sign in:\\r\\n\\r\\n' + u + '\\r\\n')",
+                    login_url)
+        tp.wait_for_timeout(400)
+
+        wrapped = tp.evaluate(
+            "() => { const b = term.buffer.active; let n = 0;"
+            " for (let i = 0; i < b.length; i++) { const l = b.getLine(i);"
+            " if (l && l.isWrapped) n++; } return n; }")
+        check("the URL really did wrap across rows", wrapped >= 3,
+              f"{wrapped} wrapped row(s) at cols={tp.evaluate('term.cols')}")
+
+        tp.evaluate("document.getElementById('mobile-select-btn').click()")
+        tp.wait_for_timeout(200)
+        copied = tp.evaluate(
+            "() => document.getElementById('select-overlay-text').textContent")
+
+        check("the copied text contains the URL unbroken", login_url in copied,
+              repr(copied[copied.find("https://"):][:160]))
+        # Said separately so a failure names the cause rather than just the miss.
+        joined = "".join(copied.split())
+        check("no newline or padding was inserted mid-URL",
+              login_url in joined and login_url in copied,
+              "characters survive but whitespace was injected"
+              if login_url in joined else "the URL is not in the buffer at all")
+        term_ctx.close()
+
         # --- page health ------------------------------------------------------
         print("\n[0] the page itself")
         real = [e for e in errors if "favicon" not in e.lower()]

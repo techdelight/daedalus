@@ -288,6 +288,11 @@
 
     <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
+    <!-- xterm draws text into a grid of cells and creates no anchors of its own,
+         so a URL in the output is not a link until this addon detects one. On a
+         desktop that only costs you a click; on a phone there is no drag-select
+         fallback, so an OAuth URL from `claude /login` was unreachable. -->
+    <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-web-links@0.11.0/lib/addon-web-links.min.js"></script>
     <script src="/static/terminal.js"></script>
     <script>
         let refreshTimer = null;

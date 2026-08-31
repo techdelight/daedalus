@@ -110,6 +110,16 @@ function connectTerminal(projectName) {
     fitAddon = new FitAddon.FitAddon();
     term.loadAddon(fitAddon);
 
+    // LINKS. Without this a URL in the output is just characters in a cell grid
+    // — there is no anchor to tap, on any device. It matters most on a phone,
+    // where the drag-select-and-copy fallback a desktop has is not available:
+    // `claude /login` prints an OAuth URL and there was no way to follow it.
+    // Guarded because it is not essential to the terminal working, and a CDN
+    // that fails to serve it should cost links rather than the whole session.
+    if (window.WebLinksAddon && WebLinksAddon.WebLinksAddon) {
+        term.loadAddon(new WebLinksAddon.WebLinksAddon());
+    }
+
     term.open(container);
     fitAddon.fit();
     requestAnimationFrame(function() { if (fitAddon) fitAddon.fit(); });
@@ -256,13 +266,37 @@ function connectTerminal(projectName) {
     var selectOverlayText = document.getElementById('select-overlay-text');
     var selectDoneBtn = document.getElementById('select-done-btn');
 
+    // WHAT THE READER COPIES IS A LOGICAL LINE, NOT A ROW.
+    //
+    // This used to be `lines.push(line.translateToString())` over every row,
+    // joined with "\n", and it broke long output in two separate ways.
+    //
+    // 1. A line longer than the terminal is stored as SEVERAL ROWS, and every
+    //    row after the first carries `isWrapped`. Joining those with a newline
+    //    turns a soft wrap into a real newline character — so an OAuth URL
+    //    copied off a phone came back with breaks through the middle of it and
+    //    would not paste. The narrower the terminal the worse it got, which is
+    //    why it showed up on mobile and not on a desktop.
+    // 2. `translateToString()` defaults `trimRight` to false, so every row is
+    //    padded out to `cols` with spaces, and those spaces are copied too.
+    //
+    // Measured at cols=40 on a 312-character URL: 7 newlines and a run of
+    // padding. Every character of the URL was present — the buffer was fine and
+    // only the extraction was wrong — which is what `e2e/ledger.py` asserts by
+    // round-tripping the URL rather than by counting rows.
     function getBufferText() {
         if (!term) return '';
         var buf = term.buffer.active;
         var lines = [];
         for (var i = 0; i < buf.length; i++) {
             var line = buf.getLine(i);
-            if (line) lines.push(line.translateToString());
+            if (!line) continue;
+            var text = line.translateToString(true);
+            if (lines.length > 0 && line.isWrapped) {
+                lines[lines.length - 1] += text; // continuation of the row above
+            } else {
+                lines.push(text);
+            }
         }
         // Trim trailing empty lines
         while (lines.length > 0 && lines[lines.length - 1].trim() === '') {
