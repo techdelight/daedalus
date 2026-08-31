@@ -479,6 +479,22 @@ func (s *Service) refuse(entityType, entityID string, kind string, reason Reject
 	return &RejectionError{Reason: reason, Message: msg, Entity: entityID}
 }
 
+// refuseWithRemedies is refuse for a refusal that leaves an entity somewhere: the
+// way out travels with the "no". subject is the id the remedies apply to, which
+// is not always the entity being refused — a steer refused against a Job is
+// answered by what can be done to its Task.
+func (s *Service) refuseWithRemedies(entityType, entityID, kind string, reason RejectionReason,
+	msg, subject string, state State, remedies []Operation) error {
+	if err := s.store.LogDecision(entityType, entityID,
+		EventMeta{Kind: kind, Reason: reason, Actor: ActorPlane}, msg); err != nil {
+		log.Printf("control: logging %s refusal for %s: %v", reason, entityID, err)
+	}
+	return &RejectionError{
+		Reason: reason, Message: msg, Entity: entityID,
+		Remedies: remedies, RemedySubject: subject, RemedyState: state,
+	}
+}
+
 // CreateTask resolves the project through the trusted registry, enforces the
 // Git-native prerequisite (captures base_sha from HEAD), and inserts a planned
 // Task — rejecting a second active task per project (store invariant).
@@ -890,6 +906,15 @@ func (s *Service) cancelTask(caller Caller, id string) (Task, error) {
 	if err != nil {
 		return Task{}, err
 	}
+	// Cancelling something already finished used to fall through to the transition
+	// table and surface as a bare `illegal state transition: cancelled → cancelled`
+	// — an error about the plane's internals for what is usually an operator
+	// repeating themselves. The guard answers in the plane's words and, for a task
+	// that is genuinely over, says so rather than implying a way forward exists.
+	if err := requireOperableWith(OpCancel, id, t.State,
+		"it has already finished"); err != nil {
+		return Task{}, err
+	}
 	repoDir, _ := s.projects.ProjectDir(t.Project) // best-effort for cleanup
 	jobs, _ := s.store.ListJobsForTask(id)
 	for _, j := range jobs {
@@ -1038,12 +1063,10 @@ func (s *Service) prepareDispatch(id string) (dispatchPrep, error) {
 	if err != nil {
 		return dispatchPrep{}, err
 	}
-	// Dispatchable from planned/queued (first attempt) or rejected (retry after a
-	// failed verify — rejected → queued is the retry path from §6's ladder).
-	// `blocked` is deliberately absent: a Task waiting on the graph is not
-	// runnable, and the scheduler never admits one.
-	if task.State != StatePlanned && task.State != StateQueued && task.State != StateRejected {
-		return dispatchPrep{}, fmt.Errorf("%w: task %s is %s, not dispatchable (want planned/queued/rejected)", ErrWrongState, id, task.State)
+	// Which states admit a dispatch lives in operations.go with every other
+	// operation's, and the reason `blocked` is absent is written there.
+	if err := requireOperable(OpDispatch, id, task.State); err != nil {
+		return dispatchPrep{}, err
 	}
 	// Re-check the graph before admitting: a dependency may have been declared, or
 	// have become unsatisfiable, since this Task was last evaluated.
@@ -1208,7 +1231,19 @@ func (s *Service) runDispatch(prep dispatchPrep) (DispatchResult, error) {
 			if capErr != nil {
 				why += ": " + capErr.Error()
 			}
-			s.failJobRejectTask(task.ID, job.ID, prep.repoDir, note(outcome, why))
+			// AND THE ATTEMPT IS NOT CHARGED (#95 item 3).
+			//
+			// This is the one failure the plane can attribute with certainty. The
+			// agent exited 0 — it did what was asked — and the commit is missing
+			// because our capture did not work. Everything else in this switch is
+			// charged, and the comment on the default case says why: the plane cannot
+			// tell a broken environment from a genuinely bad run, and refunding on an
+			// unsure reading would make a Job that fails instantly free to repeat
+			// forever. A capture failure is not an unsure reading. We know whose fault
+			// it is, so ReasonCaptureFailed goes onto the event and CountJobsForTask
+			// discounts it — the same rule CountReviewCycles has applied to
+			// harness-fault re-verifications since Sprint 62.
+			s.failJobRejectTaskFor(task.ID, job.ID, prep.repoDir, note(outcome, why), ReasonCaptureFailed)
 			break
 		}
 		// Promote: job → candidate, create the candidate Artifact, task → candidate.
@@ -1271,11 +1306,21 @@ func (s *Service) checkDispatchBudget(task Task) error {
 			return err
 		}
 		if used >= b.MaxAttempts {
-			// Deliberately does NOT suggest a replan: a replan is bounded by the same
-			// counter, so pointing at it would be advice that cannot work.
-			return s.refuse("task", task.ID, EventBudget, ReasonAttemptsExhausted, fmt.Sprintf(
-				"task %s has used all %d attempt(s); cancel it, or raise maxAttempts for %q in the host-side budget policy and create a new task",
-				task.ID, b.MaxAttempts, task.Project))
+			// This message used to end "cancel it, or raise maxAttempts for the project
+			// in the host-side budget policy and create a new task" — advice that cost
+			// the operator the Task's whole history, and was written before `task
+			// budget` existed to make that unnecessary (#95 item 4). The remedies are
+			// now COMPUTED, which is why it cannot go stale the same way again.
+			//
+			// The attempt-spending operations are filtered out deliberately: every one
+			// of them is bounded by this same counter, so offering them would be
+			// advice that cannot work — the shape of the original defect, where the
+			// guard for one dead end pointed at an operation that was itself refused.
+			// See attemptSpendingOps for which they are and how the list is held to
+			// account.
+			return s.refuseWithRemedies("task", task.ID, EventBudget, ReasonAttemptsExhausted,
+				fmt.Sprintf("task %s has used all %d of its attempt(s)", task.ID, b.MaxAttempts),
+				task.ID, task.State, RemediesForExhaustedAttempts(task.State))
 		}
 	}
 	// Concurrency is now the SCHEDULER's decision, not a lone budget check: the
@@ -1420,8 +1465,8 @@ func (s *Service) verifyTaskLocked(caller Caller, id string, req VerifyRequest) 
 	if err != nil {
 		return VerifyResult{}, err
 	}
-	if task.State != StateCandidate {
-		return VerifyResult{}, fmt.Errorf("%w: task %s is %s, not verifiable (want candidate)", ErrWrongState, id, task.State)
+	if err := requireOperable(OpVerify, id, task.State); err != nil {
+		return VerifyResult{}, err
 	}
 	job, ok, err := s.candidateJob(id)
 	if err != nil {
@@ -1831,8 +1876,8 @@ func (s *Service) prepareRetry(caller Caller, id string, req RetryRequest) (Retr
 	if err != nil {
 		return RetryResult{}, dispatchPrep{}, err
 	}
-	if task.State != StateRejected {
-		return RetryResult{}, dispatchPrep{}, fmt.Errorf("%w: task %s is %s, not retryable (want rejected)", ErrWrongState, id, task.State)
+	if err := requireOperable(OpRetry, id, task.State); err != nil {
+		return RetryResult{}, dispatchPrep{}, err
 	}
 	// Re-check the budget up front so an exhausted Task is refused before the
 	// rebase touches anything.
@@ -1930,10 +1975,9 @@ func (s *Service) replanTask(caller Caller, id string, req ReplanRequest) (Task,
 	// `candidate` is the one that was missing — the work is done, nobody has
 	// graded it, and the operator has realised the question was wrong. Making them
 	// grade it first to unlock the ladder taught them nothing and cost a review
-	// cycle.
-	if task.State != StateRejected && task.State != StateCandidate {
-		return Task{}, fmt.Errorf("%w: task %s is %s, not replannable (want rejected or candidate)",
-			ErrWrongState, id, task.State)
+	// cycle. Both are recorded in operations.go.
+	if err := requireOperable(OpReplan, id, task.State); err != nil {
+		return Task{}, err
 	}
 	// A replan that could never be dispatched is worth refusing now rather than
 	// leaving a `planned` task that only fails at the next dispatch.
@@ -2048,9 +2092,18 @@ func (s *Service) terminate(taskID, jobID, repoDir string, term State, note stri
 // one, and the branch survives, so whatever the failed attempt did commit is
 // still reachable.
 func (s *Service) failJobRejectTask(taskID, jobID, repoDir, note string) {
+	s.failJobRejectTaskFor(taskID, jobID, repoDir, note, ReasonExecutionFailed)
+}
+
+// failJobRejectTaskFor is failJobRejectTask with the reason named.
+//
+// The reason is not decoration: ReasonCaptureFailed is what CountJobsForTask
+// reads to refund the attempt (#95 item 3), so which constant arrives here
+// decides whether an operator pays for a fault of ours.
+func (s *Service) failJobRejectTaskFor(taskID, jobID, repoDir, note string, reason RejectionReason) {
 	// A Task that is not running releases its place in line with its capacity.
 	s.sched.Forget(taskID)
-	meta := EventMeta{Kind: EventRejection, Reason: ReasonExecutionFailed}
+	meta := EventMeta{Kind: EventRejection, Reason: reason}
 	if _, err := s.store.TransitionJobWith(jobID, StateFailed, false, meta, note); err != nil {
 		log.Printf("control: failing job %s: %v", jobID, err)
 	}
@@ -2290,9 +2343,11 @@ func (s *Service) Reconcile() (ReconcileReport, error) {
 					if terr == nil {
 						repoDir, _ = s.projects.ProjectDir(t.Project)
 					}
-					s.failJobRejectTask(j.TaskID, j.ID, repoDir,
+					// Not charged, for the same reason the live path above is not: the
+					// commit is missing because our capture did not work.
+					s.failJobRejectTaskFor(j.TaskID, j.ID, repoDir,
 						"reconcile: this attempt produced no commit — the plane could not capture "+
-							"the worktree, so there was never anything to grade")
+							"the worktree, so there was never anything to grade", ReasonCaptureFailed)
 					rep.RecoveredEmptyCandidates = append(rep.RecoveredEmptyCandidates, j.ID)
 					continue
 				}

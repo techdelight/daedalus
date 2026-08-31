@@ -101,6 +101,11 @@ func (s *Service) approveTask(caller Caller, id, note string) (Task, error) {
 	if note != "" {
 		detail += ": " + note
 	}
+	// The guard first, so the switch below is only ever reached in a state the
+	// table admits and the two cannot disagree about which those are.
+	if err := requireOperable(OpApprove, id, task.State); err != nil {
+		return Task{}, err
+	}
 	switch task.State {
 	case StateVerified:
 		if _, err := s.store.TransitionTaskWith(id, StateApprovalRequired, false, meta,
@@ -111,9 +116,6 @@ func (s *Service) approveTask(caller Caller, id, note string) (Task, error) {
 		// already awaiting a decision
 	case StateApproved:
 		return task, nil // idempotent: approving twice is not an error
-	default:
-		return Task{}, fmt.Errorf("%w: task %s is %s, not approvable (want verified/approval_required)",
-			ErrWrongState, id, task.State)
 	}
 	return s.store.TransitionTaskWith(id, StateApproved, false, meta, detail)
 }
@@ -138,9 +140,8 @@ func (s *Service) rejectApproval(caller Caller, id, note string) (Task, error) {
 	if note != "" {
 		detail += ": " + note
 	}
-	if task.State != StateVerified && task.State != StateApprovalRequired {
-		return Task{}, fmt.Errorf("%w: task %s is %s, not rejectable (want verified/approval_required)",
-			ErrWrongState, id, task.State)
+	if err := requireOperable(OpRejectAppr, id, task.State); err != nil {
+		return Task{}, err
 	}
 	// The Job follows its Task so a retry starts from a coherent chain.
 	if job, ok, err := s.jobInState(id, StateVerified); err == nil && ok {
@@ -161,9 +162,9 @@ func (s *Service) ensureApproved(task Task) (Task, error) {
 		return task, nil
 	case StateApprovalRequired:
 		if s.requiresApproval(task.Project) {
-			return Task{}, s.refuse("task", task.ID, EventApproval, ReasonApprovalRequired, fmt.Sprintf(
-				"task %s needs human approval before it can be integrated (daedalus task approve %s)",
-				task.ID, task.ID))
+			return Task{}, s.refuseWithRemedies("task", task.ID, EventApproval, ReasonApprovalRequired,
+				fmt.Sprintf("task %s needs human approval before it can be integrated", task.ID),
+				task.ID, task.State, RemediesFrom(TargetTask, task.State))
 		}
 		return s.store.TransitionTaskWith(task.ID, StateApproved, false,
 			EventMeta{Kind: EventApproval}, noApprovalNote(task.Project))
@@ -178,9 +179,13 @@ func (s *Service) ensureApproved(task Task) (Task, error) {
 				return Task{}, err
 			}
 			_ = moved
-			return Task{}, s.refuse("task", task.ID, EventApproval, ReasonApprovalRequired, fmt.Sprintf(
-				"task %s needs human approval before it can be integrated (daedalus task approve %s)",
-				task.ID, task.ID))
+			// The remedies are computed from where the Task now IS — it has just been
+			// moved to `approval_required` — not from where it was. A refusal that
+			// suggested an operation legal only in the state it just left would be the
+			// exact defect #95 was filed for.
+			return Task{}, s.refuseWithRemedies("task", task.ID, EventApproval, ReasonApprovalRequired,
+				fmt.Sprintf("task %s needs human approval before it can be integrated", task.ID),
+				task.ID, StateApprovalRequired, RemediesFrom(TargetTask, StateApprovalRequired))
 		}
 		if _, err := s.store.TransitionTaskWith(task.ID, StateApprovalRequired, false,
 			EventMeta{Kind: EventApproval}, noApprovalNote(task.Project)); err != nil {
@@ -188,10 +193,17 @@ func (s *Service) ensureApproved(task Task) (Task, error) {
 		}
 		return s.store.TransitionTaskWith(task.ID, StateApproved, false,
 			EventMeta{Kind: EventApproval}, noApprovalNote(task.Project))
-	default:
-		return Task{}, fmt.Errorf("%w: task %s is %s, not ready for integration (want verified/approval_required/approved)",
-			ErrWrongState, task.ID, task.State)
 	}
+	// Every state OpIntegrate admits has a case above, so reaching here means the
+	// table admitted a state this switch does not handle. Refusing with an
+	// explicit message beats returning a zero Task and a nil error, which is what
+	// a bare `requireOperable` would do in that case.
+	if err := requireOperable(OpIntegrate, task.ID, task.State); err != nil {
+		return Task{}, err
+	}
+	return Task{}, fmt.Errorf("%w: task %s is %s — the operation table admits an integration from "+
+		"there and ensureApproved has no case for it; this is a plane defect, not a bad request",
+		ErrWrongState, task.ID, task.State)
 }
 
 // PendingApprovals lists the Tasks waiting on a human decision — the query behind

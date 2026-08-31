@@ -252,6 +252,20 @@ func (s *Service) AddDependency(taskID, dependsOn string) (DependencyEdge, error
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	// NO STATE GUARD HERE, deliberately, and it is the one operation in
+	// operations.go with none.
+	//
+	// A guard was added here while #95 was being built and then taken out again.
+	// The rule it duplicated already exists one layer down, INSIDE THE INSERT'S
+	// TRANSACTION (store.AddDependency), which is where it has to be: a check made
+	// out here can be true when it runs and false when the row lands. The
+	// duplicate also changed the error from ErrDependencyInvalid to a state
+	// refusal, which is a worse answer — "this is not a valid dependency" is what
+	// happened, and the daemon maps it deliberately.
+	//
+	// The operation table still carries an admit-set for `depends`, because the
+	// Ledger needs to know whether to offer the plate. What it does not do is
+	// enforce it twice.
 	edge, err := s.store.AddDependency(taskID, dependsOn)
 	if err != nil {
 		return DependencyEdge{}, err

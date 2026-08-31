@@ -78,9 +78,9 @@ func (s *Service) amendTaskBudget(caller Caller, id string, req AmendBudgetReque
 	// A terminal Task has nothing left to spend. Refused rather than allowed as a
 	// no-op, because an operator raising the budget of a cancelled task has
 	// misunderstood something and should be told now.
-	if IsTerminal(task.State) {
-		return Task{}, fmt.Errorf("%w: task %s is %s — a finished task has nothing to spend",
-			ErrWrongState, id, task.State)
+	if err := requireOperableWith(OpBudget, id, task.State,
+		"a finished task has nothing left to spend"); err != nil {
+		return Task{}, err
 	}
 
 	amended := task.Budget

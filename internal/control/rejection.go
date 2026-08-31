@@ -75,6 +75,17 @@ const (
 	// ReasonForbidden: the caller class may not perform this operation at all, and
 	// may not propose it either.
 	ReasonForbidden RejectionReason = "forbidden"
+	// ReasonCaptureFailed: the agent ran and exited 0, and the plane could not turn
+	// its worktree into a commit. A PLANE-SIDE FAULT, and the only one the plane can
+	// name with certainty — which is why it is the only one whose attempt is
+	// refunded (#95 item 3; see CountJobsForTask).
+	//
+	// Kept distinct from execution_failed on purpose. "The agent failed" and "the
+	// agent worked and we could not save it" are different facts about different
+	// parties, and the budget accounting is not the only thing that needs to tell
+	// them apart — an operator reading the log needs to know whether to look at
+	// their objective or at us.
+	ReasonCaptureFailed RejectionReason = "capture_failed"
 
 	// ReasonInvalidCheck is malformed per-task acceptance input (too many checks).
 	// Separated from forbidden because it is a request shape problem, not an
@@ -145,7 +156,8 @@ var allRejectionReasons = map[RejectionReason]bool{
 	ReasonUnsafeRebase:      true, ReasonOperationInFlight: true,
 	ReasonApprovalRequired: true, ReasonReviewRequired: true, ReasonIntegrationRaced: true,
 	ReasonProposalRecorded: true, ReasonForbidden: true, ReasonNotSteerable: true,
-	ReasonUnappealable: true, ReasonArtifactGone: true,
+	ReasonCaptureFailed: true,
+	ReasonUnappealable:  true, ReasonArtifactGone: true,
 	ReasonStaleBase: true, ReasonNullAgentFloor: true,
 	ReasonPolicyDrift: true, ReasonIntegrityGate: true, ReasonVerifyFailed: true,
 	ReasonReviewFailed: true, ReasonApprovalRejected: true,
@@ -163,7 +175,7 @@ func AllRejectionReasons() []RejectionReason {
 		ReasonOverBudget, ReasonInvalidBudget, ReasonAttemptsExhausted,
 		ReasonReviewCyclesExhausted, ReasonConcurrencyExceeded, ReasonSchedulerSaturated,
 		ReasonQueuedBehind, ReasonJoblessTask, ReasonExecutionFailed, ReasonDependenciesUnmet, ReasonUnsafeRebase,
-		ReasonOperationInFlight, ReasonProposalRecorded, ReasonForbidden,
+		ReasonOperationInFlight, ReasonProposalRecorded, ReasonForbidden, ReasonCaptureFailed,
 		ReasonNotSteerable, ReasonApprovalRequired, ReasonReviewRequired,
 		ReasonIntegrationRaced, ReasonStaleBase, ReasonNullAgentFloor,
 		ReasonPolicyDrift, ReasonIntegrityGate, ReasonVerifyFailed, ReasonReviewFailed,
@@ -181,13 +193,39 @@ type RejectionError struct {
 	Message string
 	// Entity is the id the refusal concerns (task or job), for the event log.
 	Entity string
+	// Remedies are the operations the caller can actually perform from where they
+	// are, DERIVED from the one operation table (operations.go) rather than
+	// written into the message by hand. Empty is legitimate for refusals that are
+	// not about state at all — an over-budget create names no task yet — but for a
+	// refusal that leaves an existing entity somewhere, an empty list is the
+	// dead end #95 exists to abolish.
+	Remedies []Operation
+	// RemedySubject is the id the remedies apply to. Usually Entity; different for
+	// a refusal about a Job whose way forward is on its Task.
+	RemedySubject string
+	// RemedyState is the state the remedies were computed from — the state of
+	// RemedySubject, which for a Job-about-a-Task refusal is not the state that
+	// caused the refusal. Carried so an empty list can say whether it means
+	// "finished" or "stranded".
+	RemedyState State
 }
 
 func (e *RejectionError) Error() string {
-	if e.Message == "" {
-		return fmt.Sprintf("control: refused by policy (%s)", e.Reason)
+	base := fmt.Sprintf("control: refused by policy (%s)", e.Reason)
+	if e.Message != "" {
+		base += ": " + e.Message
 	}
-	return fmt.Sprintf("control: refused by policy (%s): %s", e.Reason, e.Message)
+	if len(e.Remedies) == 0 {
+		return base
+	}
+	subject := e.RemedySubject
+	if subject == "" {
+		subject = e.Entity
+	}
+	// endSentence, not a bare ". " — Message is written per call site and some end
+	// in a full stop and some do not, which showed up on the Ledger as
+	// "…all 3 of its attempt(s) You can:" with the two sentences run together.
+	return endSentence(base) + " " + RenderRemedies(subject, e.RemedyState, e.Remedies)
 }
 
 // Rejected reports whether err is (or wraps) a control-plane policy refusal, and

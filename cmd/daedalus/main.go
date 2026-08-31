@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/techdelight/daedalus/core"
 	"github.com/techdelight/daedalus/internal/color"
@@ -37,14 +38,47 @@ func main() {
 	color.Init()
 	if err := run(os.Args[1:]); err != nil {
 		logging.Error(err.Error())
+		// The way out gets its own lines (#95 item 2). The plane already puts it in
+		// the message, and on one line, run together with the explanation, it was
+		// the least likely part to be read — which is precisely backwards for the
+		// only part that says what to do next.
+		msg, remedies := splitRemedies(err)
 		if reason, refused := control.Rejected(err); refused {
-			fmt.Fprintf(os.Stderr, "%s %v\n", color.Yellow("Refused:"), err)
+			fmt.Fprintf(os.Stderr, "%s %s\n", color.Yellow("Refused:"), msg)
 			logging.Info("refused by control-plane policy: " + string(reason))
 		} else {
-			fmt.Fprintf(os.Stderr, "%s %v\n", color.Red("Error:"), err)
+			fmt.Fprintf(os.Stderr, "%s %s\n", color.Red("Error:"), msg)
+		}
+		for _, line := range remedies {
+			fmt.Fprintf(os.Stderr, "  %s %s\n", color.Cyan("→"), line)
 		}
 		os.Exit(exitCodeFor(err))
 	}
+}
+
+// splitRemedies separates a refusal's explanation from the ways out it names, so
+// the second can be printed one per line under the first.
+//
+// It splits on the plane's own sentence rather than rebuilding the list from the
+// typed error, and the reason is the socket: a 409 state conflict arrives as a
+// RemoteError whose remedies survive only when the daemon is new enough to send
+// them, while the sentence is in the message either way. Formatting must not be
+// the thing that decides whether an operator is told what to do next.
+func splitRemedies(err error) (string, []string) {
+	msg := err.Error()
+	const marker = "From here you can: "
+	i := strings.Index(msg, marker)
+	if i < 0 {
+		return msg, nil
+	}
+	list := strings.TrimSuffix(strings.TrimSpace(msg[i+len(marker):]), ".")
+	var out []string
+	for _, part := range strings.Split(list, "; ") {
+		if part = strings.TrimSpace(part); part != "" {
+			out = append(out, part)
+		}
+	}
+	return strings.TrimSpace(msg[:i]), out
 }
 
 // exitCodeFor maps an error to a process exit code: a control-plane policy

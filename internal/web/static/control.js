@@ -19,12 +19,21 @@
 // work is driven from. There is still one surface; it is just no longer a
 // read-only one.
 //
-// WHO DECIDES WHAT IS LEGAL. The plane does. COMMANDS below names the states in
-// which each command is worth OFFERING, which is a question about the menu, not
-// about authority: the guards live in internal/control and a command the plane
-// refuses comes back as a typed refusal and is printed as one. The table can be
-// out of date and the worst that happens is a command that says no; it can never
-// let something through.
+// WHO DECIDES WHAT IS LEGAL. The plane does, and since #95 it does so HERE too.
+//
+// Each COMMANDS entry used to carry its own `states: [...]` — a third copy of
+// which operations a state admits, in JavaScript, where nothing in Go could see
+// it. It could not let anything through (the guards are in internal/control and a
+// refused command comes back as a typed refusal), but it could and did go stale
+// in the other direction: a command that WAS legal and was never offered, which
+// is a dead end an operator has no way to tell from a rule.
+//
+// So each entry now names the plane OPERATION it performs, and the states come
+// from GET /api/control/operations — the same table internal/control/operations.go
+// guards with. What stays here is presentation: the label, the hint, whether it
+// needs confirming, what it sends, how the answer reads. A page has no business
+// having an opinion about the first thing and every business having one about the
+// second.
 
 (function () {
   // The board changes on the scale of a Job, not a keystroke, and building it
@@ -283,10 +292,23 @@
     return fetch('/api/control' + path, init).then(function (res) {
       return res.json().catch(function () { return {}; }).then(function (data) {
         if (res.ok) return data;
-        const err = new Error((data && data.error) || ('the plane answered ' + res.status));
+        // `message` is the plane's sentence; `error` is that sentence with
+        // "control: refused by policy (attempts_exhausted): " already on the
+        // front. The line below adds its own "Refused · attempts_exhausted — ",
+        // so taking `error` printed the reason code three times in one sentence
+        // and buried the part that says what to do. Prefer `message`; fall back
+        // to `error` for the refusals that carry no separate one.
+        const err = new Error((data && (data.message || data.error)) ||
+          ('the plane answered ' + res.status));
         err.reason = data && data.reason;
         err.refused = res.status === 422;
         err.conflict = res.status === 409;
+        // The way out, as the plane computed it (#95 item 2). Names of plane
+        // operations, which the page turns into its OWN labels below — the
+        // message also carries a `daedalus task …` sentence for a terminal, and
+        // printing shell commands at somebody who is holding a mouse is not an
+        // answer to "what do I do now".
+        err.remedies = (data && data.remedies) || [];
         throw err;
       });
     });
@@ -326,18 +348,48 @@
 
   // --- the command table ----------------------------------------------------
   //
-  // `states` is where the command is worth OFFERING. The flag variants are
-  // separate commands rather than a modifier on one, because each is a different
-  // act with different consequences — `retry --rebase` re-freezes the acceptance
-  // oracle at a new commit, and burying that in a checkbox would make the more
+  // `op` is the PLANE OPERATION this command performs, and it is where the
+  // command's availability comes from. Several commands share one: `retry` and
+  // `retry · rebase` are the same operation with different request bodies, and
+  // they are separate plates rather than a checkbox because each is a different
+  // act with different consequences — `--rebase` re-freezes the acceptance oracle
+  // at a new commit, and burying that in a modifier would make the more
   // consequential option the easier one to reach by accident.
 
-  const ANY_ACTIVE = ['planned', 'blocked', 'queued', 'working', 'input_required',
-    'candidate', 'verifying', 'verified', 'rejected', 'approval_required', 'approved'];
+  // OPERATIONS is the plane's own table, fetched once at boot: {op: [state, …]}.
+  // Empty until it arrives, which is what `commandsReady` is for.
+  let OPERATIONS = null;
+
+  // loadOperations fetches the table the command plates are painted from.
+  //
+  // Served by the WEB server out of the linked `control` package rather than
+  // proxied to the daemon, so it does not fail when the plane is down — the
+  // plates are how an operator escapes a stuck task, and taking them away exactly
+  // when the plane is unhappy would be the wrong failure. See handleOperations.
+  function loadOperations() {
+    return get('/operations').then(function (data) {
+      const table = {};
+      ((data && data.operations) || []).forEach(function (o) {
+        table[o.key] = o.states || [];
+      });
+      // An empty answer is not a table. Leaving OPERATIONS null keeps the honest
+      // "could not load" message below rather than silently offering nothing,
+      // which would look exactly like a task with no way forward.
+      OPERATIONS = Object.keys(table).length ? table : null;
+      return OPERATIONS;
+    }).catch(function () { OPERATIONS = null; });
+  }
+
+  // admits answers the one question the page used to answer for itself.
+  function admits(op, state) {
+    if (!OPERATIONS) return false;
+    const states = OPERATIONS[op];
+    return !!states && states.indexOf(state) !== -1;
+  }
 
   const COMMANDS = [
     {
-      key: 'dispatch', label: 'Dispatch', states: ['planned', 'queued', 'rejected'],
+      key: 'dispatch', op: 'dispatch', label: 'Dispatch',
       run: function (id) { return send('POST', '/tasks/' + enc(id) + '/dispatch'); },
       done: function (r) {
         return 'Job ' + (r.job ? r.job.id : '?') + ' ' +
@@ -345,7 +397,7 @@
       },
     },
     {
-      key: 'verify', label: 'Verify', states: ['candidate'],
+      key: 'verify', op: 'verify', label: 'Verify',
       run: function (id) { return send('POST', '/tasks/' + enc(id) + '/verify', {}); },
       done: verdict,
     },
@@ -354,13 +406,13 @@
       // the verifier still runs, the failure is still recorded, and the artifact
       // still carries verify=fail. What is waived is the consequence, and the
       // human doing it is the one answerable for that.
-      key: 'waive', label: 'Verify · waive', states: ['candidate'], confirm: true, danger: true,
+      key: 'waive', op: 'verify', label: 'Verify · waive', confirm: true, danger: true,
       hint: 'Runs the verifier, records the true result, and moves on anyway — on your authority.',
       run: function (id) { return send('POST', '/tasks/' + enc(id) + '/verify', { ignoreResult: true }); },
       done: verdict,
     },
     {
-      key: 'retry', label: 'Retry', states: ['rejected'],
+      key: 'retry', op: 'retry', label: 'Retry',
       hint: 'A fresh attempt from the same base. Costs an attempt.',
       run: function (id) { return send('POST', '/tasks/' + enc(id) + '/retry', {}); },
       done: function (r) {
@@ -369,7 +421,7 @@
       },
     },
     {
-      key: 'retry-rebase', label: 'Retry · rebase', states: ['rejected'], confirm: true,
+      key: 'retry-rebase', op: 'retry', label: 'Retry · rebase', confirm: true,
       hint: 'Re-pins the task to the project tip and RE-FREEZES its acceptance policy there.',
       run: function (id) { return send('POST', '/tasks/' + enc(id) + '/retry', { rebase: true }); },
       done: function (r) {
@@ -377,13 +429,13 @@
       },
     },
     {
-      key: 'reverify', label: 'Reverify', states: ['rejected'],
+      key: 'reverify', op: 'reverify', label: 'Reverify',
       hint: 'Grade the SAME artifact again. Costs no attempt.',
       run: function (id) { return send('POST', '/tasks/' + enc(id) + '/reverify', {}); },
       done: regrade,
     },
     {
-      key: 'reverify-amended', label: 'Reverify · amended', states: ['rejected'], confirm: true,
+      key: 'reverify-amended', op: 'reverify', label: 'Reverify · amended', confirm: true,
       hint: 'Re-grade under a policy that has CHANGED: re-pins to the tip and re-freezes the oracle.',
       run: function (id) { return send('POST', '/tasks/' + enc(id) + '/reverify', { amended: true }); },
       done: regrade,
@@ -391,7 +443,7 @@
     {
       // Offered on an ungraded `candidate` too: realising the objective was wrong
       // before anybody graded the work should not require grading it first.
-      key: 'replan', label: 'Replan', states: ['rejected', 'candidate'],
+      key: 'replan', op: 'replan', label: 'Replan',
       prompt: {
         title: 'Replan', label: 'A new objective for this task',
         multiline: true, fill: function (t) { return t.objective; },
@@ -404,7 +456,7 @@
       // oracle, which is a governance act rather than a detail of rewording an
       // objective, and burying it in the same button would make the more
       // consequential option the easier one to reach.
-      key: 'replan-rebase', label: 'Replan · rebase', states: ['rejected', 'candidate'], confirm: true,
+      key: 'replan-rebase', op: 'replan', label: 'Replan · rebase', confirm: true,
       hint: 'New objective AND re-pin to the project tip, re-freezing the acceptance policy there.',
       prompt: {
         title: 'Replan and rebase', label: 'A new objective for this task',
@@ -419,7 +471,7 @@
       // The way out of an exhausted task that does not destroy it (#95 item 4).
       // Offered wherever the Task is still alive, because "it ran out of room"
       // is discovered at the moment of being refused, which can be any of them.
-      key: 'budget', label: 'Budget', states: ANY_ACTIVE,
+      key: 'budget', op: 'budget', label: 'Budget',
       hint: 'Raise this task\'s attempts or review cycles, within the project ceiling. Recorded.',
       prompt: {
         title: 'Raise the budget',
@@ -442,7 +494,7 @@
       },
     },
     {
-      key: 'checks', label: 'Checks', states: ['planned', 'blocked', 'queued', 'candidate', 'rejected'],
+      key: 'checks', op: 'checks', label: 'Checks',
       hint: 'Per-task acceptance commands, appended to the project policy. One per line; empty clears.',
       prompt: {
         title: 'Acceptance checks', label: 'One command per line',
@@ -466,9 +518,8 @@
       // nothing, so there is nothing to protect by withholding it; gating it
       // behind the oracle passing made the second opinion available only when
       // the first one already agreed.
-      key: 'review', label: 'Review',
+      key: 'review', op: 'review', label: 'Review',
       hint: 'Send an agent to read the change against what it promised. Advisory — it moves nothing.',
-      states: ['candidate', 'rejected', 'verified', 'approval_required', 'approved'],
       run: function (id) { return send('POST', '/tasks/' + enc(id) + '/review'); },
       // This used to say "Review passed." or "Review failed — " and nothing else.
       // Both were wrong after M20: a review FAILS nothing (it moves no state), and
@@ -508,7 +559,7 @@
       // this is where a human edits them: cross one out, add the one the
       // reviewer missed, say which matter. The states are the plane's own
       // refinable set, and it refuses anything else with its own message.
-      key: 'refine', label: 'Refine', states: ['candidate', 'rejected', 'verified', 'approval_required', 'approved'],
+      key: 'refine', op: 'refine', label: 'Refine',
       hint: 'Continue from the work already done, answering a review. Keeps the objective and the base.',
       prompt: {
         title: 'Refine', label: 'What this attempt should put right',
@@ -524,31 +575,31 @@
       },
     },
     {
-      key: 'approve', label: 'Approve', states: ['verified', 'approval_required'], seal: true,
+      key: 'approve', op: 'approve', label: 'Approve', seal: true,
       prompt: { title: 'Approve', label: 'A note for the record (optional)', allowEmpty: true },
       run: function (id, note) { return send('POST', '/tasks/' + enc(id) + '/approve', { note: note }); },
       done: function (t) { return t.id + ' is ' + t.state + '.'; },
     },
     {
-      key: 'reject', label: 'Reject', states: ['verified', 'approval_required'], danger: true,
+      key: 'reject', op: 'reject', label: 'Reject', danger: true,
       prompt: { title: 'Reject', label: 'Why (optional)', allowEmpty: true },
       run: function (id, note) { return send('POST', '/tasks/' + enc(id) + '/reject', { note: note }); },
       done: function (t) { return t.id + ' is ' + t.state + '.'; },
     },
     {
-      key: 'integrate', label: 'Integrate', states: ['verified', 'approved'], confirm: true,
+      key: 'integrate', op: 'integrate', label: 'Integrate', confirm: true,
       hint: 'Rebase onto the target, re-verify the MERGED result, and land it.',
       run: function (id) { return send('POST', '/tasks/' + enc(id) + '/integrate', {}); },
       done: landed,
     },
     {
-      key: 'integrate-branch', label: 'Integrate · branch', states: ['verified', 'approved'], confirm: true,
+      key: 'integrate-branch', op: 'integrate', label: 'Integrate · branch', confirm: true,
       hint: 'Lands it, then fast-forwards the project checkout’s current branch to the landed commit.',
       run: function (id) { return send('POST', '/tasks/' + enc(id) + '/integrate', { intoBranch: true }); },
       done: landed,
     },
     {
-      key: 'steer', label: 'Steer', states: ['queued', 'working', 'input_required'],
+      key: 'steer', op: 'steer', label: 'Steer',
       hint: 'Inject an instruction into the running Job.',
       needsJob: true,
       prompt: { title: 'Steer', label: 'What should the Job do differently', multiline: true },
@@ -558,7 +609,7 @@
       done: function (s) { return s.id + ' is ' + s.state + (s.detail ? ' — ' + s.detail : ''); },
     },
     {
-      key: 'depends', label: 'Depends on', states: ANY_ACTIVE,
+      key: 'depends', op: 'depends', label: 'Depends on',
       hint: 'This task may not LAND until the named one has.',
       prompt: { title: 'Dependency', label: 'The task this one waits for, e.g. T-3' },
       run: function (id, value) {
@@ -567,7 +618,7 @@
       done: function (e) { return e.taskId + ' now waits for ' + e.dependsOn + '.'; },
     },
     {
-      key: 'cancel', label: 'Cancel', states: ANY_ACTIVE, confirm: true, danger: true,
+      key: 'cancel', op: 'cancel', label: 'Cancel', confirm: true, danger: true,
       hint: 'Ends the task and any running Job. Terminal — there is no way back.',
       run: function (id) { return send('DELETE', '/tasks/' + enc(id)); },
       done: function (t) { return t.id + ' is ' + t.state + '.'; },
@@ -1703,15 +1754,35 @@
     host.innerHTML = '';
     if (!state) return;
 
+    // No table, no plates. Saying so is the point: an empty command strip and a
+    // task with genuinely nothing available look identical, and the difference
+    // between "we could not ask" and "there is nothing to do" is the whole of what
+    // #95 is about. Retried on the next poll.
+    if (!OPERATIONS) {
+      const note = document.createElement('p');
+      note.className = 'ff-cmd-note';
+      note.textContent = 'Could not load which commands this task allows — retrying.';
+      host.appendChild(note);
+      loadOperations().then(function (t) { if (t) paintEntry(); });
+      return;
+    }
+
     const runningJob = jobToSteer();
     COMMANDS.forEach(function (cmd) {
-      if (cmd.states.indexOf(state) === -1) return;
+      // WHAT THE PLANE ALLOWS — its answer, not ours.
+      if (!admits(cmd.op, state)) return;
+      // WHAT THIS PAGE CHOOSES TO OFFER. Everything below is presentation, and
+      // may only ever narrow what the plane allows, never widen it.
+      //
       // Approve and reject are the one pair the board has a second opinion about:
       // a task can sit in the approval column while the plane is still settling
       // it, and the approvals endpoint is what confirms a human is genuinely the
       // next actor.
       if ((cmd.key === 'approve' || cmd.key === 'reject') &&
         currentKey === AWAITING_YOU && !approvable.has(current.id)) return;
+      // Approving something already approved is legal and idempotent — the plane
+      // says so — and offering a button that visibly does nothing is not.
+      if (cmd.key === 'approve' && state === 'approved') return;
       if (cmd.needsJob && !runningJob) return;
 
       const b = plate(cmd.label, cmd.danger ? 'refuse' : cmd.seal ? 'seal' : '', function () {
@@ -1827,6 +1898,28 @@
   // runCommand walks the three gates a command can have, in order: ask for a
   // value, ask whether you meant it, then do it. Each is optional and most
   // commands have none.
+  // wayOut turns a refusal into the sentence an operator can act on: the plane's
+  // own explanation, then the commands it says are open, in THIS page's words.
+  //
+  // The plane's message ends in a `From here you can: \`daedalus task …\`` clause
+  // built for a terminal. It is dropped rather than shown, because the buttons it
+  // describes are already on this screen under different names, and two spellings
+  // of the same list is how a reader ends up trusting neither.
+  function wayOut(err) {
+    const said = String(err.message || '').replace(/\s*(From here you can:|Nothing at all is available from|[A-Z]-\d+ is \w+ and finished;).*$/, '');
+    const names = (err.remedies || []).map(function (op) {
+      const cmd = COMMANDS.filter(function (c) { return c.op === op; })[0];
+      return cmd ? cmd.label : op;
+    });
+    if (!names.length) return said;
+    // One full stop between the two sentences, never zero and never two. The
+    // plane's messages are written per call site and some end in one; run
+    // together they read as "…all 3 of its attempt(s) You can: Refine", which is
+    // where the eye stops looking for the part that matters.
+    const ended = /[.!?]$/.test(said.trim()) ? said.trim() : said.trim() + '.';
+    return ended + ' You can: ' + names.join(' · ') + '.';
+  }
+
   function runCommand(cmd, id, jobID) {
     // Silence here was a trap. The entry is released in a .then, so any throw
     // between claiming it and that callback used to strand the command surface:
@@ -1907,9 +2000,10 @@
     }).catch(function (err) {
       // A refusal is the plane working. Said differently from a failure, and
       // labelled with the reason code, because the reason is what tells you which
-      // command to reach for next.
-      if (err.refused) report(id, 'Refused · ' + (err.reason || '') + ' — ' + err.message, 'is-refused');
-      else if (err.conflict) report(id, 'Not now — ' + err.message, 'is-refused');
+      // command to reach for next — and since #95, followed by the commands the
+      // plane itself says are available, rather than by nothing.
+      if (err.refused) report(id, 'Refused · ' + (err.reason || '') + ' — ' + wayOut(err), 'is-refused');
+      else if (err.conflict) report(id, 'Not now — ' + wayOut(err), 'is-refused');
       else report(id, err.message, 'is-bad');
     }).then(function () {
       release(id);
@@ -2205,6 +2299,10 @@
     const cycle = function () {
       return Promise.all([refreshProposals(), refreshArchive(), refreshProgrammes()]).then(refreshBoard);
     };
+    // Fetched once, not polled: the operation table is compiled into the binary
+    // that served this page, so it cannot change without the page being reloaded
+    // anyway. paintCommands retries on its own if this fails.
+    if (!OPERATIONS) loadOperations().then(function (t) { if (t && current) paintEntry(); });
     refreshApprovals();
     refreshTargets();
     cycle();

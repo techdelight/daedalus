@@ -4,7 +4,7 @@ package control
 
 import (
 	"fmt"
-	"sort"
+
 	"strings"
 )
 
@@ -51,29 +51,8 @@ type RefineRequest struct {
 	Note string `json:"note,omitempty"`
 }
 
-// refinableStates are the states with an artifact worth continuing.
-//
-// `verified` and `approval_required` are the interesting additions: they are
-// where a Task sits after a review, and neither retry nor replan opens from
-// them — so until now a reading of good work led nowhere the plane could act on.
-// `working` and `verifying` are excluded because an attempt is in flight and its
-// result is about to land.
-var refinableStates = map[State]bool{
-	StateCandidate:        true,
-	StateRejected:         true,
-	StateVerified:         true,
-	StateApprovalRequired: true,
-	StateApproved:         true,
-}
-
-func refinableStateNames() string {
-	names := make([]string, 0, len(refinableStates))
-	for s := range refinableStates {
-		names = append(names, string(s))
-	}
-	sort.Strings(names)
-	return strings.Join(names, "/")
-}
+// Which states admit a refine lives in operations.go (OpRefine), with the
+// reasoning for `verified` and `approval_required` being in the set.
 
 // RefineTask arms a Task to continue from its latest artifact and returns it to
 // `planned`, ready to dispatch.
@@ -89,9 +68,9 @@ func (s *Service) refineTask(caller Caller, id string, req RefineRequest) (Task,
 	if err != nil {
 		return Task{}, err
 	}
-	if !refinableStates[task.State] {
-		return Task{}, fmt.Errorf("%w: task %s is %s, not refinable (want %s)",
-			ErrWrongState, id, task.State, refinableStateNames())
+	if err := requireOperableWith(OpRefine, id, task.State,
+		"an attempt is in flight, or there is no artifact to continue from"); err != nil {
+		return Task{}, err
 	}
 	// An artifact to continue FROM. Without one there is nothing to refine and the
 	// operator wants `dispatch` or `retry`; saying so is better than arming a

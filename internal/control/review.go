@@ -227,23 +227,9 @@ type ReviewResult struct {
 	MaxCycle  int             `json:"maxCycles"` // 0 = unbounded
 }
 
-// reviewableStates are the states in which an artifact can be read.
-//
-// The list is what it is because a reviewer answers a question about a DIFF, and
-// a diff either exists or it does not. What the machine oracle thought of it is
-// beside the point — the reviewer is the second opinion, and a second opinion
-// available only after the first one agrees is not one.
-var reviewableStates = map[State]bool{
-	StateCandidate:        true, // graded by nobody yet
-	StateRejected:         true, // the oracle said no — the case that needs a reading most
-	StateVerified:         true,
-	StateApprovalRequired: true,
-	StateApproved:         true,
-}
-
-func reviewableStateNames() string {
-	return "candidate/rejected/verified/approval_required/approved"
-}
+// Which states admit a review lives in operations.go (OpReview), with the
+// reasoning: a second opinion available only after the first one agrees is not
+// one.
 
 // jobToReview finds the Job whose artifact should be read: the most recent one
 // that produced anything.
@@ -293,10 +279,6 @@ func (s *Service) ReviewTask(id string) (ReviewResult, error) { return s.reviewT
 
 // reviewTask is ReviewTask with an explicit caller identity.
 func (s *Service) reviewTask(caller Caller, id string) (ReviewResult, error) {
-	if s.reviewer == nil {
-		return ReviewResult{}, fmt.Errorf("control: no reviewer configured for this control plane")
-	}
-
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -322,9 +304,18 @@ func (s *Service) reviewTask(caller Caller, id string) (ReviewResult, error) {
 	//
 	// `verifying` is excluded on purpose — a grading is in flight and its verdict
 	// is about to land — as are states with no artifact to read at all.
-	if !reviewableStates[task.State] {
-		return ReviewResult{}, fmt.Errorf("%w: task %s is %s, not reviewable (want %s)",
-			ErrWrongState, id, task.State, reviewableStateNames())
+	if err := requireOperableWith(OpReview, id, task.State,
+		"there is no artifact to read, or a grading is in flight"); err != nil {
+		return ReviewResult{}, err
+	}
+	// The STATE guard comes first, and the deployment question second. Asking to
+	// review a `planned` Task is the wrong request whether or not a reviewer
+	// happens to be wired into this plane, and answering "no reviewer configured"
+	// sends the operator to look at their installation for a mistake they made in
+	// the command. The reverse order also made the state guard invisible to any
+	// caller without a reviewer, which is how the exhaustive table test found it.
+	if s.reviewer == nil {
+		return ReviewResult{}, fmt.Errorf("control: no reviewer configured for this control plane")
 	}
 	job, art, ok, err := s.jobToReview(id)
 	if err != nil {

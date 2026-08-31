@@ -416,9 +416,10 @@ func (c *Client) CancelTask(id string) (Task, error) {
 func decodeError(resp *http.Response) error {
 	body, _ := io.ReadAll(resp.Body)
 	var env struct {
-		Error   string          `json:"error"`
-		Reason  RejectionReason `json:"reason"`
-		Message string          `json:"message"`
+		Error    string          `json:"error"`
+		Reason   RejectionReason `json:"reason"`
+		Message  string          `json:"message"`
+		Remedies []string        `json:"remedies"`
 	}
 	msg := strings.TrimSpace(string(body))
 	if err := json.Unmarshal(body, &env); err == nil && env.Error != "" {
@@ -432,10 +433,23 @@ func decodeError(resp *http.Response) error {
 		if detail == "" {
 			detail = msg
 		}
-		return &RejectionError{Reason: env.Reason, Message: detail}
+		return &RejectionError{
+			Reason: env.Reason, Message: detail,
+			Remedies: operationsFromSurfaces(env.Remedies),
+		}
 	}
 	if resp.StatusCode == http.StatusNotFound {
 		return fmt.Errorf("%w: %s", ErrNotFound, msg)
+	}
+	// A 409 is the state conflict — the shape #95 is mostly about. It has no reason
+	// code, so it cannot be rebuilt as a RejectionError, but its remedies must
+	// still survive the wire: a caller that RELAYS this API (the Web UI) would
+	// otherwise render buttons in-process and prose over the socket.
+	if resp.StatusCode == http.StatusConflict && len(env.Remedies) > 0 {
+		return &RemoteError{
+			Status: resp.StatusCode, Msg: msg,
+			Remedies: operationsFromSurfaces(env.Remedies),
+		}
 	}
 	// Malformed input survives the wire as the same sentinel, so a caller can tell
 	// "you asked wrongly" from "the daemon broke" in-process and over the socket
@@ -461,10 +475,38 @@ func decodeError(resp *http.Response) error {
 type RemoteError struct {
 	Status int
 	Msg    string
+	// Remedies are the operations the plane said are available from here, carried
+	// across the socket so a relaying surface can render them as choices rather
+	// than re-deriving them from a state it would have to guess at (#95 item 2).
+	// Msg already contains the human sentence; this is the machine-readable half.
+	Remedies []Operation
 }
 
 func (e *RemoteError) Error() string {
 	return fmt.Sprintf("control daemon %d: %s", e.Status, e.Msg)
+}
+
+// operationsFromSurfaces maps wire names back to operations, dropping any the
+// plane on the other end knows about and this build does not.
+//
+// Dropping is the right failure: a surface rendering a button for an operation
+// its own binary cannot name would produce a request nobody can route, which is a
+// dead end with an extra step. An older client simply offers fewer choices.
+func operationsFromSurfaces(names []string) []Operation {
+	if len(names) == 0 {
+		return nil
+	}
+	bySurface := make(map[string]Operation, len(allOperations))
+	for _, op := range allOperations {
+		bySurface[Operation(op).Surface()] = Operation(op)
+	}
+	out := make([]Operation, 0, len(names))
+	for _, n := range names {
+		if op, ok := bySurface[n]; ok {
+			out = append(out, op)
+		}
+	}
+	return out
 }
 
 // compile-time assertions: both the Service and the Client satisfy TaskAPI.

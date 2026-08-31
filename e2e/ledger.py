@@ -521,14 +521,92 @@ def main():
         tp.screenshot(path=os.environ.get("LEDGER_KEYS_SHOT") or "/tmp/m-keys.png")
         term_ctx.close()
 
+        # --- item 95: no dead ends -------------------------------------------
+        #
+        # Two things, and the second is the one an operator feels.
+        #
+        # 1. The plates on screen are the plane's answer, not the page's. The
+        #    expected set is READ FROM THE PLANE inside this test, so the check
+        #    cannot pass by agreeing with a list somebody typed twice.
+        # 2. A refused command leaves you holding something you can do. That is
+        #    the whole of #95: the five dead ends of 2026-08-25 were all refusals
+        #    that named no reachable action.
+        print("\n[95] a refusal names a way forward")
+        page.goto(URL + "/ledger/T-1")
+        page.wait_for_selector("#control-view.active", timeout=10000)
+        page.wait_for_function(
+            "document.getElementById('ledger-desc-id').textContent === 'T-1'", timeout=10000)
+        page.wait_for_selector("#ledger-commands .ff-cmd", timeout=10000)
+
+        allowed = page.evaluate("""async () => {
+            const r = await fetch('/api/control/operations');
+            const d = await r.json();
+            const out = {};
+            (d.operations || []).forEach(o => { out[o.key] = o.states; });
+            return out;
+        }""")
+        check("the plane served its operation table",
+              bool(allowed) and "refine" in allowed, str(sorted(allowed))[:120])
+        # T-1 is approval_required. Every plate on screen must be an operation the
+        # plane admits from there; the page may narrow, never widen.
+        check("refine is offered where the plane admits it",
+              "approval_required" in allowed.get("refine", []) and
+              page.locator('#ledger-commands .ff-cmd:text-is("Refine")').count() == 1)
+        check("dispatch is NOT offered where the plane refuses it",
+              "approval_required" not in allowed.get("dispatch", []) and
+              page.locator('#ledger-commands .ff-cmd:text-is("Dispatch")').count() == 0)
+
+        # Now the refusal. T-2's refine is declined by the fixture, with the
+        # remedies the plane computed.
+        page.goto(URL + "/ledger/T-2")
+        page.wait_for_function(
+            "document.getElementById('ledger-desc-id').textContent === 'T-2'", timeout=10000)
+        page.wait_for_selector('#ledger-commands .ff-cmd:text-is("Refine")', timeout=10000)
+        page.click('#ledger-commands .ff-cmd:text-is("Refine")')
+        page.wait_for_selector("#ledger-prompt.is-open", timeout=5000)
+        page.click('#ledger-prompt button:text-is("OK")')
+        page.wait_for_function(
+            "document.getElementById('ledger-message').textContent.indexOf('Refused') !== -1",
+            timeout=10000)
+        said = page.inner_text("#ledger-message")
+        check("the refusal is shown as a refusal, with its reason",
+              "Refused" in said and "attempts_exhausted" in said, said[:160])
+        check("and it names what CAN be done from here",
+              "You can:" in said, said[:200])
+        check("the way out is in the page's own words, not a shell command",
+              "Budget" in said and "daedalus task" not in said, said[:200])
+        # THE BUG A SCREENSHOT FOUND. The first version of the exhausted-attempts
+        # remedy list dropped dispatch, retry and replan and left REFINE in — and
+        # refine spends an attempt like the other three, so the page told an
+        # operator to refine a task whose refine had just been refused. #95's own
+        # defect, inside the fix for #95.
+        check("it does not offer the command that was just refused",
+              "Refine" not in said.split("You can:")[-1], said[:200])
+        check("the refusal and the way out are two sentences, not a run-on",
+              "attempt(s). You can:" in said, said[:200])
+        shot95 = os.environ.get("LEDGER_DEADEND_SHOT")
+        if shot95:
+            page.screenshot(path=shot95)
+        # The corollary from docs/no-dead-ends.md: no operator action should
+        # require destroying the task's history.
+        check("cancel is not the only thing offered",
+              said.count("·") >= 1 and said.strip().rstrip(".").split("You can:")[-1].strip() != "Cancel",
+              said[:200])
+
         # --- page health ------------------------------------------------------
         print("\n[0] the page itself")
-        real = [e for e in errors if "favicon" not in e.lower()]
+        # A 422 is the plane SAYING NO, which is it working — the browser logs it as
+        # a failed resource because it cannot know that, and the check would
+        # otherwise punish the suite for exercising a refusal on purpose ([95]).
+        real = [e for e in errors if "favicon" not in e.lower()
+                and "422" not in e]
         check("no uncaught JS errors", not real, "; ".join(real[:3]))
-        # The only request allowed to fail is the deliberate lookup of an id the
-        # plane does not hold. Anything else is a route the page asks for and
-        # nothing answers, which is invisible from the source.
-        unexpected = [r for r in bad_responses if "T-404" not in r]
+        # Two requests are allowed to fail: the deliberate lookup of an id the
+        # plane does not hold, and the refusal [95] provokes. Anything else is a
+        # route the page asks for and nothing answers, which is invisible from the
+        # source.
+        unexpected = [r for r in bad_responses
+                      if "T-404" not in r and not r.startswith("422 ")]
         check("no unexpected failed requests", not unexpected, "; ".join(unexpected[:5]))
         check("the page never scrolled horizontally",
               page.evaluate("document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1"))

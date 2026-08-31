@@ -118,9 +118,8 @@ func (s *Service) prepareReverify(caller Caller, id string, req ReverifyRequest)
 	if err != nil {
 		return ReverifyResult{}, err
 	}
-	if task.State != StateRejected {
-		return ReverifyResult{}, fmt.Errorf("%w: task %s is %s, not re-verifiable (want rejected)",
-			ErrWrongState, id, task.State)
+	if err := requireOperable(OpReverify, id, task.State); err != nil {
+		return ReverifyResult{}, err
 	}
 
 	// What is being set aside. Read before anything moves, because it decides

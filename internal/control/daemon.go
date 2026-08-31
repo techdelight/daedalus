@@ -37,6 +37,9 @@ package control
 //	POST   /tasks/{id}/dependencies body: {dependsOn}     → 200 DependencyEdge
 //	                                                       → 409 cycle / invalid
 //	GET    /tasks/{id}/dependencies                       → 200 DependencyView
+//	GET    /operations                                    → 200 {operations: []OperationView}
+//	                                                          (which states admit which
+//	                                                          operation — #95 item 1)
 //	GET    /status                                        → 200 PlaneStatus
 //	GET    /board                                         → 200 BoardView
 //	POST   /jobs/{id}/steer     body: {instruction}       → 200 SteeringEvent
@@ -66,6 +69,11 @@ package control
 // refusal* additionally carries {"reason": "<RejectionReason>"} with status 422,
 // so a client can tell "the plane said no" from "something broke" — the wire
 // half of §6's "the plane can reject".
+//
+// A refusal that leaves an entity somewhere ALSO carries {"remedies": ["retry",
+// …]} — the operations available from the state it was refused in, computed from
+// the operation table rather than written into the message (#95 item 2). A client
+// renders them; it never has to guess which of them the plane would accept.
 
 import (
 	"encoding/json"
@@ -123,6 +131,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /approvals", s.handlePendingApprovals)
 	mux.HandleFunc("POST /tasks/{id}/dependencies", s.handleAddDependency)
 	mux.HandleFunc("GET /tasks/{id}/dependencies", s.handleTaskDependencies)
+	mux.HandleFunc("GET /operations", s.handleOperations)
 	mux.HandleFunc("GET /status", s.handlePlaneStatus)
 	mux.HandleFunc("GET /board", s.handleBoard)
 	mux.HandleFunc("POST /jobs/{id}/steer", s.handleSteerJob)
@@ -713,7 +722,7 @@ func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 func writeError(w http.ResponseWriter, status int, err error) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	body := map[string]string{"error": err.Error()}
+	body := map[string]any{"error": err.Error()}
 	var rejected *RejectionError
 	if errors.As(err, &rejected) {
 		// `error` stays the full human string; `reason` + `message` carry the parts
@@ -721,7 +730,54 @@ func writeError(w http.ResponseWriter, status int, err error) {
 		body["reason"] = string(rejected.Reason)
 		body["message"] = rejected.Message
 	}
+	// `remedies` is what a surface renders as buttons rather than as prose (#95
+	// item 2). It rides alongside the human sentence rather than replacing it: the
+	// sentence explains WHY one of them is the right choice, which no list can, and
+	// the list is what makes the availability checkable instead of a guess.
+	if ops := RemediesFor(err); len(ops) > 0 {
+		names := make([]string, 0, len(ops))
+		for _, op := range ops {
+			names = append(names, op.Surface())
+		}
+		body["remedies"] = names
+	}
 	_ = json.NewEncoder(w).Encode(body)
+}
+
+// RemediesFor pulls the computed way-out list off whichever typed refusal carries
+// it. THREE shapes exist and none is redundant: a StateError is a 409 about the
+// entity's state, a RejectionError is a 422 about policy — an exhausted budget is
+// the second while a wrongly-timed retry is the first — and a RemoteError is
+// either of them rebuilt on the far side of a socket.
+//
+// Exported because the Web UI relays this API rather than serving it, and a
+// refusal that arrived over the socket must render exactly as one raised
+// in-process. This function is the single place that knows where remedies live.
+func RemediesFor(err error) []Operation {
+	var se *StateError
+	if errors.As(err, &se) {
+		return se.Remedies
+	}
+	var rej *RejectionError
+	if errors.As(err, &rej) {
+		return rej.Remedies
+	}
+	var remote *RemoteError
+	if errors.As(err, &remote) {
+		return remote.Remedies
+	}
+	return nil
+}
+
+// handleOperations serves the operation → states table (#95 item 1).
+//
+// It takes no lock and touches no store: the table is a compile-time property of
+// the binary, not plane state. That is the whole reason a surface can stop
+// restating it — the Ledger's COMMANDS entries used to carry their own
+// `states: [...]` in JavaScript, which nothing in Go could see and nothing could
+// check.
+func (s *Server) handleOperations(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"operations": OperationCatalogue()})
 }
 
 // DefaultSocketPath returns the HUMAN daemon socket path under a data dir,

@@ -1139,3 +1139,104 @@ func TestLedger_CollectsAndShowsDeliverables(t *testing.T) {
 			"— before dispatch or at the approval gate — can see what it promised")
 	}
 }
+
+// TestLedgerCommandsNameRealOperations is the derived web-surface test for #95
+// item 1: every command plate in the Ledger names a plane operation the plane
+// actually has, and no plate carries its own list of states any more.
+//
+// THE DEFECT IT REPLACES. Each COMMANDS entry used to hold `states: [...]` — a
+// third copy of which operations a state admits, in JavaScript, where nothing in
+// Go could see it. It could not let anything illegal through, and that is not the
+// failure that happened: what happened is a command that WAS legal and was never
+// offered, which an operator cannot tell apart from a rule. `task refine` shipped
+// with #91 and the Ledger could not reach it at all; the plane widened `review`
+// to `rejected` and the page went on hiding it.
+//
+// A test of the same shape found the missing `budget` route the day it was
+// written, which is why this one is here rather than a comment asking people to
+// remember.
+func TestLedgerCommandsNameRealOperations(t *testing.T) {
+	src, err := staticFiles.ReadFile("static/control.js")
+	if err != nil {
+		t.Fatalf("reading the Ledger: %v", err)
+	}
+	js := string(src)
+
+	known := map[string]bool{}
+	for _, op := range control.OperationCatalogue() {
+		known[op.Key] = true
+	}
+
+	// `key: 'retry-rebase', op: 'retry',` — every plate's declared operation.
+	plates := regexp.MustCompile(`key: '([a-z-]+)', op: '([a-z-]+)'`).FindAllStringSubmatch(js, -1)
+	if len(plates) == 0 {
+		t.Fatal("no command plates found in control.js; this test cannot find what to check")
+	}
+	seen := map[string]bool{}
+	for _, p := range plates {
+		key, op := p[1], p[2]
+		if !known[op] {
+			t.Errorf("the Ledger's %q plate performs operation %q, which the plane does not have. "+
+				"Either the operation was renamed and the page was not, or the plate is unreachable.",
+				key, op)
+		}
+		seen[op] = true
+	}
+
+	// THE OTHER DIRECTION, which is the one that actually went wrong: an operation
+	// the plane offers and the Ledger has no way to reach. That is a dead end for
+	// anyone driving from the page, and `refine` was exactly this for weeks.
+	for op := range known {
+		if !seen[op] {
+			t.Errorf("the plane offers %q and the Ledger has no plate for it — an operator on "+
+				"this page cannot reach it, which is a dead end however legal the operation is", op)
+		}
+	}
+
+	// And no plate may carry its own state list again. The regexp is deliberately
+	// narrow: the phrase appears in this file's own commentary explaining why it
+	// was removed, and a match on the comment would make the test unfailable.
+	if regexp.MustCompile(`\n\s*states: \[`).MatchString(js) {
+		t.Error("a command plate has its own `states: [...]` again. Availability comes from " +
+			"GET /api/control/operations; a copy here is the third opinion #95 removed")
+	}
+}
+
+// TestLedgerOperationsEndpointDoesNotNeedThePlane pins the deployment property
+// the command plates depend on.
+//
+// The plates are how an operator escapes a stuck task. If the endpoint that
+// decides which of them to show were proxied to the daemon, they would vanish
+// exactly when the plane was unhappy — which is when they are most needed and
+// when a page showing nothing is least distinguishable from a task with nothing
+// available. The table is compiled into this binary, so it is served from here.
+func TestLedgerOperationsEndpointDoesNotNeedThePlane(t *testing.T) {
+	// A WebServer with NO control client at all: nothing to dial, nothing to fail.
+	ws := &WebServer{}
+	rec := httptest.NewRecorder()
+	ws.handleOperations(rec, httptest.NewRequest(http.MethodGet, "/api/control/operations", nil))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("operations = %d with no plane behind it, want 200: %s", rec.Code, rec.Body)
+	}
+	var body struct {
+		Operations []control.OperationView `json:"operations"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decoding: %v (%s)", err, rec.Body)
+	}
+	if len(body.Operations) != len(control.AllOperations()) {
+		t.Errorf("served %d operations, the plane has %d",
+			len(body.Operations), len(control.AllOperations()))
+	}
+	for _, op := range body.Operations {
+		if op.Key == "" {
+			t.Error("an operation reached the page with no key, so no plate can match it")
+		}
+		// `cancel` is the one operation available from every active state, so an
+		// empty list anywhere is a marshalling fault rather than a real answer.
+		if len(op.States) == 0 {
+			t.Errorf("operation %q reached the page admitting no states at all", op.Key)
+		}
+	}
+}

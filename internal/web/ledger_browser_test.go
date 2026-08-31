@@ -239,6 +239,25 @@ func (p *scriptedPlane) ReviewTask(id string) (control.ReviewResult, error) {
 }
 
 func (p *scriptedPlane) RefineTask(id string, req control.RefineRequest) (control.Task, error) {
+	// T-2 REFUSES, and that is the fixture for #95: a command the plane offers
+	// from this state and declines on other grounds. What the browser checks is
+	// that the operator is left holding a list of things that WILL work — not a
+	// reason code and a full stop, which is what an evening of dead ends looked
+	// like from this side of the screen.
+	if id == "T-2" {
+		return control.Task{}, &control.RejectionError{
+			Reason:        control.ReasonAttemptsExhausted,
+			Message:       "task T-2 has used all 3 of its attempt(s)",
+			Entity:        id,
+			RemedySubject: id,
+			RemedyState:   control.StateApprovalRequired,
+			// The REAL rule, not a list typed here. A fixture that spelled out the
+			// remedies would have gone on passing after the plane stopped offering
+			// `refine` — and offering `refine` from an exhausted budget is precisely
+			// the bug this fixture caught, because refine spends an attempt too.
+			Remedies: control.RemediesForExhaustedAttempts(control.StateApprovalRequired),
+		}
+	}
 	p.mu.Lock()
 	p.refined = append(p.refined, req)
 	p.mu.Unlock()

@@ -290,6 +290,7 @@ func (ws *WebServer) RegisterRoutes(mux *http.ServeMux) {
 	// code we just changed".
 	mux.HandleFunc("GET /api/version", handleBuildVersion)
 
+	mux.HandleFunc("GET /api/control/operations", ws.handleOperations)
 	mux.HandleFunc("GET /api/control/status", ws.handlePlaneStatus)
 	mux.HandleFunc("GET /api/control/board", ws.handleBoard)
 	mux.HandleFunc("GET /api/control/approvals", ws.handleApprovals)

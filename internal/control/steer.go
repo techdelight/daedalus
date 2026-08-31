@@ -176,16 +176,11 @@ var (
 // recording of "told us nothing" is `undeliverable`.
 const steeringDeliveryTimeout = 10 * time.Second
 
-// steerableStates are the Job states in which an instruction could conceivably
-// reach a worker: something is executing, or is waiting to be told something.
-//
-// Everything else is refused rather than recorded-and-dropped. A steer aimed at a
-// `candidate` Job would be an instruction to a process that has already exited,
-// and recording it as undeliverable would bury a caller mistake in the log instead
-// of answering it.
-var steerableStates = map[State]bool{
-	StateWorking: true, StateInputRequired: true,
-}
+// Which JOB states admit a steer lives in operations.go (OpSteer): something is
+// executing, or is waiting to be told something. Everything else is refused
+// rather than recorded-and-dropped — a steer aimed at a `candidate` Job would be
+// an instruction to a process that has already exited, and recording it as
+// undeliverable would bury a caller mistake in the log instead of answering it.
 
 // --- service operations ---------------------------------------------------------
 
@@ -214,13 +209,21 @@ func (s *Service) steerJob(caller Caller, jobID, instruction string) (SteeringEv
 	if err != nil {
 		return SteeringEvent{}, err
 	}
-	if !steerableStates[job.State] {
-		return SteeringEvent{}, s.refuse("job", jobID, EventSteering, ReasonNotSteerable, fmt.Sprintf(
-			"job %s is %s; only a working or input_required job can be steered", jobID, job.State))
-	}
 	task, err := s.store.GetTask(job.TaskID)
 	if err != nil {
 		return SteeringEvent{}, err
+	}
+	// Read BEFORE the guard, because the guard needs it. A steer is the one
+	// operation keyed on a JOB's state, and a job that cannot be steered has
+	// nothing else that can be done TO IT either — so remedies computed from the
+	// job would be an empty list dressed up as an answer. What the operator
+	// actually wants is what is available on the TASK, which is where the work
+	// continues once the attempt has stopped listening.
+	if !Operation(OpSteer).Admits(job.State) {
+		return SteeringEvent{}, s.refuseWithRemedies("job", jobID, EventSteering, ReasonNotSteerable,
+			fmt.Sprintf("job %s is %s; only a %s job can be steered — the attempt is no longer listening",
+				jobID, job.State, joinStates(Operation(OpSteer).States())),
+			task.ID, task.State, RemediesFrom(TargetTask, task.State))
 	}
 
 	// A newer instruction replaces an older undelivered one, in one transaction:

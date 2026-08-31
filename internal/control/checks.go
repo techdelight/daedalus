@@ -16,22 +16,8 @@ type AmendChecksRequest struct {
 	Checks []string `json:"checks"`
 }
 
-// amendableStates are the states in which a Task's checks may be changed.
-//
-// The exclusions matter more than the inclusions. `verifying` is refused because
-// changing the criteria while they are being applied is a race with no correct
-// outcome. Everything from `verified` onward is refused because it would make the
-// record incoherent rather than because it would change a verdict already given:
-// a Task shown as having passed criteria it no longer carries is a worse artefact
-// than a wrong verdict, since nothing about it looks wrong. A human who wants a
-// stricter bar after a pass has the approval gate, which is designed to say no.
-var amendableStates = map[State]bool{
-	StatePlanned:   true,
-	StateBlocked:   true,
-	StateQueued:    true,
-	StateCandidate: true,
-	StateRejected:  true,
-}
+// Which states admit a checks amendment lives in operations.go (OpChecks) with
+// every other operation's, and the reasoning for the exclusions with it.
 
 // AmendTaskChecks replaces a Task's per-task acceptance checks.
 //
@@ -77,9 +63,10 @@ func (s *Service) amendTaskChecks(caller Caller, id string, req AmendChecksReque
 	if err != nil {
 		return Task{}, err
 	}
-	if !amendableStates[task.State] {
-		return Task{}, fmt.Errorf("%w: task %s is %s, its checks are not amendable (want one of planned/blocked/queued/candidate/rejected)",
-			ErrWrongState, id, task.State)
+	if err := requireOperableWith(OpChecks, id, task.State,
+		"changing the criteria once they are being applied, or after a verdict has been given "+
+			"under them, would make the record incoherent"); err != nil {
+		return Task{}, err
 	}
 
 	note := fmt.Sprintf("checks amended: %s → %s", renderChecks(task.Checks), renderChecks(checks))

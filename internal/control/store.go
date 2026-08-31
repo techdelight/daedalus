@@ -1338,11 +1338,55 @@ func (s *Store) ListActiveJobs() ([]Job, error) {
 	return out, rows.Err()
 }
 
-// CountJobsForTask returns how many Jobs a task has ever had — the attempt
-// counter the max-attempts budget is enforced against (§6). Counting rows rather
-// than keeping a mutable counter is deliberate: the Job chain is append-only, so
-// the count cannot be laundered by a retry or a replan.
+// CountJobsForTask returns how many attempts a task has SPENT — the counter the
+// max-attempts budget is enforced against (§6). Counting rows rather than keeping
+// a mutable counter is deliberate: the Job chain is append-only, so the count
+// cannot be laundered by a retry or a replan.
+//
+// MINUS THE PLANE'S OWN FAULTS (#95 item 3). A Job whose transition to `failed`
+// carries ReasonCaptureFailed did not fail: the agent exited 0 and our capture
+// could not turn its worktree into a commit. Charging for that spends an
+// operator's budget on a defect of ours, which is what killed T-28 on 2026-08-25
+// — three attempts gone, mostly to this, and cancel-and-recreate the only way
+// out.
+//
+// It is the same rule CountReviewCycles applies to a harness-fault
+// re-verification, and it stops in the same place. Every OTHER failure is still
+// charged, because the plane cannot tell a broken environment from a genuinely
+// bad run, and refunding on an unsure reading would make a Job that fails
+// instantly free to repeat forever. A capture failure is the one reading that is
+// not unsure.
+//
+// COUNT(DISTINCT entity_id) rather than COUNT(*), for the reason spelled out at
+// length on CountReviewCycles: a settle writes its reason onto more than one row,
+// and counting rows would refund one attempt twice over.
 func (s *Store) CountJobsForTask(taskID string) (int, error) {
+	var total, planeFaults int
+	err := s.db.QueryRow(
+		`SELECT
+		   (SELECT COUNT(*) FROM jobs WHERE task_id = ?),
+		   (SELECT COUNT(DISTINCT entity_id) FROM events
+		     WHERE entity_type = 'job' AND reason = ?
+		       AND entity_id IN (SELECT id FROM jobs WHERE task_id = ?))`,
+		taskID, string(ReasonCaptureFailed), taskID,
+	).Scan(&total, &planeFaults)
+	if err != nil {
+		return 0, fmt.Errorf("counting jobs for %s: %w", taskID, err)
+	}
+	// Never negative, however the rows arrived. A budget that reads as "unbounded"
+	// because a count went below zero is the failure mode Budget.invalidAxis exists
+	// to refuse, and it must not be reachable from an accounting slip here.
+	if spent := total - planeFaults; spent > 0 {
+		return spent, nil
+	}
+	return 0, nil
+}
+
+// CountAllJobsForTask returns how many Jobs a task has EVER had, including the
+// ones the plane refunded. CountJobsForTask answers "what has been spent"; this
+// answers "what happened", and the two must not be confused — a Job the operator
+// was not charged for still exists, still has logs, and still shows on the board.
+func (s *Store) CountAllJobsForTask(taskID string) (int, error) {
 	var n int
 	if err := s.db.QueryRow(`SELECT COUNT(*) FROM jobs WHERE task_id = ?`, taskID).Scan(&n); err != nil {
 		return 0, fmt.Errorf("counting jobs for %s: %w", taskID, err)

@@ -165,11 +165,22 @@ func writeControlJSON(w http.ResponseWriter, status int, v any) {
 // mapping. A caller on the far side of the browser can therefore branch on
 // exactly what a caller on the far side of the socket branches on.
 func writeControlError(w http.ResponseWriter, err error) {
-	body := map[string]string{"error": err.Error()}
+	body := map[string]any{"error": err.Error()}
 	var rejected *control.RejectionError
 	if errors.As(err, &rejected) {
 		body["reason"] = string(rejected.Reason)
 		body["message"] = rejected.Message
+	}
+	// The way out, forwarded rather than re-derived (#95 item 2). The page has the
+	// task's state and could compute this itself; it must not, because then the
+	// refusal and the suggestion would come from two places again, and the whole
+	// point is that they come from one.
+	if ops := control.RemediesFor(err); len(ops) > 0 {
+		names := make([]string, 0, len(ops))
+		for _, op := range ops {
+			names = append(names, op.Surface())
+		}
+		body["remedies"] = names
 	}
 	writeControlJSON(w, control.StatusFor(err), body)
 }
@@ -264,6 +275,24 @@ type planeStatusResponse struct {
 }
 
 // handlePlaneStatus serves the scheduler's view of what is running and queued.
+// handleOperations serves the plane's operation → states table to the Ledger
+// (#95 item 1).
+//
+// IT DOES NOT ASK THE DAEMON. Every other route here is a call on
+// control.TaskAPI over the socket, and this one deliberately is not: the table is
+// a compile-time property of the `control` package, which this binary links, so
+// there is nothing to ask and nothing to be unavailable. That matters — the
+// Ledger's command plates are the surface an operator uses to escape a stuck
+// task, and making them contingent on the daemon answering would take them away
+// in exactly the situation they are most needed.
+//
+// The Ledger's COMMANDS entries keep their labels, hints, confirmations and
+// request bodies. All they surrender is `states`, which is the one field a page
+// has no business having an opinion about.
+func (ws *WebServer) handleOperations(w http.ResponseWriter, r *http.Request) {
+	writeControlJSON(w, http.StatusOK, map[string]any{"operations": control.OperationCatalogue()})
+}
+
 func (ws *WebServer) handlePlaneStatus(w http.ResponseWriter, r *http.Request) {
 	empty := func(u unavailable) any {
 		return planeStatusResponse{unavailable: u, ProjectRunning: map[string]int{}, Waiting: []string{}}

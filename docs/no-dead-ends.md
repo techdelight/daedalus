@@ -3,8 +3,55 @@
 **A design pass on refusals, written 2026-08-25 after a day in which one
 operator hit five states they could not leave.**
 
-Status: **proposal**. Nothing here is built. It exists to be argued with before
-any of it is.
+Status: **BUILT, 2026-08-31**, items 1–4. Item 5 is still a question. The design
+below is unchanged from the proposal; what follows immediately is what shipping
+it actually taught, which is the part worth reading twice.
+
+---
+
+## What building it found
+
+**One table, and it found things the moment it existed.** The exhaustive
+guard/table cross-check (`TestOperationTable_MatchesGuards_Exhaustive`, 15
+operations × 15 states) failed on its first run in three places:
+
+- **`CancelTask` on a finished task** fell through to the transition table and
+  surfaced as `illegal state transition: cancelled → cancelled` — the plane's
+  internals, for what is usually an operator repeating themselves. A real defect,
+  and now a refusal in the plane's own words.
+- **`review` checked *is a reviewer configured* before *is this state
+  reviewable*,** so reviewing a `planned` task said "no reviewer configured" and
+  sent the operator to look at their installation for a mistake they had made in
+  the command. Ordering, but the wrong order.
+- **`AddDependency` looked unguarded and was not.** The rule is already there,
+  inside the transaction that inserts the edge — which is where it has to be,
+  since a check made outside can be true when it runs and false when the row
+  lands. What was wrong was the FIXTURE: it passed a nonexistent upstream id, and
+  the existence check runs before the state check, so the call failed with "not
+  found" and the rule was never reached. A guard was added out of that reading and
+  then taken out again; it duplicated a better-placed check and downgraded
+  `ErrDependencyInvalid` to a generic state refusal. Recorded here because the
+  test was RIGHT to complain and the first reading of it was wrong — a fixture
+  without the property that makes the rule reachable proves nothing about the
+  rule, in either direction.
+
+**And the fix reproduced the original defect.** The first version of the
+exhausted-attempts refusal dropped `dispatch`, `retry` and `replan` from its
+remedy list — and left `refine` in. Refine calls `checkDispatchBudget` like the
+other three, so the Ledger told an operator to refine a task whose refine had
+just been refused: exactly the `daedalus task retry` advice that started this
+document, in the code written to abolish it.
+
+Every assertion passed. It was caught by **looking at a screenshot of the page**
+(`e2e/ledger.py`, `LEDGER_DEADEND_SHOT`), because the assertions checked the
+three names somebody had thought of. The list is now held to account by
+`TestExhaustedBudgetRefusesEverythingItDoesNotOffer`, which exercises every
+operation against an exhausted task in both directions rather than trusting the
+list — and by `TestExhaustedRefusalOffersNothingItWouldRefuse`, which takes the
+sentence an operator actually reads and tries every operation it names.
+
+The lesson is the document's own: **a hand-written list of anything is where this
+goes wrong**, and a test that enumerates the same list proves nothing.
 
 ---
 
@@ -203,6 +250,21 @@ Items 1–3 are one sprint and are the ones with evidence behind them. Item 4 is
 small but touches governance and deserves its own review. Item 5 is a question,
 not a task.
 
+**As built (2026-08-31).** Item 4 shipped early, on 2026-08-25, because T-29 hit
+T-28's wall an hour after this was written. Items 1–3 shipped together:
+
+| Item | Where it lives |
+|---|---|
+| 1. One table | `internal/control/operations.go`. Four tables and a dozen inline guards now read it; `GET /operations` serves it; the Ledger's `COMMANDS` entries name an operation and carry no `states` |
+| 2. Refusals carry remedies | `StateError` (409) and `RejectionError` (422) both carry `Remedies`, computed from (1). The wire envelope gains `remedies`; the CLI prints one per line; the Ledger renders them in its own labels |
+| 3. Plane faults not charged | `ReasonCaptureFailed` + `CountJobsForTask`. **Only** a capture failure — the agent exited 0 and our capture produced nothing. Everything else still charges, for the reason `reapJob` already gives |
+
+Two things were deliberately NOT built, and both are the scope discipline the
+migration-plan review asked for: the table is operation → states and nothing
+more — no nine-field `OperationDescriptor`, no surface generation — and naming
+`amend_checks` / `amend_budget` for the first time does **not** tier them
+(`TestChecksAndBudgetAreNeverTiered` pins the absence).
+
 **Out of scope, deliberately:** the merge-conflict path (#4's proximate cause).
 An artifact that will not rebase needs a human to resolve it, and no refusal
 design changes that. The remedy — cherry-pick the artifact's branch, which
@@ -215,3 +277,10 @@ If this works, one thing should be true a month from now: **no operator hits a
 state whose only exit is `cancel`.** That is checkable from the event log —
 every `cancel` on a non-terminal task, paired with the refusal that preceded it,
 is a candidate dead end. If the list is empty, this was worth doing.
+
+**The structural half of that is now asserted rather than waited for.**
+`TestNoStateIsADeadEnd` walks every non-terminal state and fails if the only
+operation it admits is `cancel`. That does not replace the measurement — it
+catches the state machine having no way out, not a REFUSAL having no way out for
+some other reason (a budget, a missing artifact) — so the event-log check is
+still the thing to run in late September.
