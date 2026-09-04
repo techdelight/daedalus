@@ -593,6 +593,58 @@ def main():
               said.count("·") >= 1 and said.strip().rstrip(".").split("You can:")[-1].strip() != "Cancel",
               said[:200])
 
+        # --- the Landed column's adoption rows ---------------------------------
+        #
+        # The column that reads as finished and is not. The scripted plane holds
+        # `docs` two commits behind with TWO landed tasks, and `app` already at
+        # its target — the two shapes the column has to tell apart.
+        print("\n[79b] the Landed column offers one adoption per project")
+        open_ledger(page, "/ledger")
+        page.wait_for_selector('.ledger-row[data-entry-id="adopt:docs"]', timeout=10000)
+        check("the project behind its target has a row",
+              page.locator('.ledger-row[data-entry-id="adopt:docs"]').count() == 1)
+        adoption_rows = page.locator('.ledger-row[data-entry-id^="adopt:"]').count()
+        check("one row for the project, not one per landed task",
+              adoption_rows == 2, f"{adoption_rows} adoption rows")
+        row = page.inner_text('.ledger-row[data-entry-id="adopt:docs"]')
+        check("the row names the branch and how far behind it is",
+              "main" in row and "2 commits behind" in row, row)
+
+        page.click('.ledger-row[data-entry-id="adopt:docs"]')
+        page.wait_for_function(
+            "document.getElementById('ledger-desc-id').textContent === 'docs'", timeout=10000)
+        check("the entry shows the plane's own note",
+              "behind the landed commit" in page.inner_text("#ledger-desc-body"),
+              page.inner_text("#ledger-desc-body")[:200])
+        check("and names both landed tasks on the one row",
+              "T-3" in page.inner_text("#ledger-desc-body")
+              and "T-4" in page.inner_text("#ledger-desc-body"),
+              page.inner_text("#ledger-desc-body")[:300])
+        check("it offers Adopt",
+              page.locator("#ledger-commands button:has-text('Adopt')").count() == 1)
+
+        # A project already at its target is told so, and offered nothing.
+        page.click('.ledger-row[data-entry-id="adopt:app"]')
+        page.wait_for_function(
+            "document.getElementById('ledger-desc-id').textContent === 'app'", timeout=10000)
+        check("a project with nothing to adopt says so",
+              "Nothing to adopt" in page.inner_text("#ledger-commands"),
+              page.inner_text("#ledger-commands")[:160])
+        check("and is offered no action that would do nothing",
+              page.locator("#ledger-commands button").count() == 0)
+
+        # And the action itself: confirm, then read the plane's note back.
+        page.click('.ledger-row[data-entry-id="adopt:docs"]')
+        page.wait_for_function(
+            "document.getElementById('ledger-desc-id').textContent === 'docs'", timeout=10000)
+        page.click("#ledger-commands button:has-text('Adopt')")
+        page.wait_for_timeout(300)
+        page.click("#ledger-commands button:has-text('Yes')")
+        page.wait_for_timeout(800)
+        said = page.inner_text("#ledger-message")
+        check("the message is the plane's own sentence about the branch",
+              "fast-forwarded" in said, said[:200])
+
         # --- page health ------------------------------------------------------
         print("\n[0] the page itself")
         # A 422 is the plane SAYING NO, which is it working — the browser logs it as

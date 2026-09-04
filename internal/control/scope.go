@@ -260,6 +260,22 @@ func (c *callerScope) IntegrateTask(id string, req IntegrateRequest) (Integratio
 	return c.svc.IntegrateTask(id, req)
 }
 
+// Adoptions is a read, allowed to any caller — the same bargain TargetLags
+// makes, with the comparison pointing the other way. It names a project, a
+// branch and two commits, and no host path.
+func (c *callerScope) Adoptions() ([]Adoption, error) { return c.svc.Adoptions() }
+
+// AdoptLanded moves a branch in somebody's working checkout. Tiered: an agent
+// may ask, a human confirms, and the confirmation executes the same guarded
+// fast-forward — see the entry in authority.go for why this one is not a read
+// dressed up as a write.
+func (c *callerScope) AdoptLanded(project string) (AdoptionResult, error) {
+	if !c.allowed(OpAdopt) {
+		return AdoptionResult{}, c.propose(OpAdopt, "", project)
+	}
+	return c.svc.adoptLanded(c.caller, project)
+}
+
 func (c *callerScope) SyncTarget(project string) (Target, error) {
 	if !c.allowed(OpSyncTarget) {
 		return Target{}, c.propose(OpSyncTarget, "", project)

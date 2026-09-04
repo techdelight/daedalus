@@ -273,6 +273,12 @@ type TaskAPI interface {
 	// nothing, and an operator about to spend an agent on a stale tree is exactly
 	// who needs telling.
 	TargetLags() ([]TargetLag, error)
+	// Adoptions reports, per PROJECT, whether the plane's landed work is in that
+	// project's checkout branch yet (adopt.go). A read; AdoptLanded is the act.
+	Adoptions() ([]Adoption, error)
+	// AdoptLanded fast-forwards one project's checkout branch to the landed
+	// target. One action per project, however many Tasks landed into it.
+	AdoptLanded(project string) (AdoptionResult, error)
 	PlaneStatus() (PlaneStatus, error)
 	AddDependency(taskID, dependsOn string) (DependencyEdge, error)
 	TaskDependencies(taskID string) (DependencyView, error)

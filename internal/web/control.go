@@ -345,6 +345,49 @@ func (ws *WebServer) handleTargetLags(w http.ResponseWriter, r *http.Request) {
 		})
 }
 
+// adoptionsResponse reports which PROJECTS have landed work their checkout
+// branch does not have yet.
+//
+// The Ledger shows it in the Landed column, which is the one column that reads
+// as finished and is not: the plane lands on refs/daedalus/target and moves no
+// branch, so "landed" and "in my checkout" are different facts and only one of
+// them is on the card. One row per project rather than per task, because a
+// branch lags by a commit — six tasks landing leave one fast-forward to make,
+// not six.
+type adoptionsResponse struct {
+	unavailable
+	Adoptions []control.Adoption `json:"adoptions"`
+}
+
+func (ws *WebServer) handleAdoptions(w http.ResponseWriter, r *http.Request) {
+	ws.collection(w,
+		func(u unavailable) any {
+			return adoptionsResponse{unavailable: u, Adoptions: []control.Adoption{}}
+		},
+		func(api control.TaskAPI) (any, error) {
+			list, err := api.Adoptions()
+			if err != nil {
+				return nil, err
+			}
+			if list == nil {
+				list = []control.Adoption{}
+			}
+			return adoptionsResponse{unavailable: unavailable{Available: true}, Adoptions: list}, nil
+		})
+}
+
+// handleAdoptLanded advances one project's checkout branch to the landed target.
+//
+// A write, so a plane that is not reachable answers 503 rather than pretending.
+// A refusal — a dirty tree, a detached HEAD, a diverged branch — comes back
+// through writeControlError as a 422 carrying the plane's own note, which is the
+// sentence the operator needs: what was not done, and what to do instead.
+func (ws *WebServer) handleAdoptLanded(w http.ResponseWriter, r *http.Request) {
+	ws.act(w, func(api control.TaskAPI) (any, error) {
+		return api.AdoptLanded(r.PathValue("project"))
+	})
+}
+
 // boardResponse is the cross-project programme board (M17), flattened for the
 // Ledger.
 //

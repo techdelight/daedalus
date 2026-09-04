@@ -158,8 +158,18 @@
     <div class="ledger-section">
       <div class="ledger-section-head">
         <span class="ledger-section-title">Landed</span>
-        <span class="ledger-section-count">2</span>
+        <span class="ledger-section-count">3</span>
       </div>
+      <!-- ONE ROW PER PROJECT, above the tasks it is about: the branch that would
+           move, the commit it would move to, and how far behind it is. Six
+           landings leave one fast-forward to make, so there is one row and one
+           Adopt, never one per task. -->
+      <button type="button" class="ledger-row" data-entry-id="adopt:daedalus">
+        <span class="ledger-cursor">▶</span>
+        <span class="ledger-row-id">adopt:daedalus</span>
+        <span class="ledger-row-objective">daedalus — development is 2 commits behind 4f1c9ab</span>
+        <span class="ledger-row-status is-waiting">to adopt</span>
+      </button>
       <button type="button" class="ledger-row" data-entry-id="T-10">
         <span class="ledger-cursor">▶</span>
         <span class="ledger-row-id">T-10</span>

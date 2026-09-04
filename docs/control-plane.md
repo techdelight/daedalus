@@ -416,6 +416,7 @@ Two shapes of "no" share one machine-readable vocabulary:
 | `concurrency_exceeded` | refusal | the project already has its budgeted running Jobs |
 | `unsafe_rebase` | refusal | the rebase target contains commits this Task's own Jobs authored |
 | `operation_in_flight` | refusal | the Task already has a dispatch or verify running |
+| `branch_not_advanced` | refusal | an adoption could not wind a project's checkout branch forward — a dirty tree, a detached HEAD, or a diverged branch; nothing was touched |
 | `stale_base` | verdict | the candidate's `base_sha` is no longer the project's target tip |
 | `null_agent_floor` | verdict | `head_sha == base_sha` — an empty change |
 | `policy_drift` | verdict | the acceptance policy at `base_sha` no longer hashes to the frozen value |
@@ -732,6 +733,39 @@ in the target** — by ancestry for a fast-forward landing, by patch id
 (`git cherry`) for a rebased one, since a rebase changes the sha but not the
 content — and settles the Task to `integrated` rather than landing the same work
 a second time.
+
+### Adopting a landing into a checkout
+
+The target is deliberately not a branch, so **a landing moves nobody's branch**.
+That is the property this whole design rests on, and it is also why "I integrated
+it and my repository looks untouched" is the first honest reaction to a successful
+landing. `integrate --into-branch` opts into a guarded fast-forward at the moment
+of landing; `GET /adoptions` and `POST /adoptions/{project}` are the same courtesy
+**after the fact**, which is when most people want it.
+
+The unit is a **project**, not a task. A branch does not lag by a task, it lags by
+a commit: six landings onto one target leave one fast-forward to make, so there is
+one row, one action, and one refusal to reason about. `GET /adoptions` answers per
+project — the branch that would move, the landed commit, how far behind it is, the
+tasks whose work is waiting in it, and a sentence saying all of that in words. A
+project whose branch already **has** the landed commit (at it, or ahead of it) is
+reported as having nothing to adopt rather than being offered an action that would
+do nothing, and adopting one that is already there is a **success**, not an error.
+
+`POST /adoptions/{project}` calls the same `advanceCheckoutBranch` the
+`--into-branch` flag calls — not a copy of it — so its refusals hold unchanged:
+fast-forward only, refused on a dirty tree, refused on a detached HEAD, never a
+force. A refusal is `branch_not_advanced` (422) carrying that function's own note,
+because the note is the part the operator needs, and it is filled on every path
+including success for the same reason. Every adoption, refusals included, is
+recorded against the project.
+
+Agent callers are **proposal-tier** (`adopt_landed`). Everything else the plane
+does changes plane state; this writes to the working tree a person is sitting in,
+which is a larger blast radius rather than a smaller one, and precisely what a
+poisoned project document would reach for. Reading which projects are behind is
+free: an agent that can see the gap can explain why the human it reports to cannot
+find the work it landed.
 
 ## Human approval and the independent reviewer (Sprint 59 / M15 — built)
 

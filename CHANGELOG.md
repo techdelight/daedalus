@@ -115,6 +115,50 @@ All notable changes to this project will be documented in this file.
     happens to produce an identical tree, and that deserves its own thought.
 
 ### Added
+- **The Ledger's Landed column shows which projects have work to adopt, and
+  adopts it with one action (#79b).** The plane lands on `refs/daedalus/target`,
+  which nobody checks out, so a landing moves no branch — the property the
+  plane-owned target exists for, and reliably the thing an operator does not
+  expect. Every surface had been TELLING them (`LandedNote`, `BranchAdvice`, the
+  column footnote #79 added); none of them could ACT. The way out was a shell
+  command in a sentence, on the one screen built so that a refusal never leaves
+  you reaching for a terminal.
+  - **One row per PROJECT, not per landed task.** A branch does not lag by a
+    task, it lags by a COMMIT: six tasks landing onto one target leave one
+    fast-forward to make. The row names the branch that would move, the commit it
+    would move to, and how far behind it is — and the tasks whose work is waiting
+    in it, so it is visible that one adoption covers all of them rather than
+    something to take on trust.
+  - **An Adopt action on the row**, backed by `POST /adoptions/{project}` on the
+    daemon and `/api/control/adoptions/{project}` on the Ledger, following the
+    same `handle*` / `ws.act` shape as every other operation the page drives.
+    `daedalus task adopt [<project>]` is the same operation from a terminal.
+  - **It reuses `advanceCheckoutBranch`** rather than reimplementing the move, so
+    every refusal that guards `integrate --into-branch` holds here unchanged:
+    fast-forward only, refused on a dirty tree, refused on a detached HEAD, never
+    a force. A second implementation would be a second set of guards to keep in
+    step, and the guards are why the courtesy is safe to offer at all.
+  - **The plane's note is shown on every path, including success.** That function
+    fills it on every path precisely because "nothing appeared to happen" is the
+    complaint this whole area answers; a refusal carries it as the message of a
+    422 `branch_not_advanced`, and a success prints it verbatim.
+  - **A project already at its target is shown as having nothing to adopt** and
+    offered no plate. A branch that is AHEAD of the target counts as adopted too —
+    it has the work — and a second Adopt on a branch already there is a SUCCESS
+    rather than an error, which is the same distinction RV-8 fixed one layer down.
+    A diverged branch says so and names the merge, rather than presenting a button
+    whose only possible answer is no.
+  - **Tiered for an agent** (`adopt_landed`, proposal-only): this is the one plane
+    operation whose effect is felt outside the plane — it writes to the working
+    tree a person is sitting in — so a poisoned project document can cause a
+    proposal to appear in a human's queue and nothing else. Reading which projects
+    are behind stays free: an agent that can see the gap can explain why the human
+    it reports to cannot find the work it landed.
+  - Every adoption is recorded against the project, the refusals included. Moving
+    a branch in a checkout the plane does not own is worth a line in the log, and
+    so is declining to.
+
+### Added
 - **Container resource limits are configurable per project (#81b).**
   `mem_limit: 4g`, `cpus` and `pids_limit` were hardcoded in
   `docker-compose.yml`, so a project needing more had to edit a shipped file that

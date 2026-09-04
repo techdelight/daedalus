@@ -50,6 +50,14 @@ package control
 //	                                                          (withdrawn before delivery)
 //	GET    /targets                                       → 200 []TargetView
 //	GET    /targets/lag                                   → 200 []TargetLag (#89)
+//	GET    /adoptions                                     → 200 []Adoption — which
+//	                                                          PROJECTS have landed
+//	                                                          work their checkout
+//	                                                          branch lacks
+//	POST   /adoptions/{project}                           → 200 AdoptionResult
+//	                                                       → 422 branch_not_advanced
+//	                                                          (dirty / detached /
+//	                                                          diverged; nothing moved)
 //	GET    /proposals[?state=pending]                     → 200 []Proposal
 //	POST   /proposals/{id}/confirm  body: {note}          → 200 Proposal (and the
 //	                                                          operation executes)
@@ -142,6 +150,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /proposals/{id}/confirm", s.handleConfirmProposal)
 	mux.HandleFunc("POST /proposals/{id}/deny", s.handleDenyProposal)
 	mux.HandleFunc("GET /targets/lag", s.handleTargetLags)
+	mux.HandleFunc("GET /adoptions", s.handleAdoptions)
+	mux.HandleFunc("POST /adoptions/{project}", s.handleAdoptLanded)
 	mux.HandleFunc("POST /targets/{project}/sync", s.handleSyncTarget)
 	mux.HandleFunc("DELETE /tasks/{id}", s.handleCancel)
 	// Programmes (M20): the shared intent Tasks serve.
@@ -539,6 +549,32 @@ func (s *Server) handleTargetLags(w http.ResponseWriter, r *http.Request) {
 		lags = []TargetLag{}
 	}
 	writeJSON(w, http.StatusOK, lags)
+}
+
+// handleAdoptions reports which projects have landed work their checkout branch
+// does not have yet (adopt.go). One entry per project, never per Task.
+func (s *Server) handleAdoptions(w http.ResponseWriter, r *http.Request) {
+	out, err := s.api.Adoptions()
+	if err != nil {
+		writeError(w, StatusFor(err), err)
+		return
+	}
+	if out == nil {
+		out = []Adoption{}
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// handleAdoptLanded advances one project's checkout branch to the landed target.
+// A refusal (dirty tree, detached HEAD, diverged branch) is a 422 carrying
+// advanceCheckoutBranch's own note, never a 500.
+func (s *Server) handleAdoptLanded(w http.ResponseWriter, r *http.Request) {
+	res, err := s.api.AdoptLanded(r.PathValue("project"))
+	if err != nil {
+		writeError(w, StatusFor(err), err)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
 }
 
 func (s *Server) handleSyncTarget(w http.ResponseWriter, r *http.Request) {

@@ -87,6 +87,14 @@ const (
 	OpFormProgramme     = "form_programme"
 	OpAmendProgramme    = "amend_programme"
 	OpDissolveProgramme = "dissolve_programme"
+	// OpAdopt advances ONE PROJECT's checkout branch to the commit the plane has
+	// landed (adopt.go); OpAdoptions is the read behind it — which projects have
+	// landed work their branch does not have yet. Named per PROJECT because that
+	// is the unit the operation has: a branch lags by a commit, so six landings
+	// leave one move to make. See the tier entry below for why the write is
+	// proposal-only for an agent despite looking like a convenience.
+	OpAdopt     = "adopt_landed"
+	OpAdoptions = "list_adoptions"
 )
 
 // agentAuthority is the authority table for CallerAgent. Anything absent is
@@ -100,6 +108,12 @@ var agentAuthority = map[string]Tier{
 	OpTaskEvents: TierAllowed,
 	OpApprovals:  TierAllowed,
 	OpTargets:    TierAllowed,
+	// Which projects have landed work still to adopt is a read over two commit
+	// ids and a branch name — nothing an agent cannot already see on a Task, and
+	// no host path (adopt.go carries the project name, never the repository's
+	// location). Worth an agent knowing: a checkout far behind the target is why
+	// the human it is reporting to cannot see the work it says it landed.
+	OpAdoptions: TierAllowed,
 	// The board and a Job's steering history are reads over state the agent can
 	// already list, projected through the same caller-aware rendering as
 	// ProjectTargets — an agent sees opaque queue ids and no host paths.
@@ -151,6 +165,17 @@ var agentAuthority = map[string]Tier{
 	OpApprove:    TierProposal,
 	OpRejectAppr: TierProposal,
 	OpSyncTarget: TierProposal,
+	// Adoption WRITES TO A MACHINE THE PLANE DOES NOT OWN: it moves the branch a
+	// person has checked out, in the working tree they are sitting in. That is a
+	// larger blast radius than most of the operations above, not a smaller one —
+	// everything else here changes plane state, and this changes the operator's
+	// desk. It is also precisely the shape a poisoned README would reach for,
+	// because the move is the one plane operation whose effect is felt outside
+	// the plane. So an agent may ask and a human confirms; the confirmation names
+	// the project, and what it then runs is the same guarded fast-forward the
+	// human's own button runs (advanceCheckoutBranch — never a force, never over
+	// a dirty tree).
+	OpAdopt: TierProposal,
 	// A dependency edge decides what must happen before a Task is graded, which is
 	// as load-bearing as what grades it. An agent that could declare its own
 	// dependencies could declare them satisfied.
@@ -189,7 +214,7 @@ var agentAuthority = map[string]Tier{
 // have an explicit entry for each — see TestAuthority_EveryMutatingOpIsTiered.
 var mutatingOps = []string{
 	OpCreateTask, OpDispatch, OpVerify, OpReview, OpRetry, OpReverify, OpReplan,
-	OpCancel, OpApprove, OpRejectAppr, OpIntegrate, OpSyncTarget, OpProposalAct,
+	OpCancel, OpApprove, OpRejectAppr, OpIntegrate, OpSyncTarget, OpAdopt, OpProposalAct,
 	OpAddDependency, OpSteer, OpCancelSteer,
 	OpFormProgramme, OpAmendProgramme, OpDissolveProgramme,
 }

@@ -38,7 +38,7 @@ func printUsage() {
 	fmt.Println("       daedalus task [create | list | status <id> | dispatch <id> | verify <id> |")
 	fmt.Println("                      review <id> | approve <id> | reject <id> | integrate <id> |")
 	fmt.Println("                      approvals | proposals | depends <id> | steer <job-id> |")
-	fmt.Println("                      board | target |")
+	fmt.Println("                      board | target | adopt [<project>] |")
 	fmt.Println("                      retry <id> [--rebase] | reverify <id> [--amended] |")
 	fmt.Println("                      checks <id> | budget <id> [--attempts <n>] |")
 	fmt.Println("                      replan <id> --objective <text> [--rebase] |")

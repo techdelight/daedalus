@@ -140,6 +140,12 @@ func (s *Service) executeProposal(caller Caller, p Proposal) error {
 	case OpSyncTarget:
 		_, err := s.syncTarget(caller, p.Argument)
 		return err
+	case OpAdopt:
+		// The project travels in the argument, as it does for a sync: an adoption
+		// names no Task. What runs is the human's own operation, guards and all —
+		// a confirmation cannot wave a dirty tree through.
+		_, err := s.adoptLanded(caller, p.Argument)
+		return err
 	case OpVerify:
 		// Never waived: a proposal carries no IgnoreResult, so an agent cannot get
 		// one granted by way of a human's confirmation click.

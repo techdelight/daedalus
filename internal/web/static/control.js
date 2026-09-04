@@ -54,6 +54,17 @@
   let message = null;         // {text, kind} — the last thing that happened
   let proposals = [];
   let targets = [];
+  // WHOSE CHECKOUT IS BEHIND THE LANDED WORK, one entry per PROJECT.
+  //
+  // Polled with the board because it is drawn INTO the board — the Landed column
+  // — and because it is the answer to the question that column raises and cannot
+  // answer: the plane lands on refs/daedalus/target, which nobody checks out, so
+  // "landed" says nothing about whether the work is in anybody's branch.
+  //
+  // Per project and never per task. Six tasks landing onto one target leave one
+  // fast-forward to make; a row each would be five buttons that do nothing and a
+  // sixth that cannot be told apart from them.
+  let adoptions = [];
   // The programmes the plane holds, and why they are polled alongside the board
   // rather than fetched when one is opened: every Task entry wants to name its
   // programme, and a Task carries the ID. Holding the list means the name is
@@ -811,6 +822,34 @@
         if (pendingEntry === c.taskId) wanted = function () { selectTask(c, col.key); };
         return entry(c.taskId, c.objective, markFor(col.key), function () { selectTask(c, col.key); });
       });
+      // THE ADOPTION ROWS GO FIRST, ABOVE THE TASKS THEY ARE ABOUT.
+      //
+      // A landed task's row says the work is done. What it cannot say is whether
+      // the work is anywhere the reader can see it, because that is not a fact
+      // about the task at all — it is a fact about the PROJECT's checkout, shared
+      // by every task that landed into it. So it is one row per project, carrying
+      // the branch that would move, the commit it would move to, and how far
+      // behind it is; and the action that moves it is on that row, once.
+      //
+      // First in the column because it is the only thing here with something to
+      // do. Everything under it is a record.
+      if (col.key === BOARD_LANDED) {
+        const first = [];
+        adoptions.forEach(function (a) {
+          const id = adoptionID(a);
+          if (current && current.kind === 'adoption' && current.id === id) {
+            detail = a;
+            restored = { adoption: a };
+          }
+          if (pendingEntry === id) wanted = function () { selectAdoption(a); };
+          first.push(entry(id, adoptionLabel(a), adoptionMark(a),
+            function () { selectAdoption(a); }));
+        });
+        // Collected and then prepended as a group, in the order the plane sorted
+        // them (what needs doing first). Unshifting one at a time would reverse
+        // that and put the projects with nothing to do at the top.
+        rows.unshift.apply(rows, first);
+      }
       // LANDED IS THE ONE COLUMN THAT READS AS FINISHED AND IS NOT (RV-8).
       //
       // The plane lands on its own ref, so the work is nowhere the reader's branch
@@ -822,7 +861,10 @@
       // On the SECTION, not on each row: a per-row footnote in a list is
       // unreadable, and the TUI board answers this the same way with the same
       // words from the same constant.
-      section(list, col.title, col.cards.length, rows,
+      // The count is the ROWS, not the cards: on the Landed column the adoption
+      // rows are entries in the section like any other, and a heading that
+      // counted only the tasks would disagree with the list under it.
+      section(list, col.title, rows.length, rows,
         col.key === BOARD_LANDED ? LANDED_NOTE : '');
     });
 
@@ -932,6 +974,11 @@
       paintEntry();
     } else if (restored && restored.programme) {
       paintEntry();
+    } else if (restored && restored.adoption) {
+      // `detail` was re-pointed at the FRESH adoption in the loop above, so the
+      // entry repaints from what the plane just said — an Adopt that has since
+      // succeeded must not still be offering its plate.
+      paintEntry();
     } else if (current) {
       clearEntry();
     } else {
@@ -967,6 +1014,133 @@
     }
     paintEntry();
     loadDetail(card.taskId);
+  }
+
+  // --- adoption: taking the landed work into a project's branch ---------------
+  //
+  // An adoption is an entry in the ledger like a task or a proposal, and it needs
+  // an id for the same reasons they do: the cursor, the pin and the address bar
+  // are all keyed on one. It is prefixed rather than being the bare project name
+  // so it can never be mistaken for a plane-issued id — a deep link to
+  // `/ledger/app` should not open an adoption because a task called `app` does
+  // not exist.
+  const ADOPT_PREFIX = 'adopt:';
+  function adoptionID(a) { return ADOPT_PREFIX + a.project; }
+
+  // The row: what would move, and how far. The two questions a reader of this
+  // column has, in the width of one line.
+  function adoptionLabel(a) {
+    if (a.unknown) return a.project + ' — could not read this checkout';
+    if (a.adopted) return a.project + ' — ' + (a.branch || 'the checkout') + ' has the landed work';
+    const where = a.branch || 'the checkout (detached HEAD)';
+    const gap = a.diverged ? 'diverged from' :
+      (a.behind === 1 ? '1 commit behind' : a.behind + ' commits behind');
+    return a.project + ' — ' + where + ' is ' + gap + ' ' + short(a.targetSha);
+  }
+
+  // NOTHING TO ADOPT IS ITS OWN WORD. A project whose branch already has the
+  // landed commit is not "landed, go and fetch it" — it is done, and the row says
+  // so instead of offering an action that would do nothing.
+  function adoptionMark(a) {
+    if (a.unknown) return ['unreadable', 'is-refused'];
+    if (a.adopted) return ['adopted', 'is-passed'];
+    if (a.diverged) return ['diverged', 'is-refused'];
+    return ['to adopt', 'is-waiting'];
+  }
+
+  function selectAdoption(a) {
+    current = { kind: 'adoption', id: adoptionID(a) };
+    currentCard = null;
+    currentKey = null;
+    detail = a;
+    message = null;
+    tab = 'entry';
+    paintEntry();
+  }
+
+  function paintAdoption() {
+    const a = detail || {};
+    const bodyEl = el('ledger-desc-body');
+    el('ledger-desc-id').textContent = a.project || current.id;
+    el('ledger-desc-project').textContent = a.branch || '';
+    const status = el('ledger-desc-status');
+    const mark = adoptionMark(a);
+    status.textContent = mark[0];
+    status.className = 'ledger-desc-status ledger-row-status ' + mark[1];
+    el('ledger-tabs').innerHTML = '';
+    bodyEl.className = 'ledger-desc-body';
+    bodyEl.innerHTML = '';
+
+    // The plane's own sentence, first and whole. It is written per case — already
+    // there, behind by three, diverged, detached — and rewording it here would be
+    // a second opinion about a branch this page cannot see.
+    bodyEl.appendChild(text('div', 'ledger-prose', a.note || ''));
+
+    const facts = document.createElement('dl');
+    facts.className = 'ledger-facts';
+    fact(facts, 'branch', a.branch || 'none — the checkout has a detached HEAD');
+    fact(facts, 'landed commit', short(a.targetSha) || '—');
+    fact(facts, 'branch is at', short(a.headSha) || '—');
+    if (!a.adopted && !a.diverged && a.behind) {
+      fact(facts, 'behind by', a.behind + (a.behind === 1 ? ' commit' : ' commits'));
+    }
+    const landed = a.landed || [];
+    // WHAT IS WAITING, named. One adoption covers all of them, and seeing the
+    // list is what makes that obvious rather than something to take on trust.
+    if (landed.length) {
+      fact(facts, 'landed here', landed.join(' ') +
+        (a.adopted ? '' : ' — ' + (landed.length === 1 ? 'one task' : 'all ' + landed.length + ' tasks') +
+          ', one adoption'));
+    }
+    bodyEl.appendChild(facts);
+    bodyEl.appendChild(text('div', 'ledger-desc-note', LANDED_NOTE));
+
+    el('ledger-desc-note').textContent = '';
+    const cmds = el('ledger-commands');
+    cmds.innerHTML = '';
+    // THE PLATE IS OFFERED WHEN THE PLANE SAYS IT COULD ACTUALLY MOVE — nowhere
+    // else. A button whose only possible answer is "no" is the dead end #95
+    // abolished, arrived at from the other side: there, a refusal named a remedy
+    // that was itself refused; here, a row would offer one.
+    if (a.adoptable) {
+      const b = plate('Adopt', 'seal', function () { runAdopt(a.project); });
+      b.setAttribute('aria-label', 'Adopt the landed work into ' + a.project);
+      b.title = 'Fast-forwards ' + (a.branch || 'the checkout') + ' to the landed commit. ' +
+        'Never a force, never over uncommitted changes.';
+      b.disabled = isBusy(current.id);
+      cmds.appendChild(b);
+    } else if (a.adopted) {
+      // The one thing this screen must never do is offer a button whose whole
+      // effect the operator can already see has happened.
+      cmds.appendChild(text('p', 'ff-cmd-note', 'Nothing to adopt — this branch already has the landed work.'));
+    } else if (a.unknown) {
+      cmds.appendChild(text('p', 'ff-cmd-note', 'This checkout could not be read, so there is nothing to offer.'));
+    } else {
+      // Behind, and not by a fast-forward: a diverged branch or a detached HEAD.
+      // The note above says which, and what to do instead.
+      cmds.appendChild(text('p', 'ff-cmd-note',
+        'Nothing here can be wound forward — see the note above.'));
+    }
+    paintMessage();
+    paintFoot();
+  }
+
+  // The Adopt command. Built here rather than in COMMANDS because those are all
+  // keyed on a TASK's state and this one is keyed on a project's checkout — the
+  // same reason the Sync plate in the foot is built where it is used.
+  function runAdopt(project) {
+    runCommand({
+      key: 'adopt', label: 'Adopt', confirm: true,
+      hint: 'Fast-forwards this project’s checkout branch to the landed commit. ' +
+        'Refused, and nothing touched, if the tree is dirty or the branch has moved on.',
+      run: function () { return send('POST', '/adoptions/' + enc(project), {}); },
+      // The plane's note on the success path too, and that is the point: "the
+      // branch moved" without saying WHICH branch, to WHAT, is the silence this
+      // whole feature exists to answer.
+      done: function (r) {
+        return (r.adopted ? 'Adopted. ' : '') + (r.note || 'Done.');
+      },
+    }, ADOPT_PREFIX + project);
   }
 
   function selectProposal(p) {
@@ -1072,6 +1246,7 @@
 
     if (current.kind === 'proposal') return paintProposal();
     if (current.kind === 'programme') return paintProgramme();
+    if (current.kind === 'adoption') return paintAdoption();
 
     const task = detail && detail.task;
     const state = task ? task.state : (currentCard ? currentCard.state : '');
@@ -1841,6 +2016,7 @@
     integrate: 'Landing: serialize, rebase onto the target, re-verify the MERGED result, then swap.',
     'integrate-branch': 'Landing, then fast-forwarding your checkout.',
     sync: 'Re-pointing the integration target at the checkout’s HEAD.',
+    adopt: 'Fast-forwarding the project’s checkout branch to the landed commit.',
   };
 
   let runningTimer = null;
@@ -2013,7 +2189,10 @@
       paintEntry();
       if (current && current.kind === 'task') loadDetail(current.id);
       refreshApprovals();
-      refreshProposals().then(refreshBoard);
+      // Adoptions are re-read with the proposals: an Adopt that succeeded must
+      // stop offering itself, and an integrate that just landed has put a project
+      // behind its target — both are only visible on a fresh read.
+      Promise.all([refreshProposals(), refreshAdoptions()]).then(refreshBoard);
     });
   }
 
@@ -2027,9 +2206,21 @@
       text: RUNNING[cmd.key] || cmd.label + ' ' + id + '…',
       since: Date.now(),
     };
-    if (current && current.id === id) paintCommands(currentState());
+    if (current && current.id === id) repaintCommands();
     markRows();
     syncRunning();
+  }
+
+  // Re-draw the command row for whatever KIND of entry is open. An adoption's
+  // plate is not decided by a task state, and painting it through paintCommands
+  // would clear the row instead of greying it — which reads as the button
+  // vanishing the moment it is pressed.
+  function repaintCommands() {
+    if (current && current.kind === 'adoption') {
+      paintAdoption();
+      return;
+    }
+    paintCommands(currentState());
   }
 
   function release(id) {
@@ -2199,7 +2390,8 @@
     if (!host) return;
     host.innerHTML = '';
     const project = currentCard ? currentCard.project :
-      (detail && detail.task ? detail.task.project : null);
+      (detail && detail.task ? detail.task.project :
+        (current && current.kind === 'adoption' && detail ? detail.project : null));
     if (!project) return;
 
     const target = targets.filter(function (t) {
@@ -2264,6 +2456,15 @@
     });
   }
 
+  // Polled with the board rather than fetched when the Landed column is drawn:
+  // the rows ARE part of that column, and a second request racing the render
+  // would paint the column once without them and once with.
+  function refreshAdoptions() {
+    return get('/adoptions').then(function (data) {
+      adoptions = (data && data.available && data.adoptions) || [];
+    }).catch(function () { adoptions = []; });
+  }
+
   function refreshTargets() {
     return get('/targets').then(function (data) {
       targets = (data && data.available && data.targets) || [];
@@ -2297,7 +2498,8 @@
   function start() {
     stop();
     const cycle = function () {
-      return Promise.all([refreshProposals(), refreshArchive(), refreshProgrammes()]).then(refreshBoard);
+      return Promise.all([refreshProposals(), refreshArchive(), refreshProgrammes(),
+        refreshAdoptions()]).then(refreshBoard);
     };
     // Fetched once, not polled: the operation table is compiled into the binary
     // that served this page, so it cannot change without the page being reloaded
@@ -2434,6 +2636,10 @@
   function openPending() {
     const id = pendingEntry;
     if (!id) return;
+    // An adoption is not a Task and there is no single-entity read for one: it is
+    // derived per project and arrives with the board. Asking /tasks for it would
+    // be a 404 on every deep link to the Landed column.
+    if (id.indexOf(ADOPT_PREFIX) === 0) return;
     get('/tasks/' + enc(id)).then(function (view) {
       if (pendingEntry !== id || !view || !view.task) return;
       pendingEntry = null;

@@ -134,6 +134,32 @@ func (p *scriptedPlane) ProjectTargets() ([]control.TargetView, error) { return 
 
 func (p *scriptedPlane) TargetLags() ([]control.TargetLag, error) { return nil, nil }
 
+// One project with landed work its branch has not taken, and one that is up to
+// date — the two shapes the Landed column has to tell apart. `docs` holds two
+// landed tasks and offers ONE adoption, which is the property a per-task
+// rendering would break.
+func (p *scriptedPlane) Adoptions() ([]control.Adoption, error) {
+	return []control.Adoption{
+		{
+			Project: "docs", Branch: "main", TargetSHA: "ccccccccccc33333", HeadSHA: "bbbbbbbbbbb22222",
+			Behind: 2, Landed: []string{"T-3", "T-4"}, Adoptable: true,
+			Note: "main is 2 commits behind the landed commit ccccccc",
+		},
+		{
+			Project: "app", Branch: "development", TargetSHA: "aaaaaaaaaaa11111", HeadSHA: "aaaaaaaaaaa11111",
+			Landed: []string{"T-7"}, Adopted: true,
+			Note: "development is already at the landed commit aaaaaaa",
+		},
+	}, nil
+}
+
+func (p *scriptedPlane) AdoptLanded(project string) (control.AdoptionResult, error) {
+	return control.AdoptionResult{
+		Project: project, Branch: "main", TargetSHA: "ccccccccccc33333",
+		Adopted: true, Note: "main fast-forwarded to ccccccc",
+	}, nil
+}
+
 func (p *scriptedPlane) ListTasks() ([]control.Task, error) {
 	return []control.Task{p.task("T-1"), p.task("T-2"), p.task("T-3")}, nil
 }

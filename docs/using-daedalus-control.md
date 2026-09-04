@@ -222,6 +222,33 @@ landed task, the TUI's `Landed` column — it says the version that holds either
 way: landed work is on `refs/daedalus/target`, a landing moves no branch unless
 it was asked to, adopt it with `git merge --ff-only refs/daedalus/target`.
 
+### Adopting it afterwards
+
+`--into-branch` has to be asked for at the moment of landing, and most landings
+are not. **`daedalus task adopt` is the same fast-forward, after the fact:**
+
+```bash
+daedalus task adopt                 # which projects have landed work to take
+daedalus task adopt daedalus        # take it into that project's checkout branch
+```
+
+The Ledger shows the same thing in its **Landed** column: one row per *project*
+whose checkout branch does not have the landed commit, naming the branch that
+would move, the commit, and how far behind it is — with an **Adopt** plate on the
+row.
+
+**One row per project, not per landed task.** A branch does not lag by a task, it
+lags by a commit: six tasks landing onto one target leave one fast-forward to
+make. A project whose branch already has the work is shown as having nothing to
+adopt and is offered no action, and a branch that has diverged says so and names
+the merge rather than presenting a button that could only refuse.
+
+It is the *same* guarded move `--into-branch` performs — the same function, not a
+second copy — so it refuses the same three things (a dirty tree, a detached HEAD,
+a diverged branch), never forces, and always says in words what it did or
+declined to do. An agent may only *propose* an adoption: it is the one plane
+operation whose effect is felt in somebody's working tree.
+
 ### Writing an acceptance policy
 
 Commit `.daedalus/verify.json` to the project:

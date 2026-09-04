@@ -236,6 +236,21 @@ func (c *Client) TargetLags() ([]TargetLag, error) {
 	return lags, nil
 }
 
+// Adoptions implements TaskAPI.
+func (c *Client) Adoptions() ([]Adoption, error) {
+	var out []Adoption
+	if err := c.getJSON("/adoptions", &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// AdoptLanded implements TaskAPI.
+func (c *Client) AdoptLanded(project string) (AdoptionResult, error) {
+	var res AdoptionResult
+	return res, c.postJSON("/adoptions/"+url.PathEscape(project), struct{}{}, &res)
+}
+
 // SyncTarget implements TaskAPI.
 func (c *Client) SyncTarget(project string) (Target, error) {
 	var t Target

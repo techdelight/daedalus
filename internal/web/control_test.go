@@ -475,6 +475,8 @@ var webRoutes = map[string]struct{ method, path string }{
 	"ProjectTargets":     {http.MethodGet, "/api/control/targets"},
 	"RefineTask":         {http.MethodPost, "/api/control/tasks/{id}/refine"},
 	"TargetLags":         {http.MethodGet, "/api/control/targets/lag"},
+	"Adoptions":          {http.MethodGet, "/api/control/adoptions"},
+	"AdoptLanded":        {http.MethodPost, "/api/control/adoptions/app"},
 	"ListProgrammes":     {http.MethodGet, "/api/control/programmes"},
 	"GetProgramme":       {http.MethodGet, "/api/control/programmes/PR-1"},
 	"ProgrammeStatusFor": {http.MethodGet, "/api/control/programmes/PR-1/status"},
@@ -1238,5 +1240,225 @@ func TestLedgerOperationsEndpointDoesNotNeedThePlane(t *testing.T) {
 		if len(op.States) == 0 {
 			t.Errorf("operation %q reached the page admitting no states at all", op.Key)
 		}
+	}
+}
+
+// --- the Landed column's adoption rows -------------------------------------------
+
+// fakeAdopting is a TaskAPI double for the adoption surface: one project behind
+// its target holding SEVERAL landed tasks, and one already up to date.
+type fakeAdopting struct {
+	control.TaskAPI
+	adopted []string
+	err     error
+}
+
+func (f *fakeAdopting) Adoptions() ([]control.Adoption, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return []control.Adoption{
+		{
+			Project: "app", Branch: "development", TargetSHA: "ccccccccccc33333",
+			HeadSHA: "aaaaaaaaaaa11111", Behind: 3, Landed: []string{"T-1", "T-2", "T-3"},
+			Adoptable: true, Note: "development is 3 commits behind the landed commit ccccccc",
+		},
+		{
+			Project: "docs", Branch: "main", TargetSHA: "bbbbbbbbbbb22222",
+			HeadSHA: "bbbbbbbbbbb22222", Landed: []string{"T-4"}, Adopted: true,
+			Note: "main is already at the landed commit bbbbbbb",
+		},
+	}, nil
+}
+
+func (f *fakeAdopting) AdoptLanded(project string) (control.AdoptionResult, error) {
+	if f.err != nil {
+		return control.AdoptionResult{}, f.err
+	}
+	f.adopted = append(f.adopted, project)
+	return control.AdoptionResult{
+		Project: project, Branch: "development", TargetSHA: "ccccccccccc33333",
+		Adopted: true, Note: "development fast-forwarded to ccccccc",
+	}, nil
+}
+
+func adoptionMux(ws *WebServer) *http.ServeMux {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/control/adoptions", ws.handleAdoptions)
+	mux.HandleFunc("POST /api/control/adoptions/{project}", ws.handleAdoptLanded)
+	return mux
+}
+
+// TestAdoptions_OneRowPerProjectReachesThePage. The Landed column's whole claim
+// is that the unit is a PROJECT: three tasks landed into `app` and the page is
+// handed one row for it, carrying the branch, the target and the gap.
+func TestAdoptions_OneRowPerProjectReachesThePage(t *testing.T) {
+	ws := &WebServer{control: &fakeAdopting{}}
+	rec := httptest.NewRecorder()
+	adoptionMux(ws).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/control/adoptions", nil))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body)
+	}
+	var got adoptionsResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !got.Available || len(got.Adoptions) != 2 {
+		t.Fatalf("adoptions = %+v, want two projects from a reachable plane", got)
+	}
+	first := got.Adoptions[0]
+	if first.Project != "app" || first.Branch == "" || first.TargetSHA == "" || first.Behind != 3 {
+		t.Errorf("row = %+v; it must name the branch that would move, the target commit "+
+			"and how far behind it is", first)
+	}
+	if len(first.Landed) != 3 {
+		t.Errorf("row carries %d landed tasks, want 3 — one row for all of them",
+			len(first.Landed))
+	}
+	// The second is up to date, and says so rather than being absent or offered.
+	if !got.Adoptions[1].Adopted || got.Adoptions[1].Adoptable {
+		t.Errorf("row = %+v; a project already at its target has nothing to adopt",
+			got.Adoptions[1])
+	}
+	if got.Adoptions[1].Note == "" {
+		t.Error("a row with nothing to do still needs a sentence — silence is what this answers")
+	}
+}
+
+// TestAdoptions_UnreachableIsNotEmpty: the same distinction every polled
+// collection draws. "No project is behind" and "I could not ask" must not look
+// alike, or an operator trusts the wrong one.
+func TestAdoptions_UnreachableIsNotEmpty(t *testing.T) {
+	ws := &WebServer{}
+	rec := httptest.NewRecorder()
+	adoptionMux(ws).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/control/adoptions", nil))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	var got adoptionsResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got.Available || got.Reason == "" {
+		t.Errorf("response = %+v; an unreachable plane must say so", got)
+	}
+	if got.Adoptions == nil {
+		t.Error("adoptions should be an empty array, not null (the page iterates it)")
+	}
+}
+
+// TestAdopt_ActionCarriesTheProjectAndThePlanesNote.
+func TestAdopt_ActionCarriesTheProjectAndThePlanesNote(t *testing.T) {
+	fake := &fakeAdopting{}
+	ws := &WebServer{control: fake}
+	rec := httptest.NewRecorder()
+	adoptionMux(ws).ServeHTTP(rec,
+		httptest.NewRequest(http.MethodPost, "/api/control/adoptions/app", nil))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body)
+	}
+	if len(fake.adopted) != 1 || fake.adopted[0] != "app" {
+		t.Fatalf("the plane was asked to adopt %v, want [app]", fake.adopted)
+	}
+	var res control.AdoptionResult
+	if err := json.Unmarshal(rec.Body.Bytes(), &res); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !res.Adopted || res.Note == "" {
+		t.Errorf("result = %+v; the note is what the operator reads, on the success path too", res)
+	}
+}
+
+// TestAdopt_RefusalRelaysTheNote: a dirty tree comes back as a REFUSAL with the
+// plane's sentence, not as a failure the page has to invent words for.
+func TestAdopt_RefusalRelaysTheNote(t *testing.T) {
+	note := "development has uncommitted changes — left untouched; commit or stash, then " +
+		"`git merge --ff-only refs/daedalus/target`"
+	ws := &WebServer{control: &fakeAdopting{err: &control.RejectionError{
+		Reason: control.ReasonBranchNotAdvanced, Message: note, Entity: "app"}}}
+	rec := httptest.NewRecorder()
+	adoptionMux(ws).ServeHTTP(rec,
+		httptest.NewRequest(http.MethodPost, "/api/control/adoptions/app", nil))
+
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want 422 — a refusal is not a failure", rec.Code)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body["reason"] != string(control.ReasonBranchNotAdvanced) {
+		t.Errorf("reason = %v, want %q", body["reason"], control.ReasonBranchNotAdvanced)
+	}
+	if got, _ := body["message"].(string); got != note {
+		t.Errorf("message = %q, want the plane's own note:\n\t%s", got, note)
+	}
+}
+
+// TestAdopt_NeedsTheControlPlane: a write with no plane answers 503 loudly
+// rather than pretending the branch moved.
+func TestAdopt_NeedsTheControlPlane(t *testing.T) {
+	ws := &WebServer{}
+	rec := httptest.NewRecorder()
+	adoptionMux(ws).ServeHTTP(rec,
+		httptest.NewRequest(http.MethodPost, "/api/control/adoptions/app", nil))
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("status = %d, want 503", rec.Code)
+	}
+}
+
+// TestLedger_LandedColumnOffersAdoptionPerProject asserts the page half: the
+// Landed column is where the rows go, one action per project, and a project with
+// nothing to adopt is not handed a button.
+//
+// This is JavaScript and Go cannot run it, so it asserts on the source — and on
+// fragments only the working code contains, because three tests in this file
+// have already had to be rewritten after passing against a COMMENT.
+func TestLedger_LandedColumnOffersAdoptionPerProject(t *testing.T) {
+	src, err := staticFiles.ReadFile("static/control.js")
+	if err != nil {
+		t.Fatalf("reading the Ledger: %v", err)
+	}
+	js := string(src)
+
+	// The rows are drawn INTO the landed column, not into a section of their own:
+	// the question they answer is the one that column raises.
+	if !strings.Contains(js, "if (col.key === BOARD_LANDED) {") {
+		t.Error("the Landed column no longer receives the adoption rows, so the column that " +
+			"reads as finished says nothing about whether the work is in anybody's branch")
+	}
+	// One row per project, from a per-project read.
+	if !strings.Contains(js, "get('/adoptions')") {
+		t.Error("the Ledger never asks which projects have landed work to adopt")
+	}
+	if !strings.Contains(js, "adoptions.forEach(") {
+		t.Error("the adoptions are fetched and never rendered")
+	}
+	// The action, and the plane's own note on the way back.
+	if !strings.Contains(js, "send('POST', '/adoptions/' + enc(project)") {
+		t.Error("the Adopt plate does not reach the control-plane endpoint")
+	}
+	if !strings.Contains(js, "r.note || 'Done.'") {
+		t.Error("the Ledger drops the plane's note on the success path, which is exactly the " +
+			"silence the note is filled to prevent")
+	}
+	// And a project that is already at its target is told so instead of being
+	// offered an action that would do nothing.
+	if !strings.Contains(js, "'Nothing to adopt — this branch already has the landed work.'") {
+		t.Error("a project with nothing to adopt is not told so; if it is also still offered " +
+			"an Adopt plate, the page is inviting a no-op")
+	}
+	// The plate is gated on the plane's own "could this move", not on the page's
+	// reading of it — so a diverged branch and a detached HEAD are told what to do
+	// instead of handed a button that could only be refused.
+	if !regexp.MustCompile(`if \(a\.adoptable\) \{`).MatchString(js) {
+		t.Error("the Adopt plate is not gated on whether the plane says the branch could move")
+	}
+	if !strings.Contains(js, "'Nothing here can be wound forward — see the note above.'") {
+		t.Error("a branch that cannot be wound forward is left with an empty command row, " +
+			"which reads as a page that failed rather than as an answer")
 	}
 }

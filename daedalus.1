@@ -1,4 +1,4 @@
-.TH DAEDALUS 1 "2026-08-25" "daedalus 0.54.0" "User Commands"
+.TH DAEDALUS 1 "2026-09-04" "daedalus 0.54.0" "User Commands"
 .SH NAME
 daedalus \- Docker environment for autonomous Claude Code
 .SH SYNOPSIS
@@ -128,7 +128,7 @@ Manage side-by-side installed versions. Installs live under \fIversions/<version
 Manage programmes \(em the shared intent several projects serve. \fBstatus\fR rolls up the tasks serving a programme, what it is waiting on outside itself, and where its declared project order and the task graph that actually gates disagree. \fBadd\-dep\fR declares an order; it gates nothing (see \fBtask depends\fR). Requires the control plane, which is started on demand.
 .TP
 \fBtask\fR <\fIsubcommand\fR>
-Host-side control-plane work: \fBcreate\fR, \fBlist\fR, \fBstatus\fR, \fBdispatch\fR, \fBverify\fR, \fBreview\fR, \fBreverify\fR, \fBretry\fR, \fBreplan\fR, \fBrefine\fR, \fBchecks\fR, \fBbudget\fR, \fBdepends\fR, \fBsteer\fR, \fBapprove\fR, \fBreject\fR, \fBintegrate\fR, \fBcancel\fR, \fBboard\fR, \fBapprovals\fR, \fBproposals\fR, \fBtarget\fR and \fBevents\fR. Ids are prefixed by kind: \fIT\-n\fR task, \fIJ\-n\fR job, \fIA\-n\fR artifact, \fIRV\-n\fR review, \fIP\-n\fR proposal, \fIPR\-n\fR programme, \fIS\-n\fR steering.
+Host-side control-plane work: \fBcreate\fR, \fBlist\fR, \fBstatus\fR, \fBdispatch\fR, \fBverify\fR, \fBreview\fR, \fBreverify\fR, \fBretry\fR, \fBreplan\fR, \fBrefine\fR, \fBchecks\fR, \fBbudget\fR, \fBdepends\fR, \fBsteer\fR, \fBapprove\fR, \fBreject\fR, \fBintegrate\fR, \fBadopt\fR, \fBcancel\fR, \fBboard\fR, \fBapprovals\fR, \fBproposals\fR, \fBtarget\fR and \fBevents\fR. Ids are prefixed by kind: \fIT\-n\fR task, \fIJ\-n\fR job, \fIA\-n\fR artifact, \fIRV\-n\fR review, \fIP\-n\fR proposal, \fIPR\-n\fR programme, \fIS\-n\fR steering.
 .TP
 \fBcoordinator\fR [\fBstart\fR | \fBstop\fR | \fBstatus\fR]
 Manage the host-side session daemon that owns container session lifecycles. Started on demand; stop it to pick up a rebuilt image or binary.

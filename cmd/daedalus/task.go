@@ -30,7 +30,7 @@ func manageTasks(cfg *core.Config) error {
 	args := cfg.TaskArgs
 	if len(args) == 0 {
 		printTaskUsage()
-		return fmt.Errorf("task: subcommand required (create|list|status|dispatch|verify|review|approve|reject|integrate|approvals|proposals|depends|steer|board|target|retry|reverify|checks|replan|refine|events|cancel)")
+		return fmt.Errorf("task: subcommand required (create|list|status|dispatch|verify|review|approve|reject|integrate|adopt|approvals|proposals|depends|steer|board|target|retry|reverify|checks|replan|refine|events|cancel)")
 	}
 	if args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
 		printTaskUsage()
@@ -84,6 +84,8 @@ func runTaskCommand(api control.TaskAPI, args []string) error {
 		return taskApprovals(api, args[1:])
 	case "target":
 		return taskTarget(api, args[1:])
+	case "adopt":
+		return taskAdopt(api, args[1:])
 	case "proposals":
 		return taskProposals(api, args[1:])
 	case "depends", "dependencies":
@@ -95,7 +97,7 @@ func runTaskCommand(api control.TaskAPI, args []string) error {
 	case "cancel":
 		return taskCancel(api, args[1:])
 	default:
-		return fmt.Errorf("task: unknown subcommand %q\n%s daedalus task <create|list|status|dispatch|verify|review|approve|reject|integrate|approvals|proposals|depends|steer|board|target|retry|reverify|checks|replan|refine|events|cancel>", args[0], color.Cyan("Hint:"))
+		return fmt.Errorf("task: unknown subcommand %q\n%s daedalus task <create|list|status|dispatch|verify|review|approve|reject|integrate|adopt|approvals|proposals|depends|steer|board|target|retry|reverify|checks|replan|refine|events|cancel>", args[0], color.Cyan("Hint:"))
 	}
 }
 
@@ -1231,6 +1233,86 @@ func taskTarget(api control.TaskAPI, args []string) error {
 	return nil
 }
 
+// taskAdopt implements `task adopt [<project>]`: show which projects have landed
+// work their checkout branch does not have, or take it into one of them.
+//
+// ONE ACTION PER PROJECT, not per landed task. The plane lands on
+// refs/daedalus/target and moves no branch, so six landings leave one
+// fast-forward to make — and a per-task offer would be five no-ops and one that
+// looks exactly like them. The move itself is the same guarded fast-forward
+// `integrate --into-branch` performs: never a force, never over a dirty tree.
+func taskAdopt(api control.TaskAPI, args []string) error {
+	if len(args) == 0 {
+		list, err := api.Adoptions()
+		if err != nil {
+			return err
+		}
+		if len(list) == 0 {
+			fmt.Println("Nothing has landed yet, so there is nothing to adopt.")
+			return nil
+		}
+		fmt.Printf("%-18s  %-18s  %-12s  %-6s  %s\n",
+			color.Bold("PROJECT"), color.Bold("BRANCH"), color.Bold("TARGET"),
+			color.Bold("TASKS"), color.Bold("STANDING"))
+		fmt.Printf("%-18s  %-18s  %-12s  %-6s  %s\n",
+			"------------------", "------------------", "------------", "------", "--------")
+		adoptable, pending := 0, 0
+		for _, a := range list {
+			if a.Pending() {
+				pending++
+			}
+			// Four standings, not two. "diverged" is neither up to date nor a
+			// fast-forward away, and printing it as "to adopt" would send somebody to
+			// a command that can only refuse — the note beside it says to merge.
+			standing := "up to date"
+			switch {
+			case a.Unknown != "":
+				standing = "unreadable"
+			case a.Diverged:
+				standing = "diverged"
+			case a.Adoptable:
+				standing = "to adopt"
+				adoptable++
+			case a.Pending():
+				standing = "no branch"
+			}
+			// TASKS is how many landed here, and it is a COUNT rather than a row
+			// each: the branch is behind by commits, so one adoption takes all of
+			// them. Seeing the number beside one row is what makes that plain.
+			fmt.Printf("%-18s  %-18s  %-12s  %-6d  %s\n",
+				truncate(a.Project, 18), truncate(orDash(a.Branch), 18),
+				shortSHA(a.TargetSHA), len(a.Landed), standing)
+			// The note, always — including on the rows with nothing to do. Silence
+			// about a branch is the thing this whole area exists to stop.
+			fmt.Printf("       %s\n", a.Note)
+		}
+		fmt.Println()
+		switch {
+		case pending == 0:
+			fmt.Println("Every project's branch already has the work the plane landed into it.")
+			return nil
+		case adoptable == 0:
+			fmt.Println("Nothing here can be wound forward; the note on each row says why.")
+			return nil
+		}
+		fmt.Println("Take one into its checkout with `daedalus task adopt <project>`.")
+		return nil
+	}
+	project := args[0]
+	if len(args) > 1 {
+		return fmt.Errorf("task adopt: unexpected argument %q\n%s usage: daedalus task adopt [<project>]",
+			args[1], color.Cyan("Hint:"))
+	}
+	res, err := api.AdoptLanded(project)
+	if err != nil {
+		return err
+	}
+	// The plane's own sentence, on the success path as much as on the refusal —
+	// which is where it goes through main.go's error path and gets printed there.
+	fmt.Printf("%s %s\n", color.Green("OK:"), res.Note)
+	return nil
+}
+
 // taskProposals implements `task proposals [list|confirm <id>|deny <id>]` — the
 // human end of the tiered-authority flow. An agent that asks for a consequential
 // operation gets a proposal; this is where a person decides.
@@ -1686,6 +1768,12 @@ func printTaskUsage() {
 	fmt.Println("                       checks out. --into-branch also fast-forwards the checkout's current")
 	fmt.Println("                       branch, refusing on a detached HEAD, a dirty tree, or a diverged")
 	fmt.Println("                       branch; a refusal there never unlands the work")
+	fmt.Println("  adopt [<project>]    Show which PROJECTS have landed work their checkout branch does")
+	fmt.Println("                       not have yet — the branch that would move, the landed commit, and")
+	fmt.Println("                       how far behind it is — or take it into one of them. One action per")
+	fmt.Println("                       project however many tasks landed: the branch is behind by COMMITS.")
+	fmt.Println("                       The same guarded fast-forward as --into-branch: refused, and nothing")
+	fmt.Println("                       touched, on a dirty tree, a detached HEAD or a diverged branch")
 	fmt.Println("  approvals            List everything awaiting a human decision")
 	fmt.Println("  depends <id> [--on <other-id>]")
 	fmt.Println("                       Show or declare a cross-project dependency; a blocked task")

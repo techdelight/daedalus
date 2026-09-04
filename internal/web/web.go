@@ -299,6 +299,7 @@ func (ws *WebServer) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/control/targets", ws.handleTargets)
 	mux.HandleFunc("POST /api/control/tasks/{id}/refine", ws.handleRefineTask)
 	mux.HandleFunc("GET /api/control/targets/lag", ws.handleTargetLags)
+	mux.HandleFunc("GET /api/control/adoptions", ws.handleAdoptions)
 	mux.HandleFunc("GET /api/control/programmes", ws.handleListProgrammes)
 
 	// Reads about one entity.
@@ -330,6 +331,9 @@ func (ws *WebServer) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/control/proposals/{id}/confirm", ws.handleConfirmProposal)
 	mux.HandleFunc("POST /api/control/proposals/{id}/deny", ws.handleDenyProposal)
 	mux.HandleFunc("POST /api/control/targets/{project}/sync", ws.handleSyncTarget)
+	// One action per project: take the landed work into that project's checkout
+	// branch (the Landed column's Adopt plate).
+	mux.HandleFunc("POST /api/control/adoptions/{project}", ws.handleAdoptLanded)
 
 	// Programmes (M20): the shared intent Tasks serve. These replace the
 	// file-backed /api/programmes CRUD, so exactly one thing answers "what

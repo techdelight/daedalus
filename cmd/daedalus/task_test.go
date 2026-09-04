@@ -718,3 +718,65 @@ func TestBranchOutcome_YellowStillMeansSomething(t *testing.T) {
 		t.Error("a refusal and a landing nobody asked to move a branch for must differ")
 	}
 }
+
+// TestCLI_TaskAdopt drives the whole arc from a terminal: land without
+// --into-branch (the default, which moves no branch), see the project listed as
+// having work to adopt, and adopt it.
+//
+// The listing and the action are one subcommand because they are one question
+// asked twice — "is the landed work in my checkout" and "put it there".
+func TestCLI_TaskAdopt(t *testing.T) {
+	dir := makeGitRepo(t)
+	svc := newTestService(t, mapResolver{"app": dir})
+	if err := runTaskCommand(svc, []string{"create", "--project", "app", "--objective", "do it"}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	for _, step := range [][]string{
+		{"dispatch", "T-1"}, {"verify", "T-1"}, {"approve", "T-1"}, {"integrate", "T-1"},
+	} {
+		if err := runTaskCommand(svc, step); err != nil {
+			t.Fatalf("%v: %v", step, err)
+		}
+	}
+
+	// Listing is a read and says what is waiting.
+	if err := runTaskCommand(svc, []string{"adopt"}); err != nil {
+		t.Fatalf("adopt (list): %v", err)
+	}
+	list, err := svc.Adoptions()
+	if err != nil {
+		t.Fatalf("Adoptions: %v", err)
+	}
+	if len(list) != 1 || !list[0].Pending() {
+		t.Fatalf("adoptions = %+v; the landing moved no branch, so there is one to adopt", list)
+	}
+
+	if err := runTaskCommand(svc, []string{"adopt", "app"}); err != nil {
+		t.Fatalf("adopt app: %v", err)
+	}
+	target, _ := svc.Target("app")
+	head := gitOut(t, dir, "rev-parse", "HEAD")
+	if head != target.SHA {
+		t.Errorf("HEAD = %s after adopting, want the landed target %s", head, target.SHA)
+	}
+	// And an unknown project is an error the operator can act on, not a silent
+	// no-op.
+	if err := runTaskCommand(svc, []string{"adopt", "nope"}); err == nil {
+		t.Error("adopting an unregistered project should fail")
+	}
+	if err := runTaskCommand(svc, []string{"adopt", "app", "--force"}); err == nil {
+		t.Error("adopt takes no flags; an unknown one must be refused rather than ignored")
+	}
+}
+
+// gitOut runs git in dir and returns its trimmed stdout.
+func gitOut(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("git %v: %v", args, err)
+	}
+	return strings.TrimSpace(string(out))
+}

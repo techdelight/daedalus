@@ -120,6 +120,12 @@ const (
 	// ReasonIntegrationRaced: the integration transaction lost the compare-and-swap
 	// repeatedly — the target kept moving. Nothing was landed.
 	ReasonIntegrationRaced RejectionReason = "integration_raced"
+	// ReasonBranchNotAdvanced: an adoption could not wind a project's checkout
+	// branch forward to the landed commit — a dirty tree, a detached HEAD, or a
+	// branch that has diverged (adopt.go). A refusal rather than a fault: nothing
+	// was touched, the landed work is still at refs/daedalus/target, and the
+	// message carries advanceCheckoutBranch's own sentence saying what to do.
+	ReasonBranchNotAdvanced RejectionReason = "branch_not_advanced"
 
 	// --- verdicts (the plane acted; the artifact was rejected) ---
 
@@ -155,7 +161,8 @@ var allRejectionReasons = map[RejectionReason]bool{
 	ReasonDependenciesUnmet: true,
 	ReasonUnsafeRebase:      true, ReasonOperationInFlight: true,
 	ReasonApprovalRequired: true, ReasonReviewRequired: true, ReasonIntegrationRaced: true,
-	ReasonProposalRecorded: true, ReasonForbidden: true, ReasonNotSteerable: true,
+	ReasonBranchNotAdvanced: true, ReasonProposalRecorded: true,
+	ReasonForbidden: true, ReasonNotSteerable: true,
 	ReasonCaptureFailed: true,
 	ReasonUnappealable:  true, ReasonArtifactGone: true,
 	ReasonStaleBase: true, ReasonNullAgentFloor: true,
@@ -177,7 +184,7 @@ func AllRejectionReasons() []RejectionReason {
 		ReasonQueuedBehind, ReasonJoblessTask, ReasonExecutionFailed, ReasonDependenciesUnmet, ReasonUnsafeRebase,
 		ReasonOperationInFlight, ReasonProposalRecorded, ReasonForbidden, ReasonCaptureFailed,
 		ReasonNotSteerable, ReasonApprovalRequired, ReasonReviewRequired,
-		ReasonIntegrationRaced, ReasonStaleBase, ReasonNullAgentFloor,
+		ReasonIntegrationRaced, ReasonBranchNotAdvanced, ReasonStaleBase, ReasonNullAgentFloor,
 		ReasonPolicyDrift, ReasonIntegrityGate, ReasonVerifyFailed, ReasonReviewFailed,
 		ReasonApprovalRejected, ReasonMergeConflict, ReasonMergedVerifyFailed,
 	}
