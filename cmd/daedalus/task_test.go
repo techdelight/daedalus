@@ -5,6 +5,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -779,4 +780,62 @@ func gitOut(t *testing.T, dir string, args ...string) string {
 		t.Fatalf("git %v: %v", args, err)
 	}
 	return strings.TrimSpace(string(out))
+}
+
+// TestCLI_TaskAdopt_AnUnreadableCheckoutIsNamedNotCountedAsDone.
+//
+// The closing line of `task adopt` is a claim about every project listed, and
+// "every branch already has the landed work" is the one wrong answer this
+// feature must not give. A repository that has been moved or removed cannot be
+// compared at all, so it is counted apart and named — an operator whose checkout
+// has gone is told that, not told there is nothing to do.
+func TestCLI_TaskAdopt_AnUnreadableCheckoutIsNamedNotCountedAsDone(t *testing.T) {
+	dir := makeGitRepo(t)
+	svc := newTestService(t, mapResolver{"app": dir})
+	if err := runTaskCommand(svc, []string{"create", "--project", "app", "--objective", "do it"}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	for _, step := range [][]string{
+		{"dispatch", "T-1"}, {"verify", "T-1"}, {"approve", "T-1"}, {"integrate", "T-1"},
+	} {
+		if err := runTaskCommand(svc, step); err != nil {
+			t.Fatalf("%v: %v", step, err)
+		}
+	}
+	// The checkout goes away underneath the plane, which is what a moved or
+	// deleted repository looks like from here.
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatal(err)
+	}
+
+	out := captureStdout(t, func() {
+		if err := runTaskCommand(svc, []string{"adopt"}); err != nil {
+			t.Fatalf("adopt (list): %v", err)
+		}
+	})
+	if strings.Contains(out, "Every project's branch already has") {
+		t.Errorf("output claims every branch is up to date when one could not be read:\n%s", out)
+	}
+	if !strings.Contains(out, "could not be read") || !strings.Contains(out, "app") {
+		t.Errorf("output should name the checkout it could not read:\n%s", out)
+	}
+}
+
+// captureStdout runs fn with os.Stdout redirected and returns what it wrote.
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved := os.Stdout
+	os.Stdout = w
+	fn()
+	w.Close()
+	os.Stdout = saved
+	out, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(out)
 }

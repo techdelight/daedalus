@@ -211,6 +211,34 @@ func CountCommitsBetween(repoDir, from, to string) (int, error) {
 	return n, nil
 }
 
+// CommitsBetween returns the commits `to` has that `from` does not, newest
+// first (`git rev-list from..to`).
+//
+// CountCommitsBetween answers how big a gap is; this answers what is IN it, for
+// a caller that has to name what a branch is missing rather than only measure
+// it. One call, and the count is then len() of the answer — a caller wanting
+// both should not run rev-list twice.
+//
+// Ancestry is not required: `from..to` is "reachable from to, not from from",
+// which is exactly the right question for a branch that has diverged as well as
+// one that is simply behind.
+func CommitsBetween(repoDir, from, to string) ([]string, error) {
+	if from == "" || to == "" || from == to {
+		return nil, nil
+	}
+	out, err := runGit(repoDir, "rev-list", from+".."+to)
+	if err != nil {
+		return nil, wrapGit("git rev-list", out, err)
+	}
+	var shas []string
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			shas = append(shas, line)
+		}
+	}
+	return shas, nil
+}
+
 // IsSelfAuthoredTip reports whether `tip` is reachable from any of the given
 // Job commits — that is, whether the project's target tip contains work the Jobs
 // themselves authored.

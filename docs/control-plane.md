@@ -747,7 +747,12 @@ The unit is a **project**, not a task. A branch does not lag by a task, it lags 
 a commit: six landings onto one target leave one fast-forward to make, so there is
 one row, one action, and one refusal to reason about. `GET /adoptions` answers per
 project — the branch that would move, the landed commit, how far behind it is, the
-tasks whose work is waiting in it, and a sentence saying all of that in words. A
+tasks whose work is **waiting in that gap**, and a sentence saying all of that in
+words. `waiting` is the landed tasks whose commit the branch does not contain, not
+the project's landing history: a project fifty tasks old whose branch is two
+commits behind is two tasks behind. Where several projects are registered on one
+repository they share a target, a branch and a fast-forward, so they share one row
+— filed under the first name and listing the others in `projects`. A
 project whose branch already **has** the landed commit (at it, or ahead of it) is
 reported as having nothing to adopt rather than being offered an action that would
 do nothing, and adopting one that is already there is a **success**, not an error.
@@ -758,7 +763,9 @@ fast-forward only, refused on a dirty tree, refused on a detached HEAD, never a
 force. A refusal is `branch_not_advanced` (422) carrying that function's own note,
 because the note is the part the operator needs, and it is filled on every path
 including success for the same reason. Every adoption, refusals included, is
-recorded against the project.
+recorded against the project **and against each task whose work it carried**, so
+`daedalus task events <id>` shows who took a landing into a branch — or was
+refused — rather than leaving a task's log ending at a ref nobody checks out.
 
 Agent callers are **proposal-tier** (`adopt_landed`). Everything else the plane
 does changes plane state; this writes to the working tree a person is sitting in,

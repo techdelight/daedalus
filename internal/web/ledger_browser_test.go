@@ -142,12 +142,12 @@ func (p *scriptedPlane) Adoptions() ([]control.Adoption, error) {
 	return []control.Adoption{
 		{
 			Project: "docs", Branch: "main", TargetSHA: "ccccccccccc33333", HeadSHA: "bbbbbbbbbbb22222",
-			Behind: 2, Landed: []string{"T-3", "T-4"}, Adoptable: true,
+			Behind: 2, Waiting: []string{"T-3", "T-4"}, Adoptable: true,
 			Note: "main is 2 commits behind the landed commit ccccccc",
 		},
 		{
 			Project: "app", Branch: "development", TargetSHA: "aaaaaaaaaaa11111", HeadSHA: "aaaaaaaaaaa11111",
-			Landed: []string{"T-7"}, Adopted: true,
+			Adopted: true,
 			Note: "development is already at the landed commit aaaaaaa",
 		},
 	}, nil

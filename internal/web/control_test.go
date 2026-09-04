@@ -1260,12 +1260,12 @@ func (f *fakeAdopting) Adoptions() ([]control.Adoption, error) {
 	return []control.Adoption{
 		{
 			Project: "app", Branch: "development", TargetSHA: "ccccccccccc33333",
-			HeadSHA: "aaaaaaaaaaa11111", Behind: 3, Landed: []string{"T-1", "T-2", "T-3"},
+			HeadSHA: "aaaaaaaaaaa11111", Behind: 3, Waiting: []string{"T-1", "T-2", "T-3"},
 			Adoptable: true, Note: "development is 3 commits behind the landed commit ccccccc",
 		},
 		{
 			Project: "docs", Branch: "main", TargetSHA: "bbbbbbbbbbb22222",
-			HeadSHA: "bbbbbbbbbbb22222", Landed: []string{"T-4"}, Adopted: true,
+			HeadSHA: "bbbbbbbbbbb22222", Adopted: true,
 			Note: "main is already at the landed commit bbbbbbb",
 		},
 	}, nil
@@ -1312,9 +1312,9 @@ func TestAdoptions_OneRowPerProjectReachesThePage(t *testing.T) {
 		t.Errorf("row = %+v; it must name the branch that would move, the target commit "+
 			"and how far behind it is", first)
 	}
-	if len(first.Landed) != 3 {
+	if len(first.Waiting) != 3 {
 		t.Errorf("row carries %d landed tasks, want 3 — one row for all of them",
-			len(first.Landed))
+			len(first.Waiting))
 	}
 	// The second is up to date, and says so rather than being absent or offered.
 	if !got.Adoptions[1].Adopted || got.Adoptions[1].Adoptable {

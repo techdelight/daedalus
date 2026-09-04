@@ -34,26 +34,32 @@ func landedProject(t *testing.T, repo string, n int) (*Service, *Store, []string
 
 	var ids []string
 	for i := 0; i < n; i++ {
-		task, err := svc.CreateTask(CreateTaskRequest{
-			Project: "app", Objective: fmt.Sprintf("landed work %d", i+1)})
-		if err != nil {
-			t.Fatalf("CreateTask %d: %v", i+1, err)
-		}
-		if _, err := svc.DispatchTask(task.ID); err != nil {
-			t.Fatalf("Dispatch %s: %v", task.ID, err)
-		}
-		if _, err := svc.VerifyTask(task.ID, VerifyRequest{}); err != nil {
-			t.Fatalf("Verify %s: %v", task.ID, err)
-		}
-		if _, err := svc.ApproveTask(task.ID, ""); err != nil {
-			t.Fatalf("Approve %s: %v", task.ID, err)
-		}
-		if _, err := svc.IntegrateTask(task.ID, IntegrateRequest{}); err != nil {
-			t.Fatalf("Integrate %s: %v", task.ID, err)
-		}
-		ids = append(ids, task.ID)
+		ids = append(ids, landOne(t, svc, "app", fmt.Sprintf("landed work %d", i+1)))
 	}
 	return svc, store, ids
+}
+
+// landOne drives one task on one project all the way to `integrated`, WITHOUT
+// --into-branch, and returns its id.
+func landOne(t *testing.T, svc *Service, project, objective string) string {
+	t.Helper()
+	task, err := svc.CreateTask(CreateTaskRequest{Project: project, Objective: objective})
+	if err != nil {
+		t.Fatalf("CreateTask(%s): %v", objective, err)
+	}
+	if _, err := svc.DispatchTask(task.ID); err != nil {
+		t.Fatalf("Dispatch %s: %v", task.ID, err)
+	}
+	if _, err := svc.VerifyTask(task.ID, VerifyRequest{}); err != nil {
+		t.Fatalf("Verify %s: %v", task.ID, err)
+	}
+	if _, err := svc.ApproveTask(task.ID, ""); err != nil {
+		t.Fatalf("Approve %s: %v", task.ID, err)
+	}
+	if _, err := svc.IntegrateTask(task.ID, IntegrateRequest{}); err != nil {
+		t.Fatalf("Integrate %s: %v", task.ID, err)
+	}
+	return task.ID
 }
 
 // onlyAdoption asserts there is exactly one and returns it — the shape most of
@@ -101,8 +107,8 @@ func TestAdopt_MovesABranchBehindItsTarget(t *testing.T) {
 	if !strings.Contains(a.Note, a.Branch) || !strings.Contains(a.Note, "behind") {
 		t.Errorf("Note = %q; it should name the branch and say how far behind it is", a.Note)
 	}
-	if len(a.Landed) != 1 || a.Landed[0] != ids[0] {
-		t.Errorf("Landed = %v, want the one task that landed (%s)", a.Landed, ids[0])
+	if len(a.Waiting) != 1 || a.Waiting[0] != ids[0] {
+		t.Errorf("Waiting = %v, want the one task the branch is missing (%s)", a.Waiting, ids[0])
 	}
 
 	res, err := svc.AdoptLanded("app")
@@ -229,8 +235,8 @@ func TestAdoptions_OneRowPerProjectNotPerLandedTask(t *testing.T) {
 	if a.Project != "app" {
 		t.Errorf("project = %q, want app", a.Project)
 	}
-	if len(a.Landed) != len(ids) {
-		t.Errorf("Landed = %v, want all three tasks named on the one row (%v)", a.Landed, ids)
+	if len(a.Waiting) != len(ids) {
+		t.Errorf("Waiting = %v, want all three tasks named on the one row (%v)", a.Waiting, ids)
 	}
 	if a.Behind != 3 {
 		t.Errorf("behind = %d, want 3 — the gap is measured in commits, and three landed",
@@ -368,4 +374,124 @@ func TestAdopt_IsRecordedEitherWay(t *testing.T) {
 	if !strings.Contains(events[1].Note, "uncommitted changes") {
 		t.Errorf("the refusal was recorded as %q; it should say why nothing moved", events[1].Note)
 	}
+}
+
+// TestAdoptions_WaitingIsWhatTheBRANCHIsMissing, not everything the project has
+// ever landed.
+//
+// Three tasks land and are adopted; a fourth lands after. The branch is now one
+// commit behind holding one task's work, and a row that still named all four
+// would be telling an operator that three landings they have already taken are
+// waiting for them — which is exactly the shape a project with a long history
+// takes: fifty landed, two waiting.
+func TestAdoptions_WaitingIsWhatTheBranchIsMissing(t *testing.T) {
+	repo := gitRepo(t)
+	svc, _, first := landedProject(t, repo, 3)
+	if _, err := svc.AdoptLanded("app"); err != nil {
+		t.Fatalf("AdoptLanded: %v", err)
+	}
+	if a := onlyAdoption(t, svc); len(a.Waiting) != 0 {
+		t.Errorf("Waiting = %v on an up-to-date branch; nothing is waiting", a.Waiting)
+	}
+
+	fourth := landOne(t, svc, "app", "landed after the adoption")
+
+	a := onlyAdoption(t, svc)
+	if a.Behind != 1 {
+		t.Fatalf("behind = %d, want 1 — one landing since the branch was adopted", a.Behind)
+	}
+	if len(a.Waiting) != 1 || a.Waiting[0] != fourth {
+		t.Errorf("Waiting = %v, want only %s — the three already adopted are not waiting for anybody (%v)",
+			a.Waiting, fourth, first)
+	}
+}
+
+// TestAdoptions_TwoProjectsOnOneRepositoryAreOneRow.
+//
+// Registering a repository twice is allowed (CanonicalRepoPath says why), and
+// the two names then share one target, one branch and one fast-forward. Two rows
+// would offer the same move twice with nothing to choose between them.
+func TestAdoptions_TwoProjectsOnOneRepositoryAreOneRow(t *testing.T) {
+	repo := gitRepo(t)
+	svc, _, _ := newService(t, mapResolver{"app": repo, "docs": repo},
+		StubRunner{Result: ExecSuccess, WriteFile: true}, nil, StubVerifyRunner{Pass: true})
+	fromApp := landOne(t, svc, "app", "work through app")
+	fromDocs := landOne(t, svc, "docs", "work through docs")
+
+	list, err := svc.Adoptions()
+	if err != nil {
+		t.Fatalf("Adoptions: %v", err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("Adoptions() = %d rows, want 1 — one repository, one branch, one move: %+v",
+			len(list), list)
+	}
+	a := list[0]
+	// Filed under the first name alphabetically, and NAMING THE OTHER: an
+	// operator looking for what `docs` landed must be able to find it here.
+	if a.Project != "app" || len(a.Projects) != 2 || a.Projects[1] != "docs" {
+		t.Errorf("row = %+v; it should be filed under one name and name both", a)
+	}
+	if len(a.Waiting) != 2 {
+		t.Errorf("Waiting = %v, want both landings (%s, %s) — they are in one branch's gap",
+			a.Waiting, fromApp, fromDocs)
+	}
+	// And the one move takes both, whichever name it is asked for under.
+	if _, err := svc.AdoptLanded("docs"); err != nil {
+		t.Fatalf("AdoptLanded(docs): %v", err)
+	}
+	target, _ := svc.Target("app")
+	if head := trim(mustGit(t, repo, "rev-parse", "HEAD")); head != target.SHA {
+		t.Errorf("HEAD = %s, want the landed target %s", shortSHA(head), shortSHA(target.SHA))
+	}
+	if after := onlyAdoption(t, svc); after.Pending() {
+		t.Errorf("after adopting: %+v; the shared checkout has everything", after)
+	}
+}
+
+// TestAdopt_IsRecordedOnTheTasksItCarried.
+//
+// The project row is the record of the operation; this is the record where
+// anybody will look. `daedalus task events <id>` reads a Task's own log, and
+// without this line the last thing that log says about a landed Task is that it
+// landed on a ref nobody checks out.
+func TestAdopt_IsRecordedOnTheTasksItCarried(t *testing.T) {
+	repo := gitRepo(t)
+	svc, store, ids := landedProject(t, repo, 2)
+
+	if _, err := svc.AdoptLanded("app"); err != nil {
+		t.Fatalf("AdoptLanded: %v", err)
+	}
+	for _, id := range ids {
+		events, err := store.ListEventsForTask(id)
+		if err != nil {
+			t.Fatalf("ListEventsForTask(%s): %v", id, err)
+		}
+		last := events[len(events)-1]
+		if !strings.Contains(last.Note, "adopt") || !strings.Contains(last.Note, "fast-forwarded") {
+			t.Errorf("the last thing %s's log says is %q; it should say its work was adopted into a branch",
+				id, last.Note)
+		}
+	}
+
+	// A SECOND adoption carries nothing — the branch already has both — so it
+	// writes nothing on the Tasks. The log records what happened to them, not
+	// every time somebody pressed the button.
+	before := countTaskEvents(t, store, ids[0])
+	if _, err := svc.AdoptLanded("app"); err != nil {
+		t.Fatalf("second AdoptLanded: %v", err)
+	}
+	if after := countTaskEvents(t, store, ids[0]); after != before {
+		t.Errorf("%s picked up %d more events from an adoption that carried nothing",
+			ids[0], after-before)
+	}
+}
+
+func countTaskEvents(t *testing.T, store *Store, id string) int {
+	t.Helper()
+	events, err := store.ListEventsFor("task", id)
+	if err != nil {
+		t.Fatalf("ListEventsFor(task, %s): %v", id, err)
+	}
+	return len(events)
 }

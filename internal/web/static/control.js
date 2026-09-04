@@ -1084,13 +1084,21 @@
     if (!a.adopted && !a.diverged && a.behind) {
       fact(facts, 'behind by', a.behind + (a.behind === 1 ? ' commit' : ' commits'));
     }
-    const landed = a.landed || [];
-    // WHAT IS WAITING, named. One adoption covers all of them, and seeing the
-    // list is what makes that obvious rather than something to take on trust.
-    if (landed.length) {
-      fact(facts, 'landed here', landed.join(' ') +
-        (a.adopted ? '' : ' — ' + (landed.length === 1 ? 'one task' : 'all ' + landed.length + ' tasks') +
-          ', one adoption'));
+    // Where several projects share a checkout there is one branch and one move.
+    // Named, because the operator looking for the other project's landing has to
+    // be able to find it here rather than conclude it went missing.
+    const sharers = (a.projects || []).filter(function (p) { return p !== a.project; });
+    if (sharers.length) {
+      fact(facts, 'shared with', sharers.join(' ') + ' — one checkout, one adoption');
+    }
+    const waiting = a.waiting || [];
+    // WHAT IS WAITING — the tasks whose commit this branch does not have, not
+    // everything the project has ever landed. One adoption covers all of them,
+    // and seeing the list is what makes that obvious rather than something to
+    // take on trust.
+    if (waiting.length) {
+      fact(facts, 'waiting', waiting.join(' ') + ' — ' +
+        (waiting.length === 1 ? 'one task' : 'all ' + waiting.length + ' tasks') + ', one adoption');
     }
     bodyEl.appendChild(facts);
     bodyEl.appendChild(text('div', 'ledger-desc-note', LANDED_NOTE));

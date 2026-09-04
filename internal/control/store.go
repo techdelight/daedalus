@@ -1675,6 +1675,41 @@ func (s *Store) ListArtifactsForJob(jobID string) ([]Artifact, error) {
 	return out, rows.Err()
 }
 
+// LandedCommitsByTask maps each Task that has landed onto the commit its work
+// landed AS — the rebased result recorded on its artifact (Artifact.
+// IntegratedSHA), which is not the artifact's own head.
+//
+// ONE QUERY, deliberately. The alternative is a walk down jobs and artifacts per
+// Task, and the caller (adopt.go) is polled by the Ledger over every landed Task
+// the plane holds; a project's landing history only grows.
+//
+// A Task whose artifact never recorded one is simply ABSENT rather than mapped
+// to "": the map answers "which commit did this land as", and a caller that
+// cannot get an answer must decide for itself what to do about it, not be handed
+// an empty string that compares equal to nothing.
+func (s *Store) LandedCommitsByTask() (map[string]string, error) {
+	rows, err := s.db.Query(
+		`SELECT j.task_id, a.integrated_sha
+		   FROM artifacts a JOIN jobs j ON j.id = a.job_id
+		  WHERE a.integrated_sha != ''
+		  ORDER BY a.seq ASC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]string{}
+	for rows.Next() {
+		var taskID, sha string
+		if err := rows.Scan(&taskID, &sha); err != nil {
+			return nil, err
+		}
+		// Ascending seq, so a Task that somehow landed twice keeps the LAST commit
+		// — the one the target actually carries.
+		out[taskID] = sha
+	}
+	return out, rows.Err()
+}
+
 const artifactSelect = `SELECT id, job_id, base_sha, head_sha, branch, verify, review, integrated_sha, created_at, updated_at FROM artifacts`
 
 func scanArtifact(sc rowScanner) (Artifact, error) {

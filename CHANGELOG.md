@@ -128,7 +128,15 @@ All notable changes to this project will be documented in this file.
     fast-forward to make. The row names the branch that would move, the commit it
     would move to, and how far behind it is — and the tasks whose work is waiting
     in it, so it is visible that one adoption covers all of them rather than
-    something to take on trust.
+    something to take on trust. Waiting means WAITING: the landed tasks whose
+    commit the branch does not contain, tested against `git rev-list HEAD..target`
+    rather than listed from the project's history, because a project fifty
+    landings old whose branch is two commits behind is two tasks behind.
+  - **One row per REPOSITORY, where that is not the same thing.** Two registry
+    projects can point at one checkout; they then share a target, a branch and a
+    fast-forward, so they share a row — filed under the first name, naming the
+    others. Two rows would offer the same move twice with nothing to tell them
+    apart, which is the trap `TargetLags` already avoids by grouping the same way.
   - **An Adopt action on the row**, backed by `POST /adoptions/{project}` on the
     daemon and `/api/control/adoptions/{project}` on the Ledger, following the
     same `handle*` / `ws.act` shape as every other operation the page drives.
@@ -154,9 +162,21 @@ All notable changes to this project will be documented in this file.
     proposal to appear in a human's queue and nothing else. Reading which projects
     are behind stays free: an agent that can see the gap can explain why the human
     it reports to cannot find the work it landed.
-  - Every adoption is recorded against the project, the refusals included. Moving
-    a branch in a checkout the plane does not own is worth a line in the log, and
-    so is declining to.
+  - Every adoption is recorded against the project AND against each task whose
+    work it carried, the refusals included. Moving a branch in a checkout the
+    plane does not own is worth a line in the log, and so is declining to — and
+    the log anybody actually reads is a task's, which `daedalus task events <id>`
+    prints. Without it the last thing a landed task's history said was that it
+    landed on a ref nobody checks out.
+  - The read takes no plane lock. It is a snapshot by nature — a branch can move a
+    millisecond after it is read — so holding the lock would buy a consistency the
+    answer cannot have, at the price of standing a fifteen-second poll in front of
+    every dispatch and landing. Same argument the programme board makes.
+  - `daedalus task adopt` counts checkouts it could not read apart from the rest
+    and names them. "Every branch already has the landed work" is a claim about
+    branches that were compared, and a repository that has been moved is exactly
+    the case where saying it would give the one wrong answer this feature exists
+    to prevent.
 
 ### Added
 - **Container resource limits are configurable per project (#81b).**

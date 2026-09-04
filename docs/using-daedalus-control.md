@@ -239,15 +239,22 @@ row.
 
 **One row per project, not per landed task.** A branch does not lag by a task, it
 lags by a commit: six tasks landing onto one target leave one fast-forward to
-make. A project whose branch already has the work is shown as having nothing to
-adopt and is offered no action, and a branch that has diverged says so and names
-the merge rather than presenting a button that could only refuse.
+make. The tasks named on the row are the ones your branch is *missing* — not
+everything the project ever landed — and two projects registered on one checkout
+get one row between them, because they have one branch between them. A project
+whose branch already has the work is shown as having nothing to adopt and is
+offered no action, and a branch that has diverged says so and names the merge
+rather than presenting a button that could only refuse. A checkout that cannot be
+read is counted and named apart from the rest: "nothing to adopt" is never said
+about a repository nobody could look at.
 
 It is the *same* guarded move `--into-branch` performs — the same function, not a
 second copy — so it refuses the same three things (a dirty tree, a detached HEAD,
 a diverged branch), never forces, and always says in words what it did or
-declined to do. An agent may only *propose* an adoption: it is the one plane
-operation whose effect is felt in somebody's working tree.
+declined to do. What it did lands in the log of every task it carried, so
+`daedalus task events <id>` answers "who put this in a branch, and when". An agent
+may only *propose* an adoption: it is the one plane operation whose effect is felt
+in somebody's working tree.
 
 ### Writing an acceptance policy
 

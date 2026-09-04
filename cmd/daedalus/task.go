@@ -1251,12 +1251,13 @@ func taskAdopt(api control.TaskAPI, args []string) error {
 			fmt.Println("Nothing has landed yet, so there is nothing to adopt.")
 			return nil
 		}
-		fmt.Printf("%-18s  %-18s  %-12s  %-6s  %s\n",
+		fmt.Printf("%-18s  %-18s  %-12s  %-7s  %s\n",
 			color.Bold("PROJECT"), color.Bold("BRANCH"), color.Bold("TARGET"),
-			color.Bold("TASKS"), color.Bold("STANDING"))
-		fmt.Printf("%-18s  %-18s  %-12s  %-6s  %s\n",
-			"------------------", "------------------", "------------", "------", "--------")
+			color.Bold("WAITING"), color.Bold("STANDING"))
+		fmt.Printf("%-18s  %-18s  %-12s  %-7s  %s\n",
+			"------------------", "------------------", "------------", "-------", "--------")
 		adoptable, pending := 0, 0
+		var unreadable []string
 		for _, a := range list {
 			if a.Pending() {
 				pending++
@@ -1268,6 +1269,7 @@ func taskAdopt(api control.TaskAPI, args []string) error {
 			switch {
 			case a.Unknown != "":
 				standing = "unreadable"
+				unreadable = append(unreadable, a.Project)
 			case a.Diverged:
 				standing = "diverged"
 			case a.Adoptable:
@@ -1276,20 +1278,43 @@ func taskAdopt(api control.TaskAPI, args []string) error {
 			case a.Pending():
 				standing = "no branch"
 			}
-			// TASKS is how many landed here, and it is a COUNT rather than a row
-			// each: the branch is behind by commits, so one adoption takes all of
-			// them. Seeing the number beside one row is what makes that plain.
-			fmt.Printf("%-18s  %-18s  %-12s  %-6d  %s\n",
+			// WAITING is how many landed Tasks this branch does not have, and it is a
+			// COUNT rather than a row each: the branch is behind by commits, so one
+			// adoption takes all of them. Seeing the number beside one row is what
+			// makes that plain.
+			fmt.Printf("%-18s  %-18s  %-12s  %-7d  %s\n",
 				truncate(a.Project, 18), truncate(orDash(a.Branch), 18),
-				shortSHA(a.TargetSHA), len(a.Landed), standing)
+				shortSHA(a.TargetSHA), len(a.Waiting), standing)
+			// Where two projects share a checkout there is one branch and one move,
+			// and the row says so rather than leaving the other project's landing
+			// looking lost.
+			if len(a.Projects) > 1 {
+				fmt.Printf("       shared with %s — one checkout, one branch, one adoption\n",
+					strings.Join(without(a.Projects, a.Project), ", "))
+			}
 			// The note, always — including on the rows with nothing to do. Silence
 			// about a branch is the thing this whole area exists to stop.
 			fmt.Printf("       %s\n", a.Note)
 		}
 		fmt.Println()
+		// THE UNREADABLE ROWS ARE COUNTED SEPARATELY, and named. "Every branch has
+		// the work" is a claim about checkouts that were read, and a repository that
+		// has been moved or removed is precisely the case where saying it would give
+		// the one answer this feature must never give wrongly.
+		if len(unreadable) > 0 {
+			them := "them"
+			if len(unreadable) == 1 {
+				them = "it"
+			}
+			fmt.Printf("%s %s could not be read, so whether the landed work is in %s is unknown.\n",
+				color.Yellow("Note:"), strings.Join(unreadable, ", "), them)
+		}
 		switch {
-		case pending == 0:
+		case pending == 0 && len(unreadable) == 0:
 			fmt.Println("Every project's branch already has the work the plane landed into it.")
+			return nil
+		case pending == 0:
+			fmt.Println("Every branch that could be read already has the work the plane landed into it.")
 			return nil
 		case adoptable == 0:
 			fmt.Println("Nothing here can be wound forward; the note on each row says why.")
@@ -1311,6 +1336,18 @@ func taskAdopt(api control.TaskAPI, args []string) error {
 	// which is where it goes through main.go's error path and gets printed there.
 	fmt.Printf("%s %s\n", color.Green("OK:"), res.Note)
 	return nil
+}
+
+// without returns the list with one name removed — the OTHER projects sharing a
+// checkout, given the one the row is filed under.
+func without(names []string, drop string) []string {
+	out := make([]string, 0, len(names))
+	for _, n := range names {
+		if n != drop {
+			out = append(out, n)
+		}
+	}
+	return out
 }
 
 // taskProposals implements `task proposals [list|confirm <id>|deny <id>]` — the
