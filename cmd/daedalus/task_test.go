@@ -748,7 +748,7 @@ func TestCLI_TaskAdopt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Adoptions: %v", err)
 	}
-	if len(list) != 1 || !list[0].Pending() {
+	if len(list) != 1 || !list[0].Pending {
 		t.Fatalf("adoptions = %+v; the landing moved no branch, so there is one to adopt", list)
 	}
 

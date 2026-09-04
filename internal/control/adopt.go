@@ -35,12 +35,29 @@ import (
 // to. A reimplementation would be a second set of guards to keep in step, and the
 // guards are the whole reason the courtesy is safe to offer at all.
 //
-// AND THE UNIT IS THE REPOSITORY, NOT THE NAME. Two registry projects can point
-// at one checkout (CanonicalRepoPath explains why that is allowed and what it
+// AND THE UNIT IS THE CHECKOUT, NOT THE NAME. Two registry projects can point at
+// one working tree (CanonicalRepoPath explains why that is allowed and what it
 // costs). They share one target, one branch and one fast-forward, so they share
 // one row here — offering the same move twice under two names asks the operator
 // to choose between two identical things, which is the question TargetLags
 // already refuses to ask.
+//
+// A ROW IS A WORKING TREE, THOUGH, NOT A REPOSITORY, because those two come
+// apart. Two projects registered on separate git worktrees of one repository
+// share a TARGET — it is keyed by the repository, deliberately, so they cannot
+// disagree about what landed — and they have a branch and a HEAD each. Keyed by
+// the repository alone they would share one row, and its Adopt would move
+// whichever checkout the row's name happens to resolve to: a branch the row
+// never described, while the other project's lag stayed invisible. So the key is
+// the repository AND the directory, and each row describes the branch its own
+// action moves.
+//
+// AND IT NAMES A PROJECT AND NOTHING ELSE. Everything on a row is a project
+// name, a branch name and two commit ids; the directory that keyed it never
+// appears, and neither does git's own message when a checkout cannot be read
+// (those quote the path they ran in). /adoptions is a read an agent may make,
+// and the authority table's promise that it reveals no host layout is kept here,
+// where the sentences are written, or nowhere.
 
 // Adoption is one PROJECT's answer to "is the work the plane has landed in my
 // checkout branch yet?".
@@ -103,7 +120,23 @@ type Adoption struct {
 	Diverged  bool `json:"diverged,omitempty"`
 	// Unknown carries why the comparison could not be made. Silence would read as
 	// "nothing to adopt", which is the one answer this must never give wrongly.
+	//
+	// IT NAMES THE PROJECT AND NOT THE PATH. The underlying git or filesystem
+	// error goes to the daemon log (see unreadable): those messages quote the
+	// directory they ran in, and this field is served to an agent caller, which
+	// would hand it the host's checkout layout by way of a fault. The operator
+	// who can act on the detail is reading the log the plane writes anyway.
 	Unknown string `json:"unknown,omitempty"`
+	// Pending is the plane's own answer to "does this row need somebody to act?":
+	// the branch does not have the landed commit, and the comparison could be
+	// made at all.
+	//
+	// Serialized rather than left for each surface to re-derive from Adopted and
+	// Unknown, because the Ledger draws exactly the rows that are pending and a
+	// page deciding that for itself is a second place for the rule to live. The
+	// CLI shows every row, pending or not — a terminal has the space for "up to
+	// date", and a column in a browser does not.
+	Pending bool `json:"pending"`
 	// Note is the sentence every surface prints, filled on EVERY path including
 	// the one where there is nothing to do. Same reason advanceCheckoutBranch
 	// fills its own: silence about a branch is the complaint this whole area
@@ -111,8 +144,8 @@ type Adoption struct {
 	Note string `json:"note"`
 }
 
-// Pending reports whether this project has landed work its branch does not have.
-func (a Adoption) Pending() bool { return !a.Adopted && a.Unknown == "" }
+// pending decides the field of the same name, once, where the row is built.
+func (a Adoption) pending() bool { return !a.Adopted && a.Unknown == "" }
 
 // AdoptionResult is what one adoption did. Note is always present — see
 // Adoption.Note, and advanceCheckoutBranch, which is where the words come from.
@@ -130,8 +163,8 @@ type AdoptionResult struct {
 
 // Adoptions reports, per project, whether the plane's landed work is in that
 // project's checkout branch — one entry per CHECKOUT that has landed work, which
-// is one per project except where two projects share a repository, and then it is
-// one between them (see landedByRepo).
+// is one per project except where two projects share a working tree, and then it
+// is one between them (see landedByCheckout).
 //
 // Projects with NOTHING landed are absent: there is no work to adopt and a row
 // saying so would be a row about nothing. A project that has landed work and is
@@ -140,10 +173,10 @@ type AdoptionResult struct {
 // plane had forgotten.
 //
 // KNOWN COST, stated rather than hidden, as queuesByProject states its own: this
-// shells out to git a handful of times per REPOSITORY that has landed work, and
-// the Ledger polls it with the board. It is bounded by the number of
-// repositories, not by the number of tasks — which is the same reason the rows
-// are per project.
+// shells out to git a handful of times per CHECKOUT that has landed work, and
+// the Ledger polls it with the board. It is bounded by the number of checkouts,
+// not by the number of tasks — which is the same reason the rows are per
+// project.
 //
 // IT TAKES NO LOCK, for the reason programmeBoard gives and one more of its own.
 // Every read below is individually consistent and the whole thing is a snapshot
@@ -152,6 +185,10 @@ type AdoptionResult struct {
 // real — the Ledger asks for this every fifteen seconds, and the lock it would
 // take is the one a dispatch and a landing queue on. A poll nobody asked for
 // must not stand in front of work somebody did.
+//
+// Which is also why the adoption itself does not reuse this scan: it runs UNDER
+// that lock, so it reads one checkout by resolver lookup instead (see
+// waitingTasksFor). Cheap-per-guild and cheap-under-a-lock are different budgets.
 func (s *Service) Adoptions() ([]Adoption, error) {
 	tasks, err := s.store.ListTasks()
 	if err != nil {
@@ -165,33 +202,38 @@ func (s *Service) Adoptions() ([]Adoption, error) {
 		return nil, err
 	}
 
-	// ONE ENTRY PER REPOSITORY, however many Tasks landed into it and however many
+	// ONE ENTRY PER CHECKOUT, however many Tasks landed into it and however many
 	// project names point at it. The grouping is the whole of that rule;
 	// everything downstream renders what it produces.
-	groups := s.landedByRepo(tasks)
+	groups := s.landedByCheckout(tasks)
 	sort.Slice(groups, func(i, j int) bool { return groups[i].projects[0] < groups[j].projects[0] })
 
 	out := make([]Adoption, 0, len(groups))
 	for _, g := range groups {
-		out = append(out, s.adoptionFor(g, landedAt))
+		a := s.adoptionFor(g, landedAt)
+		a.Pending = a.pending()
+		out = append(out, a)
 	}
 	// What needs doing first, then the widest gap. Stable, so projects with the
 	// same standing stay in name order rather than in map order.
 	sort.SliceStable(out, func(i, j int) bool {
-		if out[i].Pending() != out[j].Pending() {
-			return out[i].Pending()
+		if out[i].Pending != out[j].Pending {
+			return out[i].Pending
 		}
 		return out[i].Behind > out[j].Behind
 	})
 	return out, nil
 }
 
-// landedGroup is one REPOSITORY's landed work: the projects registered on it
-// that have landed something, and their Tasks in the order they landed.
+// landedGroup is one CHECKOUT's landed work: the projects registered on that
+// working tree that have landed something, and their Tasks in the order they
+// landed.
 //
 // projects is never empty and is sorted; projects[0] is the name the row and the
-// action are taken under. err carries a repository that could not be identified
-// at all, which is still a row — see adoptionFor.
+// action are taken under. repoPath is the REPOSITORY, which is how the target is
+// keyed and is shared between worktrees; dir is the working tree this row is
+// about, which is what the branch belongs to. err carries a checkout that could
+// not be identified at all, which is still a row — see adoptionFor.
 type landedGroup struct {
 	repoPath string
 	dir      string
@@ -200,42 +242,55 @@ type landedGroup struct {
 	err      error
 }
 
-// landedByRepo groups every landed Task by the repository its project resolves
-// to, so two projects on one checkout produce one group rather than two rows
-// naming the same branch. Exactly the identity the target itself is keyed by
-// (CanonicalRepoPath), which is what makes "one row, one branch, one commit"
+// landedByCheckout groups every landed Task by the WORKING TREE its project
+// resolves to, so two projects on one checkout produce one group rather than two
+// rows naming the same branch — and two projects on separate worktrees of one
+// repository produce two, because they have a branch each and the row's action
+// moves only one of them.
+//
+// The key is the repository (CanonicalRepoPath — the identity the target itself
+// is keyed by, so the sharers of a row cannot disagree about what landed) plus
+// the resolved directory. Together they make "one row, one branch, one commit"
 // true rather than usually true.
 //
 // A project the resolver cannot answer for keeps a group of its own, keyed by
 // name: it must not vanish, and it cannot be merged with anything because we do
 // not know what it is.
-func (s *Service) landedByRepo(tasks []Task) []landedGroup {
+func (s *Service) landedByCheckout(tasks []Task) []landedGroup {
 	byKey := map[string]*landedGroup{}
 	seenProject := map[string]bool{}
-	identity := map[string]landedGroup{} // project → resolved repository, cached
+	// project → its resolved checkout and the row that checkout is, cached: the
+	// identity costs a git call, and a project with fifty landings must not pay it
+	// fifty times.
+	type resolved struct {
+		id  landedGroup
+		key string
+	}
+	identity := map[string]resolved{}
 	var order []string
 
 	for _, t := range tasks {
 		if t.State != StateIntegrated {
 			continue
 		}
-		id, known := identity[t.Project]
+		at, known := identity[t.Project]
 		if !known {
 			dir, repoPath, err := s.repoIdentity(t.Project)
-			// Keyed by name when the repository cannot be named, so the row survives
-			// as "unreadable" instead of being silently folded into another.
-			key := repoPath
+			at = resolved{id: landedGroup{repoPath: repoPath, dir: dir, err: err}}
+			// Keyed by name when the checkout cannot be identified, so the row
+			// survives as "unreadable" instead of being silently folded into another.
 			if err != nil {
-				key = "project:" + t.Project
+				at.key = "project:" + t.Project
+			} else {
+				at.key = checkoutKey(repoPath, dir)
 			}
-			id = landedGroup{repoPath: key, dir: dir, err: err}
-			identity[t.Project] = id
+			identity[t.Project] = at
 		}
-		g, ok := byKey[id.repoPath]
+		g, ok := byKey[at.key]
 		if !ok {
-			g = &landedGroup{repoPath: id.repoPath, dir: id.dir, err: id.err}
-			byKey[id.repoPath] = g
-			order = append(order, id.repoPath)
+			g = &landedGroup{repoPath: at.id.repoPath, dir: at.id.dir, err: at.id.err}
+			byKey[at.key] = g
+			order = append(order, at.key)
 		}
 		if !seenProject[t.Project] {
 			seenProject[t.Project] = true
@@ -252,6 +307,16 @@ func (s *Service) landedByRepo(tasks []Task) []landedGroup {
 	return out
 }
 
+// checkoutKey is the identity of one WORKING TREE: the repository it belongs to
+// and the directory it stands in, with symlinks resolved so two spellings of one
+// path are one row rather than two identical offers.
+//
+// Both halves are needed. The repository alone merges separate worktrees, whose
+// branches move independently; the directory alone splits a repository
+// registered twice under different spellings, which is the duplicate offer this
+// grouping exists to prevent.
+func checkoutKey(repoPath, dir string) string { return repoPath + "\x00" + resolvePath(dir) }
+
 // adoptionFor compares one repository's checkout branch against the plane's
 // target, and says which of its landed Tasks that branch is missing.
 //
@@ -264,7 +329,7 @@ func (s *Service) adoptionFor(g landedGroup, landedAt map[string]string) Adoptio
 		a.Projects = g.projects
 	}
 	if g.err != nil {
-		return a.unknown(fmt.Sprintf("could not resolve %s to a checkout: %v", a.Project, g.err))
+		return a.unreadable("the checkout of "+a.Project+" could not be resolved", g.err)
 	}
 	// A pure read of the plane's target, exactly as integrateOnce does it: a
 	// missing one here is a real fault, never a cue to adopt the checkout's HEAD.
@@ -272,7 +337,7 @@ func (s *Service) adoptionFor(g landedGroup, landedAt map[string]string) Adoptio
 	// cannot disagree about what landed.
 	target, err := s.store.GetTarget(g.repoPath)
 	if err != nil {
-		return a.unknown(fmt.Sprintf("reading the integration target for %s: %v", a.Project, err))
+		return a.unreadable("the integration target for "+a.Project+" could not be read", err)
 	}
 	a.TargetSHA = target.SHA
 	if branch, err := runGit(g.dir, "symbolic-ref", "--quiet", "--short", "HEAD"); err == nil {
@@ -280,7 +345,7 @@ func (s *Service) adoptionFor(g landedGroup, landedAt map[string]string) Adoptio
 	}
 	head, err := ReadHeadSHA(g.dir)
 	if err != nil {
-		return a.unknown(fmt.Sprintf("could not read HEAD of %s: %v", a.Project, err))
+		return a.unreadable("the current commit of "+a.Project+"'s checkout could not be read", err)
 	}
 	a.HeadSHA = head
 
@@ -294,7 +359,7 @@ func (s *Service) adoptionFor(g landedGroup, landedAt map[string]string) Adoptio
 	// has nothing to adopt, and offering it a fast-forward that git would refuse
 	// would be the dead end this row exists to remove.
 	if contains, err := IsAncestor(g.dir, target.SHA, head); err != nil {
-		return a.unknown(err.Error())
+		return a.unreadable(a.cannotCompare(), err)
 	} else if contains {
 		a.Adopted = true
 		ahead, _ := CountCommitsBetween(g.dir, target.SHA, head)
@@ -309,14 +374,14 @@ func (s *Service) adoptionFor(g landedGroup, landedAt map[string]string) Adoptio
 	// commits it does not have, whatever else it has of its own.
 	missing, err := CommitsBetween(g.dir, head, target.SHA)
 	if err != nil {
-		return a.unknown(err.Error())
+		return a.unreadable(a.cannotCompare(), err)
 	}
 	a.Behind = len(missing)
 	a.Waiting = waitingTasks(g.tasks, landedAt, missing)
 
 	onHistory, err := IsAncestor(g.dir, head, target.SHA)
 	if err != nil {
-		return a.unknown(err.Error())
+		return a.unreadable(a.cannotCompare(), err)
 	}
 	if !onHistory {
 		// Not adoptable and not up to date: the branch carries commits the landed
@@ -377,9 +442,26 @@ func (a Adoption) where() string {
 	return a.Branch
 }
 
-// unknown fills both the machine-readable field and the sentence, so a caller
-// that renders only Note never silently shows an empty row.
-func (a Adoption) unknown(why string) Adoption {
+// cannotCompare is the one sentence for every way the comparison itself can
+// fail — a rev-list or a merge-base that would not run. Which of them it was is
+// a fact about git, not about the project, and it goes to the log.
+func (a Adoption) cannotCompare() string {
+	return a.Project + "'s checkout could not be compared with the landed commit"
+}
+
+// unreadable fills both the machine-readable field and the sentence, so a caller
+// that renders only Note never silently shows an empty row — and puts the
+// UNDERLYING error in the daemon log rather than in the row.
+//
+// The split is deliberate and is the whole of this function. git's messages
+// quote the directory they ran in ("fatal: not a git repository: /srv/checkouts/
+// app/.git"), and this row is served to an agent caller over /adoptions, which
+// authority.go grants precisely on the grounds that it carries a project name, a
+// branch and two commit ids and no host layout. A fault must not be the way that
+// promise is broken. The operator who can actually fix a moved checkout is
+// reading the daemon log, where the error keeps its detail.
+func (a Adoption) unreadable(why string, err error) Adoption {
+	log.Printf("control: adoptions: %s: %v", why, err)
 	a.Unknown = why
 	a.Note = "could not tell whether the landed work is in this checkout: " + why
 	return a
@@ -394,19 +476,34 @@ func commits(n int) string {
 	return fmt.Sprintf("%d commits", n)
 }
 
-// waitingTasksFor names the landed Tasks of a project's REPOSITORY whose commit
-// its checkout branch does not yet contain — the Tasks an adoption is about to
-// carry in, or has just been refused for.
+// waitingTasksFor names the landed Tasks of a project's CHECKOUT whose commit
+// its branch does not yet contain — the Tasks an adoption is about to carry in,
+// or has just been refused for.
 //
 // Best-effort by design: it exists to label the event log, and every failure
 // answers "nobody named" rather than an error. The operation it decorates is a
 // guarded fast-forward that can perfectly well succeed on a repository this
 // could not describe.
+//
+// IT TOUCHES GIT ONLY IN THE ONE REPOSITORY BEING ADOPTED INTO, and that is a
+// requirement rather than an optimization: it runs under the plane lock, beside
+// the fast-forward it labels, and the lock is the one a dispatch and a landing
+// queue on. Asking landedByCheckout for the grouping would have been the obvious
+// reuse and would have run CanonicalRepoPath — a git process — for every project
+// in the guild that has ever landed anything, so one Adopt click would stand a
+// scan of twenty repositories in front of everybody else's work.
+//
+// So the projects sharing this checkout are found by RESOLVER LOOKUP: ProjectDir
+// is a registry read, resolvePath is a symlink resolution, and neither starts a
+// process. Two projects with the same resolved directory share the branch, which
+// is what makes them share what the move carries — the repository identity that
+// keys the target adds nothing here, because a row is a working tree.
 func (s *Service) waitingTasksFor(project, targetSHA string) []string {
-	dir, repoPath, err := s.repoIdentity(project)
+	dir, err := s.projects.ProjectDir(project)
 	if err != nil {
 		return nil
 	}
+	here := resolvePath(dir)
 	head, err := ReadHeadSHA(dir)
 	if err != nil || head == targetSHA {
 		return nil
@@ -423,13 +520,22 @@ func (s *Service) waitingTasksFor(project, targetSHA string) []string {
 	if err != nil {
 		return nil
 	}
-	// Every project on this repository, not just the one named: they share the
+	// Every project on this checkout, not just the one named: they share the
 	// branch, so they share what the move carries.
+	sameCheckout := map[string]bool{}
 	var landed []string
-	for _, g := range s.landedByRepo(tasks) {
-		if g.repoPath == repoPath {
-			landed = g.tasks
-			break
+	for _, t := range tasks {
+		if t.State != StateIntegrated {
+			continue
+		}
+		same, known := sameCheckout[t.Project]
+		if !known {
+			d, err := s.projects.ProjectDir(t.Project)
+			same = err == nil && resolvePath(d) == here
+			sameCheckout[t.Project] = same
+		}
+		if same {
+			landed = append(landed, t.ID)
 		}
 	}
 	return waitingTasks(landed, landedAt, missing)
@@ -473,7 +579,8 @@ func (s *Service) adoptLanded(caller Caller, project string) (AdoptionResult, er
 	// WHOSE WORK THIS MOVES, read BEFORE it moves — afterwards the branch contains
 	// them and the answer is empty. Best-effort: it decorates the record, and a
 	// repository that cannot be read must not stop the operation that is about to
-	// tell the operator so.
+	// tell the operator so. It reads THIS checkout only, which is what makes it
+	// cheap enough to sit inside the lock beside the move it labels.
 	carried := s.waitingTasksFor(project, target.SHA)
 
 	branch, advanced, note := s.advanceCheckoutBranch(project, target.SHA)

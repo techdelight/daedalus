@@ -605,7 +605,13 @@ def main():
               page.locator('.ledger-row[data-entry-id="adopt:docs"]').count() == 1)
         adoption_rows = page.locator('.ledger-row[data-entry-id^="adopt:"]').count()
         check("one row for the project, not one per landed task",
-              adoption_rows == 2, f"{adoption_rows} adoption rows")
+              adoption_rows == 1, f"{adoption_rows} adoption rows")
+        # THE ROWS ARE THE ONES WITH SOMETHING TO DO. A project already at its
+        # target has no action to offer, and a permanent row saying so would push
+        # the landed tasks down the column on every guild with more than a few
+        # projects. `daedalus task adopt` is where "up to date" is said in full.
+        check("a project already at its target gets no row at all",
+              page.locator('.ledger-row[data-entry-id="adopt:app"]').count() == 0)
         row = page.inner_text('.ledger-row[data-entry-id="adopt:docs"]')
         check("the row names the branch and how far behind it is",
               "main" in row and "2 commits behind" in row, row)
@@ -623,27 +629,26 @@ def main():
         check("it offers Adopt",
               page.locator("#ledger-commands button:has-text('Adopt')").count() == 1)
 
-        # A project already at its target is told so, and offered nothing.
-        page.click('.ledger-row[data-entry-id="adopt:app"]')
-        page.wait_for_function(
-            "document.getElementById('ledger-desc-id').textContent === 'app'", timeout=10000)
-        check("a project with nothing to adopt says so",
-              "Nothing to adopt" in page.inner_text("#ledger-commands"),
-              page.inner_text("#ledger-commands")[:160])
-        check("and is offered no action that would do nothing",
-              page.locator("#ledger-commands button").count() == 0)
-
         # And the action itself: confirm, then read the plane's note back.
-        page.click('.ledger-row[data-entry-id="adopt:docs"]')
-        page.wait_for_function(
-            "document.getElementById('ledger-desc-id').textContent === 'docs'", timeout=10000)
         page.click("#ledger-commands button:has-text('Adopt')")
         page.wait_for_timeout(300)
         page.click("#ledger-commands button:has-text('Yes')")
-        page.wait_for_timeout(800)
+        page.wait_for_timeout(1200)
         said = page.inner_text("#ledger-message")
         check("the message is the plane's own sentence about the branch",
               "fast-forwarded" in said, said[:200])
+        # The row the operator is READING stays while they read it, and now says
+        # there is nothing left to do rather than offering the plate again — the
+        # entry must not be deleted from under the cursor at the moment it
+        # reports.
+        check("the adopted project is offered no second action that would do nothing",
+              "Nothing to adopt" in page.inner_text("#ledger-commands"),
+              page.inner_text("#ledger-commands")[:160])
+        check("and no button is left to press on it",
+              page.locator("#ledger-commands button").count() == 0)
+        row = page.inner_text('.ledger-row[data-entry-id="adopt:docs"]')
+        check("its row reads as adopted rather than still asking to be",
+              "adopted" in row and "to adopt" not in row, row)
 
         # --- page health ------------------------------------------------------
         print("\n[0] the page itself")

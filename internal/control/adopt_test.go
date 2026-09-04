@@ -129,7 +129,7 @@ func TestAdopt_MovesABranchBehindItsTarget(t *testing.T) {
 		t.Errorf("Note = %q; a successful adoption must still say which branch moved and where to", res.Note)
 	}
 	// And the offer is withdrawn, because there is nothing left to do.
-	if after := onlyAdoption(t, svc); !after.Adopted || after.Adoptable || after.Pending() {
+	if after := onlyAdoption(t, svc); !after.Adopted || after.Adoptable || after.Pending {
 		t.Errorf("after adopting: %+v; the row should say there is nothing to adopt", after)
 	}
 }
@@ -253,7 +253,7 @@ func TestAdoptions_OneRowPerProjectNotPerLandedTask(t *testing.T) {
 		t.Errorf("HEAD = %s after one adoption, want %s — all three landings at once",
 			shortSHA(head), shortSHA(target.SHA))
 	}
-	if after := onlyAdoption(t, svc); after.Pending() {
+	if after := onlyAdoption(t, svc); after.Pending {
 		t.Errorf("after one adoption: %+v; nothing should be left to adopt", after)
 	}
 }
@@ -444,8 +444,110 @@ func TestAdoptions_TwoProjectsOnOneRepositoryAreOneRow(t *testing.T) {
 	if head := trim(mustGit(t, repo, "rev-parse", "HEAD")); head != target.SHA {
 		t.Errorf("HEAD = %s, want the landed target %s", shortSHA(head), shortSHA(target.SHA))
 	}
-	if after := onlyAdoption(t, svc); after.Pending() {
+	if after := onlyAdoption(t, svc); after.Pending {
 		t.Errorf("after adopting: %+v; the shared checkout has everything", after)
+	}
+}
+
+// TestAdoptions_TwoWorktreesOfOneRepositoryAreTwoRows.
+//
+// The other half of the rule above, and the one that bites. Two projects
+// registered on separate git WORKTREES of one repository share a target — it is
+// keyed by the repository, deliberately — and have a branch and a HEAD each.
+// Grouped by repository alone they would share a row, and its Adopt would move
+// whichever checkout the row's name resolved to: a branch the row never
+// described, while the other project's lag stayed invisible.
+func TestAdoptions_TwoWorktreesOfOneRepositoryAreTwoRows(t *testing.T) {
+	main := gitRepo(t)
+	// A linked worktree on its own branch — the shape a person keeps a second
+	// checkout of one repository in.
+	linked := filepath.Join(t.TempDir(), "second")
+	mustGit(t, main, "worktree", "add", "-b", "second", linked)
+
+	svc, _, _ := newService(t, mapResolver{"app": main, "side": linked},
+		StubRunner{Result: ExecSuccess, WriteFile: true}, nil, StubVerifyRunner{Pass: true})
+	landOne(t, svc, "app", "work in the main checkout")
+	landOne(t, svc, "side", "work in the linked worktree")
+
+	list, err := svc.Adoptions()
+	if err != nil {
+		t.Fatalf("Adoptions: %v", err)
+	}
+	if len(list) != 2 {
+		t.Fatalf("Adoptions() = %d rows, want 2 — two working trees, two branches, two moves: %+v",
+			len(list), list)
+	}
+	rows := map[string]Adoption{}
+	for _, a := range list {
+		if len(a.Projects) > 1 {
+			t.Errorf("row %+v pools two worktrees; each row must describe the branch its own action moves", a)
+		}
+		rows[a.Project] = a
+	}
+	// EACH ROW NAMES ITS OWN BRANCH. That is the whole property: the row is what
+	// the operator reads before pressing the button that moves it.
+	if rows["side"].Branch != "second" {
+		t.Errorf("the row for `side` names branch %q, want the linked worktree's own branch `second`",
+			rows["side"].Branch)
+	}
+	if rows["app"].Branch == "second" {
+		t.Errorf("the row for `app` names the OTHER worktree's branch: %+v", rows["app"])
+	}
+
+	// And adopting one moves that one. The other is left exactly where it was,
+	// which is the failure the shared row produced.
+	sideHeadBefore := trim(mustGit(t, linked, "rev-parse", "HEAD"))
+	if _, err := svc.AdoptLanded("app"); err != nil {
+		t.Fatalf("AdoptLanded(app): %v", err)
+	}
+	target, _ := svc.Target("app")
+	if head := trim(mustGit(t, main, "rev-parse", "HEAD")); head != target.SHA {
+		t.Errorf("the main checkout is at %s, want the landed target %s", shortSHA(head), shortSHA(target.SHA))
+	}
+	if head := trim(mustGit(t, linked, "rev-parse", "HEAD")); head != sideHeadBefore {
+		t.Errorf("adopting `app` moved `side`'s branch too: %s → %s",
+			shortSHA(sideHeadBefore), shortSHA(head))
+	}
+	// The row for the untouched worktree still says it has work waiting, rather
+	// than having been cleared by somebody else's adoption.
+	after, err := svc.Adoptions()
+	if err != nil {
+		t.Fatalf("Adoptions: %v", err)
+	}
+	for _, a := range after {
+		if a.Project == "side" && !a.Pending {
+			t.Errorf("`side` reads as up to date after only `app` was adopted: %+v", a)
+		}
+	}
+}
+
+// TestAdoptions_AnUnreadableCheckoutNamesTheProjectAndNotThePath.
+//
+// /adoptions is a read an agent may make, granted on the grounds that it carries
+// a project name, a branch and two commit ids and no host layout. git's own
+// messages quote the directory they ran in, so repeating one in the row would
+// hand an agent the checkout's path by way of a fault — and a fault is exactly
+// when nobody is looking.
+func TestAdoptions_AnUnreadableCheckoutNamesTheProjectAndNotThePath(t *testing.T) {
+	repo := gitRepo(t)
+	svc, _, _ := landedProject(t, repo, 1)
+	if err := os.RemoveAll(repo); err != nil {
+		t.Fatal(err)
+	}
+
+	a := onlyAdoption(t, svc)
+	if a.Unknown == "" {
+		t.Fatalf("a checkout that is gone was reported as %+v; silence here reads as nothing to adopt", a)
+	}
+	if !strings.Contains(a.Unknown, "app") {
+		t.Errorf("Unknown = %q; it should name the project the operator has to go and look at", a.Unknown)
+	}
+	// The path itself, and the leading directory it sits in — either would be a
+	// map of the host.
+	for _, field := range []string{a.Unknown, a.Note} {
+		if strings.Contains(field, repo) || strings.Contains(field, filepath.Dir(repo)) {
+			t.Errorf("the row carries the checkout's host path: %q", field)
+		}
 	}
 }
 

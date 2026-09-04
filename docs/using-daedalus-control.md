@@ -235,14 +235,19 @@ daedalus task adopt daedalus        # take it into that project's checkout branc
 The Ledger shows the same thing in its **Landed** column: one row per *project*
 whose checkout branch does not have the landed commit, naming the branch that
 would move, the commit, and how far behind it is — with an **Adopt** plate on the
-row.
+row. The column draws only the projects with something to do; the terminal
+command lists every project that has landed anything, up to date or not, because
+a terminal has room for "nothing to adopt" and a column that has to leave the
+landed tasks visible does not.
 
 **One row per project, not per landed task.** A branch does not lag by a task, it
 lags by a commit: six tasks landing onto one target leave one fast-forward to
 make. The tasks named on the row are the ones your branch is *missing* — not
 everything the project ever landed — and two projects registered on one checkout
-get one row between them, because they have one branch between them. A project
-whose branch already has the work is shown as having nothing to adopt and is
+get one row between them, because they have one branch between them. Two
+*worktrees* of one repository get a row each: they share a target and have a
+branch apiece, and a row has to describe the branch its own button moves. A
+project whose branch already has the work is told it has nothing to adopt and is
 offered no action, and a branch that has diverged says so and names the merge
 rather than presenting a button that could only refuse. A checkout that cannot be
 read is counted and named apart from the rest: "nothing to adopt" is never said
@@ -254,7 +259,9 @@ a diverged branch), never forces, and always says in words what it did or
 declined to do. What it did lands in the log of every task it carried, so
 `daedalus task events <id>` answers "who put this in a branch, and when". An agent
 may only *propose* an adoption: it is the one plane operation whose effect is felt
-in somebody's working tree.
+in somebody's working tree. The Guild Master can *read* which projects are behind
+(`list_adoptions`) and ask for one (`request_adoption`), which lands in your
+proposal queue — nothing moves until you confirm it.
 
 ### Writing an acceptance policy
 

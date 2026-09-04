@@ -19,10 +19,10 @@
 //     socket is not a thing the container can do — that file is not mounted.
 //
 //  3. TIERED AUTHORITY. Reads and bounded task creation execute. Cancel, retry,
-//     replan, integrate, approve and target-resync come back as PROPOSALS for a
-//     human to confirm. That is §6's lethal-trifecta answer: this agent reads
-//     project-controlled documents, so a poisoned README may propose, never
-//     execute.
+//     replan, integrate, approve, target-resync and adopting a landing into a
+//     checkout come back as PROPOSALS for a human to confirm. That is §6's
+//     lethal-trifecta answer: this agent reads project-controlled documents, so a
+//     poisoned README may propose, never execute.
 //
 // It is env-gated into the guild-master container only (DAEDALUS_GUILD_MASTER),
 // exactly as guild-mcp is, so no ordinary project agent ever receives it.
@@ -260,6 +260,48 @@ type ProgrammeEdgeInput struct {
 // DissolveProgrammeInput names a programme that should stop existing.
 type DissolveProgrammeInput struct {
 	Programme string `json:"programme" jsonschema:"the programme id (PR-3) or its name"`
+}
+
+// AdoptionLine is one PROJECT's answer to "is the work the plane landed in that
+// project's checkout branch yet?".
+//
+// Flattened here rather than passed through, for the reason BoardCardLine is:
+// this tool decides what an agent sees, and saying so in a struct is how it
+// stays decided. What it carries is a project name, a branch name and two commit
+// ids — the same shapes an agent already reads off a Task — and no host path.
+// The plane strips nothing on the way here because there is nothing to strip:
+// adopt.go carries the project name in every sentence it writes, including the
+// ones about a checkout it could not read.
+type AdoptionLine struct {
+	Project string `json:"project"`
+	// Projects is every project sharing this checkout, when more than one does.
+	// One branch, one move, however many names point at it.
+	Projects []string `json:"projects,omitempty"`
+	Branch   string   `json:"branch,omitempty"`
+	// Behind is how many landed commits the branch does not have; Waiting names
+	// the landed tasks whose work is in that gap — what one adoption would bring
+	// in, and not the project's landing history.
+	Behind  int      `json:"behind,omitempty"`
+	Waiting []string `json:"waiting,omitempty"`
+	// Pending is the plane's own answer to "does this need somebody to act?".
+	Pending bool `json:"pending"`
+	// Adopted means the branch HAS the landed commit. Adoptable means the plane
+	// could wind it forward right now — false for a diverged branch and for a
+	// detached HEAD, which Note then explains in words.
+	Adopted   bool   `json:"adopted"`
+	Adoptable bool   `json:"adoptable"`
+	Note      string `json:"note"`
+}
+
+// AdoptionsOutput is every project that has landed work, up to date or not.
+type AdoptionsOutput struct {
+	Adoptions []AdoptionLine `json:"adoptions"`
+}
+
+// AdoptionRef names the project whose checkout branch should be moved.
+type AdoptionRef struct {
+	Project string `json:"project" jsonschema:"the project whose checkout branch should take the landed work"`
+	Note    string `json:"note,omitempty" jsonschema:"why you are asking — the human confirming will read it"`
 }
 
 type BoardOutput struct {
@@ -619,6 +661,53 @@ func registerControlTools(server *mcp.Server, api control.TaskAPI) {
 		}
 		return nil, OutcomeOutput{Executed: true,
 			Detail: "programme dissolved (this caller was not treated as an agent)"}, nil
+	})
+
+	// --- adopting a landing into a checkout (#79b) -----------------------------
+	//
+	// The plane lands on refs/daedalus/target, which nobody checks out, so a
+	// landing moves no branch. Both operations were tiered when that courtesy
+	// became an action — `list_adoptions` allowed, `adopt_landed` proposal-only —
+	// and a tier with no tool behind it is exactly the trap #82 is on the backlog
+	// for: an operation reachable from a human's CLI, from the Ledger and from
+	// nowhere the agent can stand. These are the two tools that make the entries
+	// in authority.go true.
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "list_adoptions",
+		Description: "Which PROJECTS have work the plane has landed that their checkout branch does not have yet — the branch, how far behind it is, and the tasks waiting in that gap. Read-only, allowed directly. One entry per project however many tasks landed: a branch lags by a COMMIT, so six landings leave one move to make. Worth reading before you tell anybody a task is done — the plane lands on a ref nobody checks out, so a human looking at their own branch may not see the work at all.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, AdoptionsOutput, error) {
+		list, err := api.Adoptions()
+		if err != nil {
+			return errResult(err), AdoptionsOutput{}, nil
+		}
+		out := AdoptionsOutput{Adoptions: make([]AdoptionLine, 0, len(list))}
+		for _, a := range list {
+			out.Adoptions = append(out.Adoptions, AdoptionLine{
+				Project: a.Project, Projects: a.Projects, Branch: a.Branch,
+				Behind: a.Behind, Waiting: a.Waiting, Pending: a.Pending,
+				Adopted: a.Adopted, Adoptable: a.Adoptable, Note: a.Note,
+			})
+		}
+		return nil, out, nil
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "request_adoption",
+		Description: "Ask for a project's checkout branch to be fast-forwarded to the work the plane has landed. NOT executed: it is recorded as a proposal for a human to confirm, because this is the one plane operation whose effect is felt outside the plane — it writes to the working tree a person is sitting in. What the confirmation runs is the same guarded move a human's own button runs: fast-forward only, refused on a dirty tree, on a detached HEAD and on a branch that has diverged, never a force. Use list_adoptions first; a project already at its target needs nothing.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in AdoptionRef) (*mcp.CallToolResult, OutcomeOutput, error) {
+		res, err := api.AdoptLanded(in.Project)
+		if err != nil {
+			// The expected path for this caller: proposal_recorded, which outcomeFor
+			// renders as "not executed — recorded as a proposal". A REFUSAL arrives
+			// here too (branch_not_advanced, if a human's socket ever drives this
+			// tool) carrying the plane's own sentence about the branch, which is the
+			// part worth repeating back.
+			return nil, outcomeFor(err), nil
+		}
+		// Reached only if the plane executed it directly. The note is the answer
+		// even then — "the branch moved" without saying which branch and to what is
+		// the silence this whole operation exists to end.
+		return nil, OutcomeOutput{Executed: true, Detail: res.Note}, nil
 	})
 
 	mcp.AddTool(server, &mcp.Tool{

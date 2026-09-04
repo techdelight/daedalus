@@ -122,10 +122,11 @@ phase_static() {
     # everywhere except the agent that was supposed to use it.
     local mcp_src="$REPO_ROOT/cmd/guild-control-mcp/main.go" missing=""
     for tool in list_programmes get_programme propose_programme \
-                propose_programme_amendment propose_programme_dissolution task_board; do
+                propose_programme_amendment propose_programme_dissolution task_board \
+                list_adoptions request_adoption; do
         grep -q "\"$tool\"" "$mcp_src" || missing="$missing $tool"
     done
-    [[ -z "$missing" ]] && pass "guild-control-mcp registers every programme tool, and the board is task_board" \
+    [[ -z "$missing" ]] && pass "guild-control-mcp registers every programme and adoption tool, and the board is task_board" \
         || fail "guild-control-mcp is missing:$missing"
 
     # An amendment must be able to carry the declared ORDER as well as the

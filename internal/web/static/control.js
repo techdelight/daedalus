@@ -833,11 +833,27 @@
       //
       // First in the column because it is the only thing here with something to
       // do. Everything under it is a record.
+      //
+      // ONLY THE ROWS WITH SOMETHING TO DO, which is what `pending` is: the
+      // plane's own answer, not three fields this page re-derives the rule from.
+      // Every project that has ever landed anything has an adoption — including
+      // the ones already at their target — and drawing them all would give a
+      // twenty-project guild a permanent block of twenty rows, nineteen of them
+      // saying "nothing to adopt" and pushing the landed tasks off the screen.
+      // "Up to date" is still an answer worth giving; `daedalus task adopt` is
+      // where it is given, in a terminal that has the room for it.
       if (col.key === BOARD_LANDED) {
         const first = [];
         adoptions.forEach(function (a) {
           const id = adoptionID(a);
-          if (current && current.kind === 'adoption' && current.id === id) {
+          const open = current && current.kind === 'adoption' && current.id === id;
+          // The row the operator has OPEN stays drawn even once it stops being
+          // pending. An Adopt that has just succeeded would otherwise delete the
+          // row from under the cursor at the moment it reports — which is its own
+          // version of "nothing appeared to happen", and this whole column exists
+          // to answer that complaint rather than to reproduce it.
+          if (!a.pending && !open) return;
+          if (open) {
             detail = a;
             restored = { adoption: a };
           }

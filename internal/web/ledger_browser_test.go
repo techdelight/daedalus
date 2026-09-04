@@ -94,12 +94,15 @@ type scriptedPlane struct {
 	// reviewing is the task ids whose review is currently in flight, so
 	// TaskStatus can report the operation the way the real plane does.
 	reviewing map[string]bool
-	refined   []control.RefineRequest
-	created   []control.CreateTaskRequest
+	// adopted is the projects whose branch this fake has been asked to move, so
+	// the adoption rows change after the button is pressed (see Adoptions).
+	adopted map[string]bool
+	refined []control.RefineRequest
+	created []control.CreateTaskRequest
 }
 
 func newScriptedPlane() *scriptedPlane {
-	return &scriptedPlane{reviewing: map[string]bool{}}
+	return &scriptedPlane{reviewing: map[string]bool{}, adopted: map[string]bool{}}
 }
 
 const slowReview = 2500 * time.Millisecond
@@ -138,22 +141,42 @@ func (p *scriptedPlane) TargetLags() ([]control.TargetLag, error) { return nil, 
 // date — the two shapes the Landed column has to tell apart. `docs` holds two
 // landed tasks and offers ONE adoption, which is the property a per-task
 // rendering would break.
+//
+// STATEFUL, unlike most of this fixture: once `docs` has been adopted it reports
+// itself as adopted. The page draws only the rows the plane marks PENDING, so
+// what happens to a row when its work is taken — it stops offering the plate,
+// and then leaves the column — is a behaviour a fixed answer could not show.
 func (p *scriptedPlane) Adoptions() ([]control.Adoption, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	docs := control.Adoption{
+		Project: "docs", Branch: "main", TargetSHA: "ccccccccccc33333", HeadSHA: "bbbbbbbbbbb22222",
+		Behind: 2, Waiting: []string{"T-3", "T-4"}, Adoptable: true, Pending: true,
+		Note: "main is 2 commits behind the landed commit ccccccc",
+	}
+	if p.adopted["docs"] {
+		docs = control.Adoption{
+			Project: "docs", Branch: "main", TargetSHA: "ccccccccccc33333", HeadSHA: "ccccccccccc33333",
+			Adopted: true,
+			Note:    "main is already at the landed commit ccccccc",
+		}
+	}
 	return []control.Adoption{
-		{
-			Project: "docs", Branch: "main", TargetSHA: "ccccccccccc33333", HeadSHA: "bbbbbbbbbbb22222",
-			Behind: 2, Waiting: []string{"T-3", "T-4"}, Adoptable: true,
-			Note: "main is 2 commits behind the landed commit ccccccc",
-		},
+		docs,
+		// Up to date, and therefore NOT pending: the Ledger draws no row for it and
+		// `daedalus task adopt` is where "up to date" is said in full.
 		{
 			Project: "app", Branch: "development", TargetSHA: "aaaaaaaaaaa11111", HeadSHA: "aaaaaaaaaaa11111",
 			Adopted: true,
-			Note: "development is already at the landed commit aaaaaaa",
+			Note:    "development is already at the landed commit aaaaaaa",
 		},
 	}, nil
 }
 
 func (p *scriptedPlane) AdoptLanded(project string) (control.AdoptionResult, error) {
+	p.mu.Lock()
+	p.adopted[project] = true
+	p.mu.Unlock()
 	return control.AdoptionResult{
 		Project: project, Branch: "main", TargetSHA: "ccccccccccc33333",
 		Adopted: true, Note: "main fast-forwarded to ccccccc",

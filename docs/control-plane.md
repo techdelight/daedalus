@@ -774,6 +774,16 @@ poisoned project document would reach for. Reading which projects are behind is
 free: an agent that can see the gap can explain why the human it reports to cannot
 find the work it landed.
 
+Both tiers have a tool behind them — `list_adoptions` and `request_adoption` in
+`guild-control-mcp`, and a line each in the Guild Master's role doc. That is
+deliberate rather than incidental: **#82 is on the backlog because three
+operations were tiered, written into a milestone's deliverable list and marked
+done while no agent surface could reach any of them.** A tier reserves authority
+over something that has to exist, so the tools ship with the tiers or the tiers
+are a claim about nothing. What the agent sees is a project name, a branch name,
+a gap and the plane's sentence — never a repository path, which is the basis on
+which the read is granted at all.
+
 ## Human approval and the independent reviewer (Sprint 59 / M15 — built)
 
 ```text
@@ -1473,6 +1483,15 @@ no socket, no tool. It exposes intent-level operations only: **never**
 `coordinator.sock`. The plane resolves the project through the trusted registry
 and constructs every execution detail itself, so the Guild Master cannot become a
 privileged remote shell: there is no tool through which to ask for one.
+
+Its tools track the authority table rather than lagging behind it: reads
+(`list_tasks`, `get_task`, `task_events`, `task_board`, `list_programmes`,
+`get_programme`, `list_adoptions`), the two operations that cannot exceed policy
+(`create_task`, `request_verification`), and a `request_*` / `propose_*` tool for
+each proposal-tier operation — dispatch, retry, replan, cancel, integration,
+steering, adoption, and a programme's whole life. **An operation that is tiered
+for this caller and has no tool here is not gated, it is unreachable**, which is
+the defect #82 records and the reason that list is worth keeping honest.
 
 ### Opaque queue ids
 

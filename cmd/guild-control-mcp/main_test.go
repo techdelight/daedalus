@@ -3,10 +3,13 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/techdelight/daedalus/core"
 	"github.com/techdelight/daedalus/internal/control"
 )
@@ -181,6 +184,153 @@ func TestCreateTaskRequest_CarriesTheDeliverables(t *testing.T) {
 func TestCreateTaskRequest_DeliverablesAreOptional(t *testing.T) {
 	if got := createTaskRequest(CreateTaskInput{Project: "app", Objective: "x"}); got.Deliverables != nil {
 		t.Errorf("nothing should be invented: %+v", got.Deliverables)
+	}
+}
+
+// THE AGENT CAN REACH THE OPERATIONS THE AUTHORITY TABLE TIERS FOR IT (#82's
+// lesson, applied to #79b).
+//
+// `list_adoptions` is TierAllowed and `adopt_landed` is TierProposal, and a tier
+// is a reservation of authority over something that has to EXIST. #82 is on the
+// backlog because three operations were tiered, documented in a milestone's
+// deliverable list and marked done while no agent surface could reach any of
+// them. So the registration is asserted rather than assumed: this is the test
+// that fails if the tools are ever dropped while the tiers stay.
+func TestRegisterControlTools_TheAdoptionToolsExist(t *testing.T) {
+	session := connect(t, stubAdopting{})
+	listed, err := session.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("ListTools: %v", err)
+	}
+	tools := map[string]bool{}
+	for _, tool := range listed.Tools {
+		tools[tool.Name] = true
+	}
+	for _, want := range []string{"list_adoptions", "request_adoption"} {
+		if !tools[want] {
+			t.Errorf("no %s tool: the operation is tiered for this caller and reachable from nowhere it can stand", want)
+		}
+	}
+}
+
+// What the agent actually receives: one row per project, the branch, the gap and
+// the tasks waiting in it — and NO host path. /adoptions is granted to this
+// caller on exactly that basis (see authority.go), so the tool that renders it
+// is where the promise is kept or broken.
+func TestListAdoptions_OneRowPerProjectAndNothingAboutTheHost(t *testing.T) {
+	session := connect(t, stubAdopting{list: []control.Adoption{{
+		Project: "app", Projects: []string{"app", "docs"}, Branch: "main",
+		TargetSHA: "ccccccccccc33333", HeadSHA: "bbbbbbbbbbb22222",
+		Behind: 2, Waiting: []string{"T-3", "T-4"}, Adoptable: true, Pending: true,
+		Note: "main is 2 commits behind the landed commit ccccccc",
+	}}})
+	res, err := session.CallTool(context.Background(),
+		&mcp.CallToolParams{Name: "list_adoptions"})
+	if err != nil {
+		t.Fatalf("CallTool(list_adoptions): %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("list_adoptions answered an error: %+v", res.Content)
+	}
+	body, err := json.Marshal(res.StructuredContent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got AdoptionsOutput
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Adoptions) != 1 {
+		t.Fatalf("adoptions = %+v, want one row for the one checkout", got.Adoptions)
+	}
+	a := got.Adoptions[0]
+	if a.Branch != "main" || a.Behind != 2 || len(a.Waiting) != 2 || !a.Pending {
+		t.Errorf("row = %+v; the agent needs the branch, the gap and what is waiting in it", a)
+	}
+	if len(a.Projects) != 2 {
+		t.Errorf("projects = %v; a shared checkout must name both, or one project's landing reads as lost",
+			a.Projects)
+	}
+	if a.Note == "" {
+		t.Error("the plane's own sentence is missing, which is the part that can be repeated to a human")
+	}
+	// AND NOTHING ELSE. The fields are listed rather than the paths excluded,
+	// because the failure this guards against is a future one: somebody widening
+	// the view with the checkout directory that keyed the row, which is exactly
+	// the kind of field that gets added for debugging and stays. An agent's view
+	// of the guild's filesystem should have to be argued for, not arrived at.
+	allowed := map[string]bool{
+		"project": true, "projects": true, "branch": true, "behind": true,
+		"waiting": true, "pending": true, "adopted": true, "adoptable": true, "note": true,
+	}
+	var raw []map[string]any
+	if err := json.Unmarshal(body, &struct{ Adoptions *[]map[string]any }{&raw}); err != nil {
+		t.Fatal(err)
+	}
+	for key := range raw[0] {
+		if !allowed[key] {
+			t.Errorf("the adoption view has grown a %q field; it carries a project, a branch and a gap, "+
+				"and the authority table grants this read on that basis", key)
+		}
+	}
+}
+
+// connect registers the real tools on a real server and returns a client session
+// talking to it. Registration through the SDK rather than a source grep, because
+// what #82 needed was proof the agent can CALL the thing.
+func connect(t *testing.T, api control.TaskAPI) *mcp.ClientSession {
+	t.Helper()
+	serverTransport, clientTransport := mcp.NewInMemoryTransports()
+	ctx := context.Background()
+	ss, err := newServer(api).Connect(ctx, serverTransport, nil)
+	if err != nil {
+		t.Fatalf("server connect: %v", err)
+	}
+	t.Cleanup(func() { ss.Close() })
+	cs, err := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "0"}, nil).
+		Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatalf("client connect: %v", err)
+	}
+	t.Cleanup(func() { cs.Close() })
+	return cs
+}
+
+// stubAdopting answers the two adoption calls: one project behind its branch,
+// and a write that comes back as a proposal — what an agent caller actually
+// sees.
+type stubAdopting struct {
+	control.TaskAPI
+	list []control.Adoption
+	err  error
+}
+
+func (s stubAdopting) Adoptions() ([]control.Adoption, error) { return s.list, s.err }
+
+func (s stubAdopting) AdoptLanded(project string) (control.AdoptionResult, error) {
+	return control.AdoptionResult{}, &control.RejectionError{
+		Reason:  control.ReasonProposalRecorded,
+		Message: "recorded as proposal P-4 for a human to confirm",
+		Entity:  project,
+	}
+}
+
+// A proposal is NOT reported as a success. An agent that believed it had moved a
+// human's branch would go on reasoning from a false premise — and this one is
+// worse than most, because the premise is about a file tree the plane does not
+// own.
+func TestAdoptionOutcome_AProposalIsNotASuccess(t *testing.T) {
+	_, err := stubAdopting{}.AdoptLanded("app")
+	out := outcomeFor(err)
+	if out.Executed {
+		t.Error("a recorded proposal was reported as an executed adoption")
+	}
+	if out.Reason != string(control.ReasonProposalRecorded) {
+		t.Errorf("reason = %q, want %q so the agent can tell 'a human must confirm' from 'refused'",
+			out.Reason, control.ReasonProposalRecorded)
+	}
+	if !strings.Contains(out.Detail, "recorded as a proposal") {
+		t.Errorf("detail = %q; it should say plainly that nothing moved", out.Detail)
 	}
 }
 

@@ -132,11 +132,25 @@ All notable changes to this project will be documented in this file.
     commit the branch does not contain, tested against `git rev-list HEAD..target`
     rather than listed from the project's history, because a project fifty
     landings old whose branch is two commits behind is two tasks behind.
-  - **One row per REPOSITORY, where that is not the same thing.** Two registry
-    projects can point at one checkout; they then share a target, a branch and a
-    fast-forward, so they share a row — filed under the first name, naming the
+  - **One row per CHECKOUT, where that is not the same thing.** Two registry
+    projects can point at one working tree; they then share a target, a branch and
+    a fast-forward, so they share a row — filed under the first name, naming the
     others. Two rows would offer the same move twice with nothing to tell them
     apart, which is the trap `TargetLags` already avoids by grouping the same way.
+    Two projects on separate *worktrees* of one repository are the opposite case
+    and get a row each: they share a target — it is keyed by the repository,
+    deliberately — and have a branch and a HEAD apiece, so a shared row would have
+    described one branch and moved the other.
+  - **The Landed column draws only the rows with something to do.** Every project
+    that has ever landed anything has an adoption, and on a twenty-project guild
+    the up-to-date ones would be a permanent block of rows needing no action,
+    pushing the landed tasks off the screen. `pending` is the plane's own answer
+    to "does this need somebody?", so the page draws the rows the plane marks
+    rather than re-deriving the rule; the row the operator has open stays until
+    they close it, because deleting an entry from under the cursor at the moment
+    it reports success is its own version of "nothing appeared to happen". `daedalus
+    task adopt` lists every project, up to date or not, in a terminal that has the
+    room for it.
   - **An Adopt action on the row**, backed by `POST /adoptions/{project}` on the
     daemon and `/api/control/adoptions/{project}` on the Ledger, following the
     same `handle*` / `ws.act` shape as every other operation the page drives.
@@ -162,6 +176,28 @@ All notable changes to this project will be documented in this file.
     proposal to appear in a human's queue and nothing else. Reading which projects
     are behind stays free: an agent that can see the gap can explain why the human
     it reports to cannot find the work it landed.
+  - **And both tiers have a tool behind them**: `list_adoptions` and
+    `request_adoption` in `guild-control-mcp`, a line each in the Guild Master's
+    role doc, and a name check in `scripts/verify-guild-control.sh`. #82 is on the
+    backlog because three operations were tiered, written into a milestone's
+    deliverable list and marked done while nothing the agent could reach exposed
+    them — a tier reserves authority over something that has to EXIST, and shipping
+    one without a tool is a claim about nothing. The registration is asserted
+    through a real MCP session rather than a source grep, and the agent's view is
+    pinned to a field list: a project, a branch, a gap and the plane's sentence,
+    so a debugging field carrying the checkout's directory has to get past a test.
+  - **A row that could not be read names the project and not the path.** git's
+    messages quote the directory they ran in, and `/adoptions` is granted to an
+    agent precisely on the grounds that it reveals no host layout; a fault must not
+    be the way that promise breaks. The underlying error goes to the daemon log,
+    where the person who can fix a moved checkout is already looking.
+  - The adoption itself touches git **only in the repository it is adopting into**.
+    It runs under the plane lock, beside the fast-forward it labels, and the
+    obvious reuse — asking the same grouping the read uses — would have run a git
+    process per project in the guild, so one Adopt click would have stood a scan of
+    every repository in front of everybody else's dispatch and landing. The
+    projects sharing a checkout are found by resolver lookup instead, which starts
+    no processes.
   - Every adoption is recorded against the project AND against each task whose
     work it carried, the refusals included. Moving a branch in a checkout the
     plane does not own is worth a line in the log, and so is declining to — and

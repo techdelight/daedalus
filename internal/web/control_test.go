@@ -1261,7 +1261,8 @@ func (f *fakeAdopting) Adoptions() ([]control.Adoption, error) {
 		{
 			Project: "app", Branch: "development", TargetSHA: "ccccccccccc33333",
 			HeadSHA: "aaaaaaaaaaa11111", Behind: 3, Waiting: []string{"T-1", "T-2", "T-3"},
-			Adoptable: true, Note: "development is 3 commits behind the landed commit ccccccc",
+			Adoptable: true, Pending: true,
+			Note: "development is 3 commits behind the landed commit ccccccc",
 		},
 		{
 			Project: "docs", Branch: "main", TargetSHA: "bbbbbbbbbbb22222",
@@ -1316,13 +1317,55 @@ func TestAdoptions_OneRowPerProjectReachesThePage(t *testing.T) {
 		t.Errorf("row carries %d landed tasks, want 3 — one row for all of them",
 			len(first.Waiting))
 	}
+	// PENDING travels, because it is what the page draws on. The Landed column
+	// renders the rows the PLANE marks as needing action rather than deciding for
+	// itself from three other fields, so a payload that dropped the flag would
+	// leave the column empty on a guild with work waiting in it.
+	if !first.Pending {
+		t.Errorf("row = %+v; a branch three commits behind is pending, and the page draws "+
+			"exactly the rows the plane marks", first)
+	}
 	// The second is up to date, and says so rather than being absent or offered.
-	if !got.Adoptions[1].Adopted || got.Adoptions[1].Adoptable {
+	if !got.Adoptions[1].Adopted || got.Adoptions[1].Adoptable || got.Adoptions[1].Pending {
 		t.Errorf("row = %+v; a project already at its target has nothing to adopt",
 			got.Adoptions[1])
 	}
 	if got.Adoptions[1].Note == "" {
 		t.Error("a row with nothing to do still needs a sentence — silence is what this answers")
+	}
+}
+
+// TestLedger_TheLandedColumnDrawsOnlyTheRowsWithSomethingToDo.
+//
+// Every project that has ever landed anything has an adoption, including the
+// ones already at their target — that is deliberate, and it is what `daedalus
+// task adopt` prints. Drawn in a COLUMN it is a different thing: a twenty-project
+// guild gets a permanent block of rows needing no action, above the landed tasks
+// they are pushing off the screen.
+//
+// The page is JavaScript and Go cannot run it, so this asserts on the source —
+// and on the FILTER rather than on the identifier, because a substring match on
+// `pending` is satisfied by a comment, which is how three tests in this file have
+// already passed for the wrong reason.
+func TestLedger_TheLandedColumnDrawsOnlyTheRowsWithSomethingToDo(t *testing.T) {
+	src, err := staticFiles.ReadFile("static/control.js")
+	if err != nil {
+		t.Fatalf("reading the Ledger: %v", err)
+	}
+	js := string(src)
+	if !strings.Contains(js, "if (!a.pending && !open) return;") {
+		t.Error("the Landed column draws an adoption row for every project the plane returns, " +
+			"including the ones with nothing to adopt — on a twenty-project guild that is a " +
+			"permanent block of rows needing no action, pushing the landed tasks down the page")
+	}
+	// The flag it filters on has to be one the plane actually sends, or the column
+	// is empty on every guild — the failure mode this test would otherwise invite.
+	body, err := json.Marshal(control.Adoption{Project: "app", Pending: true})
+	if err != nil {
+		t.Fatalf("marshalling an adoption: %v", err)
+	}
+	if !strings.Contains(string(body), `"pending":true`) {
+		t.Fatalf("the page filters on a field the plane does not send: %s", body)
 	}
 }
 

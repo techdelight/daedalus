@@ -1259,7 +1259,7 @@ func taskAdopt(api control.TaskAPI, args []string) error {
 		adoptable, pending := 0, 0
 		var unreadable []string
 		for _, a := range list {
-			if a.Pending() {
+			if a.Pending {
 				pending++
 			}
 			// Four standings, not two. "diverged" is neither up to date nor a
@@ -1275,7 +1275,7 @@ func taskAdopt(api control.TaskAPI, args []string) error {
 			case a.Adoptable:
 				standing = "to adopt"
 				adoptable++
-			case a.Pending():
+			case a.Pending:
 				standing = "no branch"
 			}
 			// WAITING is how many landed Tasks this branch does not have, and it is a
