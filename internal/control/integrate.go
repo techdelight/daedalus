@@ -703,6 +703,26 @@ func (s *Service) advanceCheckoutBranch(project, targetSHA string) (string, bool
 		// any project checked out on the branch that just landed.
 		return branch, true, fmt.Sprintf("%s was already at the landed commit", branch)
 	}
+	// AND SO DOES AHEAD, for exactly the reason above.
+	//
+	// A branch carrying the landed commit AND work of its own on top is the normal
+	// state of a checkout somebody is using, and it HAS the landed work — which is
+	// the question `advanced` answers. Without this it fell through to the diverged
+	// case below and was told its branch "has diverged from the landed commit",
+	// then handed `git merge`: wrong, because nothing is missing, and a no-op if
+	// followed. That is the RV-8 mistake one case over — same collapsed
+	// distinction, one ancestry question further out.
+	//
+	// It was found by testing adopt.go's READ of this case, which had told the two
+	// apart all along (Adoption.Adopted, "AHEAD COUNTS AS ADOPTED"): the row said
+	// the branch had the work and the action said it had diverged, about the same
+	// branch, in the same second. `daedalus task adopt <project>` reaches this
+	// with no row in front of it to disagree with.
+	if contains, aerr := IsAncestor(repoDir, targetSHA, strings.TrimSpace(head)); aerr == nil && contains {
+		ahead, _ := CountCommitsBetween(repoDir, targetSHA, strings.TrimSpace(head))
+		return branch, true, fmt.Sprintf("%s already has the landed commit %s, and %s of its own on top",
+			branch, shortSHA(targetSHA), commits(ahead))
+	}
 	// Not an ancestor → the branch carries commits the landed target does not, so
 	// winding it forward is impossible and anything else would be a merge decision
 	// that belongs to the operator.

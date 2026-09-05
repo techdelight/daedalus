@@ -335,13 +335,51 @@
     51%, 100% { transform: translateX(2px); }
 }
 
+/* CLIPPED TO ITS TRACK, like the objective beside it.
+
+   The 62px column was sized for the ids the plane issues — T-1, P-3, RV-8 — and
+   for as long as every id came from the plane that was safe by construction, so
+   this cell never needed the guard the objective has always carried. #79b broke
+   the assumption without anywhere to notice it: an adoption's id is `adopt:`
+   plus a PROJECT NAME, which is chosen by a person and has no length at all.
+   Un-clipped, the glyphs simply carried on past the track and drew over the
+   label — `adopt:daedalus` needs about 112px and got 62, so the row read as one
+   mangled word. inner_text() is indifferent to that, so no assertion saw it.
+
+   Clipping here is the invariant, not the fix for one row: whatever an id turns
+   out to be next, it stops at its column. What adoptions do about the ellipsis
+   is below. */
 .ledger-row-id {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     font-size: 12px;
     font-weight: 700;
     letter-spacing: 1px;
     color: var(--mana-frame-pale);
     text-shadow: 1px 1px 0 var(--mana-ink);
 }
+
+/* AN ADOPTION'S ID IS AN ADDRESS, NOT A NAME, so the row does not draw it.
+
+   Every other entry's id is both at once: `T-1` is what the page shows you and
+   what you type into `daedalus task status`. An adoption has no plane-issued id
+   — it is derived per project, and nothing stores it — so the page synthesises
+   `adopt:<project>` to key the cursor, the pin, the busy state and the URL on.
+   That string is not a name anybody could use: the command is `daedalus task
+   adopt docs`, never `adopt:docs`.
+
+   And it is redundant, which is what settles it. The label already opens with
+   the project — `docs — main is 2 commits behind …` — so drawing the id spends
+   the column on saying `docs` twice, once truncated. The address stays on
+   data-entry-id, where it is addressed from; only the drawing goes.
+
+   Placed explicitly because the id cell is display:none and auto-placement would
+   walk the objective into the 62px track it just vacated. */
+.ledger-row.is-adoption .ledger-row-id { display: none; }
+.ledger-row.is-adoption .ledger-row-objective { grid-column: 2 / 4; }
+.ledger-row.is-adoption .ledger-row-status { grid-column: 4; }
 
 /* One line, always. The window above is where the rest of it lives. */
 .ledger-row-objective {
@@ -1074,6 +1112,12 @@
 
     .ledger-row-id,
     .ledger-row-objective { grid-column: 1; }
+
+    /* The wide layout's adoption rules place the label across two of FOUR
+       columns; this grid has three, so they are put back. The hidden id still
+       is: stacked or not, `adopt:docs` above `docs — …` is the same word twice. */
+    .ledger-row.is-adoption .ledger-row-objective { grid-column: 1; }
+    .ledger-row.is-adoption .ledger-row-status { grid-column: 2; }
 
     .ledger-row-status { grid-column: 2; }
 

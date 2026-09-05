@@ -309,6 +309,155 @@ func TestAdoptions_ADivergedBranchIsSaidRatherThanOffered(t *testing.T) {
 	}
 }
 
+// TestAdoptions_ABranchAheadOfTheTargetHasNothingToAdopt.
+//
+// The ordinary state of a checkout somebody is working in: it has every landed
+// commit, and some of its own on top. There is nothing to take, so the row says
+// ADOPTED and offers no action — a fast-forward here is one git would refuse,
+// which is the dead end the Landed column exists to remove.
+//
+// The case needs its own test because "ahead" and "behind" are the same fact to
+// anything that only asks whether HEAD equals the target. Telling them apart is
+// one extra ancestry question, and getting it wrong puts a button on the one row
+// whose answer can only be no.
+func TestAdoptions_ABranchAheadOfTheTargetHasNothingToAdopt(t *testing.T) {
+	repo := gitRepo(t)
+	svc, _, _ := landedProject(t, repo, 1)
+	if _, err := svc.AdoptLanded("app"); err != nil {
+		t.Fatalf("AdoptLanded: %v", err)
+	}
+	target, err := svc.Target("app")
+	if err != nil {
+		t.Fatalf("Target: %v", err)
+	}
+
+	// Work of their own, on top of what landed.
+	if err := os.WriteFile(filepath.Join(repo, "mine.txt"), []byte("in progress"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mustGit(t, repo, "add", "-A")
+	mustGit(t, repo, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "my own work")
+	head := trim(mustGit(t, repo, "rev-parse", "HEAD"))
+	if head == target.SHA {
+		t.Fatal("precondition: the local commit should have carried the branch past the target")
+	}
+
+	a := onlyAdoption(t, svc)
+	if !a.Adopted || a.Adoptable || a.Pending {
+		t.Fatalf("adoption = %+v; a branch AHEAD of the target already has the landed work", a)
+	}
+	// NOT DIVERGED, which is the distinction the whole test is about: a diverged
+	// branch is missing landed commits and this one is missing none.
+	if a.Diverged {
+		t.Errorf("adoption = %+v; a branch that CONTAINS the target has not diverged from it", a)
+	}
+	if a.Behind != 0 || len(a.Waiting) != 0 {
+		t.Errorf("adoption = %+v; a branch that contains the target is behind by nothing and waiting on nothing", a)
+	}
+	if !strings.Contains(a.Note, "already has") || !strings.Contains(a.Note, "on top") {
+		t.Errorf("Note = %q; it should say the branch has the landed commit AND carries work of its own on top",
+			a.Note)
+	}
+
+	// AND THE ACTION AGREES WITH THE ROW.
+	//
+	// The row is a snapshot, so the click can arrive after it and `daedalus task
+	// adopt <project>` has no row in front of it at all — it takes a project name
+	// and runs. So the write is asked the same question and must give the same
+	// answer: adopted, nothing moved, no remedy offered.
+	//
+	// This is what the two disagreed about. advanceCheckoutBranch asked only
+	// whether HEAD was an ancestor of the target; ahead is not, so it refused with
+	// "has diverged from the landed commit" and handed `git merge` — telling an
+	// operator whose branch has everything that it has fallen behind, and offering
+	// a remedy that would do nothing. The read has always been right about this
+	// case; the write is what changed.
+	res, err := svc.AdoptLanded("app")
+	if err != nil {
+		t.Fatalf("adopting a branch that is AHEAD of the target = %v; it has the landed work, which is success", err)
+	}
+	if !res.Adopted {
+		t.Errorf("result = %+v; a branch that CONTAINS the landed commit is adopted", res)
+	}
+	if strings.Contains(res.Note, "diverged") {
+		t.Errorf("Note = %q; a branch that contains every landed commit has not diverged from them", res.Note)
+	}
+	if strings.Contains(res.Note, "git merge") {
+		t.Errorf("Note = %q; a branch with nothing missing must not be handed a merge that would do nothing",
+			res.Note)
+	}
+	if after := trim(mustGit(t, repo, "rev-parse", "HEAD")); after != head {
+		t.Errorf("HEAD moved on a branch that already had the work: %s → %s",
+			shortSHA(head), shortSHA(after))
+	}
+}
+
+// TestAdoptions_ADetachedHeadIsSaidRatherThanOffered. Two shapes, because a
+// detached HEAD can be behind the landed commit or sitting on it, and the row has
+// a different thing to say about each.
+//
+// Neither offers an action. A fast-forward needs a branch to move, and there
+// isn't one — so the row says that, in words, rather than presenting a plate
+// whose only possible answer is "there is no branch". Same rule as the diverged
+// row above, reached from a different direction.
+func TestAdoptions_ADetachedHeadIsSaidRatherThanOffered(t *testing.T) {
+	repo := gitRepo(t)
+	svc, _, ids := landedProject(t, repo, 1)
+	target, err := svc.Target("app")
+	if err != nil {
+		t.Fatalf("Target: %v", err)
+	}
+
+	// --- BEHIND the landed commit, and with no branch to advance ---------------
+	mustGit(t, repo, "checkout", "--detach", "HEAD")
+	before := trim(mustGit(t, repo, "rev-parse", "HEAD"))
+
+	a := onlyAdoption(t, svc)
+	if a.Branch != "" {
+		t.Errorf("Branch = %q, want empty — there is no branch on a detached HEAD", a.Branch)
+	}
+	if a.Adoptable || a.Adopted {
+		t.Fatalf("adoption = %+v; a detached HEAD is neither up to date nor fast-forwardable", a)
+	}
+	// PENDING, though. There IS landed work this checkout does not have, and the
+	// row exists to say so; only the ACTION is missing.
+	if !a.Pending || a.Behind != 1 || len(a.Waiting) != 1 || a.Waiting[0] != ids[0] {
+		t.Errorf("adoption = %+v; the gap is still real and still worth naming (want behind 1, waiting %s)",
+			a, ids[0])
+	}
+	if !strings.Contains(a.Note, "detached HEAD") || !strings.Contains(a.Note, targetRefName) {
+		t.Errorf("Note = %q; it should say the HEAD is detached and name the ref to merge", a.Note)
+	}
+
+	// Asked for anyway — a row is a snapshot and a click can arrive after it — the
+	// refusal comes from advanceCheckoutBranch and nothing is touched.
+	if _, err := svc.AdoptLanded("app"); err == nil {
+		t.Error("adopting into a detached HEAD should be refused")
+	}
+	if after := trim(mustGit(t, repo, "rev-parse", "HEAD")); after != before {
+		t.Errorf("HEAD moved despite there being no branch: %s → %s", shortSHA(before), shortSHA(after))
+	}
+
+	// --- ON the landed commit, still detached ---------------------------------
+	//
+	// Somebody checked the landed work out to look at it. They HAVE it, so the row
+	// says so — and says it about "the checkout", because naming a branch that does
+	// not exist is the wrong sentence in the other direction.
+	mustGit(t, repo, "checkout", "--detach", target.SHA)
+
+	at := onlyAdoption(t, svc)
+	if !at.Adopted || at.Pending || at.Adoptable {
+		t.Fatalf("adoption = %+v; a detached HEAD sitting on the landed commit has the work", at)
+	}
+	if !strings.Contains(at.Note, "detached HEAD") || !strings.Contains(at.Note, "already at") {
+		t.Errorf("Note = %q; it should name the checkout rather than a branch, and say it is already there",
+			at.Note)
+	}
+	if strings.Contains(at.Note, "behind") {
+		t.Errorf("Note = %q; a checkout that is AT the landed commit is not behind it", at.Note)
+	}
+}
+
 // TestAdopt_AnAgentMayOnlyPropose pins the tier. Moving a branch in somebody's
 // working checkout is the one plane operation whose effect is felt outside the
 // plane, which is exactly what a poisoned project document would reach for.

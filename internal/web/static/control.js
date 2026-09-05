@@ -858,8 +858,18 @@
             restored = { adoption: a };
           }
           if (pendingEntry === id) wanted = function () { selectAdoption(a); };
-          first.push(entry(id, adoptionLabel(a), adoptionMark(a),
-            function () { selectAdoption(a); }));
+          const row = entry(id, adoptionLabel(a), adoptionMark(a),
+            function () { selectAdoption(a); });
+          // MARKED SO THE ROW DOES NOT DRAW ITS ID (control.css). Every other
+          // entry's id is a name as well as an address — `T-1` is what you read
+          // and what you type — and this one is only an address: there is no
+          // `daedalus task adopt:docs`, and the label already says `docs`. The
+          // class is added here rather than derived from the prefix inside
+          // entry() because it is this row that is the exception, and a row
+          // that quietly reads its own id to decide how to draw it is a rule
+          // living somewhere nobody would look for it.
+          row.classList.add('is-adoption');
+          first.push(row);
         });
         // Collected and then prepended as a group, in the order the plane sorted
         // them (what needs doing first). Unshifting one at a time would reverse

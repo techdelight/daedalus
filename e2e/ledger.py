@@ -646,9 +646,36 @@ def main():
               page.inner_text("#ledger-commands")[:160])
         check("and no button is left to press on it",
               page.locator("#ledger-commands button").count() == 0)
-        row = page.inner_text('.ledger-row[data-entry-id="adopt:docs"]')
+        # CASE-FOLDED, because .ledger-row-status is text-transform: uppercase
+        # and inner_text() returns what is RENDERED — "ADOPTED". Matched
+        # literally, this check failed on the correct page, and its second
+        # clause could never have fired at all: "to adopt" would have been
+        # "TO ADOPT" too, so the regression it exists to catch would have
+        # passed silently.
+        row = page.inner_text('.ledger-row[data-entry-id="adopt:docs"]').lower()
         check("its row reads as adopted rather than still asking to be",
               "adopted" in row and "to adopt" not in row, row)
+        # THE ID IS NOT DRAWN ON AN ADOPTION ROW — it is an address, not a name,
+        # and the label already says the project. Asserted on the rendered text
+        # rather than the DOM because the defect this replaces was invisible to
+        # inner_text(): the id overflowed its 62px track and drew ON TOP of the
+        # label, which reads as one mangled word and measures as two clean ones.
+        # So the check is the width, where the fault actually was.
+        fits = page.evaluate(
+            """() => {
+                 const r = document.querySelector('.ledger-row.is-adoption');
+                 if (!r) return null;
+                 const id = r.querySelector('.ledger-row-id');
+                 const o = r.querySelector('.ledger-row-objective');
+                 return {
+                   idDrawn: !!id && getComputedStyle(id).display !== 'none',
+                   overflow: o.scrollWidth - o.clientWidth,
+                 };
+               }""")
+        check("the adoption row does not draw its synthesised id",
+              fits is not None and not fits["idDrawn"], str(fits))
+        check("and nothing on it overflows the column it was given",
+              fits is not None and fits["overflow"] <= 0, str(fits))
 
         # --- page health ------------------------------------------------------
         print("\n[0] the page itself")

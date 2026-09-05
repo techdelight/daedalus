@@ -19,3 +19,8 @@ agentenv
 node_modules/
 test-results/
 playwright-report/
+# CPython's bytecode cache. e2e/ledger.py is imported by the browser harness, so
+# running it writes e2e/__pycache__/ — a 42KB file per interpreter version, which
+# is how ledger.cpython-311.pyc came to be committed.
+__pycache__/
+*.pyc
