@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Ledger — one project — preview</title>
+<!--
+  FOCUS 1 of the design in docs/ledger-ui-design.md: the frame is ONE PROJECT,
+  and the question is "where is this project up to, and what can I do next?".
+
+  Standalone preview, the sibling of control-preview.html and there for the same
+  stated reason: the visual result cannot be checked from a terminal, and a
+  preview that renders every state from static markup can be opened by a person
+  in a second.
+
+  It references the REAL stylesheets — guild.css for the palette, control.css for
+  the window and command-plate recipes, ledger-next.css for what this design
+  adds. If this looks right, the view looks right; the only thing it fakes is the
+  data.
+
+  THE DATA IS FAKE AND THE TABLE IS NOT. Every admit-set below is the real one
+  from internal/control/operations.go, in the real render order from
+  allOperations. T-13's dimmed set is the exhausted-budget case from Backlog #95
+  — and `refine` is dimmed there ON PURPOSE, because the first version of that
+  fix left it lit and told an operator to refine a task whose refine had just
+  been refused. A mockup that got it wrong would be repeating the bug in the
+  medium the bug was found in.
+-->
+<link rel="stylesheet" href="guild.css">
+<link rel="stylesheet" href="control.css">
+<link rel="stylesheet" href="ledger-next.css">
+<style>
+  /* Preview chrome only — not part of the design. */
+  body { margin: 0; background: #0e1430; }
+  #control-view { display: flex; height: 100vh; }
+  .btn { padding: 5px 12px; border: 1px solid currentColor; border-radius: 3px;
+         background: transparent; color: #b9c2e6; font: 11px ui-monospace, monospace;
+         letter-spacing: 1px; cursor: pointer; }
+</style>
+</head>
+<body>
+
+<div id="control-view" class="active">
+
+  <div class="ledger-header">
+    <span class="ledger-title">The Ledger</span>
+    <span class="ledger-subtitle">daedalus · 10 entries · 2 running · 1 at the gate · 1 that can never complete</span>
+    <button class="ff-cmd" id="btn-project">Project ▾</button>
+    <button class="ff-cmd" id="btn-programme">Programmes</button>
+    <button class="ff-cmd is-seal">New entry</button>
+    <button class="btn btn-back">Board</button>
+  </div>
+
+  <!--
+    THE FRAME STRIP. Four facts about the project rather than about any row, all
+    of them already computed by the plane and none of them currently on the page
+    at the same time: slots in use against the project limit (PlaneStatus.
+    ProjectRunning against SchedulerLimits), the integration target's lag
+    (TargetLag.Summary(), the one rendering the CLI and the daemon share), the
+    merge queue this project serialises on (BoardCard.QueueID), and the adoption
+    offer when the checkout branch does not have the landed commit.
+
+    Adoption is per PROJECT and never per task — #79b settled that, "because a
+    branch lags by a COMMIT" — so this is the frame it always wanted.
+  -->
+  <div class="ledger-frame">
+    <span class="frame-fact">
+      <span class="frame-k">project</span>
+      <span class="frame-v">daedalus</span>
+    </span>
+    <span class="frame-fact">
+      <span class="frame-k">slots</span>
+      <span class="frame-v is-warn">2 of 2 running · 1 holding a place in line</span>
+    </span>
+    <span class="frame-fact">
+      <span class="frame-k">target</span>
+      <span class="frame-v is-warn">4 commits behind development</span>
+    </span>
+    <span class="frame-fact">
+      <span class="frame-k">queue</span>
+      <span class="frame-v">/srv/repos/daedalus</span>
+    </span>
+    <span class="frame-fact">
+      <span class="frame-k">landed</span>
+      <span class="frame-v is-warn">development is 2 commits behind 4f1c9ab</span>
+      <button type="button" class="ff-cmd">Adopt</button>
+    </span>
+  </div>
+
+  <div class="ledger-body">
+
+    <div class="ff-window ledger-chart" id="chart">
+      <span class="ff-window-title">Progression</span>
+
+      <div class="chart-head">
+        <span></span>
+        <span></span>
+        <span></span>
+        <span class="chart-head-stages">
+          <span class="chart-head-stage">plan</span>
+          <span class="chart-head-stage">run</span>
+          <span class="chart-head-stage">cand</span>
+          <span class="chart-head-stage">grade</span>
+          <span class="chart-head-stage">gate</span>
+          <span class="chart-head-stage">land</span>
+        </span>
+        <span class="chart-head-ap">attempts</span>
+      </div>
+
+      <div id="chart-rows"></div>
+
+      <div class="chart-group">Closed</div>
+      <div id="chart-closed"></div>
+    </div>
+
+    <div class="ff-window ledger-desc" id="desc">
+      <span class="ff-window-title">Entry</span>
+      <div class="ledger-desc-head">
+        <span class="ledger-desc-id" id="desc-id">T-13</span>
+        <span class="ledger-desc-project" id="desc-project">daedalus</span>
+        <span class="ledger-desc-status ledger-row-status is-refused" id="desc-status">refused</span>
+      </div>
+      <div class="ledger-desc-body" id="desc-body"></div>
+      <div class="ledger-message" id="desc-msg" role="status" aria-live="polite"></div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+  // ---------------------------------------------------------------------------
+  // THE OPERATION TABLE, copied from internal/control/operations.go in the
+  // render order allOperations declares. `states` is the admit-set as a human
+  // reads it; the empty string means "derived" and carries its own words.
+  // ---------------------------------------------------------------------------
+  var OPS = [
+    { k: 'Dispatch',  need: 'planned · queued · rejected',
+      sum: 'start an attempt' },
+    { k: 'Verify',    need: 'candidate',
+      sum: 'grade the artifact against the frozen oracle' },
+    { k: 'Retry',     need: 'rejected',
+      sum: 'a fresh attempt from the same base — costs an attempt' },
+    { k: 'Reverify',  need: 'rejected',
+      sum: 'grade the SAME artifact again — costs no attempt' },
+    { k: 'Replan',    need: 'rejected · candidate',
+      sum: 'replace the objective and start over from a clean tree' },
+    { k: 'Refine',    need: 'candidate · rejected · verified · at the gate',
+      sum: 'continue from the work already done, answering a review' },
+    { k: 'Review',    need: 'candidate · rejected · verified · at the gate',
+      sum: 'send an agent to read the change — advisory, it moves nothing' },
+    { k: 'Checks',    need: 'planned · blocked · queued · candidate · rejected',
+      sum: "change this task's own acceptance commands" },
+    { k: 'Budget',    need: 'any task that is not finished',
+      sum: 'raise this task’s attempts or review cycles, within the project ceiling' },
+    { k: 'Approve',   need: 'verified · at the gate',
+      sum: 'accept the change at the approval gate', seal: true },
+    { k: 'Reject',    need: 'verified · at the gate',
+      sum: 'decline the change — it returns to the retry ladder', refuse: true },
+    { k: 'Integrate', need: 'verified · at the gate · approved',
+      sum: 'rebase onto the target, re-verify the merged result, and land it' },
+    { k: 'Depends',   need: 'any task that is not finished',
+      sum: 'make this task wait for another to land' },
+    { k: 'Steer',     need: 'a job that is running',
+      sum: 'inject an instruction into the running job' },
+    { k: 'Cancel',    need: 'any task that is not finished',
+      sum: 'end the task and any running job — terminal, there is no way back',
+      refuse: true }
+  ];
+
+  // ---------------------------------------------------------------------------
+  // The rows. `track` is six stages; a stage is a space-separated class list.
+  // ---------------------------------------------------------------------------
+  var ROWS = [
+    {
+      id: 'T-14', state: 'running', mark: 'is-working',
+      obj: 'Give the scheduler a durable queue so admission survives a daemon restart',
+      track: ['is-done', 'is-now', 'is-todo', 'is-todo', 'is-todo', 'is-todo'],
+      ap: [1, 3],
+      prose: 'Give the scheduler a durable queue so admission survives a daemon restart, ' +
+             'replacing the in-memory waiting map and the retry-driven admission it depends on.',
+      facts: [['for', 'resilience — the plane survives its own restart']],
+      lit: ['Checks', 'Budget', 'Depends', 'Steer', 'Cancel'],
+      msg: null
+    },
+    {
+      id: 'T-18', state: 'candidate', mark: 'is-waiting',
+      obj: 'Restore the frozen acceptance files before grading, so a job cannot edit its own tests',
+      track: ['is-done', 'is-done', 'is-now', 'is-todo', 'is-todo', 'is-todo'],
+      ap: [2, 3],
+      prose: 'Restore the frozen acceptance files before grading, so a job that edits its own ' +
+             'tests is judged by the oracle it was given.',
+      facts: [['for', 'clarity — say what landed, on every surface']],
+      note: ['is-calm', 'second attempt — the first was returned from grading'],
+      lit: ['Verify', 'Replan', 'Refine', 'Review', 'Checks', 'Budget', 'Depends', 'Cancel'],
+      msg: null
+    },
+    {
+      id: 'T-22', state: 'queued', mark: 'is-working',
+      obj: 'Teach the runner to stream its log to the daemon instead of tailing a file',
+      track: ['is-done', 'is-now', 'is-todo', 'is-todo', 'is-todo', 'is-todo'],
+      ap: [0, 3],
+      prose: 'Teach the runner to stream its log to the daemon instead of tailing a file on the host.',
+      facts: [],
+      // BoardCard.QueuedForCapacity exists precisely so this is not confused with
+      // waiting on a dependency. Both look like "not started" and the remedies
+      // are nothing alike.
+      note: ['is-calm', 'waiting for a free slot, not for work — both runners are busy'],
+      lit: ['Checks', 'Budget', 'Depends', 'Cancel'],
+      msg: null
+    },
+    {
+      id: 'T-16', state: 'blocked', mark: 'is-waiting',
+      obj: 'Publish the Homebrew formula from the release workflow',
+      track: ['is-now', 'is-todo', 'is-todo', 'is-todo', 'is-todo', 'is-todo'],
+      ap: [0, 3],
+      prose: 'Publish the Homebrew formula from the release workflow and check it against the ' +
+             'bundled archive.',
+      facts: [],
+      // BoardCard.Unsatisfiable. The invariant of `blocked` is that the thing it
+      // waits on can still happen; here it cannot, and that is a different fact
+      // from being blocked.
+      note: ['is-bad', 'can never complete — T-11 was cancelled and nothing else satisfies the edge'],
+      lit: ['Checks', 'Budget', 'Depends', 'Cancel'],
+      msg: null
+    },
+    {
+      // THE ROW THIS WHOLE DESIGN IS FOR. `rejected` says nothing about how far
+      // the work got; the track says it was graded and sent back, which is a
+      // different task from one that never built.
+      id: 'T-13', state: 'refused', mark: 'is-refused',
+      obj: 'Rebuild the review queue around spaced-repetition intervals rather than a fixed cap',
+      track: ['is-done', 'is-done', 'is-done', 'is-back is-now', 'is-todo', 'is-todo'],
+      ap: [3, 3],
+      prose: 'Rebuild the review queue around spaced-repetition intervals rather than a fixed ' +
+             'daily cap, so a deck that is behind catches up instead of trickling.',
+      facts: [['for', 'fluency — one way to schedule, everywhere'],
+              ['reason', 'the fixed cap was chosen for a deck a tenth this size  (human)']],
+      note: ['is-bad', 'attempts spent, 3 of 3 — nothing that costs an attempt is offered below'],
+      lit: ['Reverify', 'Review', 'Checks', 'Budget', 'Depends', 'Cancel'],
+      // The exhausted-budget case from #95: these four are legal from `rejected`
+      // and refused by the ENVELOPE, so they are dimmed for a different reason
+      // than the wrong state, and the reason is the one that names the way out.
+      // `Refine` is in this list deliberately — it calls checkDispatchBudget too,
+      // and leaving it lit is the exact mistake the fix made the first time.
+      why: {
+        Dispatch: 'attempts spent, 3 of 3 — raise the budget first',
+        Retry: 'attempts spent, 3 of 3 — raise the budget first',
+        Replan: 'attempts spent, 3 of 3 — raise the budget first',
+        Refine: 'attempts spent, 3 of 3 — raise the budget first'
+      },
+      msg: ['Refused · verify_failed — daedalus docs lint exited 1', 'is-refused']
+    },
+    {
+      id: 'T-27', state: 'verified', mark: 'is-passed',
+      obj: 'Cache the docs index so the sidebar stops re-reading every file on each keystroke',
+      track: ['is-done', 'is-done', 'is-done', 'is-refused is-now', 'is-todo', 'is-todo'],
+      ap: [2, 3],
+      prose: 'Cache the docs index so the sidebar stops re-reading every file on each keystroke.',
+      facts: [],
+      // usableArtifact's case, on the page instead of inside a refusal. The state
+      // says `verified`; the thing `verified` is supposed to mean is not true.
+      note: ['is-bad', 'artifact A-9 names no commit — the job ran and the plane could not capture ' +
+             'it, so there is nothing to read, grade or land'],
+      lit: ['Refine', 'Review', 'Budget', 'Approve', 'Reject', 'Integrate', 'Depends', 'Cancel'],
+      msg: null
+    },
+    {
+      id: 'T-12', state: 'at the gate', mark: 'is-waiting',
+      obj: 'Promote the ad-hoc colour literals into shared Mana variables',
+      track: ['is-done', 'is-done', 'is-done', 'is-done', 'is-now', 'is-todo'],
+      ap: [1, 3],
+      prose: 'Promote the ad-hoc colour literals introduced by T-8 in ' +
+             'internal/web/static/style.css into shared custom properties, so the sidebar and ' +
+             'the Guild view draw from one palette.',
+      facts: [['for', 'fluency — one way to theme, everywhere'],
+              ['reason', 'three projects each grew their own theming  (agent)']],
+      note: ['is-calm', 'reviewed — no blocker'],
+      lit: ['Refine', 'Review', 'Budget', 'Approve', 'Reject', 'Integrate', 'Depends', 'Cancel'],
+      msg: null
+    },
+    {
+      id: 'T-10', state: 'landed', mark: 'is-passed',
+      obj: 'Restyle the Web UI sidebar to match the classic-JRPG theme of the Guild dashboard',
+      track: ['is-done', 'is-done', 'is-done', 'is-done', 'is-done', 'is-land'],
+      ap: [1, 3],
+      prose: 'Restyle the Web UI sidebar to match the classic-JRPG theme of the Guild dashboard, ' +
+             'reusing its palette rather than inventing new values.',
+      facts: [['landed', '4f1c9ab onto refs/daedalus/target']],
+      // The adoption gap is stated ONCE, in the frame strip, and not on every
+      // landed row. Six landings leave one fast-forward to make.
+      lit: [],
+      msg: null
+    }
+  ];
+
+  // Closed work gets no track. A cancelled task is not AT a stage.
+  var CLOSED = [
+    { id: 'T-9', mark: 'cancelled',
+      obj: 'Add a --json flag to every task subcommand',
+      prose: 'Add a --json flag to every task subcommand.',
+      facts: [], lit: [], msg: null,
+      note: ['is-calm', 'cancelled by a human, 2026-08-29 — superseded by T-22'] },
+    { id: 'T-7', mark: 'failed',
+      obj: 'Vendor the SQLite driver so the build stops reaching the network',
+      prose: 'Vendor the SQLite driver so the build stops reaching the network.',
+      facts: [], lit: [], msg: null,
+      note: ['is-bad', 'failed — the runner image had no toolchain for cgo'] }
+  ];
+
+  function el(id) { return document.getElementById(id); }
+  function span(cls, text) {
+    var s = document.createElement('span');
+    s.className = cls || '';
+    if (text !== undefined) { s.textContent = text; }
+    return s;
+  }
+
+  // --- the track ------------------------------------------------------------
+  // Each pip carries a title, because a coloured dot is not an accessible way to
+  // say "reached and came back" and a design that only works for a sighted mouse
+  // user is not finished.
+  var STAGE = ['plan', 'run', 'candidate', 'grade', 'gate', 'land'];
+  var WORD = {
+    'is-done': 'reached', 'is-now': 'here now', 'is-todo': 'not reached',
+    'is-back': 'reached, and came back', 'is-land': 'landed',
+    'is-refused': 'reached — and what this stage promises is not true'
+  };
+
+  function track(stages) {
+    var t = span('chart-track');
+    t.setAttribute('role', 'img');
+    var read = [];
+    stages.forEach(function (cls, i) {
+      var pip = span('chart-pip ' + cls);
+      var words = cls.split(' ').map(function (c) { return WORD[c]; })
+                     .filter(Boolean).join(', ');
+      pip.title = STAGE[i] + ' — ' + words;
+      read.push(pip.title);
+      t.appendChild(pip);
+    });
+    t.setAttribute('aria-label', read.join('; '));
+    return t;
+  }
+
+  function gauge(ap) {
+    var wrap = span('chart-ap');
+    var pct = ap[1] ? Math.round((ap[0] / ap[1]) * 100) : 0;
+    var g = span('chart-gauge' + (pct >= 100 ? ' is-lo' : pct >= 60 ? ' is-mid' : ''));
+    var fill = span('chart-gauge-fill');
+    fill.style.width = pct + '%';
+    g.appendChild(fill);
+    wrap.appendChild(g);
+    wrap.appendChild(span('chart-ap-n' + (pct >= 100 ? ' is-spent' : ''), ap[0] + '/' + ap[1]));
+    wrap.title = 'attempts: ' + ap[0] + ' of ' + ap[1] + ' spent';
+    return wrap;
+  }
+
+  function row(r, closed) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'chart-row' + (closed ? ' is-closed' : '');
+    b.dataset.id = r.id;
+    b.appendChild(span('chart-cursor', '▶'));
+    b.appendChild(span('chart-id', r.id));
+    b.appendChild(span('chart-obj', r.obj));
+    if (closed) {
+      b.appendChild(span('chart-closed-mark', r.mark));
+    } else {
+      b.appendChild(track(r.track));
+      b.appendChild(gauge(r.ap));
+    }
+    if (r.note) { b.appendChild(span('chart-note ' + r.note[0], r.note[1])); }
+    return b;
+  }
+
+  // --- the vocabulary -------------------------------------------------------
+  // Every operation, always, in the table's own order. Lit ones are plates; the
+  // rest are disabled plates carrying what they need. The dimming is the whole
+  // point — it is how the machine becomes legible from the page.
+  function vocab(r) {
+    var wrap = document.createElement('div');
+    wrap.className = 'ledger-vocab';
+    OPS.forEach(function (op) {
+      var on = r.lit.indexOf(op.k) !== -1;
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'ff-cmd' +
+        (on && op.seal ? ' is-seal' : '') +
+        (on && op.refuse ? ' is-refuse' : '') +
+        (on ? '' : ' is-dim');
+      btn.textContent = op.k;
+      if (!on) { btn.disabled = true; }
+      wrap.appendChild(btn);
+
+      var why = span('vocab-why');
+      if (on) {
+        why.textContent = op.sum;
+      } else if (r.why && r.why[op.k]) {
+        why.appendChild(span('vocab-need', r.why[op.k]));
+      } else {
+        why.appendChild(span('vocab-need', 'needs ' + op.need));
+      }
+      wrap.appendChild(why);
+    });
+    var note = span('ledger-vocab-note',
+      'Dimmed plates are the shape of the machine, not a refusal you have earned — ' +
+      'they say what a state would need. They are disabled here and refused in the plane: ' +
+      'drawing an operation is not the same as being allowed to call it.');
+    wrap.appendChild(note);
+    return wrap;
+  }
+
+  // --- the entry window -----------------------------------------------------
+  function paint(r) {
+    el('desc-id').textContent = r.id;
+    el('desc-status').textContent = r.state || r.mark;
+    el('desc-status').className = 'ledger-desc-status ledger-row-status ' +
+      (r.mark && r.mark.indexOf('is-') === 0 ? r.mark : 'is-waiting');
+
+    var body = el('desc-body');
+    body.textContent = '';
+    var prose = document.createElement('div');
+    prose.className = 'ledger-prose';
+    prose.textContent = r.prose;
+    body.appendChild(prose);
+
+    if (r.facts && r.facts.length) {
+      var dl = document.createElement('dl');
+      dl.className = 'ledger-facts';
+      r.facts.forEach(function (f) {
+        var dt = document.createElement('dt');
+        dt.className = 'ledger-fact-k';
+        dt.textContent = f[0];
+        var dd = document.createElement('dd');
+        dd.className = 'ledger-fact-v';
+        dd.textContent = f[1];
+        dl.appendChild(dt);
+        dl.appendChild(dd);
+      });
+      body.appendChild(dl);
+    }
+
+    var sub = span('ledger-sub', 'What this task admits');
+    body.appendChild(sub);
+    body.appendChild(vocab(r));
+
+    var msg = el('desc-msg');
+    msg.textContent = r.msg ? r.msg[0] : '';
+    msg.className = 'ledger-message' + (r.msg ? ' ' + r.msg[1] : '');
+  }
+
+  // --- wire it up -----------------------------------------------------------
+  var ALL = ROWS.concat(CLOSED);
+  var open = ROWS.map(function (r) { return row(r, false); });
+  var shut = CLOSED.map(function (r) { return row(r, true); });
+  open.forEach(function (n) { el('chart-rows').appendChild(n); });
+  shut.forEach(function (n) { el('chart-closed').appendChild(n); });
+
+  function select(id) {
+    open.concat(shut).forEach(function (n) {
+      n.classList.toggle('is-current', n.dataset.id === id);
+    });
+    for (var i = 0; i < ALL.length; i++) {
+      if (ALL[i].id === id) { paint(ALL[i]); return; }
+    }
+  }
+
+  open.concat(shut).forEach(function (n) {
+    n.addEventListener('click', function () { select(n.dataset.id); });
+    n.addEventListener('focus', function () { select(n.dataset.id); });
+  });
+
+  // T-13 is the default because it is the row with the most to say: a track that
+  // contradicts its own status word, a failed budget, and the dimmed set from #95.
+  select('T-13');
+
+  el('btn-programme').addEventListener('click', function () {
+    window.location.href = 'ledger-programme-preview.html';
+  });
+</script>
+</body>
+</html>

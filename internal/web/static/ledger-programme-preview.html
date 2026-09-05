@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Ledger — one programme — preview</title>
+<!--
+  FOCUS 2 of the design in docs/ledger-ui-design.md: the frame is ONE PROGRAMME,
+  and the question is "what shape is this, and does the plan match the work?".
+
+  Sibling of control-preview.html and ledger-project-preview.html, and there for
+  the same stated reason: the visual result cannot be checked from a terminal.
+  Real stylesheets, faked data.
+
+  WHY A MAP AND NOT THREE LISTS. The plane already computes a graph-shaped
+  answer — ProgrammeStatus.Declared with its Enforced flag and EnforcedBy task
+  edges, .Undeclared for the edges the plan never mentioned, .External for the
+  work it waits on from outside — and the board renders it as three prose lists
+  under three subheadings. programme.go is explicit about what those fields are
+  for: "The defect was never the two graphs. It was that NOTHING EVER COMPARED
+  THEM." A map is that comparison with the difference made visible.
+
+  And it finds something the lists cannot. Drawn together, the declared order
+  daedalus → flashcards → langlearn and the undeclared task edge langlearn →
+  daedalus close a LOOP. Both facts are in the current UI, in different sections,
+  and nothing puts them next to each other.
+-->
+<link rel="stylesheet" href="guild.css">
+<link rel="stylesheet" href="control.css">
+<link rel="stylesheet" href="ledger-next.css">
+<style>
+  /* Preview chrome only — not part of the design. */
+  body { margin: 0; background: #0e1430; }
+  #control-view { display: flex; height: 100vh; }
+  .btn { padding: 5px 12px; border: 1px solid currentColor; border-radius: 3px;
+         background: transparent; color: #b9c2e6; font: 11px ui-monospace, monospace;
+         letter-spacing: 1px; cursor: pointer; }
+  /* The map and its reading notes share the window's height. */
+  .ledger-body.is-map { grid-template-columns: minmax(0, 1.45fr) minmax(0, 0.55fr); }
+</style>
+</head>
+<body>
+
+<div id="control-view" class="active">
+
+  <div class="ledger-header">
+    <span class="ledger-title">The Ledger</span>
+    <span class="ledger-subtitle">PR-1 fluency · 3 projects · 10 open · 2 landed · 1 edge nobody declared</span>
+    <button class="ff-cmd" id="btn-project">Projects</button>
+    <button class="ff-cmd is-current">Programmes ▾</button>
+    <button class="btn btn-back">Board</button>
+  </div>
+
+  <div class="ledger-frame">
+    <span class="frame-fact">
+      <span class="frame-k">programme</span>
+      <span class="frame-v">fluency — one way to theme, everywhere</span>
+    </span>
+    <span class="frame-fact">
+      <span class="frame-k">work</span>
+      <span class="frame-v">12 tasks — 10 open, 2 landed</span>
+    </span>
+    <span class="frame-fact">
+      <span class="frame-k">running</span>
+      <span class="frame-v">3 jobs · 1 holding a place in line</span>
+    </span>
+    <span class="frame-fact">
+      <span class="frame-k">plan vs work</span>
+      <span class="frame-v is-bad">1 declared edge unenforced · 1 enforced edge undeclared</span>
+    </span>
+  </div>
+
+  <div class="ledger-body is-map">
+
+    <div class="ff-window ledger-map">
+      <span class="ff-window-title">Map</span>
+
+      <svg class="map-svg" viewBox="0 0 1040 470" role="img"
+           aria-label="Programme map. Three projects: daedalus, flashcards, langlearn.
+                       Declared and enforced: daedalus to flashcards, enforced by T-12 to T-8.
+                       Declared and not enforced: flashcards to langlearn.
+                       Enforced but never declared: langlearn to daedalus, because T-16 waits for T-21.
+                       One dependency leaves the programme: T-24 waits for T-30 in typing-trainer, unmet.">
+
+        <defs>
+          <marker id="a-enf" viewBox="0 0 10 10" refX="9.5" refY="5"
+                  markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse">
+            <path class="map-arrow-enforced" d="M 0 0 L 10 5 L 0 10 z"/>
+          </marker>
+          <marker id="a-unenf" viewBox="0 0 10 10" refX="9.5" refY="5"
+                  markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse">
+            <path class="map-arrow-unenforced" d="M 0 0 L 10 5 L 0 10 z"/>
+          </marker>
+          <marker id="a-unplan" viewBox="0 0 10 10" refX="9.5" refY="5"
+                  markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse">
+            <path class="map-arrow-unplanned" d="M 0 0 L 10 5 L 0 10 z"/>
+          </marker>
+          <marker id="a-ext" viewBox="0 0 10 10" refX="9.5" refY="5"
+                  markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse">
+            <path class="map-arrow-external" d="M 0 0 L 10 5 L 0 10 z"/>
+          </marker>
+        </defs>
+
+        <!-- THE BOUNDARY. The only line on the map that is neither an edge nor a
+             node. It exists so that "leaves the programme" is something you can
+             SEE happen — the one fact ProgrammeStatus.External carries, and the
+             one a per-project view structurally cannot show. -->
+        <rect class="map-boundary" x="16" y="34" width="766" height="306" rx="14"/>
+        <text class="map-boundary-label" x="34" y="58">PR-1 · fluency</text>
+
+        <!-- ---------- edges, drawn under the nodes ---------- -->
+
+        <!-- Declared AND enforced: the plan and the work agree. -->
+        <path class="map-edge is-enforced" d="M 210 161 L 308 161" marker-end="url(#a-enf)"/>
+        <text class="map-edge-label is-enforced is-strong" x="257" y="142">enforced</text>
+        <text class="map-edge-label is-enforced" x="257" y="154">T-12 → T-8</text>
+
+        <!-- Declared and NOT enforced: a claim, not a mechanism. Dashed, and the
+             reading note beside the map says what it would take. -->
+        <path class="map-edge is-unenforced" d="M 480 161 L 578 161" marker-end="url(#a-unenf)"/>
+        <text class="map-edge-label" x="527" y="142">declared</text>
+        <text class="map-edge-label" x="527" y="154">not enforced</text>
+
+        <!-- Enforced and NEVER declared. Its own colour, because the plan being
+             WRONG is a different fact from the plan being incomplete. -->
+        <path class="map-edge is-unplanned" d="M 665 226 C 665 305, 125 305, 125 226"
+              marker-end="url(#a-unplan)"/>
+        <text class="map-edge-label is-unplanned is-strong" x="395" y="300">
+          T-16 waits for T-21 — never declared
+        </text>
+
+        <!-- Leaves the programme. The only edge that crosses the boundary. -->
+        <path class="map-edge is-external" d="M 750 190 C 812 190, 800 269, 850 269"
+              marker-end="url(#a-ext)"/>
+        <text class="map-edge-label is-external" x="806" y="214">unmet</text>
+
+        <!-- ---------- nodes ---------- -->
+
+        <!-- daedalus — the selected node. Selecting it is how you reach the
+             per-project focus; the node is that view in miniature, which is why
+             the two focuses are one design and not two. -->
+        <g class="map-node is-current" tabindex="0" role="button"
+           aria-label="daedalus — 4 open, 1 landed. Open the project ledger.">
+          <rect class="map-node-box" x="40" y="96" width="170" height="130" rx="7"/>
+          <text class="map-node-title" x="52" y="118">daedalus</text>
+          <text class="map-node-sub"   x="52" y="134">4 open · 1 landed</text>
+          <rect class="map-bar-bg"    x="52" y="144" width="146" height="9" rx="2"/>
+          <rect class="map-bar-plan"  x="52" y="144" width="29" height="9"/>
+          <rect class="map-bar-run"   x="81" y="144" width="29" height="9"/>
+          <rect class="map-bar-grade" x="110" y="144" width="29" height="9"/>
+          <rect class="map-bar-gate"  x="139" y="144" width="29" height="9"/>
+          <rect class="map-bar-land"  x="168" y="144" width="30" height="9"/>
+          <text class="map-node-line" x="52" y="172">1 plan · 1 run · 1 grade</text>
+          <text class="map-node-line" x="52" y="186">1 gate · 1 land</text>
+          <text class="map-node-line is-lit" x="52" y="206">running now: 1 job</text>
+          <text class="map-node-line" x="52" y="220">slots 2 of 2</text>
+        </g>
+
+        <g class="map-node" tabindex="0" role="button"
+           aria-label="flashcards — 3 open, 1 landed. Open the project ledger.">
+          <rect class="map-node-box" x="310" y="96" width="170" height="130" rx="7"/>
+          <text class="map-node-title" x="322" y="118">flashcards</text>
+          <text class="map-node-sub"   x="322" y="134">3 open · 1 landed</text>
+          <rect class="map-bar-bg"   x="322" y="144" width="146" height="9" rx="2"/>
+          <rect class="map-bar-plan" x="322" y="144" width="36" height="9"/>
+          <rect class="map-bar-run"  x="358" y="144" width="73" height="9"/>
+          <rect class="map-bar-land" x="431" y="144" width="37" height="9"/>
+          <text class="map-node-line" x="322" y="172">1 plan · 2 run</text>
+          <text class="map-node-line" x="322" y="186">1 land</text>
+          <text class="map-node-line is-lit" x="322" y="206">running now: 2 jobs</text>
+          <text class="map-node-line" x="322" y="220">slots 2 of 2</text>
+        </g>
+
+        <g class="map-node" tabindex="0" role="button"
+           aria-label="langlearn — 3 open, 0 landed. Open the project ledger.">
+          <rect class="map-node-box" x="580" y="96" width="170" height="130" rx="7"/>
+          <text class="map-node-title" x="592" y="118">langlearn</text>
+          <text class="map-node-sub"   x="592" y="134">3 open · nothing landed</text>
+          <rect class="map-bar-bg"    x="592" y="144" width="146" height="9" rx="2"/>
+          <rect class="map-bar-plan"  x="592" y="144" width="97" height="9"/>
+          <rect class="map-bar-grade" x="689" y="144" width="49" height="9"/>
+          <text class="map-node-line" x="592" y="172">2 plan · 1 grade</text>
+          <text class="map-node-line" x="592" y="186">nothing landed</text>
+          <text class="map-node-line" x="592" y="206">running now: none</text>
+          <text class="map-node-line" x="592" y="220">slots 0 of 2</text>
+        </g>
+
+        <!-- ---------- outside the programme ---------- -->
+
+        <g class="map-node" tabindex="0" role="button"
+           aria-label="T-30 in typing-trainer, programme input — rejected, unmet.">
+          <rect class="map-stub-box" x="850" y="222" width="170" height="94" rx="7"/>
+          <text class="map-stub-title" x="862" y="244">T-30</text>
+          <text class="map-stub-line"  x="862" y="262">typing-trainer</text>
+          <text class="map-stub-line"  x="862" y="278">programme: input</text>
+          <text class="map-stub-line is-bad" x="862" y="298">rejected · unmet</text>
+        </g>
+
+      </svg>
+
+      <!-- The legend states the rule the map is drawing, in programme.go's own
+           words. Two edge kinds with no legend read as one graph with cosmetic
+           variation, which is the exact misreading the two-graph split exists to
+           prevent. -->
+      <div class="map-legend">
+        <span class="map-key"><span class="map-key-swatch"></span>declared, and the task graph enforces it</span>
+        <span class="map-key"><span class="map-key-swatch is-unenforced"></span>declared, and nothing makes a landing wait</span>
+        <span class="map-key"><span class="map-key-swatch is-unplanned"></span>enforced, and never declared</span>
+        <span class="map-key"><span class="map-key-swatch is-external"></span>leaves the programme</span>
+      </div>
+      <div class="ledger-advisory">
+        Declared order plans; it gates nothing. What makes a landing wait is the task graph.
+      </div>
+    </div>
+
+    <div class="ff-window ledger-desc">
+      <span class="ff-window-title">Reading</span>
+      <div class="ledger-desc-body">
+
+        <!-- THE FINDING THE MAP MAKES AND THE LISTS DO NOT. Both halves are
+             already on the board today, in two different sections, and nothing
+             puts them next to each other. -->
+        <div class="ledger-sub">The plan and the work disagree</div>
+        <div class="ledger-log-row">
+          <span class="ledger-log-id">a loop</span>
+          <span class="ledger-log-what is-waiting">daedalus → flashcards → langlearn → daedalus</span>
+        </div>
+        <div class="ledger-log-note">
+          The declared order puts langlearn last. T-16, in daedalus, waits for T-21, in langlearn.
+          One of the two is wrong, and the plane cannot tell you which — only that they cannot both
+          be right.
+        </div>
+
+        <div class="ledger-sub">Declared order, and what enforces it</div>
+
+        <div class="ledger-log-row">
+          <span class="ledger-log-id">daedalus → flashcards</span>
+          <span class="ledger-log-what is-passed">enforced by T-12 → T-8</span>
+        </div>
+
+        <div class="ledger-log-row">
+          <span class="ledger-log-id">flashcards → langlearn</span>
+          <span class="ledger-log-what is-waiting">not enforced</span>
+        </div>
+        <!-- UpstreamTasks and DownstreamTasks are populated ONLY in this case,
+             and their emptiness is itself the answer. Here there are candidates
+             on both sides, so the edge can offer the dependency. Where there are
+             none, the edge says the work does not exist yet and offers nothing —
+             it "is not waiting for someone to declare it, it is waiting for the
+             work to exist". -->
+        <div class="ledger-log-note">
+          T-24 (langlearn) could wait for T-15 (flashcards). Both are open and neither has landed.
+        </div>
+        <div class="ledger-commands is-inline">
+          <button type="button" class="ff-cmd">Declare T-24 → T-15</button>
+        </div>
+
+        <div class="ledger-sub">Enforced, but never declared</div>
+        <div class="ledger-log-row">
+          <span class="ledger-log-id">T-16 waits for T-21</span>
+          <span class="ledger-log-what">daedalus ← langlearn</span>
+        </div>
+        <div class="ledger-log-note">
+          The work found a dependency the plan does not mention. Either the plan is out of date,
+          or this edge is wrong.
+        </div>
+
+        <div class="ledger-sub">Waiting on work outside this programme</div>
+        <div class="ledger-log-row">
+          <span class="ledger-log-id">T-24 → T-30</span>
+          <span class="ledger-log-what is-waiting">rejected · unmet · typing-trainer</span>
+        </div>
+        <div class="ledger-log-note">
+          T-30 serves the <em>input</em> programme. Waiting on another programme's work is a
+          different fact from waiting on work nobody claimed, and it is the difference an
+          operator acts on.
+        </div>
+
+        <div class="ledger-desc-note">
+          Programmes are formed, amended and dissolved from the CLI, or by confirming an agent’s
+          proposal. This is a reading surface: the one action on it declares a dependency the
+          plane itself computed and suggested.
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+  // Selecting a project node is how the programme focus reaches the project
+  // focus — overview to detail, and the reason these are one design.
+  var nodes = document.querySelectorAll('.map-node');
+  Array.prototype.forEach.call(nodes, function (n) {
+    n.addEventListener('click', function () {
+      Array.prototype.forEach.call(nodes, function (m) { m.classList.remove('is-current'); });
+      n.classList.add('is-current');
+    });
+    n.addEventListener('dblclick', function () {
+      window.location.href = 'ledger-project-preview.html';
+    });
+  });
+  document.getElementById('btn-project').addEventListener('click', function () {
+    window.location.href = 'ledger-project-preview.html';
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,694 @@
+/* Copyright (C) 2026 Techdelight BV */
+
+/* ============================================================
+   The Ledger, two focuses — the progression chart and the map
+   ============================================================
+
+   Designed in docs/ledger-ui-design.md. Rendered by
+   ledger-project-preview.html and ledger-programme-preview.html.
+
+   This is a THIRD stylesheet and not an addition to control.css, deliberately.
+   control.css dresses the board, which ships and is loaded on every page view;
+   nothing here is reachable from the app yet, and growing the shipped sheet with
+   six hundred lines nothing loads is how a stylesheet stops being readable. When
+   a focus is built, its block moves across whole.
+
+   It assumes guild.css for the palette and control.css for the shared parts —
+   .ff-window, .ff-window-title, .ff-cmd, .ledger-sub, .ledger-facts — and adds
+   only what is new. Same rule as the board: one recipe for a window, one recipe
+   for a command plate, and a second visual vocabulary is the thing that would
+   make this read as a different product rather than a third screen.
+
+   ONE NEW COLOUR, and it earns its place by naming a case the palette has no
+   word for. --mana-unplanned is the programme map's surprise edge: a dependency
+   the work enforces and the plan never mentioned. It cannot be gold (that is the
+   plan agreeing with the work), amber (that is waiting), red (that is refused) or
+   green (that is passed) — it is none of those things, it is a fact nobody wrote
+   down. Declared as a variable rather than typed at four call sites, which is
+   what T-12 was about.
+   ============================================================ */
+
+:root {
+    --mana-unplanned: #8fd3ff;      /* an edge the work has and the plan does not */
+    --mana-unplanned-dk: #3d7ea8;   /* its shadow, for a marker on navy */
+}
+
+/* ============================================================
+   1. The frame strip — the condition of what you are looking at
+   ============================================================
+
+   Sits under the header on both focuses and holds the facts that are about the
+   WHOLE thing on screen rather than about any row: slots, target lag, queue,
+   and whether the checkout has the landed commit. Every one of them is already
+   computed and none of them are currently on the page at the same time.
+   ============================================================ */
+
+.ledger-frame {
+    flex: none;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 20px;
+    padding: 9px 16px;
+    border: 1px solid var(--mana-frame-dk);
+    border-radius: 5px;
+    background: linear-gradient(180deg, rgba(44, 68, 136, 0.55), rgba(22, 34, 74, 0.55));
+}
+
+.frame-fact {
+    display: flex;
+    align-items: baseline;
+    gap: 7px;
+    min-width: 0;
+}
+
+.frame-k {
+    flex: none;
+    font-size: 9px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--mana-text-dim);
+    text-shadow: 1px 1px 0 var(--mana-ink);
+}
+
+.frame-v {
+    font-size: 11px;
+    letter-spacing: 0.5px;
+    color: var(--mana-text);
+    text-shadow: 1px 1px 0 var(--mana-ink);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.frame-v.is-good  { color: var(--mana-hp-hi); }
+.frame-v.is-warn  { color: var(--mana-hp-mid); }
+.frame-v.is-bad   { color: var(--mana-hp-lo-lt); }
+
+/* The adoption offer rides in the strip rather than in the list. #79b settled
+   that a branch lags by a COMMIT and not by a task, so a project frame is the
+   frame it always wanted — one row, one action, however many things landed. */
+.frame-fact .ff-cmd {
+    padding: 3px 10px;
+    font-size: 10px;
+}
+
+/* ============================================================
+   2. The progression chart
+   ============================================================
+
+   Rows are tasks, columns are the six stages a person narrates, and the cell is
+   a pip on a track. The reference is Final Fantasy IX's ability chart: a matrix
+   with a PARTIAL-PROGRESS gauge in the cell, because "not learned" and "four
+   fifths of the way there" are different facts and a status word can only carry
+   the first. `rejected` does not say the task reached the grade column twice.
+   ============================================================ */
+
+.ledger-chart {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    padding: 18px 12px 12px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--mana-frame-dk) transparent;
+}
+
+/* One grid, declared once, worn by the head and every row so the columns cannot
+   drift apart. px throughout and NOT rem: this is chrome sized to a grid, and
+   Backlog #96's rule is that only the prose tier scales. The objective column is
+   the one free-flowing cell, so it is the one that reflows. */
+.chart-head,
+.chart-row {
+    display: grid;
+    grid-template-columns: 16px 54px minmax(0, 1fr) 222px 86px;
+    column-gap: 8px;
+    align-items: center;
+}
+
+.chart-head {
+    padding: 0 6px 6px;
+    border-bottom: 1px solid var(--mana-frame-dk);
+    margin-bottom: 4px;
+}
+
+.chart-head-stages {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+}
+
+.chart-head-stage,
+.chart-head-ap {
+    font-size: 9px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    text-align: center;
+    color: var(--mana-text-dim);
+    text-shadow: 1px 1px 0 var(--mana-ink);
+}
+
+.chart-head-ap { text-align: right; padding-right: 2px; }
+
+.chart-row {
+    width: 100%;
+    padding: 5px 6px;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    row-gap: 2px;
+}
+
+.chart-row:hover,
+.chart-row.is-current {
+    border-color: var(--mana-frame);
+    background: rgba(44, 68, 136, 0.6);
+}
+
+.chart-row:focus-visible {
+    outline: 2px solid var(--mana-frame-lit);
+    outline-offset: -2px;
+}
+
+.chart-cursor {
+    font-size: 11px;
+    color: transparent;
+}
+
+.chart-row:hover .chart-cursor,
+.chart-row:focus-visible .chart-cursor,
+.chart-row.is-current .chart-cursor {
+    color: var(--mana-frame-lit);
+}
+
+.chart-id {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    color: var(--mana-frame-pale);
+    text-shadow: 1px 1px 0 var(--mana-ink);
+}
+
+.chart-obj {
+    font-size: 11px;
+    color: var(--mana-text);
+    text-shadow: 1px 1px 0 var(--mana-ink);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* --- the track ---------------------------------------------------------- */
+
+.chart-track {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    align-items: center;
+    height: 16px;
+}
+
+.chart-pip {
+    position: relative;
+    justify-self: center;
+    width: 11px;
+    height: 11px;
+    box-sizing: border-box;
+    border-radius: 50%;
+    border: 2px solid var(--mana-frame-dk);
+    background: var(--mana-sky-bot);
+}
+
+/* The connector belongs to the pip on its RIGHT, so a segment is drawn in the
+   colour of the stage it leads INTO. A track then reads as one stroke that stops
+   where the work stopped, which is the whole point of drawing it as a track. */
+.chart-pip::before {
+    content: "";
+    position: absolute;
+    top: 50%;
+    right: 100%;
+    width: 26px;
+    height: 2px;
+    transform: translateY(-1px);
+    background: var(--mana-frame-dk);
+}
+
+.chart-pip:first-child::before { display: none; }
+
+/* Reached and left. */
+.chart-pip.is-done {
+    border-color: var(--mana-frame);
+    background: var(--mana-frame);
+}
+.chart-pip.is-done::before { background: var(--mana-frame); }
+
+/* Where it is now — the visualizer's highlighted state, and the only pip on the
+   row that glows. */
+.chart-pip.is-now {
+    border-color: var(--mana-frame-lit);
+    background: var(--mana-frame-pale);
+    box-shadow: 0 0 0 2px var(--mana-ink), 0 0 8px 2px rgba(255, 207, 90, 0.75);
+}
+.chart-pip.is-now::before { background: var(--mana-frame); }
+
+/* Not reached. Hollow, and its connector stays dim. */
+.chart-pip.is-todo { background: transparent; }
+
+/* Reached, and came back down. A diamond rather than a circle because it is a
+   different KIND of fact, not a different value of the same one — this stage
+   happened and did not stick.
+
+   The diamond is a ::after and the pip box is left unrotated, because rotating
+   the pip rotates the connector with it and the track stops being a straight
+   line. */
+.chart-pip.is-back {
+    border-color: transparent;
+    background: transparent;
+}
+.chart-pip.is-back::after {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    border-radius: 2px;
+    background: var(--mana-hp-mid);
+    transform: rotate(45deg);
+}
+.chart-pip.is-back::before { background: var(--mana-frame); }
+
+/* A stage whose invariant did not hold. */
+.chart-pip.is-refused {
+    border-color: var(--mana-hp-lo);
+    background: var(--mana-hp-lo);
+}
+.chart-pip.is-refused::before { background: var(--mana-frame); }
+
+/* A pip can be both "where it is now" and something else — `rejected` IS the
+   grade stage and is also the stage it came back from, and a `verified` task
+   whose artifact names no commit is sitting on the stage whose invariant failed.
+   The glow moves to whichever element is actually drawing the shape, and takes
+   that shape's colour, so the row never shows a gold ring around a red mark. */
+.chart-pip.is-back.is-now { box-shadow: none; }
+.chart-pip.is-back.is-now::after {
+    box-shadow: 0 0 0 2px var(--mana-ink), 0 0 8px 2px rgba(232, 194, 74, 0.8);
+}
+
+.chart-pip.is-refused.is-now {
+    box-shadow: 0 0 0 2px var(--mana-ink), 0 0 8px 2px rgba(226, 86, 75, 0.8);
+}
+
+/* Landed. FF9 marks a mastered ability with a star and keeps it forever; this is
+   the same claim, and it must not look like one more filled circle. */
+/* The box keeps its 11px so the connector still lands where every other pip's
+   does; the star is drawn over it and is allowed to overflow. */
+.chart-pip.is-land {
+    border-color: transparent;
+    background: transparent;
+    color: var(--mana-hp-hi);
+}
+.chart-pip.is-land::after {
+    content: "\2605";
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 16px;
+    line-height: 1;
+    text-shadow: 0 0 6px rgba(123, 208, 106, 0.7), 1px 1px 0 var(--mana-ink);
+}
+.chart-pip.is-land::before { background: var(--mana-hp-hi); }
+
+/* --- the attempts gauge -------------------------------------------------- */
+
+/* The AP bar, and the same shape FF9 draws: how far into this envelope you are,
+   not merely whether it is spent. Budget is authoritative on the Task, and an
+   exhausted envelope is the commonest way work stops — today it is a number you
+   have to provoke a refusal to read. */
+.chart-ap {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+}
+
+.chart-gauge {
+    width: 34px;
+    height: 7px;
+    border: 1px solid var(--mana-ink);
+    border-radius: 2px;
+    background: rgba(14, 20, 48, 0.85);
+    overflow: hidden;
+}
+
+.chart-gauge-fill {
+    display: block;
+    height: 100%;
+    background: var(--mana-hp-hi);
+}
+
+.chart-gauge.is-mid .chart-gauge-fill { background: var(--mana-hp-mid); }
+.chart-gauge.is-lo  .chart-gauge-fill { background: var(--mana-hp-lo); }
+
+.chart-ap-n {
+    font-size: 10px;
+    letter-spacing: 0.5px;
+    color: var(--mana-text-dim);
+    text-shadow: 1px 1px 0 var(--mana-ink);
+}
+
+.chart-ap-n.is-spent { color: var(--mana-hp-lo-lt); }
+
+/* --- the invariant note -------------------------------------------------- */
+
+/* The FSM paper's move: a state name is not a claim you can check, so the thing
+   that is supposed to be true in that state is checked and said beside it. Second
+   grid row, under the objective, present only when there is something to say. */
+.chart-note {
+    grid-column: 3 / 5;
+    font-size: 10px;
+    letter-spacing: 0.3px;
+    color: var(--mana-hp-mid);
+    text-shadow: 1px 1px 0 var(--mana-ink);
+}
+
+.chart-note.is-bad  { color: var(--mana-hp-lo-lt); }
+.chart-note.is-calm { color: var(--mana-text-dim); }
+
+.chart-note::before { content: "\21B3\00a0"; opacity: 0.7; }
+
+/* --- sections ------------------------------------------------------------ */
+
+.chart-group {
+    padding: 10px 6px 3px;
+    font-size: 10px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--mana-frame);
+    text-shadow: 1px 1px 0 var(--mana-ink);
+}
+
+/* Closed work gets a section and no columns. A cancelled task is not AT a stage,
+   and giving it a track would draw a progression that stopped meaning anything
+   the moment it was cancelled. */
+.chart-row.is-closed .chart-obj,
+.chart-row.is-closed .chart-id { opacity: 0.55; }
+
+.chart-closed-mark {
+    grid-column: 4 / 6;
+    justify-self: end;
+    font-size: 10px;
+    letter-spacing: 1px;
+    color: var(--mana-text-dim);
+    text-shadow: 1px 1px 0 var(--mana-ink);
+}
+
+/* ============================================================
+   3. The vocabulary — every operation, lit or dim
+   ============================================================
+
+   Three independent sources say the same thing: draw the whole vocabulary, light
+   what is reachable, dim the rest, and say what the dim ones need. The XState
+   visualizer grays the buttons that are not enabled; FF9's equip menu prints an
+   ability the character cannot learn in gray beside the ones they can; and
+   internal/control/operations.go already computes exactly this admit-set and
+   serves it whole at GET /operations.
+
+   The board renders only the admitted set, so the plates change and nothing says
+   why. This renders all of them.
+
+   A DIM PLATE IS NOT AN OFFER. It is disabled in the markup, not merely styled,
+   because the admit-set is enforced in the plane and a page that draws an
+   operation is not a page that may call it.
+   ============================================================ */
+
+.ledger-vocab {
+    display: grid;
+    grid-template-columns: 128px minmax(0, 1fr);
+    gap: 5px 10px;
+    align-items: center;
+    padding: 2px 0 4px;
+}
+
+.ledger-vocab .ff-cmd {
+    width: 100%;
+    padding: 4px 8px;
+    font-size: 10px;
+    text-align: center;
+}
+
+.vocab-why {
+    font-size: 10px;
+    letter-spacing: 0.3px;
+    color: var(--mana-text-dim);
+    text-shadow: 1px 1px 0 var(--mana-ink);
+}
+
+/* What it needs, in the plane's own state names. Amber and not red: this is not
+   a refusal, it is the shape of the machine. */
+.vocab-need {
+    color: var(--mana-hp-mid);
+    white-space: nowrap;
+}
+
+.ff-cmd.is-dim,
+.ff-cmd[disabled].is-dim {
+    opacity: 0.42;
+    cursor: default;
+}
+
+.ledger-vocab-note {
+    grid-column: 1 / 3;
+    margin-top: 4px;
+    font-size: 10px;
+    line-height: 1.5;
+    color: var(--mana-text-dim);
+    text-shadow: 1px 1px 0 var(--mana-ink);
+}
+
+/* ============================================================
+   4. The programme map
+   ============================================================
+
+   Projects are nodes, the two graphs are drawn over the same nodes, and the
+   DIFFERENCE between them is what the eye lands on. programme.go is explicit
+   that the split is not a mistake to merge away — declared edges order a plan,
+   task edges gate landings — and equally explicit about the real defect:
+   "The defect was never the two graphs. It was that NOTHING EVER COMPARED THEM."
+
+   Drawn as SVG rather than positioned divs so the edges and the nodes cannot
+   disagree about where anything is.
+   ============================================================ */
+
+.ledger-map {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    padding: 18px 12px 12px;
+    overflow: auto;
+}
+
+.map-svg {
+    width: 100%;
+    height: auto;
+    flex: none;
+    font-family: ui-monospace, "DejaVu Sans Mono", "Courier New", monospace;
+}
+
+/* --- the programme boundary ---------------------------------------------- */
+
+/* The one line on the map that is not an edge or a node. It exists so that
+   "leaves the programme" is a thing you can SEE happening, which is the only
+   fact ProgrammeStatus.External carries and a per-project view structurally
+   cannot show. */
+.map-boundary {
+    fill: rgba(34, 52, 110, 0.35);
+    stroke: var(--mana-frame-dk);
+    stroke-width: 1.5;
+    stroke-dasharray: 7 5;
+}
+
+.map-boundary-label {
+    fill: var(--mana-frame);
+    font-size: 10px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+}
+
+/* --- nodes --------------------------------------------------------------- */
+
+.map-node-box {
+    fill: var(--mana-panel);
+    stroke: var(--mana-frame);
+    stroke-width: 2;
+}
+
+.map-node.is-current .map-node-box {
+    fill: var(--mana-panel-lit);
+    stroke: var(--mana-frame-lit);
+    stroke-width: 3;
+}
+
+.map-node { cursor: pointer; }
+
+.map-node-title {
+    fill: var(--mana-frame-pale);
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 1px;
+}
+
+.map-node-sub,
+.map-node-line {
+    fill: var(--mana-text-dim);
+    font-size: 10px;
+    letter-spacing: 0.4px;
+}
+
+.map-node-line.is-lit { fill: var(--mana-text); }
+
+/* The node's own roll-up, from ProgrammeStatus.ByState. Stage colours match the
+   chart's pips so the two focuses agree about what a stage looks like. */
+.map-bar-bg   { fill: rgba(14, 20, 48, 0.85); stroke: var(--mana-ink); stroke-width: 1; }
+.map-bar-plan { fill: var(--mana-text-dim); }
+.map-bar-run  { fill: var(--mana-frame); }
+.map-bar-grade{ fill: var(--mana-hp-mid); }
+.map-bar-gate { fill: var(--mana-frame-lit); }
+.map-bar-land { fill: var(--mana-hp-hi); }
+
+/* --- edges --------------------------------------------------------------- */
+
+.map-edge { fill: none; stroke-width: 2.5; }
+
+/* The plan and the work agree. */
+.map-edge.is-enforced { stroke: var(--mana-frame); }
+
+/* Declared, and nothing makes a landing wait. Dashed because it is a claim
+   rather than a mechanism — the legend says so in words too, because a map with
+   two edge kinds and no legend reads as one graph with cosmetic variation. */
+.map-edge.is-unenforced {
+    stroke: var(--mana-text-dim);
+    stroke-dasharray: 8 6;
+    opacity: 0.85;
+}
+
+/* Enforced, never declared: the plan is WRONG rather than merely incomplete, so
+   it gets its own colour rather than a variation on either of the above. */
+.map-edge.is-unplanned { stroke: var(--mana-unplanned); }
+
+/* Leaves the programme. */
+.map-edge.is-external {
+    stroke: var(--mana-hp-mid);
+    stroke-dasharray: 4 4;
+}
+
+/* Arrowheads are separate marker definitions per edge kind rather than one
+   marker inheriting context-stroke, because inheriting it is the kind of thing
+   that works in three browsers and silently draws a black triangle in the
+   fourth. */
+.map-arrow-enforced   { fill: var(--mana-frame); }
+.map-arrow-unenforced { fill: var(--mana-text-dim); }
+.map-arrow-unplanned  { fill: var(--mana-unplanned); }
+.map-arrow-external   { fill: var(--mana-hp-mid); }
+
+.map-edge-label {
+    fill: var(--mana-text-dim);
+    font-size: 9.5px;
+    letter-spacing: 0.4px;
+    text-anchor: middle;
+}
+
+.map-edge-label.is-enforced  { fill: var(--mana-frame); }
+.map-edge-label.is-unplanned { fill: var(--mana-unplanned); }
+.map-edge-label.is-external  { fill: var(--mana-hp-mid); }
+
+.map-edge-label.is-strong { font-weight: 700; }
+
+/* A dependency the plane itself computed candidates for, offered as the one
+   action this reading surface has. Everything else about a programme is still
+   formed, amended and dissolved from a CLI or by confirming a proposal. */
+.map-edge-action {
+    fill: var(--mana-frame-pale);
+    font-size: 9.5px;
+    letter-spacing: 0.4px;
+    text-anchor: middle;
+    text-decoration: underline;
+    cursor: pointer;
+}
+
+/* --- the outside ---------------------------------------------------------- */
+
+.map-stub-box {
+    fill: rgba(22, 34, 74, 0.9);
+    stroke: var(--mana-text-dim);
+    stroke-width: 1.5;
+    stroke-dasharray: 5 4;
+}
+
+.map-stub-title { fill: var(--mana-text); font-size: 11px; font-weight: 700; letter-spacing: 0.6px; }
+.map-stub-line  { fill: var(--mana-text-dim); font-size: 9.5px; }
+.map-stub-line.is-bad { fill: var(--mana-hp-lo-lt); }
+
+/* --- legend --------------------------------------------------------------- */
+
+.map-legend {
+    flex: none;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 18px;
+    padding: 10px 4px 2px;
+    margin-top: 6px;
+    border-top: 1px solid var(--mana-frame-dk);
+}
+
+.map-key {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 10px;
+    color: var(--mana-text-dim);
+    text-shadow: 1px 1px 0 var(--mana-ink);
+}
+
+.map-key-swatch {
+    flex: none;
+    width: 26px;
+    height: 0;
+    border-top: 2.5px solid var(--mana-frame);
+}
+
+.map-key-swatch.is-unenforced { border-top-style: dashed; border-top-color: var(--mana-text-dim); }
+.map-key-swatch.is-unplanned  { border-top-color: var(--mana-unplanned); }
+.map-key-swatch.is-external   { border-top-style: dashed; border-top-color: var(--mana-hp-mid); }
+
+/* ============================================================
+   5. Narrow windows
+   ============================================================
+
+   The board learned this the hard way (14525ae, "one screen at a time on a
+   phone"). The chart's six columns are the first thing to go: a track squeezed
+   below about 150px stops being readable as a progression and becomes six dots.
+   Below 900px the track and the gauge are dropped and the row falls back to the
+   status word it always had — the same information the board shows, which is the
+   right floor. The map scrolls horizontally instead of shrinking, because a
+   graph that reflows is a different graph.
+   ============================================================ */
+
+@media (max-width: 900px) {
+    .chart-head,
+    .chart-row {
+        grid-template-columns: 16px 54px minmax(0, 1fr) 86px;
+    }
+
+    .chart-head-stages,
+    .chart-track {
+        display: none;
+    }
+
+    .chart-note { grid-column: 3 / 5; }
+
+    .ledger-map { overflow-x: auto; }
+    .map-svg { width: 900px; flex: none; }
+
+    .ledger-vocab { grid-template-columns: 110px minmax(0, 1fr); }
+}
