@@ -458,6 +458,110 @@ func TestAdoptions_ADetachedHeadIsSaidRatherThanOffered(t *testing.T) {
 	}
 }
 
+// TestAdoptions_ACheckoutThatCannotBeComparedSaysSoRatherThanNothing.
+//
+// "There is nothing to adopt" is the one answer this surface must never give
+// wrongly, and every way of failing to compare arrives at a row that could give
+// it. This is the failure the other unreadable test does not reach: HEAD is
+// readable, the target row is readable, and the QUESTION — is the landed commit
+// in this branch — is the part that cannot be answered.
+//
+// Reached the way it happens: a target the repository has no object for. History
+// rewritten under the plane, a checkout restored from a copy, a re-clone.
+func TestAdoptions_ACheckoutThatCannotBeComparedSaysSoRatherThanNothing(t *testing.T) {
+	repo := gitRepo(t)
+	svc, store, _ := landedProject(t, repo, 1)
+
+	_, repoPath, err := svc.repoIdentity("app")
+	if err != nil {
+		t.Fatalf("repoIdentity: %v", err)
+	}
+	const gone = "0123456789abcdef0123456789abcdef01234567"
+	if _, err := store.SetTarget(repoPath, gone, EventMeta{Kind: EventIntegration},
+		"test: a target this checkout has no object for"); err != nil {
+		t.Fatalf("SetTarget: %v", err)
+	}
+
+	a := onlyAdoption(t, svc)
+	if a.Unknown == "" {
+		t.Fatalf("adoption = %+v; a comparison that could not be made has to say so", a)
+	}
+	// NEITHER PENDING NOR ADOPTED. One would claim there is work to take, the
+	// other that there is none, and the plane knows neither. Silence here reads as
+	// the second — which is why Unknown exists at all.
+	if a.Pending || a.Adopted || a.Adoptable {
+		t.Errorf("adoption = %+v; nothing about this checkout is known well enough to claim", a)
+	}
+	if !strings.Contains(a.Note, "could not tell") {
+		t.Errorf("Note = %q; it should say the plane could not tell, rather than going quiet", a.Note)
+	}
+	// AND IT NAMES THE PROJECT, NOT THE PATH — the same promise the other
+	// unreadable test pins, on the entrance that carries git's own message. Those
+	// quote the directory they ran in, and /adoptions is granted to an agent on
+	// the grounds that it reveals no host layout.
+	if !strings.Contains(a.Unknown, "app") {
+		t.Errorf("Unknown = %q; it should name the project", a.Unknown)
+	}
+	if strings.Contains(a.Unknown, repo) || strings.Contains(a.Note, repo) {
+		t.Errorf("the checkout path %q leaked into the row: Unknown=%q Note=%q", repo, a.Unknown, a.Note)
+	}
+}
+
+// TestAdoptions_ProjectsWithNoResolvableCheckoutStayApart.
+//
+// A project the resolver cannot answer for must not VANISH — its landed work is
+// still landed — and must not be MERGED with another, because a row is a working
+// tree and we do not know which one this is. Two of them are not "two projects
+// sharing a checkout"; they are two projects we know nothing about, and a single
+// row naming both would invent a fact.
+//
+// The grouping key is what carries this: unresolvable projects are keyed by NAME
+// rather than by the path they do not have.
+func TestAdoptions_ProjectsWithNoResolvableCheckoutStayApart(t *testing.T) {
+	resolver := mapResolver{"app": gitRepo(t), "docs": gitRepo(t), "api": gitRepo(t)}
+	svc, _, _ := newService(t, resolver,
+		StubRunner{Result: ExecSuccess, WriteFile: true}, nil, StubVerifyRunner{Pass: true})
+	for _, p := range []string{"app", "docs", "api"} {
+		landOne(t, svc, p, "work in "+p)
+	}
+
+	// Two checkouts the registry can no longer answer for.
+	delete(resolver, "docs")
+	delete(resolver, "api")
+
+	list, err := svc.Adoptions()
+	if err != nil {
+		t.Fatalf("Adoptions: %v", err)
+	}
+	if len(list) != 3 {
+		t.Fatalf("Adoptions() = %d rows, want 3 — a project that cannot be placed still landed work: %+v",
+			len(list), list)
+	}
+	byProject := map[string]Adoption{}
+	for _, a := range list {
+		byProject[a.Project] = a
+	}
+	for _, p := range []string{"docs", "api"} {
+		a, ok := byProject[p]
+		if !ok {
+			t.Fatalf("%s has no row; a project whose checkout cannot be resolved must not vanish: %+v", p, list)
+		}
+		if a.Unknown == "" {
+			t.Errorf("%s: adoption = %+v; an unresolvable checkout is unknown, not up to date", p, a)
+		}
+		// NOT FOLDED TOGETHER. Projects is what a shared checkout uses to name its
+		// sharers, and these two share nothing that is known.
+		if len(a.Projects) > 1 {
+			t.Errorf("%s: Projects = %v; two checkouts we cannot identify are not one checkout",
+				p, a.Projects)
+		}
+	}
+	// And the healthy one is unaffected — one bad row must not empty the report.
+	if app := byProject["app"]; app.Unknown != "" || !app.Pending {
+		t.Errorf("app = %+v; a project whose checkout is fine still reports its gap", app)
+	}
+}
+
 // TestAdopt_AnAgentMayOnlyPropose pins the tier. Moving a branch in somebody's
 // working checkout is the one plane operation whose effect is felt outside the
 // plane, which is exactly what a poisoned project document would reach for.
