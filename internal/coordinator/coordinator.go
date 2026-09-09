@@ -220,6 +220,10 @@ func (c *Coordinator) Start(cfg *core.Config) (*Session, error) {
 	// one — needs the repository it points at, or git inside the container is not
 	// merely absent but fatally broken. See worktreeGitMountArgs.
 	args = append(args, worktreeGitMountArgs(cfg)...)
+	// The extra host directories this project configured in projects.json, each
+	// at /mnt/<name>. Read from the registry here rather than taken off the
+	// StartRequest — see projectMountArgs.
+	args = append(args, projectMountArgs(cfg)...)
 	// The Guild Master additionally gets every OTHER registered project's
 	// directory mounted read-only at /guild/<name> (Sprint 53) — the
 	// cross-project visibility that gives it its purpose. This is a launch-time
@@ -420,6 +424,37 @@ func runnerContainerEnv(cfg *core.Config) []string {
 		kv = append(kv, "DAEDALUS_GUILD_MASTER=1")
 	}
 	return kv
+}
+
+// projectMountArgs turns the project's configured extra host directories into
+// /mnt/<name> bind mounts (core.ProjectMountArgs).
+//
+// IT READS THE REGISTRY, and that is the point rather than an implementation
+// detail. StartRequest is a deliberately minimal subset of core.Config
+// (daemon.go), and putting a mount list on it would mean anyone who can reach
+// the coordinator's socket could name any host path and have it mounted into a
+// container. Keeping the list on the daemon's own registry file means the set of
+// host directories a container can see is decided by whoever can write
+// projects.json — the operator — and not by whoever can send a request.
+//
+// A registry read failure, or a project with no entry (a `daedalus-job-*`
+// throwaway, say), yields no mounts rather than failing the launch: a project
+// that cannot see an extra directory still opens.
+func projectMountArgs(cfg *core.Config) []string {
+	reg := registry.NewRegistry(cfg.RegistryPath())
+	entry, ok, err := reg.GetProject(cfg.ProjectName)
+	if err != nil {
+		log.Printf("coordinator: project mounts: reading registry: %v (continuing with none)", err)
+		return nil
+	}
+	if !ok || len(entry.Mounts) == 0 {
+		return nil
+	}
+	args, rejected := core.ProjectMountArgs(entry.Mounts)
+	for _, r := range rejected {
+		log.Printf("coordinator: project %q: REFUSED mount %s", cfg.ProjectName, r)
+	}
+	return args
 }
 
 // guildMountArgs reads the registry (the daemon has the same DataDir) and turns

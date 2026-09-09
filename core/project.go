@@ -8,7 +8,7 @@ import (
 )
 
 // CurrentRegistryVersion is the latest registry schema version.
-const CurrentRegistryVersion = 3
+const CurrentRegistryVersion = 4
 
 // GuildMasterName is the reserved slug of the always-present, built-in
 // "Guild Master" project (displayed as "Guild Master"). It is created and
@@ -47,6 +47,11 @@ type ProjectEntry struct {
 	ProgressPct    int               `json:"progressPct,omitempty"`
 	Vision         string            `json:"vision,omitempty"`
 	ProjectVersion string            `json:"projectVersion,omitempty"`
+	// Mounts are extra host directories this project's container gets, each at
+	// /mnt/<name>. Structured rather than a defaultFlags key because a mount is
+	// three values (name, host path, read-only) and defaultFlags is
+	// map[string]string. See mounts.go for the shape and the refusals.
+	Mounts []ProjectMount `json:"mounts,omitempty"`
 }
 
 // ProjectInfo holds a project name alongside its registry entry.

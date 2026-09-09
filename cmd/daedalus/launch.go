@@ -43,6 +43,8 @@ func launchProject(cfg *core.Config, reg *registry.Registry) error {
 		ensureControlPlane(cfg)
 	}
 
+	warnRefusedMounts(cfg, reg)
+
 	client, err := ensureCoordinatorClient(cfg)
 	if err != nil {
 		return fmt.Errorf("coordinator: %w", err)
@@ -81,6 +83,29 @@ func launchProject(cfg *core.Config, reg *registry.Registry) error {
 		return fmt.Errorf("runner exit code %d", code)
 	}
 	return nil
+}
+
+// warnRefusedMounts tells the operator, on their own terminal, about any
+// configured /mnt/<name> directory the launch will not mount.
+//
+// The coordinator is what actually builds the mounts and it logs the same
+// refusals — but it is a background daemon, and its log is not where somebody
+// who just edited projects.json is looking. Without this the whole feedback for
+// a typo'd host path is a container whose /mnt/<name> does not exist, which
+// reads to the agent inside as "the directory is missing" rather than "your
+// config was refused". Both sides derive the list from one function, so they
+// cannot drift.
+//
+// It never blocks the launch: an unmountable directory costs that directory.
+func warnRefusedMounts(cfg *core.Config, reg *registry.Registry) {
+	entry, ok, err := reg.GetProject(cfg.ProjectName)
+	if err != nil || !ok || len(entry.Mounts) == 0 {
+		return
+	}
+	_, refused := core.ProjectMountArgs(entry.Mounts)
+	for _, r := range refused {
+		fmt.Fprintf(os.Stderr, "%s mount %s — it will not appear in the container\n", color.Yellow("Warning:"), r)
+	}
 }
 
 // ensureControlPlane starts daedalus-control if it is not already listening, so

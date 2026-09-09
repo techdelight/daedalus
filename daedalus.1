@@ -1,4 +1,4 @@
-.TH DAEDALUS 1 "2026-09-04" "daedalus 0.54.0" "User Commands"
+.TH DAEDALUS 1 "2026-09-09" "daedalus 0.54.0" "User Commands"
 .SH NAME
 daedalus \- Docker environment for autonomous Claude Code
 .SH SYNOPSIS
@@ -314,7 +314,7 @@ A \fBtask\fR request was refused by control-plane policy (over budget, attempts 
 Application configuration file. See \fBCONFIGURATION\fR above.
 .TP
 .I .cache/projects.json
-Project registry file containing all registered projects, their directories, targets, session history, and timestamps.
+Project registry file containing all registered projects, their directories, targets, session history, and timestamps. A project's optional \fBmounts\fR list names extra host directories, each of which appears inside that project's container at \fI/mnt/<name>\fR (\fBreadOnly\fR defaults to false).
 .TP
 .I .cache/<project>/
 Per-project persistent home directory, bind-mounted as \fI/home/claude\fR inside the container. Stores shell history, Claude session transcripts, tool caches, and per-project MCP/settings overrides.

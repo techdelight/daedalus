@@ -2,6 +2,41 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- **A project can mount extra host directories, under `/mnt/<name>` and nowhere
+  else.** A `mounts` list in the project's `projects.json` entry
+  (`{"name": "datasets", "host": "/srv/datasets", "readOnly": true}`) puts that
+  host directory at `/mnt/datasets` inside the container. Registry schema v4.
+  - **The entry names what and under which name, never where.** The container
+    path is derived from the name, so a configured mount cannot land on
+    `/workspace`, `/opt/tools`, `/home/claude` or any other path the runner
+    already owns — and reading the registry tells you every place a host
+    directory can appear. Same shape as the Guild Master's `/guild/<name>`.
+  - **`readOnly` defaults to false**, unlike `/guild/<name>`, which is always
+    `:ro`. Those mounts are minted by Daedalus for an agent that must not write
+    another project's files; these are named by the human who owns the machine,
+    and `-v host:target` means writable everywhere else.
+  - **The list is read from the registry by the coordinator, not taken off the
+    start request.** `StartRequest` is a deliberately minimal subset of the
+    config, and a mount list on it would let anyone who can reach the
+    coordinator's socket name any host path and have it mounted. Whoever can
+    write `projects.json` decides; whoever can send a request does not.
+  - **Four refusals, each reported rather than repaired**: a name that is not a
+    single path segment (`../../etc` would leave `/mnt` entirely), a repeated
+    name (two `-v` on one target is decided by argument order — first wins), a
+    host path that is relative or contains a colon (docker reads the first as a
+    *named volume* and re-splits the second, so `/tmp/x:/etc` would mount
+    `/etc`), and a host path that is missing or is not a directory (docker
+    creates a missing bind source root-owned, and requiring a directory keeps
+    single sensitive files — `docker.sock` included — behind `--dind` where an
+    operator can see them). A refused row costs that mount and nothing else: the
+    launch continues, the good mounts beside it survive, and the reason is
+    printed on the operator's own terminal as well as in the coordinator's log,
+    because an empty `/mnt/<name>` reads to the agent inside as "missing", not
+    as "refused".
+
 ## [0.54.0] - 2026-08-18
 
 ### Added

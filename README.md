@@ -527,6 +527,40 @@ Use `daedalus list` to see all registered projects with their directories, targe
 
 Each container is named `claude-run-<project-name>`. If a container with that name is already running, `daedalus` exits with an error instead of starting a second instance.
 
+### Extra host directories (`mounts`)
+
+A project can ask for host directories beyond its own source tree — a dataset, an
+asset library, an output drop. Add a `mounts` list to the project's entry in
+`.cache/projects.json`:
+
+```json
+"my-app": {
+  "directory": "/home/me/src/my-app",
+  "target": "dev",
+  "mounts": [
+    { "name": "datasets", "host": "/srv/datasets", "readOnly": true },
+    { "name": "out",      "host": "/home/me/out" }
+  ]
+}
+```
+
+Each one appears inside the container at **`/mnt/<name>`** — `/mnt/datasets` and
+`/mnt/out` above. The name is a single directory name, not a path: the entry says
+*what* to mount and *under which name*, never where, so a mount can never land on
+`/workspace`, `/opt/tools` or anything else the runner owns.
+
+- **`readOnly` defaults to `false`** — a configured mount is writable unless it
+  says otherwise. Set `"readOnly": true` for anything the agent should only read.
+- A row is **refused**, with a reason on the terminal at launch, when its name is
+  not a plain directory name, when the name repeats (the first wins), when the
+  host path is not absolute, or when it does not exist / is not a directory. A
+  refused row costs that mount only — the project still opens, and the mounts
+  beside it are unaffected.
+- The list is read from the registry **on the host, at launch**. Editing it takes
+  effect the next time the project starts.
+- This is a per-project affordance for interactive work. Control-plane Jobs run
+  under throwaway registry entries and get no extra mounts.
+
 ## Home Directory Persistence
 
 Container home directories are persisted across runs via `.cache/<project-name>/` on the host, bind-mounted as `/home/claude`. This preserves shell history, tool caches, and session state between container restarts.

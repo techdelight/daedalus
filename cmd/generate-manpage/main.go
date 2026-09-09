@@ -456,7 +456,7 @@ func writeFiles(b *strings.Builder) {
 	b.WriteString("Application configuration file. See \\fBCONFIGURATION\\fR above.\n")
 	b.WriteString(".TP\n")
 	b.WriteString(".I .cache/projects.json\n")
-	b.WriteString("Project registry file containing all registered projects, their directories, targets, session history, and timestamps.\n")
+	b.WriteString("Project registry file containing all registered projects, their directories, targets, session history, and timestamps. A project's optional \\fBmounts\\fR list names extra host directories, each of which appears inside that project's container at \\fI/mnt/<name>\\fR (\\fBreadOnly\\fR defaults to false).\n")
 	b.WriteString(".TP\n")
 	b.WriteString(".I .cache/<project>/\n")
 	b.WriteString("Per-project persistent home directory, bind-mounted as \\fI/home/claude\\fR inside the container. Stores shell history, Claude session transcripts, tool caches, and per-project MCP/settings overrides.\n")

@@ -15,6 +15,7 @@ type migrateFunc func(data *core.RegistryData) error
 var migrations = map[int]migrateFunc{
 	1: migrateV1toV2,
 	2: migrateV2toV3,
+	3: migrateV3toV4,
 }
 
 // migrateV1toV2 upgrades the registry from v1 to v2.
@@ -30,6 +31,15 @@ func migrateV1toV2(data *core.RegistryData) error {
 // Zero values (0/"") are correct — omitempty keeps JSON clean.
 func migrateV2toV3(data *core.RegistryData) error {
 	data.Version = 3
+	return nil
+}
+
+// migrateV3toV4 upgrades the registry from v3 to v4.
+// v4 adds the Mounts field to ProjectEntry — the extra host directories a
+// project's container gets at /mnt/<name>.
+// Zero value (nil) is correct: a project that configures none mounts none.
+func migrateV3toV4(data *core.RegistryData) error {
+	data.Version = 4
 	return nil
 }
 

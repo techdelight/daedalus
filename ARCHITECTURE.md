@@ -464,7 +464,7 @@ guild-control-mcp ──► control-agent.sock ┘         │
 
 ```
 <DataDir>/
-├── projects.json                       # registry (project → dir + target + flags)
+├── projects.json                       # registry (project → dir + target + flags + /mnt mounts)
 ├── daedalus.log                        # runtime log
 ├── skills/                             # shared skill catalog
 ├── personas/                           # persona configs

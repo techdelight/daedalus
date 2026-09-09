@@ -4,6 +4,7 @@ package registry
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -1230,3 +1231,105 @@ func TestRenameProject_RefusesGuildMaster(t *testing.T) {
 		t.Error("guild master entry disturbed")
 	}
 }
+
+// TestMounts_SurviveAReadModifyWrite guards the failure this field is most
+// likely to have: every launch calls TouchProject, which rewrites projects.json
+// from the parsed struct. A mounts list that round-trips through the struct
+// incorrectly would not fail at launch — it would work once and then vanish
+// from the file, leaving the operator's edit gone with no error anywhere.
+func TestMounts_SurviveAReadModifyWrite(t *testing.T) {
+	dir := t.TempDir()
+	regFile := filepath.Join(dir, "projects.json")
+
+	// Written by hand, because this is how an operator configures it.
+	raw := `{
+  "version": ` + itoa(core.CurrentRegistryVersion) + `,
+  "projects": {
+    "alpha": {
+      "directory": "/tmp/alpha",
+      "target": "dev",
+      "created": "2026-09-09T00:00:00Z",
+      "lastUsed": "2026-09-09T00:00:00Z",
+      "mounts": [
+        {"name": "datasets", "host": "/srv/datasets", "readOnly": true},
+        {"name": "out", "host": "/home/me/out"}
+      ]
+    }
+  }
+}`
+	if err := os.WriteFile(regFile, []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	reg := NewRegistry(regFile)
+	entry, ok, err := reg.GetProject("alpha")
+	if err != nil || !ok {
+		t.Fatalf("GetProject: %v (found=%v)", err, ok)
+	}
+	want := []core.ProjectMount{
+		{Name: "datasets", Host: "/srv/datasets", ReadOnly: true},
+		{Name: "out", Host: "/home/me/out"},
+	}
+	if len(entry.Mounts) != len(want) {
+		t.Fatalf("mounts = %v, want %v", entry.Mounts, want)
+	}
+	for i := range want {
+		if entry.Mounts[i] != want[i] {
+			t.Errorf("mounts[%d] = %+v, want %+v", i, entry.Mounts[i], want[i])
+		}
+	}
+
+	// The rewrite every launch performs.
+	if err := reg.TouchProject("alpha"); err != nil {
+		t.Fatalf("TouchProject: %v", err)
+	}
+	after, _, err := reg.GetProject("alpha")
+	if err != nil {
+		t.Fatalf("GetProject after touch: %v", err)
+	}
+	if len(after.Mounts) != len(want) {
+		t.Fatalf("mounts after a launch's TouchProject = %v, want %v (the config was eaten)", after.Mounts, want)
+	}
+	for i := range want {
+		if after.Mounts[i] != want[i] {
+			t.Errorf("after touch mounts[%d] = %+v, want %+v", i, after.Mounts[i], want[i])
+		}
+	}
+}
+
+// TestMigrate_V3RegistryGainsMountsField: a registry written before mounts
+// existed opens, migrates to the current version, and keeps its projects. The
+// field's zero value (no mounts) is the correct reading of "configured none".
+func TestMigrate_V3RegistryGainsMountsField(t *testing.T) {
+	dir := t.TempDir()
+	regFile := filepath.Join(dir, "projects.json")
+	raw := `{"version": 3, "projects": {"alpha": {"directory": "/tmp/alpha", "target": "dev"}}}`
+	if err := os.WriteFile(regFile, []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	reg := NewRegistry(regFile)
+	entry, ok, err := reg.GetProject("alpha")
+	if err != nil || !ok {
+		t.Fatalf("GetProject: %v (found=%v)", err, ok)
+	}
+	if entry.Mounts != nil {
+		t.Errorf("mounts = %v, want nil for a pre-mounts registry", entry.Mounts)
+	}
+
+	b, _ := os.ReadFile(regFile)
+	var ondisk core.RegistryData
+	if err := json.Unmarshal(b, &ondisk); err != nil {
+		t.Fatal(err)
+	}
+	if ondisk.Version != core.CurrentRegistryVersion {
+		t.Errorf("on-disk version = %d, want %d", ondisk.Version, core.CurrentRegistryVersion)
+	}
+	if _, still := ondisk.Projects["alpha"]; !still {
+		t.Error("migration dropped the project")
+	}
+}
+
+// itoa keeps the fixture above readable without pulling strconv into the file's
+// import list for one call.
+func itoa(n int) string { return fmt.Sprintf("%d", n) }
