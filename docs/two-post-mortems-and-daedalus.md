@@ -14,12 +14,13 @@ everything that shipped wrong was outside the compiler. Flashcards caught six
 real defects and not one of them was found by an automated check — they were
 found by running the app and reading the code.
 
-**Daedalus caused Egor's root cause.** The post-mortem says the agent had no JDK,
-no Maven and no Docker daemon for the entire week, with `PATH` naming an SDKMAN
-toolchain that was never installed. That is not Egor's environment; it is the
-`dev` image, and the defect is two lines of `Dockerfile` against one line of
-`docker-compose.yml`. Details in §3. Three open backlog entries — #39, #40, #42 —
-are all this one bug.
+**Egor's agent could not build what it shipped, and nothing told it so.** The
+post-mortem says the agent had no JDK, no Maven and no Docker daemon for the
+entire week, with `PATH` naming an SDKMAN toolchain that was not there. The
+missing toolchain was an environment-lifecycle event, not a defect in the image
+(§3.1). What *is* a Daedalus defect is that nothing checked — a container can
+present a `PATH` naming tools it does not have, and no surface reports it. That
+cost a week. Details in §3.
 
 **On Forgejo versus the Ledger: the instinct is right, and the finished form is
 not "swap one for the other".** The PR flow wins on the three things that
@@ -98,61 +99,25 @@ that is where the measurable damage is.
 
 ---
 
-## 3 · What Daedalus did to Egor
+## 3 · The environment Egor ran in
 
-### 3.1 The JVM toolchain is masked by the home mount
+### 3.1 Why the toolchain was missing — corrected
 
-`Dockerfile:99-106` installs SDKMAN as the `claude` user, so it lands in
-`/home/claude/.sdkman`, and puts three of its subdirectories on `PATH`:
+An earlier revision of this document diagnosed the absent JVM toolchain as a
+defect in the image: SDKMAN installs into `/home/claude/.sdkman`, and
+`docker-compose.yml:7` mounts `${CACHE_DIR}` over `/home/claude`, so the image's
+copy would be masked at runtime.
 
-```dockerfile
-RUN curl -s "https://get.sdkman.io" | bash
-RUN source "$HOME/.sdkman/bin/sdkman-init.sh" && \
-    sdk install java 21.0.6-tem && sdk install maven && sdk install kotlin
-ENV SDKMAN_DIR="/home/claude/.sdkman"
-ENV PATH="$SDKMAN_DIR/candidates/java/current/bin:…:$PATH"
-```
+**That diagnosis was wrong and is withdrawn.** The operator's account, which is
+authoritative here: Egor's container had been destroyed and reconstructed, and
+the reconstruction left the `PATH` definition standing while the toolchain it
+named was gone. That is an environment-lifecycle event. There is no image defect
+to fix, and backlog #39, #40 and #42 are not the single bug this section
+previously claimed they were.
 
-`docker-compose.yml:7` then mounts over the top of it:
-
-```yaml
-- "${CACHE_DIR}:/home/claude"
-```
-
-A bind mount shadows whatever the image put at that path. At runtime
-`/home/claude/.sdkman` does not exist, while `PATH` still names three
-directories inside it. `java`, `mvn` and `kotlinc` resolve to nothing.
-
-That is precisely the symptom Egor's own recovered notes describe: *"`PATH`
-begins with `~/.sdkman/candidates/{java,maven,kotlin}/current/bin`, but
-`~/.sdkman` did not exist."* Identical text in `copilot-dev-base`
-(`Dockerfile:171-179`).
-
-**The repository already knows this and has fixed it twice.**
-
-- `Dockerfile:41` — `RUN mv /home/claude/.local /opt/claude`. The Claude CLI was
-  moved out of the home for exactly this reason.
-- `core/command.go:48-50` — the comment on `RunnerVolumeArgs` says the shared
-  Claude version store and the Maven repository are mounted at subpaths under the
-  container home *so they are not masked by the `${CACHE_DIR}:/home/claude`
-  mount*.
-
-So the diagnosis is written down, the remedy is applied to three paths, and
-`.sdkman` — the one holding the entire JVM toolchain — was never added to the
-list. This is the repository's own recurring defect: a hand-maintained list where
-a derived check belongs.
-
-Backlog **#39** (add Maven), **#40** (fix PATH), **#42** (fix Java) are three
-separate open entries describing one bug from three angles.
-
-**Fix.** Move SDKMAN out of the home the same way the Claude CLI was moved —
-`SDKMAN_DIR=/opt/sdkman`, installed root-side, chowned to `claude`, `PATH`
-pointed there. A handful of lines.
-
-**Then derive the check.** A test that reads `docker-compose.yml`'s volume list
-and `RunnerVolumeArgs`, and fails if the image installs anything beneath a
-runtime mount point. Otherwise the fourth path to be masked arrives the same way
-these three did.
+The correction matters beyond the fact, because what survives is the more useful
+half and it was buried under a wrong cause. Whatever removed the toolchain, **the
+agent had no way to find out.** That gap is §3.2 and it is unchanged.
 
 ### 3.2 A toolchain that is absent and claims otherwise is worse than one that is missing
 
@@ -337,10 +302,12 @@ the budget and the attempt record.
 
 | | Item | Size | Evidence |
 |---|---|---|---|
-| F1 | Move SDKMAN out of `/home/claude`; derive a test that no image install sits under a runtime mount | hours | §3.1 — caused Egor's largest defect class |
-| F2 | Startup self-check: every tool the target promises must resolve, loudly, and the agent must be told | small | §3.2 |
-| F3 | Settle #55's remaining half — wire DinD / display / overlay onto the runner path, or delete the flags | small | §3.3 |
-| F4 | Tell operators to recreate containers predating `init: true` (#81c) | trivial | §3.4 |
+| F1 | Startup self-check: every tool the target declares must resolve, loudly, and the agent must be told | small | §3.2 — Egor's largest defect class went undetected for a week |
+| F2 | Settle #55's remaining half — wire DinD / display / overlay onto the runner path, or delete the flags | small | §3.3 |
+| F3 | Tell operators to recreate containers predating `init: true` (#81c) | trivial | §3.4 |
+
+*(A fourth item — move SDKMAN out of `/home/claude` — was withdrawn when its
+diagnosis turned out to be wrong. See §3.1.)*
 
 ### Add
 
@@ -365,7 +332,7 @@ already run on every push.
   a moment it would have helped. Both projects' correction loop was a new commit
   or a new PR. Mark it dormant at the CLI or take it out; it is a surface being
   maintained for no caller.
-- **`--dind` and `--display` as shipped** — see F3. Wire them or delete them.
+- **`--dind` and `--display` as shipped** — see F2. Wire them or delete them.
 - **`docs lint` as the universal fallback oracle.** A green verdict that examined
   no code is worse than a refusal to grade. Better for a project with no
   `verify.json` to be told it has no policy than to be handed a pass. This is the
@@ -386,5 +353,5 @@ already run on every push.
 4. **Is the interactive session a supported operating mode for agent work?** Both
    projects worked that way all week, and every safeguard Daedalus has built
    since M13 applies only to dispatched Jobs. If the answer is yes, the
-   environment self-check (F2) and the missing mounts (F3) are not polish — they
+   environment self-check (F1) and the missing mounts (F2) are not polish — they
    are the whole contract.
