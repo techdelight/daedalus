@@ -24,3 +24,6 @@ playwright-report/
 # is how ledger.cpython-311.pyc came to be committed.
 __pycache__/
 *.pyc
+
+# Project post-mortems: kept locally, never shared.
+post-mortems/
